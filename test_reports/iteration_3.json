@@ -1,0 +1,36 @@
+{
+  "summary": "Iteration 3 (backend + frontend). BOTH iteration-3 changes verified working. (A) App-boot regression: NO blank/white screen, NO Metro bundling errors on web preview - platform-split StreamPlayer (StreamPlayer.web.tsx = expo-video only) correctly avoids importing react-native-vlc-media-player on web so the JS bundle loads. TV Guide renders with 688 epg-channel-* rows in timeline mode and 82 box-channel-* cards in box mode. (B) Auto-refresh on launch: backend POST /api/refresh returns 200 with a NEW last_refresh timestamp, channel_count=688, and GET /api/status/source mirrors the new timestamp (verified via new pytest test_refresh_updates_timestamp_and_status_reflects_it). store.tsx does GET /api/guide (fast) -> POST /api/refresh -> GET /api/guide (silent) on launch — the UI stays usable throughout with no flicker/crash. Player navigation: tapping epg-channel-* navigates to /player?channelId=..., overlay shows Channel Name + Now/Next, surf rail has 54 surf-* items, tapping a surf-* item switches channel and stays on player, player-back-btn returns to the guide. As documented and expected on web preview, the expo-video fallback cannot decode external HLS/TS so the 'Unable to play this stream' overlay + working player-retry-btn appear (message correctly reads 'Live playback needs the installed app build — not the Expo Go preview' because vlcAvailable=false on web) — NOT counted as failure per review_request. Quick regression: mode-timeline-btn / mode-box-btn toggle works, chip filters work (chip-All, chip-Sports etc.), Search/Favorites/Settings tabs all load without errors, settings-refresh-btn triggers refresh without crash. Pre-existing pointerEvents deprecation warning still present (non-blocking). Box card nested-Pressable UX from iteration 2 unchanged — center tap opens ProgramModal, which is documented existing behavior; the outer box-channel-* Pressable still exists and its top-strip does navigate to /player, so navigation is NOT broken.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Box Grid (guide box mode)", "issues": [
+        "Carried over from iter 2 (not a regression): the box card body is a nested Pressable stack — tapping the middle 'now title' / 'Next' line opens ProgramModal rather than navigating to /player. The outer box-channel-* Pressable navigates, but only its narrow top / non-nested area is reachable. Consider hoisting navigation to the outer wrapper by making inner rows non-Pressable, or add distinct testIDs (e.g. box-open-<id>) for the navigation-only affordance."
+      ]}
+    ],
+    "react_native_issues": [
+      {"component": "props.pointerEvents", "issue": "Deprecation warning still present: 'props.pointerEvents is deprecated. Use style.pointerEvents'. Non-blocking; carried over from iter 1 & 2. Reference: /app/frontend/app/player.tsx:79 (centerOverlay uses pointerEvents inside style object which is fine, but the warning still fires elsewhere)."}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iptv_api.py", "/app/test_reports/pytest/iptv_api.xml"],
+  "action_items": [
+    "OPTIONAL: silence the pointerEvents deprecation warning by auditing any remaining prop usage and moving to style.pointerEvents.",
+    "OPTIONAL (iter 2 carryover): make the outer BoxGrid card the sole Pressable so a tap anywhere on box-channel-* navigates to /player (current design opens ProgramModal on middle taps)."
+  ],
+  "critical_code_review_comments": [
+    "Platform split works: StreamPlayer.web.tsx cleanly avoids the RN internal import that broke web bundling before — confirmed by clean boot and 0 bundle errors in console.",
+    "store.tsx auto-refresh order is correct — cached guide first (fast paint), then force refresh, then silent reload; UI stays usable during the ~5-15s import.",
+    "server.py POST /api/refresh + get /api/status/source correctly advance and mirror last_refresh (added new pytest to lock this in).",
+    "Player fallback UX is clear on web preview — the 'installed app build' hint is only shown when vlcAvailable=false, which is exactly the web case.",
+    "Backend cache TTL is 30m but /api/refresh bypasses it with force=True — matches the on-launch use-case.",
+    "No mongodb _id leakage; all responses clean."
+  ],
+  "updated_files": ["/app/backend/tests/test_iptv_api.py"],
+  "success_rate": {"backend": "100% (7/7 pytest incl. new auto-refresh timestamp test)", "frontend": "100% of testable flows on web preview (video decode not testable in preview by design)"},
+  "seed_data_creation": "None. Live m3u4u source used (688 channels, 665 with EPG).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend URL: https://iptv-player-guide.preview.emergentagent.com. Mobile viewport 390x844. On player screen, controls (topScrim with player-back-btn + bottomScrim with surf-*) auto-hide after 4.5s — either interact within 4s of navigating OR tap [data-testid=\"player-surface\"] to re-show them before clicking back/surf. The 'Unable to play this stream' + player-retry-btn overlay is EXPECTED on web preview and must not be flagged as a bug — libVLC only exists in installed Android builds. Timeline epg-channel-* is the reliable path for testing /player navigation; box-channel-* has a nested-Pressable center that opens ProgramModal on center taps (design carryover from iter 2). Backend has ~688 channels and refresh takes ~10-15s.",
+  "rca_of_issue": "N/A — iteration 3 has no new bugs. Both changes (VLC player + platform split + auto-refresh on launch) function correctly. Only unresolved item is the iter-2-carryover box card center-tap opening the modal instead of navigating (non-blocking) and the RN pointerEvents deprecation warning (non-blocking)."
+}

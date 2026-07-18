@@ -10,13 +10,13 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { VideoView, useVideoPlayer } from "expo-video";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { colors, fonts, radius, spacing } from "@/src/theme";
 import { useStore } from "@/src/store";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
+import { StreamPlayer, StreamStatus, vlcAvailable } from "@/src/components/StreamPlayer";
 import { nowNext, fmtTime } from "@/src/utils/time";
 
 export default function PlayerScreen() {
@@ -28,43 +28,9 @@ export default function PlayerScreen() {
   const [channelId, setChannelId] = useState(params.channelId);
   const channel = useMemo(() => channelById(channelId), [channelId, channelById]);
   const [controls, setControls] = useState(true);
-  const [status, setStatus] = useState<"loading" | "playing" | "error">("loading");
+  const [status, setStatus] = useState<StreamStatus>("loading");
+  const [retryToken, setRetryToken] = useState(0);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const player = useVideoPlayer(null, (p) => {
-    p.loop = false;
-  });
-
-  // Build a media-player-style source (a User-Agent unblocks many IPTV servers,
-  // and the content type hint helps the player pick the right extractor).
-  const buildSource = (uri: string) => ({
-    uri,
-    headers: { "User-Agent": "VLC/3.0.20 LibVLC/3.0.20" },
-    contentType: uri.toLowerCase().includes(".m3u8") ? ("hls" as const) : ("progressive" as const),
-  });
-
-  // Load / reload the stream whenever the selected channel changes.
-  useEffect(() => {
-    if (!channel?.url) return;
-    setStatus("loading");
-    (async () => {
-      try {
-        await player.replaceAsync(buildSource(channel.url));
-        player.play();
-      } catch {
-        setStatus("error");
-      }
-    })();
-  }, [channel?.url, player]);
-
-  useEffect(() => {
-    const sub = player.addListener("statusChange", ({ status: s, error }) => {
-      if (s === "readyToPlay") setStatus("playing");
-      else if (s === "loading") setStatus("loading");
-      else if (error || s === "error") setStatus("error");
-    });
-    return () => sub.remove();
-  }, [player]);
 
   const surf = (id: string) => {
     const c = channelById(id);
@@ -100,12 +66,11 @@ export default function PlayerScreen() {
   return (
     <View style={styles.container}>
       <RNStatusBar hidden />
-      <VideoView
+      <StreamPlayer
+        key={`${channelId}-${retryToken}`}
+        uri={channel?.url || ""}
+        onStatus={setStatus}
         style={StyleSheet.absoluteFill}
-        player={player}
-        contentFit="contain"
-        nativeControls={false}
-        allowsFullscreen
       />
 
       <Pressable style={StyleSheet.absoluteFill} onPress={toggleControls} testID="player-surface" />
@@ -119,18 +84,16 @@ export default function PlayerScreen() {
         <View style={styles.centerOverlay}>
           <Ionicons name="warning-outline" size={40} color={colors.onSurfaceTertiary} />
           <Text style={styles.errText}>Unable to play this stream</Text>
+          {!vlcAvailable && (
+            <Text style={styles.errHint}>
+              Live playback needs the installed app build — not the Expo Go preview.
+            </Text>
+          )}
           <Pressable
             style={styles.retryBtn}
             onPress={() => {
               setStatus("loading");
-              (async () => {
-                try {
-                  await player.replaceAsync(buildSource(channel?.url || ""));
-                  player.play();
-                } catch {
-                  setStatus("error");
-                }
-              })();
+              setRetryToken((t) => t + 1);
             }}
             testID="player-retry-btn"
           >
@@ -192,6 +155,13 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#000" },
   centerOverlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", gap: spacing.md },
   errText: { color: colors.onSurfaceSecondary, fontFamily: fonts.medium, fontSize: 15 },
+  errHint: {
+    color: colors.onSurfaceTertiary,
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    textAlign: "center",
+    paddingHorizontal: spacing.xl,
+  },
   retryBtn: { backgroundColor: colors.brand, paddingHorizontal: spacing.xl, paddingVertical: spacing.md, borderRadius: radius.md },
   retryText: { color: "#fff", fontFamily: fonts.semibold },
   topScrim: {

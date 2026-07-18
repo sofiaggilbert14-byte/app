@@ -30,7 +30,7 @@ type Store = {
   windowEnd: string;
   loading: boolean;
   error: string | null;
-  refresh: () => Promise<void>;
+  refresh: (silent?: boolean) => Promise<void>;
   channelById: (id: string) => Channel | undefined;
 
   favorites: string[];
@@ -70,8 +70,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [activeProgram, setActiveProgram] = useState<ActiveProgram>(null);
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
+  const refresh = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     setError(null);
     try {
       const data = await api.guide(24);
@@ -81,7 +81,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     } catch (e: any) {
       setError(e?.message || "Failed to load guide");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
@@ -91,7 +91,15 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setRecent((await storage.getItem<Channel[]>(RECENT_KEY, [])) || []);
       setReminders((await storage.getItem<Reminder[]>(REM_KEY, [])) || []);
       requestNotificationPermission();
-      refresh();
+      // Show whatever the backend already has (fast).
+      await refresh();
+      // Then force a fresh import of the M3U playlist + XMLTV EPG from the
+      // source so any channel lineup changes (added / removed channels) and
+      // updated guide data are picked up automatically on every app launch.
+      try {
+        await api.refresh();
+        await refresh(true);
+      } catch {}
     })();
   }, [refresh]);
 

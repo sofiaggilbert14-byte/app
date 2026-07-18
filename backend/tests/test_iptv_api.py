@@ -93,6 +93,29 @@ class TestRefresh:
         assert d["channel_count"] > 500
         assert d["last_refresh"] is not None
 
+    def test_refresh_updates_timestamp_and_status_reflects_it(self, api):
+        """Iteration 3: verify POST /api/refresh actually re-imports the source
+        and that GET /api/status/source reflects the new last_refresh.
+        This is what the store's on-launch auto-refresh depends on."""
+        _wait_for_load(api)
+        before = api.get(f"{BASE_URL}/api/status/source", timeout=30).json()
+        ts_before = before["last_refresh"]
+        # small sleep to ensure the isoformat string will differ
+        time.sleep(2)
+        r = api.post(f"{BASE_URL}/api/refresh", timeout=180)
+        assert r.status_code == 200
+        refresh_body = r.json()
+        assert refresh_body["last_refresh"] is not None
+        assert refresh_body["last_refresh"] != ts_before, \
+            "POST /api/refresh did not advance last_refresh"
+        assert 500 < refresh_body["channel_count"] < 5000
+        # status/source must now mirror the refreshed timestamp
+        after = api.get(f"{BASE_URL}/api/status/source", timeout=30).json()
+        assert after["last_refresh"] == refresh_body["last_refresh"]
+        assert after["channel_count"] == refresh_body["channel_count"]
+        assert after["refreshing"] is False
+        assert after["error"] is None
+
 
 # ---- settings ----
 class TestSettings:

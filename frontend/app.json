@@ -19,7 +19,9 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.emergent.iptvplayerguide.ad7cld",
-      "permissions": ["POST_NOTIFICATIONS"]
+      "permissions": [
+        "POST_NOTIFICATIONS"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -41,7 +43,9 @@
       [
         "expo-build-properties",
         {
-          "android": { "usesCleartextTraffic": true }
+          "android": {
+            "usesCleartextTraffic": true
+          }
         }
       ],
       [
@@ -49,7 +53,8 @@
         {
           "color": "#E11D48"
         }
-      ]
+      ],
+      "react-native-vlc-media-player"
     ],
     "experiments": {
       "typedRoutes": true
