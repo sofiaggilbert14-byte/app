@@ -45,13 +45,14 @@ export function BoxGrid({
           <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={colors.brand} colors={[colors.brand]} />
         ) : undefined
       }
-      renderItem={({ item }) => {
+      renderItem={({ item, index }) => {
         const { current, next } = nowNext(item.programs, nowDate);
         const pct = progressPct(current, nowDate);
         const fav = isFavorite(item.id);
         return (
           <Pressable
-            style={styles.card}
+            style={({ focused }: any) => [styles.card, focused && styles.cardFocused]}
+            hasTVPreferredFocus={index === 0}
             onPress={() => onChannelPress(item)}
             testID={`box-channel-${item.id}`}
           >
@@ -108,6 +109,11 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     gap: spacing.xs,
     minHeight: 140,
+  },
+  cardFocused: {
+    borderColor: colors.brand,
+    borderWidth: 2,
+    backgroundColor: "#2a121b",
   },
   cardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   chName: { color: colors.onSurfaceTertiary, fontFamily: fonts.medium, fontSize: 12 },

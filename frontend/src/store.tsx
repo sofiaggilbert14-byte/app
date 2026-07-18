@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import dayjs from "dayjs";
 import { storage } from "@/src/utils/storage";
-import { api, Channel, Program } from "@/src/api";
+import { Channel, Program } from "@/src/api";
 import { loadGuide, refreshSource } from "@/src/source";
 import { reminderKey } from "@/src/utils/time";
 import {
@@ -86,7 +86,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       const day = dayjs(dateRef.current);
       const isToday = day.isSame(dayjs(), "day");
       const start = isToday ? undefined : day.startOf("day").toISOString();
-      const data = await api.guide(12, start);
+      const data = await loadGuide(start, 12);
       setChannels(data.channels);
       setWindowStart(data.start);
       setWindowEnd(data.end);
@@ -109,7 +109,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const hardRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await api.refresh();
+      await refreshSource();
       await refresh(true);
     } catch {}
     setRefreshing(false);
@@ -121,13 +121,11 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setRecent((await storage.getItem<Channel[]>(RECENT_KEY, [])) || []);
       setReminders((await storage.getItem<Reminder[]>(REM_KEY, [])) || []);
       requestNotificationPermission();
-      // Show whatever the backend already has (fast) — this is the only
-      // blocking load, so every launch paints channels/guide quickly.
+      // First paint from cache (fast) if available; otherwise this fetches.
       await refresh();
       // Refresh the source lineup in the BACKGROUND (non-blocking) so added /
       // removed channels get picked up without slowing down the launch.
-      api
-        .refresh()
+      refreshSource()
         .then(() => refresh(true))
         .catch(() => {});
     })();

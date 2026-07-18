@@ -10,6 +10,7 @@ from typing import Optional
 import requests
 import jwt
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, status
+from fastapi.responses import PlainTextResponse
 from fastapi.security import OAuth2PasswordBearer
 from passlib.context import CryptContext
 from pydantic import BaseModel
@@ -309,6 +310,26 @@ async def admin_verify(_: str = Depends(require_admin)):
 @api_router.get("/")
 async def root():
     return {"message": "GridStream IPTV API"}
+
+
+@api_router.get("/proxy")
+async def proxy(url: str):
+    """Web-preview-only CORS proxy. The shipped native app fetches directly and
+    never calls this — it exists so the browser preview can load m3u4u sources."""
+    if not (url.startswith("http://") or url.startswith("https://")):
+        raise HTTPException(status_code=400, detail="Invalid url")
+    try:
+        r = requests.get(
+            url,
+            timeout=45,
+            allow_redirects=True,
+            headers={"User-Agent": "Mozilla/5.0 (GridStream)"},
+        )
+        r.raise_for_status()
+        return PlainTextResponse(content=r.text)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Proxy fetch failed: {e}")
+
 
 
 @api_router.get("/status/source")

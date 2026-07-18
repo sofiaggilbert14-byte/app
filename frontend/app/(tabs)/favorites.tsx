@@ -14,7 +14,11 @@ import { nowNext } from "@/src/utils/time";
 function ChannelRow({ channel, onPress, right }: { channel: Channel; onPress: () => void; right?: React.ReactNode }) {
   const { current } = nowNext(channel.programs, new Date());
   return (
-    <Pressable style={styles.row} onPress={onPress} testID={`fav-row-${channel.id}`}>
+    <Pressable
+      style={({ focused }: any) => [styles.row, focused && styles.rowFocused]}
+      onPress={onPress}
+      testID={`fav-row-${channel.id}`}
+    >
       <ChannelLogo name={channel.name} logo={channel.logo} size={44} />
       <View style={{ flex: 1 }}>
         <Text numberOfLines={1} style={styles.rowName}>{channel.name}</Text>
@@ -145,6 +149,7 @@ const styles = StyleSheet.create({
   },
   rowName: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 14 },
   rowSub: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 12, marginTop: 2 },
+  rowFocused: { borderColor: colors.brand, borderWidth: 2, backgroundColor: "#2a121b" },
   reminderRow: {
     flexDirection: "row",
     alignItems: "center",

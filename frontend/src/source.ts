@@ -1,4 +1,5 @@
 import dayjs from "dayjs";
+import { Platform } from "react-native";
 import { XMLParser } from "fast-xml-parser";
 import { storage } from "@/src/utils/storage";
 import type { Channel, Program, GuideResponse, SourceStatus } from "@/src/api";
@@ -30,11 +31,24 @@ function https(url: string): string {
   return url && url.startsWith("http://") ? "https://" + url.slice(7) : url;
 }
 
+// On the web preview, direct fetches to m3u4u.com are blocked by CORS. Route
+// web-only requests through the dev backend proxy (this environment only). The
+// shipped native app (APK / Expo Go) fetches directly with no proxy/backend.
+const WEB_PROXY = `${process.env.EXPO_PUBLIC_BACKEND_URL || ""}/api/proxy?url=`;
+
+function resolveUrl(url: string): string {
+  const secure = https(url);
+  if (Platform.OS === "web") {
+    return `${WEB_PROXY}${encodeURIComponent(secure)}`;
+  }
+  return secure;
+}
+
 async function fetchText(url: string, timeoutMs = 30000): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(https(url), {
+    const res = await fetch(resolveUrl(url), {
       signal: controller.signal,
       headers: { "User-Agent": "GridStream/1.0" },
     });

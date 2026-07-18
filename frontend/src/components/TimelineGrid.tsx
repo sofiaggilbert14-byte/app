@@ -123,8 +123,13 @@ export function TimelineGrid({
           onMomentumScrollEnd={() => (scrollSource.current = null)}
           onScrollEndDrag={() => (scrollSource.current = null)}
           onScroll={(e) => syncFrom("left", e.nativeEvent.contentOffset.y)}
-          renderItem={({ item }) => (
-            <Pressable style={styles.logoCell} onPress={() => onChannelPress(item)} testID={`epg-channel-${item.id}`}>
+          renderItem={({ item, index }) => (
+            <Pressable
+              style={({ focused }: any) => [styles.logoCell, focused && styles.cellFocused]}
+              hasTVPreferredFocus={index === 0}
+              onPress={() => onChannelPress(item)}
+              testID={`epg-channel-${item.id}`}
+            >
               <ChannelLogo name={item.name} logo={item.logo} size={40} />
               <Text numberOfLines={1} style={styles.logoName}>
                 {item.name}
@@ -169,7 +174,12 @@ export function TimelineGrid({
                       <Pressable
                         key={i}
                         onPress={() => onProgramPress(p, item)}
-                        style={[styles.progCell, { left, width: w }, isLive && styles.progLive]}
+                        style={({ focused }: any) => [
+                          styles.progCell,
+                          { left, width: w },
+                          isLive && styles.progLive,
+                          focused && styles.cellFocused,
+                        ]}
                         testID={`epg-prog-${item.id}-${i}`}
                       >
                         <Text numberOfLines={1} style={styles.progTitle}>
@@ -247,6 +257,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   progLive: { borderColor: colors.brand, backgroundColor: "#241018" },
+  cellFocused: {
+    borderColor: colors.brand,
+    borderWidth: 2,
+    backgroundColor: "#2a121b",
+  },
   progTitle: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 12 },
   progTime: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 10, marginTop: 2 },
   noData: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 11 },

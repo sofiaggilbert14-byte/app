@@ -97,7 +97,7 @@ export default function SearchScreen() {
           <>
             {chResults.length > 0 && <Text style={styles.section}>Channels</Text>}
             {chResults.map((c) => (
-              <Pressable key={c.id} style={styles.row} onPress={() => play(c)} testID={`search-ch-${c.id}`}>
+              <Pressable key={c.id} style={({ focused }: any) => [styles.row, focused && styles.rowFocused]} onPress={() => play(c)} testID={`search-ch-${c.id}`}>
                 <ChannelLogo name={c.name} logo={c.logo} size={40} />
                 <Text numberOfLines={1} style={styles.rowName}>{c.name}</Text>
                 <Ionicons name="play-circle" size={22} color={colors.brand} />
@@ -108,7 +108,7 @@ export default function SearchScreen() {
             {progResults.map(({ p, c }, i) => (
               <Pressable
                 key={`${c.id}-${i}`}
-                style={styles.row}
+                style={({ focused }: any) => [styles.row, focused && styles.rowFocused]}
                 onPress={() => openProgram(p, c)}
                 testID={`search-prog-${c.id}-${i}`}
               >
@@ -169,6 +169,7 @@ const styles = StyleSheet.create({
   },
   rowName: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 14, flex: 1 },
   rowSub: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 12, marginTop: 2 },
+  rowFocused: { borderColor: colors.brand, borderWidth: 2, backgroundColor: "#2a121b" },
   empty: { alignItems: "center", gap: spacing.md, paddingVertical: spacing.xxxl, paddingHorizontal: spacing.xl },
   emptyText: { color: colors.onSurfaceTertiary, fontFamily: fonts.medium, fontSize: 14, textAlign: "center" },
 });

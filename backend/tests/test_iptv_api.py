@@ -144,6 +144,36 @@ class TestSettings:
         assert d["m3u_url"]
 
 
+# ---- Iteration 8: Web-preview CORS proxy ----
+class TestProxy:
+    """GET /api/proxy?url=... is used ONLY by the web preview to bypass CORS
+    when fetching m3u4u playlist/xml. Native app fetches m3u4u directly."""
+
+    def test_proxy_fetches_m3u(self, api):
+        m3u_url = "https://m3u4u.com/m3u/jwmzn1grpmu99585n721"
+        r = api.get(f"{BASE_URL}/api/proxy", params={"url": m3u_url}, timeout=90)
+        assert r.status_code == 200, f"proxy returned {r.status_code}: {r.text[:200]}"
+        text = r.text
+        assert "#EXTM3U" in text, "response is not an M3U playlist"
+        # Should contain many #EXTINF entries (688 channels)
+        assert text.count("#EXTINF") > 500, f"only {text.count('#EXTINF')} EXTINF lines"
+
+    def test_proxy_fetches_epg_xml(self, api):
+        epg_url = "https://m3u4u.com/xml/jwmzn1grpmu99585n721"
+        r = api.get(f"{BASE_URL}/api/proxy", params={"url": epg_url}, timeout=120)
+        assert r.status_code == 200, f"proxy returned {r.status_code}: {r.text[:200]}"
+        text = r.text
+        assert "<tv" in text and "<channel" in text, "response is not XMLTV"
+
+    def test_proxy_rejects_invalid_scheme(self, api):
+        r = api.get(f"{BASE_URL}/api/proxy", params={"url": "ftp://foo/bar"}, timeout=30)
+        assert r.status_code == 400
+
+    def test_proxy_rejects_relative_url(self, api):
+        r = api.get(f"{BASE_URL}/api/proxy", params={"url": "/local/file"}, timeout=30)
+        assert r.status_code == 400
+
+
 
 # ---- Iteration 4: Admin Auth (case sensitive) ----
 ADMIN_USER = "CharmCity"
