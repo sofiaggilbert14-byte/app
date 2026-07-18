@@ -125,3 +125,134 @@ class TestSettings:
         d = r.json()
         assert "m3u_url" in d and "epg_url" in d
         assert d["m3u_url"]
+
+
+
+# ---- Iteration 4: Admin Auth (case sensitive) ----
+ADMIN_USER = "CharmCity"
+ADMIN_PASS = "CharmCityExotics"
+DEFAULT_M3U = "http://m3u4u.com/m3u/jwmzn1grpmu99585n721"
+DEFAULT_EPG = "http://m3u4u.com/xml/jwmzn1grpmu99585n721"
+
+
+@pytest.fixture(scope="session")
+def admin_token(api):
+    r = api.post(
+        f"{BASE_URL}/api/auth/login",
+        json={"username": ADMIN_USER, "password": ADMIN_PASS},
+        timeout=30,
+    )
+    assert r.status_code == 200, f"login failed: {r.status_code} {r.text}"
+    tok = r.json().get("access_token")
+    assert tok
+    return tok
+
+
+class TestAuthLogin:
+    def test_login_success(self, api):
+        r = api.post(
+            f"{BASE_URL}/api/auth/login",
+            json={"username": ADMIN_USER, "password": ADMIN_PASS},
+            timeout=30,
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert "access_token" in body and body["access_token"]
+        assert body.get("token_type") == "bearer"
+
+    def test_login_wrong_case_username(self, api):
+        r = api.post(
+            f"{BASE_URL}/api/auth/login",
+            json={"username": "charmcity", "password": ADMIN_PASS},
+            timeout=30,
+        )
+        assert r.status_code == 401
+
+    def test_login_wrong_case_password(self, api):
+        r = api.post(
+            f"{BASE_URL}/api/auth/login",
+            json={"username": ADMIN_USER, "password": "charmcityexotics"},
+            timeout=30,
+        )
+        assert r.status_code == 401
+
+    def test_login_wrong_password(self, api):
+        r = api.post(
+            f"{BASE_URL}/api/auth/login",
+            json={"username": ADMIN_USER, "password": "wrong"},
+            timeout=30,
+        )
+        assert r.status_code == 401
+
+    def test_login_blank(self, api):
+        r = api.post(
+            f"{BASE_URL}/api/auth/login",
+            json={"username": "", "password": ""},
+            timeout=30,
+        )
+        assert r.status_code == 401
+
+
+class TestAuthVerify:
+    def test_verify_valid(self, api, admin_token):
+        r = api.get(
+            f"{BASE_URL}/api/auth/verify",
+            headers={"Authorization": f"Bearer {admin_token}"},
+            timeout=30,
+        )
+        assert r.status_code == 200
+        assert r.json().get("ok") is True
+
+    def test_verify_missing(self, api):
+        s = requests.Session()  # no default content-type body
+        r = s.get(f"{BASE_URL}/api/auth/verify", timeout=30)
+        assert r.status_code == 401
+
+    def test_verify_invalid(self, api):
+        r = api.get(
+            f"{BASE_URL}/api/auth/verify",
+            headers={"Authorization": "Bearer not.a.jwt"},
+            timeout=30,
+        )
+        assert r.status_code == 401
+
+
+class TestProtectedSettings:
+    def test_settings_post_requires_auth(self, api):
+        r = api.post(
+            f"{BASE_URL}/api/settings",
+            json={"m3u_url": DEFAULT_M3U, "epg_url": DEFAULT_EPG},
+            timeout=30,
+        )
+        assert r.status_code == 401
+
+    def test_settings_post_updates_and_status_reflects(self, api, admin_token):
+        _wait_for_load(api)
+        before = api.get(f"{BASE_URL}/api/status/source", timeout=30).json()
+        ts_before = before["last_refresh"]
+        time.sleep(2)
+        # Post default m3u4u URLs so we don't break the live guide.
+        r = api.post(
+            f"{BASE_URL}/api/settings",
+            json={"m3u_url": DEFAULT_M3U, "epg_url": DEFAULT_EPG},
+            headers={"Authorization": f"Bearer {admin_token}"},
+            timeout=180,
+        )
+        assert r.status_code == 200, f"got {r.status_code}: {r.text}"
+        body = r.json()
+        assert body["m3u_url"] == DEFAULT_M3U
+        assert body["epg_url"] == DEFAULT_EPG
+        assert body["last_refresh"] is not None
+        assert body["last_refresh"] != ts_before
+
+        # GET /api/status/source should mirror new last_refresh & URLs.
+        after = api.get(f"{BASE_URL}/api/status/source", timeout=30).json()
+        assert after["m3u_url"] == DEFAULT_M3U
+        assert after["epg_url"] == DEFAULT_EPG
+        assert after["last_refresh"] == body["last_refresh"]
+        assert after["channel_count"] > 500
+
+        # Confirm GET /api/settings also returns them (used by admin UI prefill).
+        got = api.get(f"{BASE_URL}/api/settings", timeout=30).json()
+        assert got["m3u_url"] == DEFAULT_M3U
+        assert got["epg_url"] == DEFAULT_EPG

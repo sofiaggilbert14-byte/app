@@ -5,6 +5,7 @@ import {
   StyleSheet,
   ScrollView,
   Pressable,
+  RefreshControl,
   NativeSyntheticEvent,
   NativeScrollEvent,
 } from "react-native";
@@ -29,6 +30,8 @@ export function TimelineGrid({
   now,
   onProgramPress,
   onChannelPress,
+  refreshing,
+  onRefresh,
 }: {
   channels: Channel[];
   windowStart: string;
@@ -36,6 +39,8 @@ export function TimelineGrid({
   now: string;
   onProgramPress: (p: Program, c: Channel) => void;
   onChannelPress: (c: Channel) => void;
+  refreshing?: boolean;
+  onRefresh?: () => void;
 }) {
   const headerRef = useRef<ScrollView>(null);
   const totalMin = mins(windowEnd, windowStart);
@@ -90,7 +95,15 @@ export function TimelineGrid({
       </View>
 
       {/* body: vertical scroll wraps left column + horizontal program area */}
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 120 }}
+        refreshControl={
+          onRefresh ? (
+            <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={colors.brand} colors={[colors.brand]} />
+          ) : undefined
+        }
+      >
         <View style={styles.bodyRow}>
           {/* sticky channel column */}
           <View style={{ width: LOGO_W }}>

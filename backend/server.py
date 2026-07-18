@@ -8,7 +8,10 @@ from pathlib import Path
 from typing import Optional
 
 import requests
-from fastapi import FastAPI, APIRouter, HTTPException
+import jwt
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status
+from fastapi.security import OAuth2PasswordBearer
+from passlib.context import CryptContext
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -23,6 +26,64 @@ logger = logging.getLogger("iptv")
 mongo_url = os.environ["MONGO_URL"]
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ["DB_NAME"]]
+
+# ---------------------------------------------------------------------------
+# Admin auth (single admin, password from env is the source of truth)
+# ---------------------------------------------------------------------------
+JWT_SECRET = os.environ["JWT_SECRET"]
+JWT_ALG = "HS256"
+ACCESS_TOKEN_MINUTES = int(os.environ.get("ACCESS_TOKEN_MINUTES", "720"))
+ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login", auto_error=True)
+
+_credentials_exc = HTTPException(
+    status_code=status.HTTP_401_UNAUTHORIZED,
+    detail="Could not validate credentials",
+    headers={"WWW-Authenticate": "Bearer"},
+)
+
+
+def hash_password(p: str) -> str:
+    return pwd_context.hash(p)
+
+
+def verify_password(p: str, h: str) -> bool:
+    try:
+        return pwd_context.verify(p, h)
+    except Exception:
+        return False
+
+
+def create_access_token(sub: str) -> str:
+    exp = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_MINUTES)
+    return jwt.encode({"sub": sub, "exp": exp}, JWT_SECRET, algorithm=JWT_ALG)
+
+
+async def require_admin(token: str = Depends(oauth2_scheme)) -> str:
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
+        if payload.get("sub") != "admin":
+            raise _credentials_exc
+        return "admin"
+    except _credentials_exc.__class__:
+        raise
+    except Exception:
+        raise _credentials_exc
+
+
+async def seed_admin():
+    """Env password is the source of truth — keep the hash in sync on startup."""
+    if not ADMIN_PASSWORD:
+        return
+    await db.admins.update_one(
+        {"_id": "admin"},
+        {"$set": {"password_hash": hash_password(ADMIN_PASSWORD),
+                  "updated_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -222,6 +283,29 @@ class SourceSettings(BaseModel):
     epg_url: str
 
 
+class AdminLogin(BaseModel):
+    username: str
+    password: str
+
+
+@api_router.post("/auth/login")
+async def admin_login(body: AdminLogin):
+    admin = await db.admins.find_one({"_id": "admin"})
+    # Username and password are both case-sensitive.
+    if (
+        body.username != ADMIN_USERNAME
+        or not admin
+        or not verify_password(body.password, admin.get("password_hash", ""))
+    ):
+        raise HTTPException(status_code=401, detail="Incorrect username or password")
+    return {"access_token": create_access_token("admin"), "token_type": "bearer"}
+
+
+@api_router.get("/auth/verify")
+async def admin_verify(_: str = Depends(require_admin)):
+    return {"ok": True}
+
+
 @api_router.get("/")
 async def root():
     return {"message": "GridStream IPTV API"}
@@ -255,7 +339,7 @@ async def get_settings():
 
 
 @api_router.post("/settings")
-async def update_settings(s: SourceSettings):
+async def update_settings(s: SourceSettings, _: str = Depends(require_admin)):
     await db.settings.update_one(
         {"_id": "source"},
         {"$set": {"m3u_url": s.m3u_url, "epg_url": s.epg_url}},
@@ -348,6 +432,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup():
+    await seed_admin()
     asyncio.create_task(refresh_cache(force=True))
 
 

@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, StyleSheet, Pressable, useWindowDimensions, FlatList } from "react-native";
+import { View, Text, StyleSheet, Pressable, useWindowDimensions, FlatList, RefreshControl } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, fonts, radius, spacing } from "@/src/theme";
 import { Channel, Program } from "@/src/api";
@@ -13,12 +13,16 @@ export function BoxGrid({
   onChannelPress,
   onProgramPress,
   ListHeaderComponent,
+  refreshing,
+  onRefresh,
 }: {
   channels: Channel[];
   now: string;
   onChannelPress: (c: Channel) => void;
   onProgramPress: (p: Program, c: Channel) => void;
   ListHeaderComponent?: React.ReactElement;
+  refreshing?: boolean;
+  onRefresh?: () => void;
 }) {
   const { width } = useWindowDimensions();
   const numColumns = width >= 700 ? 4 : 2;
@@ -36,6 +40,11 @@ export function BoxGrid({
       contentContainerStyle={{ gap: spacing.md, paddingBottom: 130, paddingTop: spacing.sm }}
       ListHeaderComponent={ListHeaderComponent}
       showsVerticalScrollIndicator={false}
+      refreshControl={
+        onRefresh ? (
+          <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={colors.brand} colors={[colors.brand]} />
+        ) : undefined
+      }
       renderItem={({ item }) => {
         const { current, next } = nowNext(item.programs, nowDate);
         const pct = progressPct(current, nowDate);

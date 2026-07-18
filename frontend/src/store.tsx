@@ -1,4 +1,5 @@
-import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import dayjs from "dayjs";
 import { storage } from "@/src/utils/storage";
 import { api, Channel, Program } from "@/src/api";
 import { reminderKey } from "@/src/utils/time";
@@ -29,8 +30,12 @@ type Store = {
   windowStart: string;
   windowEnd: string;
   loading: boolean;
+  refreshing: boolean;
   error: string | null;
   refresh: (silent?: boolean) => Promise<void>;
+  hardRefresh: () => Promise<void>;
+  selectedDate: string;
+  setSelectedDate: (d: string) => void;
   channelById: (id: string) => Channel | undefined;
 
   favorites: string[];
@@ -63,7 +68,10 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [windowStart, setWindowStart] = useState("");
   const [windowEnd, setWindowEnd] = useState("");
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedDate, setSelectedDateState] = useState(dayjs().format("YYYY-MM-DD"));
+  const dateRef = useRef(selectedDate);
 
   const [favorites, setFavorites] = useState<string[]>([]);
   const [recent, setRecent] = useState<Channel[]>([]);
@@ -74,7 +82,10 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     if (!silent) setLoading(true);
     setError(null);
     try {
-      const data = await api.guide(24);
+      const day = dayjs(dateRef.current);
+      const isToday = day.isSame(dayjs(), "day");
+      const start = isToday ? undefined : day.startOf("day").toISOString();
+      const data = await api.guide(24, start);
       setChannels(data.channels);
       setWindowStart(data.start);
       setWindowEnd(data.end);
@@ -85,6 +96,24 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const setSelectedDate = useCallback(
+    (d: string) => {
+      dateRef.current = d;
+      setSelectedDateState(d);
+      refresh();
+    },
+    [refresh],
+  );
+
+  const hardRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await api.refresh();
+      await refresh(true);
+    } catch {}
+    setRefreshing(false);
+  }, [refresh]);
+
   useEffect(() => {
     (async () => {
       setFavorites((await storage.getItem<string[]>(FAV_KEY, [])) || []);
@@ -94,14 +123,14 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       // Show whatever the backend already has (fast).
       await refresh();
       // Then force a fresh import of the M3U playlist + XMLTV EPG from the
-      // source so any channel lineup changes (added / removed channels) and
-      // updated guide data are picked up automatically on every app launch.
+      // source so any channel lineup changes are picked up on every launch.
       try {
         await api.refresh();
         await refresh(true);
       } catch {}
     })();
-  }, [refresh]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const channelById = useCallback((id: string) => channels.find((c) => c.id === id), [channels]);
 
@@ -182,8 +211,12 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     windowStart,
     windowEnd,
     loading,
+    refreshing,
     error,
     refresh,
+    hardRefresh,
+    selectedDate,
+    setSelectedDate,
     channelById,
     favorites,
     isFavorite,
