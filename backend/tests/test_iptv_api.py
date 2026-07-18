@@ -68,6 +68,23 @@ class TestGuide:
         p = with_progs[0]["programs"][0]
         assert "title" in p and "start" in p and "stop" in p
 
+    def test_guide_12h_default_window(self, api):
+        """Iteration 6: store.tsx now uses api.guide(12, start) as the default window."""
+        _wait_for_load(api)
+        r = api.get(f"{BASE_URL}/api/guide?hours=12", timeout=60)
+        assert r.status_code == 200
+        d = r.json()
+        assert "channels" in d and "start" in d and "end" in d and "now" in d
+        assert len(d["channels"]) > 500
+        # window should be exactly 12h
+        from datetime import datetime
+        start = datetime.fromisoformat(d["start"].replace("Z", "+00:00"))
+        end = datetime.fromisoformat(d["end"].replace("Z", "+00:00"))
+        delta_h = (end - start).total_seconds() / 3600
+        assert 11.9 <= delta_h <= 12.1, f"Expected 12h window, got {delta_h}h"
+        with_progs = [c for c in d["channels"] if c["programs"]]
+        assert len(with_progs) > 100
+
 
 # ---- search ----
 class TestSearch:

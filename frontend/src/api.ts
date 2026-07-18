@@ -37,9 +37,15 @@ export type SourceStatus = {
 };
 
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`);
-  if (!res.ok) throw new Error(`Request failed: ${res.status}`);
-  return res.json();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 25000);
+  try {
+    const res = await fetch(`${BASE}${path}`, { signal: controller.signal });
+    if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+    return await res.json();
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export const api = {
@@ -52,8 +58,14 @@ export const api = {
       `/api/search?q=${encodeURIComponent(q)}`,
     ),
   refresh: async (): Promise<SourceStatus> => {
-    const res = await fetch(`${BASE}/api/refresh`, { method: "POST" });
-    return res.json();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 45000);
+    try {
+      const res = await fetch(`${BASE}/api/refresh`, { method: "POST", signal: controller.signal });
+      return await res.json();
+    } finally {
+      clearTimeout(timer);
+    }
   },
   adminLogin: async (username: string, password: string): Promise<string> => {
     const res = await fetch(`${BASE}/api/auth/login`, {

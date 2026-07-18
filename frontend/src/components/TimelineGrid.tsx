@@ -1,13 +1,15 @@
-import React, { useMemo, useRef } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
+  FlatList,
   Pressable,
   RefreshControl,
   NativeSyntheticEvent,
   NativeScrollEvent,
+  LayoutChangeEvent,
 } from "react-native";
 import dayjs from "dayjs";
 import { colors, fonts, radius, spacing } from "@/src/theme";
@@ -43,6 +45,11 @@ export function TimelineGrid({
   onRefresh?: () => void;
 }) {
   const headerRef = useRef<ScrollView>(null);
+  const leftRef = useRef<FlatList<Channel>>(null);
+  const rightRef = useRef<FlatList<Channel>>(null);
+  const scrollSource = useRef<"left" | "right" | null>(null);
+  const [bodyH, setBodyH] = useState(0);
+
   const totalMin = mins(windowEnd, windowStart);
   const timelineWidth = totalMin * PX_PER_MIN;
 
@@ -50,7 +57,6 @@ export function TimelineGrid({
     const out: string[] = [];
     let t = dayjs(windowStart);
     const end = dayjs(windowEnd);
-    // align to next 30 min
     const m = t.minute();
     t = t.minute(m < 30 ? 30 : 0).second(0);
     if (m >= 30) t = t.add(1, "hour");
@@ -64,29 +70,33 @@ export function TimelineGrid({
   const nowOffset = mins(now, windowStart) * PX_PER_MIN;
   const showNow = dayjs(now).isAfter(windowStart) && dayjs(now).isBefore(windowEnd);
 
-  const onBodyScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+  const onHScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     headerRef.current?.scrollTo({ x: e.nativeEvent.contentOffset.x, animated: false });
   };
+
+  const syncFrom = (which: "left" | "right", y: number) => {
+    if (scrollSource.current && scrollSource.current !== which) return;
+    if (which === "left") rightRef.current?.scrollToOffset({ offset: y, animated: false });
+    else leftRef.current?.scrollToOffset({ offset: y, animated: false });
+  };
+
+  const getItemLayout = (_: any, index: number) => ({
+    length: ROW_H,
+    offset: ROW_H * index,
+    index,
+  });
 
   return (
     <View style={styles.wrap} testID="epg-timeline-grid">
       {/* time header */}
       <View style={styles.headerRow}>
         <View style={[styles.corner, { width: LOGO_W }]}>
-          <Text style={styles.cornerText}>{dayjs(now).format("MMM D")}</Text>
+          <Text style={styles.cornerText}>{dayjs(windowStart).format("MMM D")}</Text>
         </View>
-        <ScrollView
-          ref={headerRef}
-          horizontal
-          scrollEnabled={false}
-          showsHorizontalScrollIndicator={false}
-        >
+        <ScrollView ref={headerRef} horizontal scrollEnabled={false} showsHorizontalScrollIndicator={false}>
           <View style={{ width: timelineWidth, height: HEADER_H }}>
             {ticks.map((t) => (
-              <Text
-                key={t}
-                style={[styles.tickLabel, { left: mins(t, windowStart) * PX_PER_MIN }]}
-              >
+              <Text key={t} style={[styles.tickLabel, { left: mins(t, windowStart) * PX_PER_MIN }]}>
                 {dayjs(t).format("h:mm A")}
               </Text>
             ))}
@@ -94,60 +104,73 @@ export function TimelineGrid({
         </ScrollView>
       </View>
 
-      {/* body: vertical scroll wraps left column + horizontal program area */}
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 120 }}
-        refreshControl={
-          onRefresh ? (
-            <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={colors.brand} colors={[colors.brand]} />
-          ) : undefined
-        }
-      >
-        <View style={styles.bodyRow}>
-          {/* sticky channel column */}
-          <View style={{ width: LOGO_W }}>
-            {channels.map((c) => (
-              <Pressable
-                key={c.id}
-                style={styles.logoCell}
-                onPress={() => onChannelPress(c)}
-                testID={`epg-channel-${c.id}`}
-              >
-                <ChannelLogo name={c.name} logo={c.logo} size={40} />
-                <Text numberOfLines={1} style={styles.logoName}>
-                  {c.name}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
+      {/* body */}
+      <View style={styles.body} onLayout={(e: LayoutChangeEvent) => setBodyH(e.nativeEvent.layout.height)}>
+        {/* sticky logo column (virtualized) */}
+        <FlatList
+          ref={leftRef}
+          data={channels}
+          keyExtractor={(c) => c.id}
+          style={{ width: LOGO_W }}
+          scrollEventThrottle={16}
+          showsVerticalScrollIndicator={false}
+          getItemLayout={getItemLayout}
+          initialNumToRender={12}
+          maxToRenderPerBatch={12}
+          windowSize={7}
+          removeClippedSubviews
+          onScrollBeginDrag={() => (scrollSource.current = "left")}
+          onMomentumScrollEnd={() => (scrollSource.current = null)}
+          onScrollEndDrag={() => (scrollSource.current = null)}
+          onScroll={(e) => syncFrom("left", e.nativeEvent.contentOffset.y)}
+          renderItem={({ item }) => (
+            <Pressable style={styles.logoCell} onPress={() => onChannelPress(item)} testID={`epg-channel-${item.id}`}>
+              <ChannelLogo name={item.name} logo={item.logo} size={40} />
+              <Text numberOfLines={1} style={styles.logoName}>
+                {item.name}
+              </Text>
+            </Pressable>
+          )}
+        />
 
-          {/* horizontally scrolling program blocks */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            scrollEventThrottle={16}
-            onScroll={onBodyScroll}
-          >
-            <View style={{ width: timelineWidth }}>
-              {channels.map((c) => (
-                <View key={c.id} style={styles.progRow}>
-                  {(c.programs || []).map((p, i) => {
+        {/* horizontally scrolling program area */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} scrollEventThrottle={16} onScroll={onHScroll}>
+          <View style={{ width: timelineWidth, height: bodyH }}>
+            <FlatList
+              ref={rightRef}
+              data={channels}
+              keyExtractor={(c) => c.id}
+              style={{ height: bodyH }}
+              scrollEventThrottle={16}
+              showsVerticalScrollIndicator={false}
+              getItemLayout={getItemLayout}
+              initialNumToRender={12}
+              maxToRenderPerBatch={12}
+              windowSize={7}
+              removeClippedSubviews
+              refreshControl={
+                onRefresh ? (
+                  <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={colors.brand} colors={[colors.brand]} />
+                ) : undefined
+              }
+              onScrollBeginDrag={() => (scrollSource.current = "right")}
+              onMomentumScrollEnd={() => (scrollSource.current = null)}
+              onScrollEndDrag={() => (scrollSource.current = null)}
+              onScroll={(e) => syncFrom("right", e.nativeEvent.contentOffset.y)}
+              contentContainerStyle={{ paddingBottom: 120 }}
+              renderItem={({ item }) => (
+                <View style={[styles.progRow, { width: timelineWidth }]}>
+                  {(item.programs || []).map((p, i) => {
                     const left = Math.max(0, mins(p.start, windowStart) * PX_PER_MIN);
                     const end = p.stop || dayjs(p.start).add(30, "minute").toISOString();
                     const w = Math.max(24, mins(end, p.start) * PX_PER_MIN - 3);
-                    const isLive =
-                      dayjs(now).isAfter(p.start) && dayjs(now).isBefore(end);
+                    const isLive = dayjs(now).isAfter(p.start) && dayjs(now).isBefore(end);
                     return (
                       <Pressable
                         key={i}
-                        onPress={() => onProgramPress(p, c)}
-                        style={[
-                          styles.progCell,
-                          { left, width: w },
-                          isLive && styles.progLive,
-                        ]}
-                        testID={`epg-prog-${c.id}-${i}`}
+                        onPress={() => onProgramPress(p, item)}
+                        style={[styles.progCell, { left, width: w }, isLive && styles.progLive]}
+                        testID={`epg-prog-${item.id}-${i}`}
                       >
                         <Text numberOfLines={1} style={styles.progTitle}>
                           {p.title}
@@ -158,24 +181,25 @@ export function TimelineGrid({
                       </Pressable>
                     );
                   })}
-                  {(!c.programs || c.programs.length === 0) && (
+                  {(!item.programs || item.programs.length === 0) && (
                     <View style={[styles.progCell, { left: 0, width: timelineWidth - 6 }]}>
                       <Text style={styles.noData}>No guide data</Text>
                     </View>
                   )}
                 </View>
-              ))}
-              {showNow && <View style={[styles.nowLine, { left: nowOffset }]} />}
-            </View>
-          </ScrollView>
-        </View>
-      </ScrollView>
+              )}
+            />
+            {showNow && bodyH > 0 && <View style={[styles.nowLine, { left: nowOffset, pointerEvents: "none" }]} />}
+          </View>
+        </ScrollView>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   wrap: { flex: 1 },
+  body: { flex: 1, flexDirection: "row" },
   headerRow: {
     flexDirection: "row",
     borderBottomWidth: 1,
@@ -198,7 +222,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     width: 100,
   },
-  bodyRow: { flexDirection: "row" },
   logoCell: {
     height: ROW_H,
     alignItems: "center",
@@ -211,11 +234,7 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   logoName: { color: colors.onSurfaceTertiary, fontFamily: fonts.medium, fontSize: 9, textAlign: "center" },
-  progRow: {
-    height: ROW_H,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.divider,
-  },
+  progRow: { height: ROW_H, borderBottomWidth: 1, borderBottomColor: colors.divider },
   progCell: {
     position: "absolute",
     top: 5,
@@ -231,12 +250,5 @@ const styles = StyleSheet.create({
   progTitle: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 12 },
   progTime: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 10, marginTop: 2 },
   noData: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 11 },
-  nowLine: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    width: 2,
-    backgroundColor: colors.brand,
-    pointerEvents: "none",
-  },
+  nowLine: { position: "absolute", top: 0, bottom: 0, width: 2, backgroundColor: colors.brand },
 });

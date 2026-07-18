@@ -85,7 +85,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       const day = dayjs(dateRef.current);
       const isToday = day.isSame(dayjs(), "day");
       const start = isToday ? undefined : day.startOf("day").toISOString();
-      const data = await api.guide(24, start);
+      const data = await api.guide(12, start);
       setChannels(data.channels);
       setWindowStart(data.start);
       setWindowEnd(data.end);
