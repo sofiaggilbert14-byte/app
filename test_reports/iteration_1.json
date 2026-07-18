@@ -1,0 +1,33 @@
+{
+  "summary": "First iteration. Backend fully verified via pytest (6/6 passing) at public URL. Frontend TV Guide screen loads correctly on mobile viewport: default timeline mode with sticky channel logo column, horizontal time header, red now-line, and program blocks rendered. 688 epg-channel-* testIDs and 15,655 epg-prog-* testIDs found matching backend counts. Mode toggle buttons and chip filter row (chip-All, chip-Favorites, chip-Local, chip-Movies, chip-Sports, chip-TV, etc.) present. Two significant frontend issues discovered: duplicate React keys and mixed-content HTTP logos. Additional deeper flow testing (favorites, search, reminders, program modal, box grid, settings refresh, navigation to player) was NOT executed in this run due to time; the foundation is solid and worth deeper testing after key/mixed-content fixes.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "TimelineGrid (channel list keying)", "issue": "React 'Encountered two children with the same key' warnings fire dozens of times on load. The channel testID list shows duplicate ids: epg-channel-FXX.us (m3u4u) x2, epg-channel-HALL.us (m3u4u) x2, epg-channel-HLN.us (m3u4u) x2. The M3U source contains duplicate tvg_id rows; frontend keys rows by tvg_id (or channel.id derived from tvg_id) causing collisions. Either (a) dedupe channels by tvg_id in backend /api/channels & /api/guide, or (b) use channel.id (already includes index-based fallback) as React key AND make backend id truly unique (append idx when tvg_id repeats).", "testID": "epg-channel-*", "priority": "HIGH"},
+      {"component": "Channel logos (Image src)", "issue": "Many EPG-provided logos use http:// (dtil.tmsimg.com) which browsers block as Mixed Content on the https app. Logos silently fail to render on web. Rewrite logo URLs to https (replace http:// with https://) on the backend when merging icons, or in the api layer on frontend.", "testID": "epg-channel-*", "priority": "HIGH"}
+    ],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "props.pointerEvents", "issue": "Deprecation warning: 'props.pointerEvents is deprecated. Use style.pointerEvents'. Non-blocking but should be migrated."}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iptv_api.py", "/app/test_reports/pytest/iptv_api.xml"],
+  "action_items": [
+    "Fix duplicate channel key collisions (dedupe by tvg_id on backend or make cid always unique, e.g., append idx when tvg_id already used)",
+    "Force logo URLs to https to avoid Mixed Content blocking on web preview",
+    "Re-invoke testing agent after fixes to cover: box grid, favorites star toggle, search flow (channel+program), settings refresh, program modal open + reminder set + reminder remove, player navigation & back button, channel surf rail"
+  ],
+  "critical_code_review_comments": [
+    "server.py parse_m3u builds cid = tvg_id when present, which is not unique across duplicate M3U rows. Add uniqueness suffix or dedupe.",
+    "server.py _do_refresh: consider normalizing logo URL scheme to https to avoid browser Mixed Content on https deployments.",
+    "server.py uses in-memory CACHE only - fine per PRD, but /api/search skips channels whose tvg_id is empty (id_to_channel keyed by tvg_id). Channels without tvg_id will never surface program hits (minor)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iptv_api.py"],
+  "success_rate": {"backend": "100% (6/6)", "frontend": "partial - core TV Guide render verified, deeper flows not yet exercised"},
+  "seed_data_creation": "None. Live m3u4u source used.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend tests live at /app/backend/tests/test_iptv_api.py. Use EXPO_PUBLIC_BACKEND_URL from /app/frontend/.env. On frontend, viewport 390x844, wait ~3s after networkidle for guide to hydrate. testIDs confirmed: guide-refresh-btn, mode-timeline-btn, mode-box-btn, chip-All/Favorites/<group>, epg-timeline-grid, epg-channel-<id>, epg-prog-<...>. Tabs bar has TV Guide/Favorites/Search/Settings. Not yet tested: box-channel-*, box-fav-*, program-* modal, settings-refresh-btn, player-* screen, reminder-remove-*, search-input.",
+  "rca_of_issue": "Duplicate key warnings: m3u4u M3U contains repeated tvg-id entries (e.g., FXX.us, HALL.us, HLN.us). Backend parse_m3u sets channel id = tvg_id when non-empty, so duplicates share the same id; frontend uses this id as React key -> collision. Fix at backend by ensuring uniqueness: cid = tvg_id if tvg_id and tvg_id not already used else f'{tvg_id or name}-{idx}'. Mixed Content: EPG XMLTV supplies http:// icon URLs which the frontend passes straight to <Image src>; browsers block them on https origin. Fix by upgrading scheme to https in _do_refresh when merging icons (and optionally on M3U tvg-logo)."
+}

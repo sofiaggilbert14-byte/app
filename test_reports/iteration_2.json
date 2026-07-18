@@ -1,0 +1,34 @@
+{
+  "summary": "Iteration 2 (frontend-only). Both regressions confirmed FIXED: (1) ZERO React duplicate-key warnings on TV Guide in either timeline or box mode (688 unique epg-channel-* IDs). (2) ZERO mixed-content messages — all logos now served over https. All requested flows verified working: box grid mode (82 cards with logo, now title, progress bar, Next line), favorite toggle (star adds channel to Favorites tab's 'Favorite Channels' list, unfav removes), search tab (search-input finds channels for 'espn' and programs for 'news' under 'Upcoming Programs'; search-clear resets), settings tab (Source Status shows Channels loaded 688 / with EPG 665 / Last refreshed, settings-refresh-btn triggers refresh without error), program modal (epg-prog-* opens modal with watch/close/reminder buttons; future programs show program-reminder-btn which sets or shows 'Enable notifications' message as expected in preview), and player navigation (epg-channel-* and box-channel-* both navigate to /player?channelId=...; player-back-btn returns; surf rail has 54 surf-* items; tapping a surf-* item switches the selected channel; overlay shows channel name + Now/Next).  Video does not play in web preview — 'Unable to play this stream' overlay is expected (external HTTP HLS + no native HLS in Chromium) and per instructions was NOT counted as a failure. No new backend testing performed (per instructions).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Box Grid (guide box mode)", "issues": [
+        "The card is a Pressable (box-channel-*), but the inner 'now title' and 'Next:' lines are also nested Pressables that open the ProgramModal. Tapping anywhere in the vertical middle/bottom of the card opens the modal instead of navigating to the player. This is functional-by-design, but the visual affordance is the whole card — consider adding testIDs like box-now-<id> and box-next-<id> on the inner Pressables so tests can target them deterministically (currently there is no testID for the Next line, so it is not directly addressable in Playwright)."
+      ]}
+    ],
+    "react_native_issues": [
+      {"component": "props.pointerEvents", "issue": "Deprecation warning still present: 'props.pointerEvents is deprecated. Use style.pointerEvents'. Non-blocking; carried over from iteration 1."}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iptv_api.py", "/app/test_reports/pytest/iptv_api.xml"],
+  "action_items": [
+    "OPTIONAL: Add testIDs box-now-<id> and box-next-<id> on the inner Pressables in /app/frontend/src/components/BoxGrid.tsx so the 'tap Next line to open modal' path can be exercised deterministically by future tests.",
+    "OPTIONAL: Migrate pointerEvents from prop to style.pointerEvents to silence the RN deprecation warning."
+  ],
+  "critical_code_review_comments": [
+    "server.py fix for duplicate tvg_id (append -idx) verified working — /api/channels returns 688 unique ids.",
+    "server.py https logo upgrade verified — logo URLs served with https scheme, no mixed-content blocks in browser.",
+    "player.tsx replaceAsync in useEffect keyed on channel.url works: switching channels via surf-* correctly re-loads the source.",
+    "BoxGrid nested Pressable design is intentional but currently untestable for the 'Next line' path (no testID). Non-blocking."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not retested (100% in iteration 1)", "frontend": "100% (all 7 requested flows + 2 regressions verified)"},
+  "seed_data_creation": "None. Live m3u4u source used.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All flows in review_request iteration 2 verified passing on mobile viewport 390x844 at https://iptv-player-guide.preview.emergentagent.com. Regressions (dup React keys, mixed-content) are gone. Note that BoxGrid card is a nested-Pressable stack — center taps open ProgramModal, corner taps (chName area, y = card.y + 65) navigate to player. Player shows 'Unable to play this stream' overlay by design in web preview; do NOT treat as failure. surf-* has 54 items (recently watched); to force more items, addRecent must be called (works automatically as user surfs). Reminder tap in web preview reports 'Enable notifications to set reminders' — acceptable per PRD.",
+  "rca_of_issue": "N/A — iteration 2 has no unresolved bugs. Prior iteration's dup-key and mixed-content bugs are resolved by backend fixes."
+}

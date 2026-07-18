@@ -1,58 +1,340 @@
-from fastapi import FastAPI, APIRouter
+import os
+import re
+import asyncio
+import logging
+import xml.etree.ElementTree as ET
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
+from typing import Optional
+
+import requests
+from fastapi import FastAPI, APIRouter, HTTPException
+from pydantic import BaseModel
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-import os
-import logging
-from pathlib import Path
-from pydantic import BaseModel, Field
-from typing import List
-import uuid
-from datetime import datetime
-
 
 ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
+load_dotenv(ROOT_DIR / ".env")
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logger = logging.getLogger("iptv")
+
+mongo_url = os.environ["MONGO_URL"]
 client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+db = client[os.environ["DB_NAME"]]
 
-# Create the main app without a prefix
 app = FastAPI()
-
-# Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
 
+DEFAULT_M3U = os.environ.get("SOURCE_M3U_URL", "")
+DEFAULT_EPG = os.environ.get("SOURCE_EPG_URL", "")
 
-# Define Models
-class StatusCheck(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+# ---------------------------------------------------------------------------
+# In-memory cache of parsed guide data
+# ---------------------------------------------------------------------------
+CACHE = {
+    "channels": [],          # list of channel dicts
+    "programs": {},          # channel_id -> list of program dicts (sorted by start)
+    "last_refresh": None,    # datetime
+    "refreshing": False,
+    "error": None,
+}
+_lock = asyncio.Lock()
+REFRESH_TTL = timedelta(minutes=30)
 
-class StatusCheckCreate(BaseModel):
-    client_name: str
+EXTINF_ATTR = re.compile(r'([a-zA-Z0-9\-]+)="([^"]*)"')
 
-# Add your routes to the router instead of directly to app
+
+def _stream_type(url: str) -> str:
+    u = url.lower().split("?")[0]
+    if u.endswith(".m3u8"):
+        return "hls"
+    if u.endswith(".ts"):
+        return "ts"
+    return "unknown"
+
+
+def _https(url: str) -> str:
+    if url and url.startswith("http://"):
+        return "https://" + url[len("http://"):]
+    return url
+
+
+def parse_m3u(text: str):
+    channels = []
+    lines = text.splitlines()
+    i = 0
+    idx = 0
+    used_ids = set()
+    while i < len(lines):
+        line = lines[i].strip()
+        if line.startswith("#EXTINF"):
+            attrs = dict(EXTINF_ATTR.findall(line))
+            name = line.split(",", 1)[1].strip() if "," in line else attrs.get("tvg-name", "Channel")
+            # find the next non-comment line as the URL
+            url = ""
+            j = i + 1
+            while j < len(lines):
+                nxt = lines[j].strip()
+                if nxt and not nxt.startswith("#"):
+                    url = nxt
+                    break
+                j += 1
+            tvg_id = attrs.get("tvg-id", "").strip()
+            base = tvg_id if tvg_id else re.sub(r"[^a-zA-Z0-9]+", "-", name).lower()
+            cid = base
+            if cid in used_ids:
+                cid = f"{base}#{idx}"
+            used_ids.add(cid)
+            channels.append({
+                "id": cid,
+                "tvg_id": tvg_id,
+                "name": name,
+                "logo": _https(attrs.get("tvg-logo", "").strip()),
+                "group": attrs.get("group-title", "").strip(),
+                "url": url,
+                "stream_type": _stream_type(url),
+            })
+            idx += 1
+            i = j + 1
+        else:
+            i += 1
+    return channels
+
+
+def _parse_xmltv_time(s: str) -> Optional[datetime]:
+    if not s:
+        return None
+    s = s.strip()
+    try:
+        if " " in s:
+            return datetime.strptime(s, "%Y%m%d%H%M%S %z").astimezone(timezone.utc)
+        return datetime.strptime(s[:14], "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
+    except Exception:
+        return None
+
+
+def parse_xmltv(text: str):
+    """Return (icons_by_channel_id, programs_by_channel_id)."""
+    icons = {}
+    programs = {}
+    # iterparse for memory efficiency
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError as e:
+        logger.warning("XMLTV parse error: %s", e)
+        return icons, programs
+
+    for ch in root.findall("channel"):
+        cid = ch.get("id", "")
+        icon_el = ch.find("icon")
+        if cid and icon_el is not None and icon_el.get("src"):
+            icons[cid] = icon_el.get("src")
+
+    for pr in root.findall("programme"):
+        cid = pr.get("channel", "")
+        start = _parse_xmltv_time(pr.get("start", ""))
+        stop = _parse_xmltv_time(pr.get("stop", ""))
+        if not cid or start is None:
+            continue
+        title_el = pr.find("title")
+        desc_el = pr.find("desc")
+        cat_el = pr.find("category")
+        programs.setdefault(cid, []).append({
+            "title": (title_el.text or "").strip() if title_el is not None else "No Title",
+            "desc": (desc_el.text or "").strip() if desc_el is not None else "",
+            "category": (cat_el.text or "").strip() if cat_el is not None else "",
+            "start": start.isoformat(),
+            "stop": stop.isoformat() if stop else None,
+        })
+
+    for cid in programs:
+        programs[cid].sort(key=lambda p: p["start"])
+    return icons, programs
+
+
+def _fetch(url: str) -> str:
+    resp = requests.get(url, timeout=60, headers={"User-Agent": "GridStream/1.0"})
+    resp.raise_for_status()
+    return resp.text
+
+
+def _do_refresh(m3u_url: str, epg_url: str):
+    logger.info("Refreshing sources...")
+    m3u_text = _fetch(m3u_url)
+    channels = parse_m3u(m3u_text)
+    icons, programs = ({}, {})
+    if epg_url:
+        try:
+            epg_text = _fetch(epg_url)
+            icons, programs = parse_xmltv(epg_text)
+        except Exception as e:
+            logger.warning("EPG fetch/parse failed: %s", e)
+    # merge logos from EPG when M3U logo missing; force https so mobile/web can load them
+    for ch in channels:
+        if not ch["logo"] and ch["tvg_id"] in icons:
+            ch["logo"] = icons[ch["tvg_id"]]
+        ch["logo"] = _https(ch["logo"])
+    logger.info("Parsed %d channels, %d channels with programs", len(channels), len(programs))
+    return channels, programs
+
+
+async def get_source_urls():
+    doc = await db.settings.find_one({"_id": "source"})
+    if doc:
+        return doc.get("m3u_url", DEFAULT_M3U), doc.get("epg_url", DEFAULT_EPG)
+    return DEFAULT_M3U, DEFAULT_EPG
+
+
+async def refresh_cache(force: bool = False):
+    async with _lock:
+        if CACHE["refreshing"]:
+            return
+        if not force and CACHE["last_refresh"] and datetime.now(timezone.utc) - CACHE["last_refresh"] < REFRESH_TTL:
+            return
+        CACHE["refreshing"] = True
+    try:
+        m3u_url, epg_url = await get_source_urls()
+        loop = asyncio.get_event_loop()
+        channels, programs = await loop.run_in_executor(None, _do_refresh, m3u_url, epg_url)
+        CACHE["channels"] = channels
+        CACHE["programs"] = programs
+        CACHE["last_refresh"] = datetime.now(timezone.utc)
+        CACHE["error"] = None
+    except Exception as e:
+        logger.exception("Refresh failed")
+        CACHE["error"] = str(e)
+    finally:
+        CACHE["refreshing"] = False
+
+
+async def ensure_loaded():
+    if not CACHE["channels"] and not CACHE["refreshing"]:
+        await refresh_cache(force=True)
+
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+class SourceSettings(BaseModel):
+    m3u_url: str
+    epg_url: str
+
+
 @api_router.get("/")
 async def root():
-    return {"message": "Hello World"}
+    return {"message": "GridStream IPTV API"}
 
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.dict()
-    status_obj = StatusCheck(**status_dict)
-    _ = await db.status_checks.insert_one(status_obj.dict())
-    return status_obj
 
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    status_checks = await db.status_checks.find().to_list(1000)
-    return [StatusCheck(**status_check) for status_check in status_checks]
+@api_router.get("/status/source")
+async def source_status():
+    m3u_url, epg_url = await get_source_urls()
+    channels_with_epg = sum(1 for c in CACHE["channels"] if c["tvg_id"] in CACHE["programs"])
+    return {
+        "m3u_url": m3u_url,
+        "epg_url": epg_url,
+        "channel_count": len(CACHE["channels"]),
+        "channels_with_epg": channels_with_epg,
+        "last_refresh": CACHE["last_refresh"].isoformat() if CACHE["last_refresh"] else None,
+        "refreshing": CACHE["refreshing"],
+        "error": CACHE["error"],
+    }
 
-# Include the router in the main app
+
+@api_router.post("/refresh")
+async def force_refresh():
+    await refresh_cache(force=True)
+    return await source_status()
+
+
+@api_router.get("/settings")
+async def get_settings():
+    m3u_url, epg_url = await get_source_urls()
+    return {"m3u_url": m3u_url, "epg_url": epg_url}
+
+
+@api_router.post("/settings")
+async def update_settings(s: SourceSettings):
+    await db.settings.update_one(
+        {"_id": "source"},
+        {"$set": {"m3u_url": s.m3u_url, "epg_url": s.epg_url}},
+        upsert=True,
+    )
+    await refresh_cache(force=True)
+    return await source_status()
+
+
+@api_router.get("/channels")
+async def get_channels():
+    await ensure_loaded()
+    return {"channels": CACHE["channels"], "count": len(CACHE["channels"])}
+
+
+def _window_programs(tvg_id: str, start: datetime, end: datetime):
+    out = []
+    for p in CACHE["programs"].get(tvg_id, []):
+        ps = datetime.fromisoformat(p["start"])
+        pe = datetime.fromisoformat(p["stop"]) if p["stop"] else ps + timedelta(minutes=30)
+        if pe <= start or ps >= end:
+            continue
+        out.append(p)
+    return out
+
+
+@api_router.get("/guide")
+async def get_guide(start: Optional[str] = None, hours: int = 24):
+    await ensure_loaded()
+    now = datetime.now(timezone.utc)
+    if start:
+        try:
+            win_start = datetime.fromisoformat(start.replace("Z", "+00:00"))
+        except Exception:
+            win_start = now - timedelta(hours=1)
+    else:
+        win_start = now - timedelta(hours=1)
+    hours = max(1, min(hours, 72))
+    win_end = win_start + timedelta(hours=hours)
+
+    channels = []
+    for c in CACHE["channels"]:
+        channels.append({**c, "programs": _window_programs(c["tvg_id"], win_start, win_end)})
+    return {
+        "start": win_start.isoformat(),
+        "end": win_end.isoformat(),
+        "now": now.isoformat(),
+        "channels": channels,
+    }
+
+
+@api_router.get("/search")
+async def search(q: str):
+    await ensure_loaded()
+    ql = q.lower().strip()
+    if not ql:
+        return {"channels": [], "programs": []}
+    now = datetime.now(timezone.utc)
+    ch_results = [c for c in CACHE["channels"] if ql in c["name"].lower()][:60]
+    prog_results = []
+    id_to_channel = {c["tvg_id"]: c for c in CACHE["channels"]}
+    for tvg_id, progs in CACHE["programs"].items():
+        ch = id_to_channel.get(tvg_id)
+        if not ch:
+            continue
+        for p in progs:
+            pe = datetime.fromisoformat(p["stop"]) if p["stop"] else None
+            if pe and pe < now:
+                continue
+            if ql in p["title"].lower():
+                prog_results.append({**p, "channel_id": ch["id"], "channel_name": ch["name"], "channel_logo": ch["logo"]})
+            if len(prog_results) >= 100:
+                break
+        if len(prog_results) >= 100:
+            break
+    prog_results.sort(key=lambda p: p["start"])
+    return {"channels": ch_results, "programs": prog_results[:80]}
+
+
 app.include_router(api_router)
 
 app.add_middleware(
@@ -63,12 +345,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+
+@app.on_event("startup")
+async def startup():
+    asyncio.create_task(refresh_cache(force=True))
+
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
