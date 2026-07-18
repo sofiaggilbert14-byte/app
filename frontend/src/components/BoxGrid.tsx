@@ -1,5 +1,6 @@
 import React from "react";
-import { View, Text, StyleSheet, Pressable, useWindowDimensions, FlatList, RefreshControl } from "react-native";
+import { View, Text, StyleSheet, Pressable, useWindowDimensions, RefreshControl } from "react-native";
+import { FlashList } from "@shopify/flash-list";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, fonts, radius, spacing } from "@/src/theme";
 import { Channel, Program } from "@/src/api";
@@ -25,19 +26,19 @@ export function BoxGrid({
   onRefresh?: () => void;
 }) {
   const { width } = useWindowDimensions();
-  const numColumns = width >= 700 ? 4 : 2;
+  // Adapt column count to the screen ratio — phones 2, tablets/TVs up to 5.
+  const numColumns = width >= 1200 ? 5 : width >= 900 ? 4 : width >= 600 ? 3 : 2;
   const nowDate = new Date(now);
   const { isFavorite, toggleFavorite } = useStore();
 
   return (
-    <FlatList
+    <FlashList
       testID="epg-box-grid"
       data={channels}
-      key={numColumns}
       numColumns={numColumns}
       keyExtractor={(c) => c.id}
-      columnWrapperStyle={{ gap: spacing.md, paddingHorizontal: spacing.lg }}
-      contentContainerStyle={{ gap: spacing.md, paddingBottom: 130, paddingTop: spacing.sm }}
+      drawDistance={2000}
+      contentContainerStyle={{ paddingBottom: 130, paddingHorizontal: spacing.sm, paddingTop: spacing.sm }}
       ListHeaderComponent={ListHeaderComponent}
       showsVerticalScrollIndicator={false}
       refreshControl={
@@ -45,54 +46,51 @@ export function BoxGrid({
           <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={colors.brand} colors={[colors.brand]} />
         ) : undefined
       }
-      renderItem={({ item, index }) => {
+      renderItem={({ item }) => {
         const { current, next } = nowNext(item.programs, nowDate);
         const pct = progressPct(current, nowDate);
         const fav = isFavorite(item.id);
         return (
-          <Pressable
-            style={({ focused }: any) => [styles.card, focused && styles.cardFocused]}
-            hasTVPreferredFocus={index === 0}
-            onPress={() => onChannelPress(item)}
-            testID={`box-channel-${item.id}`}
-          >
-            <View style={styles.cardTop}>
-              <ChannelLogo name={item.name} logo={item.logo} size={40} />
-              <Pressable
-                hitSlop={8}
-                onPress={() => toggleFavorite(item.id)}
-                testID={`box-fav-${item.id}`}
-              >
-                <Ionicons
-                  name={fav ? "star" : "star-outline"}
-                  size={18}
-                  color={fav ? colors.warning : colors.onSurfaceTertiary}
-                />
-              </Pressable>
-            </View>
-            <Text numberOfLines={1} style={styles.chName}>
-              {item.name}
-            </Text>
-            {current ? (
-              <Pressable onPress={() => onProgramPress(current, item)}>
-                <Text numberOfLines={2} style={styles.nowTitle}>
-                  {current.title}
-                </Text>
-                <View style={styles.progressTrack}>
-                  <View style={[styles.progressFill, { width: `${pct}%` }]} />
-                </View>
-              </Pressable>
-            ) : (
-              <Text style={styles.noNow}>No program info</Text>
-            )}
-            {next && (
-              <Pressable onPress={() => onProgramPress(next, item)}>
-                <Text numberOfLines={1} style={styles.nextLine}>
-                  Next: {fmtTime(next.start)} · {next.title}
-                </Text>
-              </Pressable>
-            )}
-          </Pressable>
+          <View style={styles.cell}>
+            <Pressable
+              style={({ focused }: any) => [styles.card, focused && styles.cardFocused]}
+              onPress={() => onChannelPress(item)}
+              testID={`box-channel-${item.id}`}
+            >
+              <View style={styles.cardTop}>
+                <ChannelLogo name={item.name} logo={item.logo} size={40} />
+                <Pressable hitSlop={8} onPress={() => toggleFavorite(item.id)} testID={`box-fav-${item.id}`}>
+                  <Ionicons
+                    name={fav ? "star" : "star-outline"}
+                    size={18}
+                    color={fav ? colors.warning : colors.onSurfaceTertiary}
+                  />
+                </Pressable>
+              </View>
+              <Text numberOfLines={1} style={styles.chName}>
+                {item.name}
+              </Text>
+              {current ? (
+                <Pressable onPress={() => onProgramPress(current, item)}>
+                  <Text numberOfLines={2} style={styles.nowTitle}>
+                    {current.title}
+                  </Text>
+                  <View style={styles.progressTrack}>
+                    <View style={[styles.progressFill, { width: `${pct}%` }]} />
+                  </View>
+                </Pressable>
+              ) : (
+                <Text style={styles.noNow}>No program info</Text>
+              )}
+              {next && (
+                <Pressable onPress={() => onProgramPress(next, item)}>
+                  <Text numberOfLines={1} style={styles.nextLine}>
+                    Next: {fmtTime(next.start)} · {next.title}
+                  </Text>
+                </Pressable>
+              )}
+            </Pressable>
+          </View>
         );
       }}
     />
@@ -100,6 +98,7 @@ export function BoxGrid({
 }
 
 const styles = StyleSheet.create({
+  cell: { flex: 1, padding: spacing.xs },
   card: {
     flex: 1,
     backgroundColor: colors.surfaceSecondary,

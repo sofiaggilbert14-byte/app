@@ -20,6 +20,7 @@ export function ChannelLogo({
   size?: number;
 }) {
   const [failed, setFailed] = React.useState(false);
+  React.useEffect(() => setFailed(false), [logo]);
   const showImage = logo && logo.startsWith("http") && !failed;
   if (showImage) {
     return (
@@ -27,7 +28,9 @@ export function ChannelLogo({
         source={{ uri: logo }}
         style={{ width: size, height: size, borderRadius: radius.sm }}
         contentFit="contain"
-        transition={200}
+        cachePolicy="memory-disk"
+        recyclingKey={logo}
+        transition={150}
         onError={() => setFailed(true)}
       />
     );

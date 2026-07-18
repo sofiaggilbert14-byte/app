@@ -4,20 +4,18 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  FlatList,
   Pressable,
   RefreshControl,
   Animated,
+  useWindowDimensions,
   LayoutChangeEvent,
 } from "react-native";
+import { FlashList } from "@shopify/flash-list";
 import dayjs from "dayjs";
 import { colors, fonts, radius, spacing } from "@/src/theme";
 import { Channel, Program } from "@/src/api";
 import { ChannelLogo } from "./ChannelLogo";
 
-const PX_PER_MIN = 3.4;
-const ROW_H = 66;
-const LOGO_W = 76;
 const HEADER_H = 34;
 
 function mins(a: string, b: string) {
@@ -43,6 +41,14 @@ export function TimelineGrid({
   refreshing?: boolean;
   onRefresh?: () => void;
 }) {
+  const { width } = useWindowDimensions();
+  // Scale up for tablets / TVs so it stays readable on large landscape screens.
+  const big = width >= 900;
+  const ROW_H = big ? 84 : 66;
+  const LOGO_W = big ? 108 : 76;
+  const LOGO_SIZE = big ? 54 : 40;
+  const PX_PER_MIN = big ? 4.4 : 3.4;
+
   const scrollX = useRef(new Animated.Value(0)).current;
   const negScrollX = useMemo(() => Animated.multiply(scrollX, -1), [scrollX]);
   const [bodyH, setBodyH] = useState(0);
@@ -67,12 +73,6 @@ export function TimelineGrid({
   const nowOffset = mins(now, windowStart) * PX_PER_MIN;
   const showNow = dayjs(now).isAfter(windowStart) && dayjs(now).isBefore(windowEnd);
 
-  const getItemLayout = (_: any, index: number) => ({
-    length: ROW_H,
-    offset: ROW_H * index,
-    index,
-  });
-
   return (
     <View style={styles.wrap} testID="epg-timeline-grid">
       {/* time header: sticky corner + horizontally-synced ticks */}
@@ -91,8 +91,8 @@ export function TimelineGrid({
         </View>
       </View>
 
-      {/* body: one horizontal scroll wrapping ONE vertical list. Each row holds
-          the channel logo AND its programs, so they can never drift apart. */}
+      {/* body: one horizontal scroll wrapping ONE recycling vertical list. Each
+          row holds the logo AND its programs, so they can never drift apart. */}
       <View style={styles.body} onLayout={(e: LayoutChangeEvent) => setBodyH(e.nativeEvent.layout.height)}>
         <ScrollView
           horizontal
@@ -101,77 +101,73 @@ export function TimelineGrid({
           onScroll={Animated.event([{ nativeEvent: { contentOffset: { x: scrollX } } }], { useNativeDriver: true })}
         >
           <View style={{ width: LOGO_W + timelineWidth, height: bodyH }}>
-            <FlatList
-              data={channels}
-              keyExtractor={(c) => c.id}
-              style={{ height: bodyH }}
-              scrollEventThrottle={16}
-              showsVerticalScrollIndicator={false}
-              getItemLayout={getItemLayout}
-              initialNumToRender={12}
-              maxToRenderPerBatch={12}
-              windowSize={7}
-              removeClippedSubviews
-              contentContainerStyle={{ paddingBottom: 120 }}
-              refreshControl={
-                onRefresh ? (
-                  <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={colors.brand} colors={[colors.brand]} />
-                ) : undefined
-              }
-              renderItem={({ item, index }) => (
-                <View style={styles.row}>
-                  {/* sticky logo — translated with horizontal scroll to stay pinned left */}
-                  <Animated.View style={[styles.logoCol, { width: LOGO_W, transform: [{ translateX: scrollX }] }]}>
-                    <Pressable
-                      style={({ focused }: any) => [styles.logoCell, focused && styles.cellFocused]}
-                      hasTVPreferredFocus={index === 0}
-                      onPress={() => onChannelPress(item)}
-                      testID={`epg-channel-${item.id}`}
-                    >
-                      <ChannelLogo name={item.name} logo={item.logo} size={40} />
-                      <Text numberOfLines={1} style={styles.logoName}>
-                        {item.name}
-                      </Text>
-                    </Pressable>
-                  </Animated.View>
+            {bodyH > 0 && (
+              <FlashList
+                data={channels}
+                keyExtractor={(c) => c.id}
+                drawDistance={2000}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingBottom: 120 }}
+                refreshControl={
+                  onRefresh ? (
+                    <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={colors.brand} colors={[colors.brand]} />
+                  ) : undefined
+                }
+                renderItem={({ item, index }) => (
+                  <View style={[styles.row, { height: ROW_H }]}>
+                    {/* sticky logo — translated with horizontal scroll to stay pinned left */}
+                    <Animated.View style={[styles.logoCol, { width: LOGO_W, height: ROW_H, transform: [{ translateX: scrollX }] }]}>
+                      <Pressable
+                        style={({ focused }: any) => [styles.logoCell, focused && styles.cellFocused]}
+                        hasTVPreferredFocus={index === 0}
+                        onPress={() => onChannelPress(item)}
+                        testID={`epg-channel-${item.id}`}
+                      >
+                        <ChannelLogo name={item.name} logo={item.logo} size={LOGO_SIZE} />
+                        <Text numberOfLines={1} style={styles.logoName}>
+                          {item.name}
+                        </Text>
+                      </Pressable>
+                    </Animated.View>
 
-                  {/* programs */}
-                  <View style={{ width: timelineWidth, height: ROW_H }}>
-                    {(item.programs || []).map((p, i) => {
-                      const left = Math.max(0, mins(p.start, windowStart) * PX_PER_MIN);
-                      const end = p.stop || dayjs(p.start).add(30, "minute").toISOString();
-                      const w = Math.max(24, mins(end, p.start) * PX_PER_MIN - 3);
-                      const isLive = dayjs(now).isAfter(p.start) && dayjs(now).isBefore(end);
-                      return (
-                        <Pressable
-                          key={i}
-                          onPress={() => onProgramPress(p, item)}
-                          style={({ focused }: any) => [
-                            styles.progCell,
-                            { left, width: w },
-                            isLive && styles.progLive,
-                            focused && styles.cellFocused,
-                          ]}
-                          testID={`epg-prog-${item.id}-${i}`}
-                        >
-                          <Text numberOfLines={1} style={styles.progTitle}>
-                            {p.title}
-                          </Text>
-                          <Text numberOfLines={1} style={styles.progTime}>
-                            {dayjs(p.start).format("h:mm A")}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                    {(!item.programs || item.programs.length === 0) && (
-                      <View style={[styles.progCell, { left: 0, width: timelineWidth - 6 }]}>
-                        <Text style={styles.noData}>No guide data</Text>
-                      </View>
-                    )}
+                    {/* programs */}
+                    <View style={{ width: timelineWidth, height: ROW_H }}>
+                      {(item.programs || []).map((p, i) => {
+                        const left = Math.max(0, mins(p.start, windowStart) * PX_PER_MIN);
+                        const end = p.stop || dayjs(p.start).add(30, "minute").toISOString();
+                        const w = Math.max(24, mins(end, p.start) * PX_PER_MIN - 3);
+                        const isLive = dayjs(now).isAfter(p.start) && dayjs(now).isBefore(end);
+                        return (
+                          <Pressable
+                            key={i}
+                            onPress={() => onProgramPress(p, item)}
+                            style={({ focused }: any) => [
+                              styles.progCell,
+                              { left, width: w },
+                              isLive && styles.progLive,
+                              focused && styles.cellFocused,
+                            ]}
+                            testID={`epg-prog-${item.id}-${i}`}
+                          >
+                            <Text numberOfLines={1} style={styles.progTitle}>
+                              {p.title}
+                            </Text>
+                            <Text numberOfLines={1} style={styles.progTime}>
+                              {dayjs(p.start).format("h:mm A")}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                      {(!item.programs || item.programs.length === 0) && (
+                        <View style={[styles.progCell, { left: 0, width: timelineWidth - 6 }]}>
+                          <Text style={styles.noData}>No guide data</Text>
+                        </View>
+                      )}
+                    </View>
                   </View>
-                </View>
-              )}
-            />
+                )}
+              />
+            )}
             {showNow && bodyH > 0 && (
               <View pointerEvents="none" style={[styles.nowLine, { left: LOGO_W + nowOffset }]} />
             )}
@@ -210,9 +206,8 @@ const styles = StyleSheet.create({
     fontSize: 11,
     width: 100,
   },
-  row: { height: ROW_H, flexDirection: "row", borderBottomWidth: 1, borderBottomColor: colors.divider },
+  row: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: colors.divider },
   logoCol: {
-    height: ROW_H,
     zIndex: 5,
     backgroundColor: colors.surface,
     borderRightWidth: 1,
