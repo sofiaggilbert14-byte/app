@@ -1,0 +1,154 @@
+{
+  "app_name": "GridStream",
+  "personality": "6 Glass / Luxe DARK",
+  "personality_one_liner": "A cinematic, immersive viewing experience where the UI recedes into the shadows, leaving content and live indicators to shine through translucent glass.",
+  "color": {
+    "surface": "#0F0F13",
+    "onSurface": "#FFFFFF",
+    "surfaceSecondary": "#1A1A20",
+    "onSurfaceSecondary": "#E0E0E0",
+    "surfaceTertiary": "#272730",
+    "onSurfaceTertiary": "#A0A0A8",
+    "surfaceInverse": "#FFFFFF",
+    "onSurfaceInverse": "#000000",
+    "brand": "#E11D48",
+    "brandPrimary": "#E11D48",
+    "onBrandPrimary": "#FFFFFF",
+    "brandSecondary": "#F43F5E",
+    "onBrandSecondary": "#FFFFFF",
+    "brandTertiary": "#4C1D2F",
+    "onBrandTertiary": "#FDA4AF",
+    "success": "#10B981",
+    "onSuccess": "#022C22",
+    "warning": "#F59E0B",
+    "onWarning": "#451A03",
+    "error": "#EF4444",
+    "onError": "#450A0A",
+    "info": "#6B7280",
+    "onInfo": "#FFFFFF",
+    "border": "#2A2A35",
+    "borderStrong": "#3F3F50",
+    "divider": "#1F1F26"
+  },
+  "typography": {
+    "displayFontFamily": "Fraunces",
+    "textFontFamily": "Geist",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Generous spacing around core content; grids use strict mathematical spacing. UI must feel breathable and not clamped to the screen edges.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6,
+    "md": 12,
+    "lg": 20,
+    "pill": 999
+  },
+  "shadow_tier": "blur replaces shadow",
+  "navigation": "bottom_tabs",
+  "icon_set": "Phosphor",
+  "glassmorphism": {
+    "enabled": true,
+    "do's": [
+      "Use glass for bottom sheet overlays showing EPG data over live video",
+      "Use frosted nav bars and bottom tabs so video hints through the UI",
+      "Pair blur with a >=75% surface opacity tint under text to guarantee readability"
+    ],
+    "dont's": [
+      "Never blur body content or dense EPG data cells",
+      "Avoid stacking more than 2 blurred surfaces simultaneously"
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Live TV Player",
+      "purpose": "Immersive fullscreen video playback that recedes into the background when tapped to reveal glass navigation and quick channel surfing.",
+      "states": {
+        "loading": "Dark surface with a centered, ruby-colored sleek spinner.",
+        "empty": "N/A for player (always plays last channel or default).",
+        "error": "Cinematic dark screen with error message and 'Retry Source' button."
+      },
+      "layout": "Fullscreen absolute video player. When interacted, overlay a top-to-bottom dark gradient scrim (Layer 1). At the bottom, display a glassmorphic sheet containing player controls and a horizontally scrolling mini channel list."
+    },
+    {
+      "name": "EPG Timeline Grid",
+      "purpose": "Classic horizontal TV guide layout for scheduling and setting reminders.",
+      "states": {
+        "loading": "Skeleton grid with shimmering glass cells.",
+        "empty": "Illustration of an empty cinema seat with 'No Guide Data Available'.",
+        "error": "Error message with 'Reload EPG' action."
+      },
+      "layout": "Sticky left column (72pt wide) for Channel Logos (real PNGs or initials on brandTertiary backgrounds). Scrollable right area (both X and Y axes) for time slots. A vertical 'brandPrimary' (#E11D48) line indicates the current time. Program cells are sized proportionally to duration, using surfaceSecondary with border 0.5pt."
+    },
+    {
+      "name": "EPG Box Grid (4-across)",
+      "purpose": "A visually rich, fast-scrolling grid to see what's on right now across all channels.",
+      "states": {
+        "loading": "Skeleton box grid.",
+        "empty": "No channels found.",
+        "error": "Failed to load M3U XMLTV."
+      },
+      "layout": "Adaptive grid (2-col on phones, 4-col on large screens). Wrap with flexDirection: 'row', flexWrap: 'wrap', space-between. Each card shows the Channel Logo at the top left, current program title prominently in Geist 500, a live progress bar at the bottom, and 'Next:' metadata. Uses surfaceSecondary."
+    },
+    {
+      "name": "Favorites & Search",
+      "purpose": "Manage pinned channels and search the EPG for specific programs or categories.",
+      "states": {
+        "loading": "Standard spinner.",
+        "empty": "Empty state illustration of a star with 'Pin your favorite channels here'.",
+        "error": "Error fetching local storage data."
+      },
+      "layout": "Top search bar with surfaceTertiary background. Below, a filtered list or grid of channels. When searching, split results into 'Channels' and 'Upcoming Programs' with clear section headers in Fraunces display font."
+    }
+  ],
+  "images": {
+    "hero_background": {
+      "url": "https://images.pexels.com/photos/9807584/pexels-photo-9807584.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "dark": "https://images.pexels.com/photos/9807584/pexels-photo-9807584.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "Cinematic dark movie poster background"
+    },
+    "channel_placeholder": {
+      "url": "https://images.pexels.com/photos/29942709/pexels-photo-29942709.jpeg?auto=compress&cs=tinysrgb&dpr=1&w=200",
+      "alt": "Smart TV streaming placeholder for channel logo fallback"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Strictly follow the Dark-First Glass/Luxe guidelines: The app must feel like a premium smart TV experience adapted for mobile.",
+    "EPG Box Grid: Although the brief mentions '4-across', on portrait mobile phones, adapt this to a 2-col wrap grid (width: (screenWidth - 2*padding - gap) / 2) to maintain touch targets, but use 4-across if device is tablet/landscape. Document the responsiveness.",
+    "Text over video/images: ALWAYS use a gradient to dark scrim layer under text elements in the player overlay to ensure WCAG readability. text should use onSurfaceInverse.",
+    "For channel logos: Use the provided placeholder image OR use initials inside a brandTertiary circle when actual logos are missing. In real production, these come from the XMLTV feed.",
+    "EPG Timeline: The timeline grid requires both horizontal and vertical scrolling. Keep the channel column sticky on the left. The current time indicator should be a bold, brandPrimary (#E11D48) vertical line slicing through the grid.",
+    "Haptics: Add subtle haptic feedback when tapping channel rows, switching tabs, and setting reminders.",
+    "Typography: Use Fraunces for large section headers ('Live', 'TV Guide', 'Favorites') and Geist for dense UI components to maximize readability at small scale."
+  ],
+  "haptics": {
+    "channel_select": "selection",
+    "set_reminder": "notificationSuccess",
+    "tab_switch": "light"
+  }
+}
