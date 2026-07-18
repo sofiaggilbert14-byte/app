@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import dayjs from "dayjs";
 import { storage } from "@/src/utils/storage";
 import { api, Channel, Program } from "@/src/api";
+import { loadGuide, refreshSource } from "@/src/source";
 import { reminderKey } from "@/src/utils/time";
 import {
   cancelReminder,
