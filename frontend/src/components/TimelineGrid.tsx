@@ -169,7 +169,7 @@ export function TimelineGrid({
               />
             )}
             {showNow && bodyH > 0 && (
-              <View pointerEvents="none" style={[styles.nowLine, { left: LOGO_W + nowOffset }]} />
+              <View style={[styles.nowLine, { left: LOGO_W + nowOffset }]} />
             )}
           </View>
         </ScrollView>
@@ -241,5 +241,5 @@ const styles = StyleSheet.create({
   progTitle: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 12 },
   progTime: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 10, marginTop: 2 },
   noData: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 11 },
-  nowLine: { position: "absolute", top: 0, bottom: 0, width: 2, backgroundColor: colors.brand, zIndex: 3 },
+  nowLine: { position: "absolute", top: 0, bottom: 0, width: 2, backgroundColor: colors.brand, zIndex: 3, pointerEvents: "none" },
 });
