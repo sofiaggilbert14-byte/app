@@ -152,7 +152,7 @@ export function TimelineGrid({
                   )}
                 </View>
               ))}
-              {showNow && <View style={[styles.nowLine, { left: nowOffset }]} pointerEvents="none" />}
+              {showNow && <View style={[styles.nowLine, { left: nowOffset }]} />}
             </View>
           </ScrollView>
         </View>
@@ -224,5 +224,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: 2,
     backgroundColor: colors.brand,
+    pointerEvents: "none",
   },
 });

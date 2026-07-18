@@ -111,7 +111,7 @@ export default function PlayerScreen() {
       <Pressable style={StyleSheet.absoluteFill} onPress={toggleControls} testID="player-surface" />
 
       {status === "loading" && (
-        <View style={styles.centerOverlay} pointerEvents="none">
+        <View style={[styles.centerOverlay, { pointerEvents: "none" }]}>
           <ActivityIndicator color={colors.brand} size="large" />
         </View>
       )}
