@@ -177,10 +177,12 @@ async function doFetchParse(): Promise<Parsed> {
   }
   const parsed: Parsed = { ts: Date.now(), channels, programs };
   MEM = parsed;
-  try {
-    await storage.setItem(CACHE_KEY, parsed);
-  } catch {
-    // cache is best-effort
+  if (Platform.OS !== "web") {
+    try {
+      await storage.setItem(CACHE_KEY, parsed);
+    } catch {
+      // cache is best-effort
+    }
   }
   return parsed;
 }
