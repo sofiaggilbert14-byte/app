@@ -48,7 +48,13 @@ rebuilding the app.
 - libVLC player integration with expo-video fallback.
 - Auto-refresh of playlist + EPG on every app launch (cached instant paint + background
   force-refresh so added/removed channels reflect automatically).
-- Verified via testing_agent (iterations 1-3): backend 7/7, all frontend flows passing.
+- Per-day EPG date picker (Today + next 6 days) on the TV Guide.
+- Pull-to-refresh on the guide (timeline + box) and Settings; "Refresh Playlist Now" button.
+- Password-protected Admin section in Settings to edit the M3U + EPG source URLs live
+  (case-sensitive username `CharmCity` / password `CharmCityExotics`, JWT via passlib+pyjwt;
+  ADMIN_USERNAME/ADMIN_PASSWORD in backend/.env are the source of truth). POST /api/settings
+  is Bearer-protected; token stored in secure storage on device.
+- Verified via testing_agent (iterations 1-4): backend 17/17, all frontend flows passing.
 
 ## Known Limitations
 - Live video playback requires an installed Android/iOS build (libVLC + cleartext). It does
