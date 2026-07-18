@@ -120,14 +120,15 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setRecent((await storage.getItem<Channel[]>(RECENT_KEY, [])) || []);
       setReminders((await storage.getItem<Reminder[]>(REM_KEY, [])) || []);
       requestNotificationPermission();
-      // Show whatever the backend already has (fast).
+      // Show whatever the backend already has (fast) — this is the only
+      // blocking load, so every launch paints channels/guide quickly.
       await refresh();
-      // Then force a fresh import of the M3U playlist + XMLTV EPG from the
-      // source so any channel lineup changes are picked up on every launch.
-      try {
-        await api.refresh();
-        await refresh(true);
-      } catch {}
+      // Refresh the source lineup in the BACKGROUND (non-blocking) so added /
+      // removed channels get picked up without slowing down the launch.
+      api
+        .refresh()
+        .then(() => refresh(true))
+        .catch(() => {});
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
