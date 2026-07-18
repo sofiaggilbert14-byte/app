@@ -1,49 +1,62 @@
 # Charm IPTV — Product Requirements Document
 
 ## Original Problem Statement
-Build an Android app with a built-in video player for IPTV that also shows the EPG guide.
-Channels structured like a TV guide, clickable to launch, with each channel's logo shown as in
-the guide. Channel list, stream URLs, and EPG must be updatable without rebuilding the app.
+Build an Android app with a built-in video player for IPTV that also shows an EPG guide.
+Each channel structured like a TV guide, clickable to launch the channel, with the channel's
+logo shown as in the guide. Channel list + URL sources and the EPG must be updatable WITHOUT
+rebuilding the app.
 
 ## User Choices
-- Sources auto-import from a fixed developer-specified m3u4u.com M3U + XMLTV URL (stored on backend).
+- Sources auto-import from a fixed developer-specified m3u4u.com M3U + XMLTV URL at load.
 - Stream formats mixed (HLS .m3u8 + MPEG-TS .ts).
-- EPG guide with TWO toggleable views: (1) classic horizontal timeline grid, (2) 4-across box grid.
-- Always load from the developer's URL (no per-user playlist manager).
-- Features: Favorites, Recently watched, Search (channels + programs), look-ahead Reminders.
-- App icon: "Charm IPTV" crown logo (user supplied).
+- EPG has two toggleable views: (1) classic horizontal timeline grid, (2) 4-across box grid.
+- App always loads channels/EPG from the developer-specified source (stored on backend).
+- Features: Favorites, Recently Watched, Search (channels + programs), look-ahead Reminders
+  with alert + switch-to-channel action.
+- Player upgraded to a libVLC engine (VLC-like all-format support), built into the app.
 
 ## Architecture
-- Frontend: Expo Router (React Native, SDK 54), expo-video player, expo-notifications, expo-image,
-  reanimated/gesture-handler, dark "Glass/Luxe" theme (Fraunces + Geist fonts).
-- Backend: FastAPI. Fetches + parses M3U (regex) and XMLTV (ElementTree) into an in-memory cache
-  that auto-refreshes every 30 min (and on demand). Merges EPG `<icon>` logos into channels by
-  tvg-id; forces https on logos; dedupes duplicate tvg-ids into unique channel ids.
-- MongoDB: stores overridable source URLs in `settings` (defaults from backend/.env).
-- Local device storage (@/src/utils/storage): favorites, recently watched, reminders.
+- Frontend: Expo (SDK 54) + expo-router, React Native 0.81, TypeScript.
+  - Player: `react-native-vlc-media-player` (libVLC) on native builds, `expo-video` fallback
+    on Expo Go / web (platform-split via StreamPlayer.tsx / StreamPlayer.web.tsx).
+  - Fonts: Fraunces (display) + Geist (UI), bundled TTFs. Icons: @expo/vector-icons.
+  - Notifications: expo-notifications (local scheduled reminders).
+  - Local storage: `@/src/utils/storage` (favorites, recent, reminders).
+- Backend: FastAPI + Motor/MongoDB. Parses M3U + XMLTV, in-memory cache, source URLs in
+  backend/.env (SOURCE_M3U_URL / SOURCE_EPG_URL), overridable via /api/settings (Mongo).
+  - Logos merged from XMLTV <icon> by tvg-id when M3U logo missing; all logos forced https.
+  - Channel IDs deduped for repeated tvg-ids.
 
-## Backend API (all under /api)
-- GET /status/source, POST /refresh, GET/POST /settings
-- GET /channels, GET /guide?start=&hours=, GET /search?q=
+## Data Source
+- M3U: http://m3u4u.com/m3u/jwmzn1grpmu99585n721
+- XMLTV: http://m3u4u.com/xml/jwmzn1grpmu99585n721
+- ~688 channels, ~665 with EPG.
+
+## Backend API
+- GET /api/status/source, POST /api/refresh, GET/POST /api/settings
+- GET /api/channels, GET /api/guide?start=&hours=, GET /api/search?q=
 
 ## Implemented (2026-07-18)
-- Auto-import + parse of 688 channels (~665 with EPG); logos merged & https-normalized; unique ids.
-- TV Guide: timeline grid (sticky logo column, scrolling time header, red now-line, duration-sized
-  program blocks, LIVE highlight) + 2/4-col box grid; group filter chip row.
-- Live player: fullscreen expo-video, glass overlay (channel + now/next), channel surfing rail,
-  loading/error states with Retry.
-- Favorites, Recently Watched, Reminders (local scheduled notifications w/ tap-to-switch), Search.
-- Settings: source status + manual Refresh.
-- Cleartext HTTP enabled for Android builds (expo-build-properties) so HTTP streams play in the APK.
+- M3U + XMLTV parsing, in-memory cache, runtime refresh (no rebuild needed for source changes).
+- TV Guide: timeline grid (sticky logo column, time header, red now-line, duration-sized blocks)
+  + 4-across/2-col box grid; group filter chips; view toggle.
+- Live player screen: fullscreen video, glass overlay, back, Now/Next, channel-surf rail.
+- Favorites, Recently Watched, Search (channels + upcoming programs), Program modal.
+- Reminders: schedule local notification before a future program; tap -> switch channel;
+  managed under Favorites tab.
+- Charm IPTV branding (app icon/splash from user logo).
+- libVLC player integration with expo-video fallback.
+- Auto-refresh of playlist + EPG on every app launch (cached instant paint + background
+  force-refresh so added/removed channels reflect automatically).
+- Verified via testing_agent (iterations 1-3): backend 7/7, all frontend flows passing.
 
-## Known Constraints
-- HTTP streams do NOT play in the web preview (Chromium lacks native HLS + mixed-content block) or
-  reliably in Expo Go. Playback works in the installed Android/iOS build (cleartext enabled, ExoPlayer
-  handles HLS + TS).
-- Scheduled reminder notifications only fire on an installed build, not in Expo Go/web preview.
+## Known Limitations
+- Live video playback requires an installed Android/iOS build (libVLC + cleartext). It does
+  NOT play in Expo Go / web preview.
+- Scheduled notifications only fire on an installed build, not in Expo Go preview.
 
 ## Backlog / Next
-- P1: Landscape/fullscreen lock & PiP; resume-last-channel on launch.
-- P1: EPG day navigation (jump to tomorrow) & "jump to now" button on timeline.
-- P2: Per-channel full-day schedule sheet; category filters in search.
-- P2: Multiple playlist support / admin editor screen for source URLs.
+- P1: Pull-to-refresh on guide; "On Now" quick row; per-day EPG date picker.
+- P1: Server-side EPG pagination for very large guides.
+- P2: Parental PIN for adult groups; multi-source support; Chromecast.
+- P2: Landscape 4-across box grid tuning for tablets.
