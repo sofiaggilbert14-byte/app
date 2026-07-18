@@ -11,7 +11,6 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import dayjs from "dayjs";
 import { colors, fonts, radius, spacing } from "@/src/theme";
 import { useStore } from "@/src/store";
 import { Channel } from "@/src/api";
@@ -30,8 +29,6 @@ export default function GuideScreen() {
     error,
     refresh,
     hardRefresh,
-    selectedDate,
-    setSelectedDate,
     addRecent,
     openProgram,
     favorites,
@@ -40,16 +37,6 @@ export default function GuideScreen() {
 
   const [mode, setMode] = useState<"timeline" | "box">("timeline");
   const [group, setGroup] = useState<string>("All");
-
-  const days = useMemo(() => {
-    return Array.from({ length: 7 }).map((_, i) => {
-      const d = dayjs().add(i, "day");
-      return {
-        value: d.format("YYYY-MM-DD"),
-        label: i === 0 ? "Today" : d.format("ddd D"),
-      };
-    });
-  }, []);
 
   const groups = useMemo(() => {
     const set = new Set<string>();
@@ -105,36 +92,6 @@ export default function GuideScreen() {
             </Pressable>
           </View>
         </View>
-      </View>
-
-      <View style={styles.dateRowWrap}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.dateRow}
-        >
-          {days.map((d) => {
-            const active = selectedDate === d.value;
-            return (
-              <Pressable
-                key={d.value}
-                onPress={() => {
-                  Haptics.selectionAsync();
-                  setSelectedDate(d.value);
-                }}
-                style={[styles.dateChip, active && styles.dateChipActive]}
-                testID={`date-${d.value}`}
-              >
-                <Ionicons
-                  name="calendar-outline"
-                  size={13}
-                  color={active ? "#fff" : colors.onSurfaceTertiary}
-                />
-                <Text style={[styles.dateText, active && styles.dateTextActive]}>{d.label}</Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
       </View>
 
       <View style={styles.chipRowWrap}>
@@ -234,23 +191,6 @@ const styles = StyleSheet.create({
   toggleActive: { backgroundColor: colors.brand },
   chipRowWrap: { height: 56, justifyContent: "center" },
   chipRow: { gap: spacing.sm, paddingHorizontal: spacing.lg, alignItems: "center" },
-  dateRowWrap: { height: 44, justifyContent: "center" },
-  dateRow: { gap: spacing.sm, paddingHorizontal: spacing.lg, alignItems: "center" },
-  dateChip: {
-    height: 32,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.pill,
-    backgroundColor: colors.surfaceSecondary,
-    borderWidth: 1,
-    borderColor: colors.border,
-    flexShrink: 0,
-  },
-  dateChipActive: { backgroundColor: colors.brand, borderColor: colors.brand },
-  dateText: { color: colors.onSurfaceTertiary, fontFamily: fonts.medium, fontSize: 12 },
-  dateTextActive: { color: "#fff" },
   chip: {
     height: 36,
     paddingHorizontal: spacing.lg,

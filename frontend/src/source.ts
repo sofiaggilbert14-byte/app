@@ -8,8 +8,8 @@ import type { Channel, Program, GuideResponse, SourceStatus } from "@/src/api";
 export const SOURCE_M3U = "https://m3u4u.com/m3u/jwmzn1grpmu99585n721";
 export const SOURCE_EPG = "https://m3u4u.com/xml/jwmzn1grpmu99585n721";
 
-const CACHE_KEY = "gs_source_cache_v1";
-const TTL_MS = 30 * 60 * 1000;
+const CACHE_KEY = "gs_source_cache_v2";
+const TTL_MS = 24 * 60 * 60 * 1000; // refresh at most once a day
 const EXTINF_ATTR = /([a-zA-Z0-9-]+)="([^"]*)"/g;
 
 type Parsed = {
@@ -175,6 +175,8 @@ async function doFetchParse(): Promise<Parsed> {
   for (const c of channels) {
     if (!c.logo && c.tvg_id && icons[c.tvg_id]) c.logo = icons[c.tvg_id];
   }
+  // Present channels alphabetically (A→Z) everywhere in the app.
+  channels.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
   const parsed: Parsed = { ts: Date.now(), channels, programs };
   MEM = parsed;
   if (Platform.OS !== "web") {

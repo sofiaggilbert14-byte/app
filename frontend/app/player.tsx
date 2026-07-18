@@ -92,6 +92,18 @@ export default function PlayerScreen() {
     });
   };
 
+  const stopAndExit = async () => {
+    Haptics.selectionAsync();
+    if (Platform.OS !== "web") {
+      try {
+        await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+        await ScreenOrientation.unlockAsync();
+      } catch {}
+    }
+    // Leaving the screen unmounts <StreamPlayer/>, which stops the stream.
+    router.back();
+  };
+
   const { current, next } = nowNext(channel?.programs, new Date());
 
   return (
@@ -135,6 +147,12 @@ export default function PlayerScreen() {
 
       {controls && (
         <>
+          {status === "playing" && (
+            <Pressable style={styles.stopBtn} onPress={stopAndExit} testID="player-stop-btn">
+              <Ionicons name="stop" size={24} color="#fff" />
+              <Text style={styles.stopText}>Stop</Text>
+            </Pressable>
+          )}
           <LinearGradient
             colors={["rgba(0,0,0,0.85)", "transparent"]}
             style={[styles.topScrim, { paddingTop: insets.top + spacing.sm }]}
@@ -198,6 +216,20 @@ const styles = StyleSheet.create({
   },
   retryBtn: { backgroundColor: colors.brand, paddingHorizontal: spacing.xl, paddingVertical: spacing.md, borderRadius: radius.md },
   retryText: { color: "#fff", fontFamily: fonts.semibold },
+  stopBtn: {
+    position: "absolute",
+    alignSelf: "center",
+    top: "44%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.error,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.md,
+    borderRadius: radius.pill,
+    zIndex: 10,
+  },
+  stopText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 15 },
   topScrim: {
     position: "absolute",
     top: 0,

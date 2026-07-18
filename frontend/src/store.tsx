@@ -121,13 +121,11 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setRecent((await storage.getItem<Channel[]>(RECENT_KEY, [])) || []);
       setReminders((await storage.getItem<Reminder[]>(REM_KEY, [])) || []);
       requestNotificationPermission();
-      // First paint from cache (fast) if available; otherwise this fetches.
+      // Loads instantly from the on-device cache when it's < 24h old; otherwise
+      // fetches & parses once. No network hit on every launch — the source is
+      // auto-refreshed at most once a day (see TTL in source.ts). Manual refresh
+      // and pull-to-refresh still force a fresh fetch.
       await refresh();
-      // Refresh the source lineup in the BACKGROUND (non-blocking) so added /
-      // removed channels get picked up without slowing down the launch.
-      refreshSource()
-        .then(() => refresh(true))
-        .catch(() => {});
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
