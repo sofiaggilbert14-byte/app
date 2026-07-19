@@ -10,7 +10,7 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.emergent.iptvplayerguide.ad7cld"
+      "bundleIdentifier": "com.charmiptv.app"
     },
     "android": {
       "adaptiveIcon": {
