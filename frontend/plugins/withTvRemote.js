@@ -39,7 +39,7 @@ class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBas
 
   @ReactMethod
   fun tap(x: Double, y: Double) {
-    val activity = currentActivity ?: return
+    val activity = ctx.getCurrentActivity() ?: return
     activity.runOnUiThread {
       try {
         val root = activity.window.decorView
