@@ -62,7 +62,7 @@ export default function GuideScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <View style={styles.headerActions}>
-          <Pressable style={({ focused }: any) => [styles.iconBtn, focused && styles.focusRing]} onPress={() => refresh()} testID="guide-refresh-btn">
+          <Pressable style={({ focused }: any) => [styles.iconBtn, focused && styles.focusRing]} onPress={() => hardRefresh()} testID="guide-refresh-btn">
             <Ionicons name="refresh" size={18} color={colors.onSurface} />
           </Pressable>
           <View style={styles.toggle}>
