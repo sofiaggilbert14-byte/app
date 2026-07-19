@@ -180,7 +180,7 @@ export function TimelineGrid({
           channels={channels}
           onSelect={(i) => {
             try {
-              listRef.current?.scrollToIndex({ index: i, animated: true });
+              listRef.current?.scrollToIndex({ index: i, animated: true, viewPosition: 0 });
             } catch {}
           }}
         />
