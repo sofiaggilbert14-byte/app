@@ -7,6 +7,7 @@ import dayjs from "dayjs";
 import { colors, fonts, radius, spacing } from "@/src/theme";
 import { useStore } from "@/src/store";
 import { reminderKey } from "@/src/utils/time";
+import { FocusGuide } from "@/src/components/TVFocusGuideView";
 
 export function ProgramModal() {
   const { activeProgram, closeProgram, addReminder, removeReminder, hasReminder } = useStore();
@@ -52,7 +53,12 @@ export function ProgramModal() {
         <Pressable style={styles.card} onPress={() => {}}>
           <View style={styles.header}>
             <Text style={styles.channel}>{channel.name}</Text>
-            <Pressable onPress={closeProgram} hitSlop={10} testID="program-modal-close">
+            <Pressable
+              style={({ focused }: any) => [styles.closeBtn, focused && styles.btnFocused]}
+              onPress={closeProgram}
+              hitSlop={10}
+              testID="program-modal-close"
+            >
               <Ionicons name="close" size={22} color={colors.onSurfaceTertiary} />
             </Pressable>
           </View>
@@ -71,14 +77,24 @@ export function ProgramModal() {
 
           {msg && <Text style={styles.msg}>{msg}</Text>}
 
-          <View style={styles.actions}>
-            <Pressable style={[styles.btn, styles.watchBtn]} onPress={watch} testID="program-watch-btn">
+          <FocusGuide autoFocus style={styles.actions}>
+            <Pressable
+              style={({ focused }: any) => [styles.btn, styles.watchBtn, focused && styles.btnFocused]}
+              hasTVPreferredFocus
+              onPress={watch}
+              testID="program-watch-btn"
+            >
               <Ionicons name="play" size={16} color="#fff" />
               <Text style={styles.watchText}>Watch now</Text>
             </Pressable>
             {isFuture && (
               <Pressable
-                style={[styles.btn, styles.remindBtn, reminded && styles.remindActive]}
+                style={({ focused }: any) => [
+                  styles.btn,
+                  styles.remindBtn,
+                  reminded && styles.remindActive,
+                  focused && styles.btnFocused,
+                ]}
                 onPress={onReminder}
                 testID="program-reminder-btn"
               >
@@ -92,7 +108,7 @@ export function ProgramModal() {
                 </Text>
               </Pressable>
             )}
-          </View>
+          </FocusGuide>
         </Pressable>
       </Pressable>
     </Modal>
@@ -123,6 +139,8 @@ const styles = StyleSheet.create({
   desc: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 13, lineHeight: 19, marginTop: 4 },
   msg: { color: colors.success, fontFamily: fonts.medium, fontSize: 12, marginTop: 4 },
   actions: { flexDirection: "row", gap: spacing.md, marginTop: spacing.md },
+  closeBtn: { padding: 4, borderRadius: radius.sm },
+  btnFocused: { borderWidth: 2, borderColor: "#fff" },
   btn: {
     flexDirection: "row",
     alignItems: "center",

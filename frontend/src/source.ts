@@ -1,6 +1,5 @@
 import dayjs from "dayjs";
 import { Platform } from "react-native";
-import { XMLParser } from "fast-xml-parser";
 import { storage } from "@/src/utils/storage";
 import type { Channel, Program, GuideResponse, SourceStatus } from "@/src/api";
 
@@ -99,12 +98,27 @@ function parseM3U(text: string): Channel[] {
   return channels;
 }
 
-function nodeText(v: any): string {
-  if (v == null) return "";
-  if (typeof v === "string") return v;
-  if (Array.isArray(v)) return nodeText(v[0]);
-  if (typeof v === "object") return v["#text"] != null ? String(v["#text"]) : "";
-  return String(v);
+const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
+function decodeEntities(s: string): string {
+  if (s.indexOf("&") === -1) return s;
+  return s.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (_m, e: string) => {
+    if (e[0] === "#") {
+      const code = e[1] === "x" || e[1] === "X" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+      return isNaN(code) ? _m : String.fromCodePoint(code);
+    }
+    return ENTITIES[e] ?? _m;
+  });
+}
+function xmlAttr(head: string, name: string): string {
+  const m = head.match(new RegExp(`\\b${name}="([^"]*)"`));
+  return m ? m[1] : "";
+}
+function xmlFirstTag(body: string, name: string): string {
+  const m = body.match(new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)</${name}>`));
+  return m ? decodeEntities(m[1].trim()) : "";
+}
+function nextTick(): Promise<void> {
+  return new Promise((r) => setTimeout(r, 0));
 }
 
 function parseXmltvTime(s: string): string | null {
@@ -119,47 +133,51 @@ function parseXmltvTime(s: string): string | null {
   return dt.isValid() ? dt.toISOString() : null;
 }
 
-function parseXMLTV(xml: string): { icons: Record<string, string>; programs: Record<string, Program[]> } {
+// Chunked, regex-based XMLTV parser. Avoids building a full XML DOM (the old
+// fast-xml-parser DOM build blocked the JS thread for seconds on 600+ channel
+// guides) and yields to the event loop every batch so the UI never freezes.
+async function parseXMLTV(
+  xml: string,
+): Promise<{ icons: Record<string, string>; programs: Record<string, Program[]> }> {
   const icons: Record<string, string> = {};
   const programs: Record<string, Program[]> = {};
-  const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@_" });
-  let doc: any;
-  try {
-    doc = parser.parse(xml);
-  } catch {
-    return { icons, programs };
-  }
-  const tv = doc?.tv || {};
-  let chans = tv.channel || [];
-  if (!Array.isArray(chans)) chans = [chans];
-  for (const ch of chans) {
-    const id = ch?.["@_id"];
+
+  // Channel icons (small list) — quick synchronous pass.
+  const chanRe = /<channel\b([^>]*)>([\s\S]*?)<\/channel>/g;
+  let cm: RegExpExecArray | null;
+  while ((cm = chanRe.exec(xml))) {
+    const id = xmlAttr(cm[1], "id");
     if (!id) continue;
-    let icon = ch.icon;
-    if (Array.isArray(icon)) icon = icon[0];
-    const src = icon?.["@_src"];
-    if (src) icons[id] = https(src);
+    const src = cm[2].match(/<icon\b[^>]*\bsrc="([^"]*)"/);
+    if (src) icons[id] = https(src[1]);
   }
-  let progs = tv.programme || [];
-  if (!Array.isArray(progs)) progs = [progs];
+
   // Keep only a useful window (past 6h → next 2 days) so low-power TV boxes
   // don't build/hold tens of thousands of program objects.
   const minStop = Date.now() - 6 * 3600 * 1000;
   const maxStart = Date.now() + 2 * 24 * 3600 * 1000;
-  for (const p of progs) {
-    const cid = p?.["@_channel"];
-    const start = parseXmltvTime(p?.["@_start"]);
-    if (!cid || !start) continue;
-    const stop = parseXmltvTime(p?.["@_stop"]);
-    if (Date.parse(start) > maxStart) continue;
-    if (stop && Date.parse(stop) < minStop) continue;
-    (programs[cid] = programs[cid] || []).push({
-      title: nodeText(p.title) || "No Title",
-      desc: nodeText(p.desc),
-      category: nodeText(p.category),
-      start,
-      stop,
-    });
+  const progRe = /<programme\b([^>]*)>([\s\S]*?)<\/programme>/g;
+  let pm: RegExpExecArray | null;
+  let seen = 0;
+  while ((pm = progRe.exec(xml))) {
+    const head = pm[1];
+    const cid = xmlAttr(head, "channel");
+    const start = parseXmltvTime(xmlAttr(head, "start"));
+    if (cid && start && Date.parse(start) <= maxStart) {
+      const stop = parseXmltvTime(xmlAttr(head, "stop"));
+      if (!(stop && Date.parse(stop) < minStop)) {
+        const body = pm[2];
+        (programs[cid] = programs[cid] || []).push({
+          title: xmlFirstTag(body, "title") || "No Title",
+          desc: xmlFirstTag(body, "desc"),
+          category: xmlFirstTag(body, "category"),
+          start,
+          stop,
+        });
+      }
+    }
+    // Yield to the UI thread periodically so parsing never freezes the app.
+    if (++seen % 1000 === 0) await nextTick();
   }
   for (const cid in programs) programs[cid].sort((a, b) => a.start.localeCompare(b.start));
   return { icons, programs };
@@ -195,7 +213,7 @@ async function loadEpg(channels: Channel[]) {
   epgLoading = true;
   try {
     const epgText = await fetchText(SOURCE_EPG, 45000);
-    const { icons, programs } = parseXMLTV(epgText);
+    const { icons, programs } = await parseXMLTV(epgText);
     for (const c of channels) {
       if (!c.logo && c.tvg_id && icons[c.tvg_id]) c.logo = icons[c.tvg_id];
     }
@@ -250,13 +268,16 @@ async function ensureParsed(force: boolean): Promise<Parsed> {
   }
 }
 
-function windowPrograms(list: Program[] | undefined, start: dayjs.Dayjs, end: dayjs.Dayjs): Program[] {
+function windowPrograms(list: Program[] | undefined, startMs: number, endMs: number): Program[] {
   if (!list) return [];
-  return list.filter((p) => {
-    const ps = dayjs(p.start);
-    const pe = p.stop ? dayjs(p.stop) : ps.add(30, "minute");
-    return pe.isAfter(start) && ps.isBefore(end);
-  });
+  const out: Program[] = [];
+  for (let i = 0; i < list.length; i++) {
+    const p = list[i];
+    const ps = Date.parse(p.start);
+    const pe = p.stop ? Date.parse(p.stop) : ps + 30 * 60 * 1000;
+    if (pe > startMs && ps < endMs) out.push(p);
+  }
+  return out;
 }
 
 export async function loadGuide(startISO?: string, hours = 12, force = false): Promise<GuideResponse> {
@@ -264,9 +285,11 @@ export async function loadGuide(startISO?: string, hours = 12, force = false): P
   const now = dayjs();
   const winStart = startISO ? dayjs(startISO) : now.subtract(1, "hour");
   const winEnd = winStart.add(hours, "hour");
+  const winStartMs = winStart.valueOf();
+  const winEndMs = winEnd.valueOf();
   const channels = parsed.channels.map((c) => ({
     ...c,
-    programs: windowPrograms(parsed.programs[c.tvg_id], winStart, winEnd),
+    programs: windowPrograms(parsed.programs[c.tvg_id], winStartMs, winEndMs),
   }));
   return {
     start: winStart.toISOString(),

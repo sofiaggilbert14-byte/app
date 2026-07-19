@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   Pressable,
-  ActivityIndicator,
   FlatList,
   Platform,
   StatusBar as RNStatusBar,
@@ -21,6 +20,7 @@ import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { StreamPlayer, StreamStatus, vlcAvailable } from "@/src/components/StreamPlayer";
 import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { nowNext, fmtTime } from "@/src/utils/time";
+import { addTvKeyListener } from "@/src/utils/tvRemote";
 
 export default function PlayerScreen() {
   const insets = useSafeAreaInsets();
@@ -96,17 +96,32 @@ export default function PlayerScreen() {
   };
 
   const scheduleHide = () => {
-    if (isTV) return; // keep controls reachable by the D-pad on TV
     if (hideTimer.current) clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(() => setControls(false), 4500);
+    hideTimer.current = setTimeout(() => setControls(false), 4000);
   };
 
+  // Auto-hide the controls (incl. the bottom channel list) once the stream is
+  // actually playing, so nothing blocks the video — on mobile AND TV. Tap the
+  // screen (mobile) or press any remote key (TV) to bring them back.
   useEffect(() => {
-    scheduleHide();
+    if (status === "playing") scheduleHide();
     return () => {
       if (hideTimer.current) clearTimeout(hideTimer.current);
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
+
+  // On TV, any D-pad / remote key reveals the controls again, then re-arms the
+  // auto-hide. Uses native TvRemoteKey events from the withTvRemote plugin.
+  useEffect(() => {
+    if (!isTV) return;
+    const unsub = addTvKeyListener(() => {
+      setControls(true);
+      scheduleHide();
+    });
+    return unsub;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTV]);
 
   const toggleControls = () => {
     setControls((v) => {
@@ -146,11 +161,6 @@ export default function PlayerScreen() {
 
       <Pressable style={StyleSheet.absoluteFill} focusable={!isTV} onPress={toggleControls} testID="player-surface" />
 
-      {hasStream && status === "loading" && (
-        <View style={[styles.centerOverlay, { pointerEvents: "none" }]}>
-          <ActivityIndicator color={colors.brand} size="large" />
-        </View>
-      )}
       {(!hasStream || status === "error") && (
         <View style={styles.centerOverlay}>
           <Ionicons name="warning-outline" size={40} color={colors.onSurfaceTertiary} />
