@@ -1,7 +1,34 @@
+import React, { useState } from "react";
+import { Pressable } from "react-native";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { colors, fonts } from "@/src/theme";
+
+// Custom tab button that highlights when focused by a TV remote's D-pad.
+function TabBarButton({ style, children, onFocus, onBlur, ...rest }: any) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <Pressable
+      {...rest}
+      onFocus={(e) => {
+        setFocused(true);
+        onFocus?.(e);
+      }}
+      onBlur={(e) => {
+        setFocused(false);
+        onBlur?.(e);
+      }}
+      style={[
+        style,
+        { alignItems: "center", justifyContent: "center" },
+        focused && { backgroundColor: colors.brandTertiary, borderRadius: 10, borderWidth: 2, borderColor: "#fff" },
+      ]}
+    >
+      {children}
+    </Pressable>
+  );
+}
 
 export default function TabsLayout() {
   return (
@@ -13,6 +40,7 @@ export default function TabsLayout() {
         headerShown: false,
         tabBarActiveTintColor: colors.brand,
         tabBarInactiveTintColor: colors.onSurfaceTertiary,
+        tabBarButton: (props) => <TabBarButton {...props} />,
         tabBarStyle: {
           backgroundColor: colors.surfaceSecondary,
           borderTopColor: colors.border,

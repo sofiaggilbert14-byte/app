@@ -2,7 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import dayjs from "dayjs";
 import { storage } from "@/src/utils/storage";
 import { Channel, Program } from "@/src/api";
-import { loadGuide, refreshSource } from "@/src/source";
+import { loadGuide, refreshSource, subscribeSource } from "@/src/source";
 import { reminderKey } from "@/src/utils/time";
 import {
   cancelReminder,
@@ -129,6 +129,10 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Re-paint when the source finishes its staged load (channels first, then EPG)
+  // or after a background refresh — reads from the in-memory cache, no network.
+  useEffect(() => subscribeSource(() => refresh(true)), [refresh]);
 
   const channelById = useCallback((id: string) => channels.find((c) => c.id === id), [channels]);
 

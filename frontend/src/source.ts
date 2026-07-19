@@ -142,11 +142,17 @@ function parseXMLTV(xml: string): { icons: Record<string, string>; programs: Rec
   }
   let progs = tv.programme || [];
   if (!Array.isArray(progs)) progs = [progs];
+  // Keep only a useful window (past 6h → next 2 days) so low-power TV boxes
+  // don't build/hold tens of thousands of program objects.
+  const minStop = Date.now() - 6 * 3600 * 1000;
+  const maxStart = Date.now() + 2 * 24 * 3600 * 1000;
   for (const p of progs) {
     const cid = p?.["@_channel"];
     const start = parseXmltvTime(p?.["@_start"]);
     if (!cid || !start) continue;
     const stop = parseXmltvTime(p?.["@_stop"]);
+    if (Date.parse(start) > maxStart) continue;
+    if (stop && Date.parse(stop) < minStop) continue;
     (programs[cid] = programs[cid] || []).push({
       title: nodeText(p.title) || "No Title",
       desc: nodeText(p.desc),
@@ -159,42 +165,80 @@ function parseXMLTV(xml: string): { icons: Record<string, string>; programs: Rec
   return { icons, programs };
 }
 
-async function doFetchParse(): Promise<Parsed> {
-  const m3uText = await fetchText(SOURCE_M3U);
-  const channels = parseM3U(m3uText);
-  let icons: Record<string, string> = {};
-  let programs: Record<string, Program[]> = {};
+// UI subscribers (the store) get notified when channels first appear and again
+// when the background EPG parse finishes.
+let listeners: Array<() => void> = [];
+export function subscribeSource(fn: () => void): () => void {
+  listeners.push(fn);
+  return () => {
+    listeners = listeners.filter((l) => l !== fn);
+  };
+}
+function emit() {
+  listeners.forEach((l) => {
+    try {
+      l();
+    } catch {}
+  });
+}
+
+async function persist() {
+  if (Platform.OS === "web" || !MEM) return;
+  try {
+    await storage.setItem(CACHE_KEY, MEM);
+  } catch {}
+}
+
+let epgLoading = false;
+async function loadEpg(channels: Channel[]) {
+  if (epgLoading) return;
+  epgLoading = true;
   try {
     const epgText = await fetchText(SOURCE_EPG, 45000);
-    const parsed = parseXMLTV(epgText);
-    icons = parsed.icons;
-    programs = parsed.programs;
-  } catch {
-    // EPG optional — channels still work without it
-  }
-  for (const c of channels) {
-    if (!c.logo && c.tvg_id && icons[c.tvg_id]) c.logo = icons[c.tvg_id];
-  }
-  // Present channels alphabetically (A→Z) everywhere in the app.
-  channels.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
-  const parsed: Parsed = { ts: Date.now(), channels, programs };
-  MEM = parsed;
-  if (Platform.OS !== "web") {
-    try {
-      await storage.setItem(CACHE_KEY, parsed);
-    } catch {
-      // cache is best-effort
+    const { icons, programs } = parseXMLTV(epgText);
+    for (const c of channels) {
+      if (!c.logo && c.tvg_id && icons[c.tvg_id]) c.logo = icons[c.tvg_id];
     }
+    MEM = { ts: Date.now(), channels, programs };
+    await persist();
+    emit();
+  } catch {
+    // EPG optional — channels remain usable without it
+  } finally {
+    epgLoading = false;
   }
-  return parsed;
+}
+
+function maybeLoadEpg() {
+  if (MEM && MEM.channels.length && Object.keys(MEM.programs).length === 0) {
+    loadEpg(MEM.channels);
+  }
+}
+
+async function doFetchParse(): Promise<Parsed> {
+  // Stage 1 (fast): parse the small M3U so the guide paints immediately, even
+  // on low-power Android TV / Firestick boxes.
+  const m3uText = await fetchText(SOURCE_M3U);
+  const channels = parseM3U(m3uText);
+  channels.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+  MEM = { ts: Date.now(), channels, programs: MEM?.programs || {} };
+  await persist();
+  emit();
+  // Stage 2 (slower): parse the large EPG in the background, then notify.
+  loadEpg(channels);
+  return MEM;
 }
 
 async function ensureParsed(force: boolean): Promise<Parsed> {
-  if (!force && MEM && Date.now() - MEM.ts < TTL_MS) return MEM;
+  if (!force && MEM && Date.now() - MEM.ts < TTL_MS) {
+    maybeLoadEpg();
+    return MEM;
+  }
   if (!force && !MEM) {
     const cached = await storage.getItem<Parsed>(CACHE_KEY, null as any);
     if (cached && cached.channels?.length) {
       MEM = cached;
+      maybeLoadEpg();
       if (Date.now() - cached.ts < TTL_MS) return cached;
     }
   }

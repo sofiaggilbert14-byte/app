@@ -64,13 +64,13 @@ export default function GuideScreen() {
           <Text style={styles.title}>TV Guide</Text>
         </View>
         <View style={styles.headerActions}>
-          <Pressable style={styles.iconBtn} onPress={() => refresh()} testID="guide-refresh-btn">
+          <Pressable style={({ focused }: any) => [styles.iconBtn, focused && styles.focusRing]} onPress={() => refresh()} testID="guide-refresh-btn">
             <Ionicons name="refresh" size={18} color={colors.onSurface} />
           </Pressable>
           <View style={styles.toggle}>
             <Pressable
               onPress={() => setMode("timeline")}
-              style={[styles.toggleBtn, mode === "timeline" && styles.toggleActive]}
+              style={({ focused }: any) => [styles.toggleBtn, mode === "timeline" && styles.toggleActive, focused && styles.focusRing]}
               testID="mode-timeline-btn"
             >
               <Ionicons
@@ -81,7 +81,7 @@ export default function GuideScreen() {
             </Pressable>
             <Pressable
               onPress={() => setMode("box")}
-              style={[styles.toggleBtn, mode === "box" && styles.toggleActive]}
+              style={({ focused }: any) => [styles.toggleBtn, mode === "box" && styles.toggleActive, focused && styles.focusRing]}
               testID="mode-box-btn"
             >
               <Ionicons
@@ -104,7 +104,7 @@ export default function GuideScreen() {
             <Pressable
               key={g}
               onPress={() => setGroup(g)}
-              style={[styles.chip, group === g && styles.chipActive]}
+              style={({ focused }: any) => [styles.chip, group === g && styles.chipActive, focused && styles.chipFocused]}
               testID={`chip-${g}`}
             >
               <Text style={[styles.chipText, group === g && styles.chipTextActive]}>{g}</Text>
@@ -203,6 +203,8 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   chipActive: { backgroundColor: colors.brandTertiary, borderColor: colors.brand },
+  chipFocused: { borderColor: "#fff", borderWidth: 2 },
+  focusRing: { borderColor: "#fff", borderWidth: 2 },
   chipText: { color: colors.onSurfaceTertiary, fontFamily: fonts.medium, fontSize: 13 },
   chipTextActive: { color: colors.onBrandTertiary },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.md, padding: spacing.xl },

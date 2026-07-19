@@ -76,7 +76,7 @@ export default function SettingsScreen() {
               {status.error ? <Text style={styles.errText}>Error: {status.error}</Text> : null}
             </>
           )}
-          <Pressable style={styles.primaryBtn} onPress={doRefresh} disabled={busy} testID="settings-refresh-btn">
+          <Pressable style={({ focused }: any) => [styles.primaryBtn, focused && styles.focusRing]} onPress={doRefresh} disabled={busy} testID="settings-refresh-btn">
             {busy ? (
               <ActivityIndicator color="#fff" />
             ) : (
@@ -146,4 +146,5 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   primaryText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 14 },
+  focusRing: { borderWidth: 2, borderColor: "#fff" },
 });

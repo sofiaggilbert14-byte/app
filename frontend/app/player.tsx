@@ -19,6 +19,7 @@ import { colors, fonts, radius, spacing } from "@/src/theme";
 import { useStore } from "@/src/store";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { StreamPlayer, StreamStatus, vlcAvailable } from "@/src/components/StreamPlayer";
+import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { nowNext, fmtTime } from "@/src/utils/time";
 
 export default function PlayerScreen() {
@@ -29,19 +30,40 @@ export default function PlayerScreen() {
 
   const [channelId, setChannelId] = useState(params.channelId);
   const channel = useMemo(() => channelById(channelId), [channelId, channelById]);
+  const hasStream = !!channel?.url;
   const [controls, setControls] = useState(true);
   const [status, setStatus] = useState<StreamStatus>("loading");
   const [retryToken, setRetryToken] = useState(0);
   const [fullscreen, setFullscreen] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Allow the device to rotate freely while watching; restore on exit.
+  // TVs are fixed landscape and reject runtime orientation locking (throws
+  // ERR_SCREEN_ORIENTATION_UNSUPPORTED_ORIENTATION_LOCK → crash). Only rotate
+  // on real handheld devices.
+  const isTV = Platform.OS !== "web" && Platform.isTV;
+  const canRotate = Platform.OS !== "web" && !Platform.isTV;
+
+  // Auto-rotate handheld devices to landscape so the video plays full-screen
+  // with the correct aspect ratio; restore portrait on exit. The lock is
+  // delayed until AFTER the screen-transition animation — locking during the
+  // transition is a known crash trigger on some devices.
   useEffect(() => {
-    if (Platform.OS === "web") return;
-    ScreenOrientation.unlockAsync().catch(() => {});
+    if (!canRotate) return;
+    const t = setTimeout(() => {
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE)
+        .then(() => setFullscreen(true))
+        .catch(() => {});
+    }, 400);
     return () => {
-      ScreenOrientation.unlockAsync().catch(() => {});
+      clearTimeout(t);
+      (async () => {
+        try {
+          await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+          await ScreenOrientation.unlockAsync();
+        } catch {}
+      })();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const toggleFullscreen = async () => {
@@ -51,6 +73,7 @@ export default function PlayerScreen() {
       setFullscreen((v) => !v);
       return;
     }
+    if (!canRotate) return; // TV: always full-screen, nothing to toggle
     try {
       if (!fullscreen) {
         await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
@@ -73,6 +96,7 @@ export default function PlayerScreen() {
   };
 
   const scheduleHide = () => {
+    if (isTV) return; // keep controls reachable by the D-pad on TV
     if (hideTimer.current) clearTimeout(hideTimer.current);
     hideTimer.current = setTimeout(() => setControls(false), 4500);
   };
@@ -94,7 +118,7 @@ export default function PlayerScreen() {
 
   const stopAndExit = async () => {
     Haptics.selectionAsync();
-    if (Platform.OS !== "web") {
+    if (canRotate) {
       try {
         await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
         await ScreenOrientation.unlockAsync();
@@ -109,46 +133,57 @@ export default function PlayerScreen() {
   return (
     <View style={styles.container}>
       <RNStatusBar hidden />
-      <StreamPlayer
-        key={`${channelId}-${retryToken}`}
-        uri={channel?.url || ""}
-        onStatus={setStatus}
-        style={StyleSheet.absoluteFill}
-      />
+      {hasStream && (
+        <ErrorBoundary fallback={() => null}>
+          <StreamPlayer
+            key={`${channelId}-${retryToken}`}
+            uri={channel?.url || ""}
+            onStatus={setStatus}
+            style={StyleSheet.absoluteFill}
+          />
+        </ErrorBoundary>
+      )}
 
-      <Pressable style={StyleSheet.absoluteFill} onPress={toggleControls} testID="player-surface" />
+      <Pressable style={StyleSheet.absoluteFill} focusable={!isTV} onPress={toggleControls} testID="player-surface" />
 
-      {status === "loading" && (
+      {hasStream && status === "loading" && (
         <View style={[styles.centerOverlay, { pointerEvents: "none" }]}>
           <ActivityIndicator color={colors.brand} size="large" />
         </View>
       )}
-      {status === "error" && (
+      {(!hasStream || status === "error") && (
         <View style={styles.centerOverlay}>
           <Ionicons name="warning-outline" size={40} color={colors.onSurfaceTertiary} />
-          <Text style={styles.errText}>Unable to play this stream</Text>
-          {!vlcAvailable && (
+          <Text style={styles.errText}>{hasStream ? "Unable to play this stream" : "This channel has no stream"}</Text>
+          {hasStream && !vlcAvailable && (
             <Text style={styles.errHint}>
               Live playback needs the installed app build — not the Expo Go preview.
             </Text>
           )}
-          <Pressable
-            style={styles.retryBtn}
-            onPress={() => {
-              setStatus("loading");
-              setRetryToken((t) => t + 1);
-            }}
-            testID="player-retry-btn"
-          >
-            <Text style={styles.retryText}>Retry Source</Text>
-          </Pressable>
+          {hasStream && (
+            <Pressable
+              style={({ focused }: any) => [styles.retryBtn, focused && styles.ctrlFocused]}
+              onPress={() => {
+                setStatus("loading");
+                setRetryToken((t) => t + 1);
+              }}
+              testID="player-retry-btn"
+            >
+              <Text style={styles.retryText}>Retry Source</Text>
+            </Pressable>
+          )}
         </View>
       )}
 
       {controls && (
         <>
           {status === "playing" && (
-            <Pressable style={styles.stopBtn} onPress={stopAndExit} testID="player-stop-btn">
+            <Pressable
+              style={({ focused }: any) => [styles.stopBtn, focused && styles.stopFocused]}
+              hasTVPreferredFocus
+              onPress={stopAndExit}
+              testID="player-stop-btn"
+            >
               <Ionicons name="stop" size={24} color="#fff" />
               <Text style={styles.stopText}>Stop</Text>
             </Pressable>
@@ -157,7 +192,11 @@ export default function PlayerScreen() {
             colors={["rgba(0,0,0,0.85)", "transparent"]}
             style={[styles.topScrim, { paddingTop: insets.top + spacing.sm }]}
           >
-            <Pressable style={styles.backBtn} onPress={() => router.back()} testID="player-back-btn">
+            <Pressable
+              style={({ focused }: any) => [styles.backBtn, focused && styles.ctrlFocused]}
+              onPress={() => router.back()}
+              testID="player-back-btn"
+            >
               <Ionicons name="chevron-back" size={26} color="#fff" />
             </Pressable>
             <View style={{ flex: 1 }}>
@@ -169,9 +208,15 @@ export default function PlayerScreen() {
                 </Text>
               )}
             </View>
-            <Pressable style={styles.fsBtn} onPress={toggleFullscreen} testID="player-fullscreen-btn">
-              <Ionicons name={fullscreen ? "contract" : "expand"} size={22} color="#fff" />
-            </Pressable>
+            {!isTV && (
+              <Pressable
+                style={({ focused }: any) => [styles.fsBtn, focused && styles.ctrlFocused]}
+                onPress={toggleFullscreen}
+                testID="player-fullscreen-btn"
+              >
+                <Ionicons name={fullscreen ? "contract" : "expand"} size={22} color="#fff" />
+              </Pressable>
+            )}
           </LinearGradient>
 
           <LinearGradient
@@ -184,11 +229,19 @@ export default function PlayerScreen() {
               horizontal
               showsHorizontalScrollIndicator={false}
               keyExtractor={(c) => c.id}
+              initialNumToRender={8}
+              maxToRenderPerBatch={8}
+              windowSize={5}
+              removeClippedSubviews
               contentContainerStyle={{ gap: spacing.md, paddingHorizontal: spacing.lg }}
               renderItem={({ item }) => (
                 <Pressable
                   onPress={() => surf(item.id)}
-                  style={[styles.surfItem, item.id === channelId && styles.surfActive]}
+                  style={({ focused }: any) => [
+                    styles.surfItem,
+                    item.id === channelId && styles.surfActive,
+                    focused && styles.surfFocused,
+                  ]}
                   testID={`surf-${item.id}`}
                 >
                   <ChannelLogo name={item.name} logo={item.logo} size={44} />
@@ -230,6 +283,9 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   stopText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 15 },
+  stopFocused: { borderWidth: 3, borderColor: "#fff" },
+  ctrlFocused: { borderWidth: 2, borderColor: "#fff", borderRadius: radius.sm, backgroundColor: "rgba(255,255,255,0.15)" },
+  surfFocused: { borderWidth: 2, borderColor: "#fff", borderRadius: radius.sm, backgroundColor: "rgba(255,255,255,0.15)" },
   topScrim: {
     position: "absolute",
     top: 0,

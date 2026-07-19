@@ -11,6 +11,7 @@ import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { useAppFonts } from "@/src/hooks/use-app-fonts";
 import { GuideProvider } from "@/src/store";
 import { ProgramModal } from "@/src/components/ProgramModal";
+import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 
 LogBox.ignoreAllLogs(true);
 SplashScreen.preventAutoHideAsync();
@@ -47,10 +48,12 @@ export default function RootLayout() {
         <GuideProvider>
           <StatusBar style="light" />
           <NotificationRouter />
-          <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#0F0F13" } }}>
-            <Stack.Screen name="(tabs)" />
-            <Stack.Screen name="player" options={{ animation: "fade" }} />
-          </Stack>
+          <ErrorBoundary>
+            <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#0F0F13" } }}>
+              <Stack.Screen name="(tabs)" />
+              <Stack.Screen name="player" options={{ animation: "fade" }} />
+            </Stack>
+          </ErrorBoundary>
           <ProgramModal />
         </GuideProvider>
       </SafeAreaProvider>
