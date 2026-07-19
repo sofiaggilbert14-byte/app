@@ -15,7 +15,7 @@ import dayjs from "dayjs";
 import { colors, fonts, radius, spacing } from "@/src/theme";
 import type { SourceStatus } from "@/src/api";
 import { useStore } from "@/src/store";
-import { sourceStatus, refreshSource } from "@/src/source";
+import { sourceStatus, refreshSource, subscribeSource } from "@/src/source";
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -29,6 +29,8 @@ export default function SettingsScreen() {
 
   useEffect(() => {
     loadStatus();
+    // Keep stats fresh as the staged parse emits (channels first, then EPG).
+    return subscribeSource(loadStatus);
   }, [loadStatus]);
 
   const doRefresh = async () => {
