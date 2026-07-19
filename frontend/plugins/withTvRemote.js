@@ -28,7 +28,10 @@ class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBas
   override fun getName(): String = "TvRemote"
 
   companion object {
-    @JvmStatic
+    // Use @JvmField (a plain static field, no accessors) so Kotlin does NOT
+    // generate a static setPointerActive(...) setter that would clash at the
+    // JVM level with the @ReactMethod fun setPointerActive(...) below.
+    @JvmField
     var pointerActive: Boolean = false
   }
 
