@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef } from "react";
 import { View, Text, StyleSheet, Pressable, useWindowDimensions, RefreshControl } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 import { Ionicons } from "@expo/vector-icons";
@@ -7,6 +7,7 @@ import { Channel, Program } from "@/src/api";
 import { ChannelLogo } from "./ChannelLogo";
 import { nowNext, progressPct, fmtTime } from "@/src/utils/time";
 import { useStore } from "@/src/store";
+import { AZRail } from "./AZRail";
 
 export function BoxGrid({
   channels,
@@ -30,11 +31,14 @@ export function BoxGrid({
   const numColumns = width >= 1200 ? 5 : width >= 900 ? 4 : width >= 600 ? 3 : 2;
   const nowDate = new Date(now);
   const { isFavorite, toggleFavorite } = useStore();
+  const listRef = useRef<FlashList<Channel>>(null);
 
   return (
+    <View style={styles.wrap}>
     <FlashList
       testID="epg-box-grid"
       data={channels}
+      ref={listRef}
       numColumns={numColumns}
       keyExtractor={(c) => c.id}
       drawDistance={2000}
@@ -94,10 +98,20 @@ export function BoxGrid({
         );
       }}
     />
+      <AZRail
+        channels={channels}
+        onSelect={(i) => {
+          try {
+            listRef.current?.scrollToIndex({ index: i, animated: true });
+          } catch {}
+        }}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  wrap: { flex: 1 },
   cell: { flex: 1, padding: spacing.xs },
   card: {
     flex: 1,

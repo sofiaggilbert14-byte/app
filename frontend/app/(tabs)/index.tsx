@@ -16,6 +16,7 @@ import { useStore } from "@/src/store";
 import { Channel } from "@/src/api";
 import { TimelineGrid } from "@/src/components/TimelineGrid";
 import { BoxGrid } from "@/src/components/BoxGrid";
+import { FocusGuide } from "@/src/components/TVFocusGuideView";
 
 export default function GuideScreen() {
   const insets = useSafeAreaInsets();
@@ -127,26 +128,32 @@ export default function GuideScreen() {
           <Ionicons name="tv-outline" size={40} color={colors.onSurfaceTertiary} />
           <Text style={styles.centerText}>No channels here yet</Text>
         </View>
-      ) : mode === "timeline" ? (
-        <TimelineGrid
-          channels={filtered}
-          windowStart={windowStart}
-          windowEnd={windowEnd}
-          now={now}
-          onChannelPress={openChannel}
-          onProgramPress={openProgram}
-          refreshing={refreshing}
-          onRefresh={hardRefresh}
-        />
       ) : (
-        <BoxGrid
-          channels={filtered}
-          now={now}
-          onChannelPress={openChannel}
-          onProgramPress={openProgram}
-          refreshing={refreshing}
-          onRefresh={hardRefresh}
-        />
+        // Focus trap: keeps the D-pad inside the guide grid (incl. the A-Z rail)
+        // so it can't accidentally jump out of the virtualized list to the tabs.
+        <FocusGuide style={styles.gridArea} autoFocus trapFocusLeft trapFocusRight>
+          {mode === "timeline" ? (
+            <TimelineGrid
+              channels={filtered}
+              windowStart={windowStart}
+              windowEnd={windowEnd}
+              now={now}
+              onChannelPress={openChannel}
+              onProgramPress={openProgram}
+              refreshing={refreshing}
+              onRefresh={hardRefresh}
+            />
+          ) : (
+            <BoxGrid
+              channels={filtered}
+              now={now}
+              onChannelPress={openChannel}
+              onProgramPress={openProgram}
+              refreshing={refreshing}
+              onRefresh={hardRefresh}
+            />
+          )}
+        </FocusGuide>
       )}
 
       <View style={[styles.footerTitles, { paddingBottom: insets.bottom + spacing.sm }]}>
@@ -159,6 +166,7 @@ export default function GuideScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
+  gridArea: { flex: 1 },
   header: {
     flexDirection: "column",
     paddingHorizontal: spacing.lg,

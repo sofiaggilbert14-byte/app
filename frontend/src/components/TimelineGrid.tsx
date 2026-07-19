@@ -15,6 +15,7 @@ import dayjs from "dayjs";
 import { colors, fonts, radius, spacing } from "@/src/theme";
 import { Channel, Program } from "@/src/api";
 import { ChannelLogo } from "./ChannelLogo";
+import { AZRail } from "./AZRail";
 
 const HEADER_H = 34;
 
@@ -52,6 +53,7 @@ export function TimelineGrid({
   const scrollX = useRef(new Animated.Value(0)).current;
   const negScrollX = useMemo(() => Animated.multiply(scrollX, -1), [scrollX]);
   const [bodyH, setBodyH] = useState(0);
+  const listRef = useRef<FlashList<Channel>>(null);
 
   const totalMin = mins(windowEnd, windowStart);
   const timelineWidth = totalMin * PX_PER_MIN;
@@ -104,6 +106,7 @@ export function TimelineGrid({
             {bodyH > 0 && (
               <FlashList
                 data={channels}
+                ref={listRef}
                 keyExtractor={(c) => c.id}
                 drawDistance={2000}
                 showsVerticalScrollIndicator={false}
@@ -173,6 +176,14 @@ export function TimelineGrid({
             )}
           </View>
         </ScrollView>
+        <AZRail
+          channels={channels}
+          onSelect={(i) => {
+            try {
+              listRef.current?.scrollToIndex({ index: i, animated: true });
+            } catch {}
+          }}
+        />
       </View>
     </View>
   );
