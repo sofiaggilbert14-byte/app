@@ -18,7 +18,7 @@
         "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.emergent.iptvplayerguide.ad7cld",
+      "package": "com.charmiptv.app",
       "permissions": [
         "INTERNET",
         "ACCESS_NETWORK_STATE",
