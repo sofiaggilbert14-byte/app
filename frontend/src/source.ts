@@ -70,28 +70,76 @@ function gunzipAsync(data: Uint8Array): Promise<Uint8Array> {
   });
 }
 
-// The /epg/ endpoint serves the XMLTV GZIP-compressed (~2.5 MB vs ~16 MB
-// uncompressed) — a big download win on slow TV-box networks. Fetch the raw
-// bytes and inflate on-device; if the source is already plain XML, use it as-is.
-async function fetchEpgText(url: string, timeoutMs = 45000): Promise<string> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(resolveUrl(url), {
-      signal: controller.signal,
-      headers: { "User-Agent": "GridStream/1.0" },
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const bytes = new Uint8Array(await res.arrayBuffer());
-    // gzip magic bytes 0x1f 0x8b
-    if (bytes.length > 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) {
-      const out = await gunzipAsync(bytes);
-      return strFromU8(out);
-    }
-    return strFromU8(bytes);
-  } finally {
-    clearTimeout(timer);
+const B64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const B64_LOOKUP = (() => {
+  const t = new Uint8Array(256);
+  for (let i = 0; i < B64_CHARS.length; i++) t[B64_CHARS.charCodeAt(i)] = i;
+  return t;
+})();
+function base64ToBytes(b64: string): Uint8Array {
+  const len = b64.length;
+  let pad = 0;
+  if (len && b64[len - 1] === "=") pad++;
+  if (len > 1 && b64[len - 2] === "=") pad++;
+  const outLen = ((len * 3) >> 2) - pad;
+  const out = new Uint8Array(outLen);
+  let p = 0;
+  for (let i = 0; i < len; i += 4) {
+    const a = B64_LOOKUP[b64.charCodeAt(i)];
+    const b = B64_LOOKUP[b64.charCodeAt(i + 1)];
+    const c = B64_LOOKUP[b64.charCodeAt(i + 2)];
+    const d = B64_LOOKUP[b64.charCodeAt(i + 3)];
+    if (p < outLen) out[p++] = (a << 2) | (b >> 4);
+    if (p < outLen) out[p++] = ((b & 15) << 4) | (c >> 2);
+    if (p < outLen) out[p++] = ((c & 3) << 6) | d;
   }
+  return out;
+}
+
+// The /epg/ endpoint serves the XMLTV GZIP-compressed (~2.5 MB vs ~16 MB
+// uncompressed) — a big download win on slow TV-box networks.
+//
+// On native, React Native's fetch().arrayBuffer() is unreliable for binary, so
+// we download the file to disk (with progress) and read it back as base64 —
+// the robust path that makes the guide actually load on the box. On web we
+// fetch via the dev proxy (arrayBuffer works there).
+async function fetchEpgBytes(
+  url: string,
+  onDownload?: (ratio: number | null) => void,
+): Promise<Uint8Array> {
+  if (Platform.OS === "web") {
+    const res = await fetch(resolveUrl(url), { headers: { "User-Agent": "GridStream/1.0" } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return new Uint8Array(await res.arrayBuffer());
+  }
+  const tmp = (FileSystem.cacheDirectory || FileSystem.documentDirectory || "") + "epg_download.bin";
+  const dl = FileSystem.createDownloadResumable(
+    https(url),
+    tmp,
+    { headers: { "User-Agent": "GridStream/1.0" } },
+    (p) => {
+      const total = p.totalBytesExpectedToWrite;
+      onDownload?.(total > 0 ? p.totalBytesWritten / total : null);
+    },
+  );
+  const res = await dl.downloadAsync();
+  if (!res) throw new Error("EPG download failed");
+  const b64 = await FileSystem.readAsStringAsync(res.uri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  try {
+    await FileSystem.deleteAsync(res.uri, { idempotent: true });
+  } catch {}
+  return base64ToBytes(b64);
+}
+
+async function inflateIfGzip(bytes: Uint8Array): Promise<string> {
+  // gzip magic bytes 0x1f 0x8b
+  if (bytes.length > 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) {
+    const out = await gunzipAsync(bytes);
+    return strFromU8(out);
+  }
+  return strFromU8(bytes);
 }
 
 function parseM3U(text: string): Channel[] {
@@ -217,7 +265,7 @@ function parseXmltvTime(s: string): string | null {
 type Sink = {
   icons?: Record<string, string>;
   programs?: Record<string, Program[]>;
-  onProgress?: () => void;
+  onProgress?: (ratio: number) => void;
 };
 
 // Streaming XMLTV parser using plain indexOf scanning (no `new RegExp`, no XML
@@ -288,7 +336,7 @@ async function parseXMLTV(
     }
     // Yield to the UI thread + push a progressive update so it never freezes.
     if (++seen % 500 === 0) {
-      onProgress?.();
+      onProgress?.(pos / xml.length);
       await nextTick();
     }
   }
@@ -309,6 +357,36 @@ function emit() {
   listeners.forEach((l) => {
     try {
       l();
+    } catch {}
+  });
+}
+
+// ---- EPG load progress (for the on-screen status bar + ETA) ----------------
+export type LoadPhase = "idle" | "channels" | "downloading" | "parsing" | "ready" | "error";
+export type EpgProgress = {
+  phase: LoadPhase;
+  ratio: number; // 0..1 across the whole EPG step (download + parse)
+  etaSeconds: number | null;
+};
+let progress: EpgProgress = { phase: "idle", ratio: 0, etaSeconds: null };
+let progressListeners: Array<(p: EpgProgress) => void> = [];
+export function subscribeProgress(fn: (p: EpgProgress) => void): () => void {
+  progressListeners.push(fn);
+  fn(progress);
+  return () => {
+    progressListeners = progressListeners.filter((l) => l !== fn);
+  };
+}
+let lastProgressEmit = 0;
+function setProgress(p: Partial<EpgProgress>, force = false) {
+  progress = { ...progress, ...p };
+  const now = Date.now();
+  if (!force && now - lastProgressEmit < 150) return;
+  lastProgressEmit = now;
+  const snap = progress;
+  progressListeners.forEach((l) => {
+    try {
+      l(snap);
     } catch {}
   });
 }
@@ -337,17 +415,37 @@ let epgLoading = false;
 async function loadEpg(channels: Channel[]) {
   if (epgLoading) return;
   epgLoading = true;
+  const dlStart = Date.now();
   try {
-    const epgText = await fetchEpgText(SOURCE_EPG, 45000);
+    setProgress({ phase: "downloading", ratio: 0, etaSeconds: null }, true);
+    const bytes = await fetchEpgBytes(SOURCE_EPG, (ratio) => {
+      if (ratio == null) {
+        setProgress({ phase: "downloading", ratio: 0, etaSeconds: null });
+        return;
+      }
+      const elapsed = (Date.now() - dlStart) / 1000;
+      const eta = ratio > 0.02 && elapsed > 0.5 ? (elapsed / ratio) * (1 - ratio) : null;
+      // Download is the first 30% of the overall EPG step.
+      setProgress({ phase: "downloading", ratio: ratio * 0.3, etaSeconds: eta });
+    });
+
+    setProgress({ phase: "parsing", ratio: 0.3, etaSeconds: null }, true);
+    const epgText = await inflateIfGzip(bytes);
+
     const icons: Record<string, string> = {};
     const programs: Record<string, Program[]> = {};
     // Point MEM at the live `programs` object so the guide fills in as we parse.
     MEM = { ts: Date.now(), channels, programs };
+    const parseStart = Date.now();
     let lastEmit = 0;
     await parseXMLTV(epgText, {
       icons,
       programs,
-      onProgress: () => {
+      onProgress: (r) => {
+        const elapsed = (Date.now() - parseStart) / 1000;
+        const eta = r > 0.02 && elapsed > 0.3 ? (elapsed / r) * (1 - r) : null;
+        // Parsing is the remaining 70% (0.3 → 1.0).
+        setProgress({ phase: "parsing", ratio: 0.3 + r * 0.7, etaSeconds: eta });
         const t = Date.now();
         if (t - lastEmit > 900) {
           lastEmit = t;
@@ -360,8 +458,10 @@ async function loadEpg(channels: Channel[]) {
     }
     MEM = { ts: Date.now(), channels, programs };
     await persist();
+    setProgress({ phase: "ready", ratio: 1, etaSeconds: 0 }, true);
     emit();
   } catch {
+    setProgress({ phase: "error", ratio: 0, etaSeconds: null }, true);
     // EPG optional — channels remain usable without it
   } finally {
     epgLoading = false;
@@ -371,6 +471,8 @@ async function loadEpg(channels: Channel[]) {
 function maybeLoadEpg() {
   if (MEM && MEM.channels.length && Object.keys(MEM.programs).length === 0) {
     loadEpg(MEM.channels);
+  } else if (MEM && Object.keys(MEM.programs).length > 0) {
+    setProgress({ phase: "ready", ratio: 1, etaSeconds: 0 }, true);
   }
 }
 
@@ -383,6 +485,7 @@ async function doFetchParse(): Promise<Parsed> {
   MEM = { ts: Date.now(), channels, programs: MEM?.programs || {} };
   await persist();
   emit();
+  setProgress({ phase: "channels", ratio: 0, etaSeconds: null }, true);
   // Stage 2 (slower): parse the large EPG in the background, then notify.
   loadEpg(channels);
   return MEM;

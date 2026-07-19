@@ -17,6 +17,7 @@ import { Channel } from "@/src/api";
 import { TimelineGrid } from "@/src/components/TimelineGrid";
 import { BoxGrid } from "@/src/components/BoxGrid";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
+import { EpgProgressBar } from "@/src/components/EpgProgressBar";
 
 export default function GuideScreen() {
   const insets = useSafeAreaInsets();
@@ -109,6 +110,8 @@ export default function GuideScreen() {
           ))}
         </ScrollView>
       </View>
+
+      <EpgProgressBar />
 
       {loading && channels.length === 0 ? (
         <View style={styles.center}>

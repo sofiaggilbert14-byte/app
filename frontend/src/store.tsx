@@ -2,7 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import dayjs from "dayjs";
 import { storage } from "@/src/utils/storage";
 import { Channel, Program } from "@/src/api";
-import { loadGuide, refreshSource, subscribeSource } from "@/src/source";
+import { loadGuide, refreshSource, subscribeSource, subscribeProgress, EpgProgress } from "@/src/source";
 import { reminderKey } from "@/src/utils/time";
 import {
   cancelReminder,
@@ -58,6 +58,8 @@ type Store = {
 
   pointerMode: boolean;
   setPointerMode: (v: boolean) => void;
+
+  epgProgress: EpgProgress;
 };
 
 const Ctx = createContext<Store | null>(null);
@@ -83,6 +85,11 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [activeProgram, setActiveProgram] = useState<ActiveProgram>(null);
   const [pointerMode, setPointerModeState] = useState(false);
+  const [epgProgress, setEpgProgress] = useState<EpgProgress>({
+    phase: "idle",
+    ratio: 0,
+    etaSeconds: null,
+  });
 
   const setPointerMode = useCallback((v: boolean) => {
     setPointerModeState(v);
@@ -144,6 +151,9 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   // Re-paint when the source finishes its staged load (channels first, then EPG)
   // or after a background refresh — reads from the in-memory cache, no network.
   useEffect(() => subscribeSource(() => refresh(true)), [refresh]);
+
+  // Live EPG download/parse progress for the on-screen status bar + ETA.
+  useEffect(() => subscribeProgress(setEpgProgress), []);
 
   const channelById = useCallback((id: string) => channels.find((c) => c.id === id), [channels]);
 
@@ -245,6 +255,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     closeProgram,
     pointerMode,
     setPointerMode,
+    epgProgress,
   };
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
