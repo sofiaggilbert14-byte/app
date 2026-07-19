@@ -1,0 +1,12 @@
+name = "charm-iptv-api"
+main = "src/index.js"
+compatibility_date = "2024-11-06"
+workers_dev = true
+
+# ── Cloudflare KV binding ────────────────────────────────────────────────────
+# Replace id with YOUR namespace id (Dashboard → Storage & Databases → KV →
+# your namespace → copy the "Namespace ID"). Or run: npx wrangler kv namespace
+# create CHARM_KV  and paste the printed id here.
+[[kv_namespaces]]
+binding = "KV"
+id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
