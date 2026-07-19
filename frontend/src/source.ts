@@ -1,15 +1,21 @@
 import dayjs from "dayjs";
 import { Platform } from "react-native";
-import { storage } from "@/src/utils/storage";
+import * as FileSystem from "expo-file-system/legacy";
+import { gunzip, strFromU8 } from "fflate";
 import type { Channel, Program, GuideResponse, SourceStatus } from "@/src/api";
 
-// Hardcoded developer source (fetched & parsed on-device — no backend needed).
-export const SOURCE_M3U = "https://m3u4u.com/m3u/jwmzn1grpmu99585n721";
-export const SOURCE_EPG = "https://m3u4u.com/xml/jwmzn1grpmu99585n721";
+// Developer source — fetched & parsed on-device (no backend needed).
+export const SOURCE_M3U = "http://m3u4u.com/m3u/jwmzn1grpmu99585n721";
+export const SOURCE_EPG = "http://m3u4u.com/epg/jwmzn1grpmu99585n721";
 
-const CACHE_KEY = "gs_source_cache_v2";
 const TTL_MS = 24 * 60 * 60 * 1000; // refresh at most once a day
 const EXTINF_ATTR = /([a-zA-Z0-9-]+)="([^"]*)"/g;
+// Persist the parsed guide to a file. AsyncStorage's ~2 MB per-value limit
+// silently drops a 600+ channel guide, which forced a slow full re-parse on
+// every launch — the file cache makes relaunches instant.
+const CACHE_FILE = FileSystem.documentDirectory
+  ? FileSystem.documentDirectory + "guide_cache_v3.json"
+  : "";
 
 type Parsed = {
   ts: number;
@@ -53,6 +59,36 @@ async function fetchText(url: string, timeoutMs = 30000): Promise<string> {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.text();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function gunzipAsync(data: Uint8Array): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    gunzip(data, (err, out) => (err ? reject(err) : resolve(out)));
+  });
+}
+
+// The /epg/ endpoint serves the XMLTV GZIP-compressed (~2.5 MB vs ~16 MB
+// uncompressed) — a big download win on slow TV-box networks. Fetch the raw
+// bytes and inflate on-device; if the source is already plain XML, use it as-is.
+async function fetchEpgText(url: string, timeoutMs = 45000): Promise<string> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(resolveUrl(url), {
+      signal: controller.signal,
+      headers: { "User-Agent": "GridStream/1.0" },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    // gzip magic bytes 0x1f 0x8b
+    if (bytes.length > 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) {
+      const out = await gunzipAsync(bytes);
+      return strFromU8(out);
+    }
+    return strFromU8(bytes);
   } finally {
     clearTimeout(timer);
   }
@@ -109,13 +145,45 @@ function decodeEntities(s: string): string {
     return ENTITIES[e] ?? _m;
   });
 }
+function isWordChar(ch: string | undefined): boolean {
+  if (!ch) return false;
+  const c = ch.charCodeAt(0);
+  return (
+    (c >= 48 && c <= 57) ||
+    (c >= 65 && c <= 90) ||
+    (c >= 97 && c <= 122) ||
+    c === 45 ||
+    c === 95
+  );
+}
+// Fast, allocation-light attribute read — NO `new RegExp` (compiling a regex
+// per programme was the main reason parsing took minutes on weak TV boxes).
 function xmlAttr(head: string, name: string): string {
-  const m = head.match(new RegExp(`\\b${name}="([^"]*)"`));
-  return m ? m[1] : "";
+  const needle = name + '="';
+  let i = head.indexOf(needle);
+  while (i > 0 && isWordChar(head[i - 1])) {
+    i = head.indexOf(needle, i + needle.length);
+  }
+  if (i === -1) return "";
+  const s = i + needle.length;
+  const e = head.indexOf('"', s);
+  return e === -1 ? "" : head.slice(s, e);
 }
 function xmlFirstTag(body: string, name: string): string {
-  const m = body.match(new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)</${name}>`));
-  return m ? decodeEntities(m[1].trim()) : "";
+  const open = "<" + name;
+  let i = body.indexOf(open);
+  while (i !== -1) {
+    const c = body[i + open.length];
+    if (c === ">" || c === " " || c === "\t" || c === "\n" || c === "\r" || c === "/") break;
+    i = body.indexOf(open, i + open.length);
+  }
+  if (i === -1) return "";
+  const gt = body.indexOf(">", i);
+  if (gt === -1 || body[gt - 1] === "/") return "";
+  const close = "</" + name + ">";
+  const j = body.indexOf(close, gt + 1);
+  if (j === -1) return "";
+  return decodeEntities(body.slice(gt + 1, j).trim());
 }
 function nextTick(): Promise<void> {
   return new Promise((r) => setTimeout(r, 0));
@@ -123,50 +191,92 @@ function nextTick(): Promise<void> {
 
 function parseXmltvTime(s: string): string | null {
   if (!s) return null;
-  const m = s.trim().match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(?:\s*([+-]\d{4}))?/);
-  if (!m) return null;
-  const [, y, mo, d, h, mi, se, off] = m;
-  let iso = `${y}-${mo}-${d}T${h}:${mi}:${se}`;
-  if (off) iso += `${off.slice(0, 3)}:${off.slice(3)}`;
-  else iso += "Z";
-  const dt = dayjs(iso);
-  return dt.isValid() ? dt.toISOString() : null;
+  // Format: YYYYMMDDHHMMSS ±HHMM (offset optional). Read positionally — no
+  // regex, no dayjs — so it stays cheap across hundreds of thousands of calls.
+  const t = s.trim();
+  if (t.length < 14) return null;
+  const y = +t.slice(0, 4);
+  const mo = +t.slice(4, 6);
+  const d = +t.slice(6, 8);
+  const h = +t.slice(8, 10);
+  const mi = +t.slice(10, 12);
+  const se = +t.slice(12, 14);
+  if (isNaN(y) || isNaN(mo) || isNaN(d) || isNaN(h) || isNaN(mi) || isNaN(se)) return null;
+  let ms = Date.UTC(y, mo - 1, d, h, mi, se);
+  const rest = t.slice(14).trim();
+  if (rest.length >= 5 && (rest[0] === "+" || rest[0] === "-")) {
+    const sign = rest[0] === "-" ? -1 : 1;
+    const oh = +rest.slice(1, 3);
+    const om = +rest.slice(3, 5);
+    if (!isNaN(oh) && !isNaN(om)) ms -= sign * (oh * 60 + om) * 60000;
+  }
+  if (isNaN(ms)) return null;
+  return new Date(ms).toISOString();
 }
 
-// Chunked, regex-based XMLTV parser. Avoids building a full XML DOM (the old
-// fast-xml-parser DOM build blocked the JS thread for seconds on 600+ channel
-// guides) and yields to the event loop every batch so the UI never freezes.
+type Sink = {
+  icons?: Record<string, string>;
+  programs?: Record<string, Program[]>;
+  onProgress?: () => void;
+};
+
+// Streaming XMLTV parser using plain indexOf scanning (no `new RegExp`, no XML
+// DOM). Yields to the UI thread every batch and calls onProgress so the guide
+// fills in live while parsing — the app stays fully navigable throughout.
 async function parseXMLTV(
   xml: string,
+  sink: Sink = {},
 ): Promise<{ icons: Record<string, string>; programs: Record<string, Program[]> }> {
-  const icons: Record<string, string> = {};
-  const programs: Record<string, Program[]> = {};
+  const icons = sink.icons ?? {};
+  const programs = sink.programs ?? {};
+  const onProgress = sink.onProgress;
 
-  // Channel icons (small list) — quick synchronous pass.
-  const chanRe = /<channel\b([^>]*)>([\s\S]*?)<\/channel>/g;
-  let cm: RegExpExecArray | null;
-  while ((cm = chanRe.exec(xml))) {
-    const id = xmlAttr(cm[1], "id");
-    if (!id) continue;
-    const src = cm[2].match(/<icon\b[^>]*\bsrc="([^"]*)"/);
-    if (src) icons[id] = https(src[1]);
+  // Channel icons — scan <channel ...>…</channel> blocks.
+  let cpos = 0;
+  while (true) {
+    const s = xml.indexOf("<channel", cpos);
+    if (s === -1) break;
+    const gt = xml.indexOf(">", s);
+    if (gt === -1) break;
+    const e = xml.indexOf("</channel>", gt);
+    if (e === -1) break;
+    const head = xml.slice(s + 8, gt);
+    const body = xml.slice(gt + 1, e);
+    cpos = e + 10;
+    const id = xmlAttr(head, "id");
+    if (id) {
+      const ii = body.indexOf("<icon");
+      if (ii !== -1) {
+        const ie = body.indexOf(">", ii);
+        if (ie !== -1) {
+          const src = xmlAttr(body.slice(ii + 5, ie), "src");
+          if (src) icons[id] = https(src);
+        }
+      }
+    }
   }
 
-  // Keep only a useful window (past 6h → next 2 days) so low-power TV boxes
-  // don't build/hold tens of thousands of program objects.
+  // Programmes — keep only a useful window (past 6h → next 2 days) so low-power
+  // TV boxes don't build/hold tens of thousands of program objects.
   const minStop = Date.now() - 6 * 3600 * 1000;
   const maxStart = Date.now() + 2 * 24 * 3600 * 1000;
-  const progRe = /<programme\b([^>]*)>([\s\S]*?)<\/programme>/g;
-  let pm: RegExpExecArray | null;
+  let pos = 0;
   let seen = 0;
-  while ((pm = progRe.exec(xml))) {
-    const head = pm[1];
+  while (true) {
+    const s = xml.indexOf("<programme", pos);
+    if (s === -1) break;
+    const gt = xml.indexOf(">", s);
+    if (gt === -1) break;
+    const e = xml.indexOf("</programme>", gt);
+    if (e === -1) break;
+    const head = xml.slice(s + 10, gt);
+    pos = e + 12;
     const cid = xmlAttr(head, "channel");
     const start = parseXmltvTime(xmlAttr(head, "start"));
     if (cid && start && Date.parse(start) <= maxStart) {
       const stop = parseXmltvTime(xmlAttr(head, "stop"));
       if (!(stop && Date.parse(stop) < minStop)) {
-        const body = pm[2];
+        const body = xml.slice(gt + 1, e);
         (programs[cid] = programs[cid] || []).push({
           title: xmlFirstTag(body, "title") || "No Title",
           desc: xmlFirstTag(body, "desc"),
@@ -176,8 +286,11 @@ async function parseXMLTV(
         });
       }
     }
-    // Yield to the UI thread periodically so parsing never freezes the app.
-    if (++seen % 1000 === 0) await nextTick();
+    // Yield to the UI thread + push a progressive update so it never freezes.
+    if (++seen % 500 === 0) {
+      onProgress?.();
+      await nextTick();
+    }
   }
   for (const cid in programs) programs[cid].sort((a, b) => a.start.localeCompare(b.start));
   return { icons, programs };
@@ -201,10 +314,23 @@ function emit() {
 }
 
 async function persist() {
-  if (Platform.OS === "web" || !MEM) return;
+  if (Platform.OS === "web" || !MEM || !CACHE_FILE) return;
   try {
-    await storage.setItem(CACHE_KEY, MEM);
+    await FileSystem.writeAsStringAsync(CACHE_FILE, JSON.stringify(MEM));
   } catch {}
+}
+
+async function readCache(): Promise<Parsed | null> {
+  if (Platform.OS === "web" || !CACHE_FILE) return null;
+  try {
+    const info = await FileSystem.getInfoAsync(CACHE_FILE);
+    if (!info.exists) return null;
+    const txt = await FileSystem.readAsStringAsync(CACHE_FILE);
+    const data = JSON.parse(txt) as Parsed;
+    return data && data.channels?.length ? data : null;
+  } catch {
+    return null;
+  }
 }
 
 let epgLoading = false;
@@ -212,8 +338,23 @@ async function loadEpg(channels: Channel[]) {
   if (epgLoading) return;
   epgLoading = true;
   try {
-    const epgText = await fetchText(SOURCE_EPG, 45000);
-    const { icons, programs } = await parseXMLTV(epgText);
+    const epgText = await fetchEpgText(SOURCE_EPG, 45000);
+    const icons: Record<string, string> = {};
+    const programs: Record<string, Program[]> = {};
+    // Point MEM at the live `programs` object so the guide fills in as we parse.
+    MEM = { ts: Date.now(), channels, programs };
+    let lastEmit = 0;
+    await parseXMLTV(epgText, {
+      icons,
+      programs,
+      onProgress: () => {
+        const t = Date.now();
+        if (t - lastEmit > 900) {
+          lastEmit = t;
+          emit();
+        }
+      },
+    });
     for (const c of channels) {
       if (!c.logo && c.tvg_id && icons[c.tvg_id]) c.logo = icons[c.tvg_id];
     }
@@ -253,8 +394,8 @@ async function ensureParsed(force: boolean): Promise<Parsed> {
     return MEM;
   }
   if (!force && !MEM) {
-    const cached = await storage.getItem<Parsed>(CACHE_KEY, null as any);
-    if (cached && cached.channels?.length) {
+    const cached = await readCache();
+    if (cached) {
       MEM = cached;
       maybeLoadEpg();
       if (Date.now() - cached.ts < TTL_MS) return cached;

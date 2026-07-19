@@ -10,7 +10,7 @@ from typing import Optional
 import requests
 import jwt
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, status
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
 from fastapi.security import OAuth2PasswordBearer
 from passlib.context import CryptContext
 from pydantic import BaseModel
@@ -315,7 +315,9 @@ async def root():
 @api_router.get("/proxy")
 async def proxy(url: str):
     """Web-preview-only CORS proxy. The shipped native app fetches directly and
-    never calls this — it exists so the browser preview can load m3u4u sources."""
+    never calls this — it exists so the browser preview can load m3u4u sources.
+    Returns raw bytes with the upstream content-type so gzipped EPG data
+    (the /epg/ endpoint) survives the hop intact for client-side inflation."""
     if not (url.startswith("http://") or url.startswith("https://")):
         raise HTTPException(status_code=400, detail="Invalid url")
     try:
@@ -326,7 +328,10 @@ async def proxy(url: str):
             headers={"User-Agent": "Mozilla/5.0 (GridStream)"},
         )
         r.raise_for_status()
-        return PlainTextResponse(content=r.text)
+        return Response(
+            content=r.content,
+            media_type=r.headers.get("Content-Type", "application/octet-stream"),
+        )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Proxy fetch failed: {e}")
 
