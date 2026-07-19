@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, StyleSheet, Modal, Pressable } from "react-native";
+import { View, Text, StyleSheet, Pressable, BackHandler } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -17,6 +17,16 @@ export function ProgramModal() {
   React.useEffect(() => {
     setMsg(null);
   }, [activeProgram]);
+
+  // Close on the hardware / remote BACK button while the sheet is open.
+  React.useEffect(() => {
+    if (!activeProgram) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      closeProgram();
+      return true;
+    });
+    return () => sub.remove();
+  }, [activeProgram, closeProgram]);
 
   if (!activeProgram) return null;
   const { program, channel } = activeProgram;
@@ -48,74 +58,79 @@ export function ProgramModal() {
   };
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={closeProgram}>
+    <View style={styles.overlay} testID="program-modal-overlay">
       <Pressable style={styles.backdrop} onPress={closeProgram} testID="program-modal-backdrop">
         <Pressable style={styles.card} onPress={() => {}}>
-          <View style={styles.header}>
-            <Text style={styles.channel}>{channel.name}</Text>
-            <Pressable
-              style={({ focused }: any) => [styles.closeBtn, focused && styles.btnFocused]}
-              onPress={closeProgram}
-              hitSlop={10}
-              testID="program-modal-close"
-            >
-              <Ionicons name="close" size={22} color={colors.onSurfaceTertiary} />
-            </Pressable>
-          </View>
-          <Text style={styles.title}>{program.title}</Text>
-          <Text style={styles.time}>
-            {start.format("ddd, MMM D · h:mm A")}
-            {program.stop ? ` – ${dayjs(program.stop).format("h:mm A")}` : ""}
-            {isLive ? "  • LIVE" : ""}
-          </Text>
-          {!!program.category && <Text style={styles.category}>{program.category}</Text>}
-          {!!program.desc && (
-            <Text style={styles.desc} numberOfLines={6}>
-              {program.desc}
-            </Text>
-          )}
-
-          {msg && <Text style={styles.msg}>{msg}</Text>}
-
-          <FocusGuide autoFocus style={styles.actions}>
-            <Pressable
-              style={({ focused }: any) => [styles.btn, styles.watchBtn, focused && styles.btnFocused]}
-              hasTVPreferredFocus
-              onPress={watch}
-              testID="program-watch-btn"
-            >
-              <Ionicons name="play" size={16} color="#fff" />
-              <Text style={styles.watchText}>Watch now</Text>
-            </Pressable>
-            {isFuture && (
+          {/* Trap the D-pad inside the sheet so the remote can reach every
+              button and can't fall back onto the guide grid behind it. */}
+          <FocusGuide autoFocus trapFocusUp trapFocusDown trapFocusLeft trapFocusRight>
+            <View style={styles.header}>
+              <Text style={styles.channel}>{channel.name}</Text>
               <Pressable
-                style={({ focused }: any) => [
-                  styles.btn,
-                  styles.remindBtn,
-                  reminded && styles.remindActive,
-                  focused && styles.btnFocused,
-                ]}
-                onPress={onReminder}
-                testID="program-reminder-btn"
+                style={({ focused }: any) => [styles.closeBtn, focused && styles.btnFocused]}
+                onPress={closeProgram}
+                hitSlop={10}
+                testID="program-modal-close"
               >
-                <Ionicons
-                  name={reminded ? "notifications" : "notifications-outline"}
-                  size={16}
-                  color={reminded ? colors.brand : colors.onSurface}
-                />
-                <Text style={[styles.remindText, reminded && { color: colors.brand }]}>
-                  {reminded ? "Reminder on" : "Remind me"}
-                </Text>
+                <Ionicons name="close" size={22} color={colors.onSurfaceTertiary} />
               </Pressable>
+            </View>
+            <Text style={styles.title}>{program.title}</Text>
+            <Text style={styles.time}>
+              {start.format("ddd, MMM D · h:mm A")}
+              {program.stop ? ` – ${dayjs(program.stop).format("h:mm A")}` : ""}
+              {isLive ? "  • LIVE" : ""}
+            </Text>
+            {!!program.category && <Text style={styles.category}>{program.category}</Text>}
+            {!!program.desc && (
+              <Text style={styles.desc} numberOfLines={6}>
+                {program.desc}
+              </Text>
             )}
+
+            {msg && <Text style={styles.msg}>{msg}</Text>}
+
+            <View style={styles.actions}>
+              <Pressable
+                style={({ focused }: any) => [styles.btn, styles.watchBtn, focused && styles.btnFocused]}
+                hasTVPreferredFocus
+                onPress={watch}
+                testID="program-watch-btn"
+              >
+                <Ionicons name="play" size={16} color="#fff" />
+                <Text style={styles.watchText}>Watch now</Text>
+              </Pressable>
+              {isFuture && (
+                <Pressable
+                  style={({ focused }: any) => [
+                    styles.btn,
+                    styles.remindBtn,
+                    reminded && styles.remindActive,
+                    focused && styles.btnFocused,
+                  ]}
+                  onPress={onReminder}
+                  testID="program-reminder-btn"
+                >
+                  <Ionicons
+                    name={reminded ? "notifications" : "notifications-outline"}
+                    size={16}
+                    color={reminded ? colors.brand : colors.onSurface}
+                  />
+                  <Text style={[styles.remindText, reminded && { color: colors.brand }]}>
+                    {reminded ? "Reminder on" : "Remind me"}
+                  </Text>
+                </Pressable>
+              )}
+            </View>
           </FocusGuide>
         </Pressable>
       </Pressable>
-    </Modal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  overlay: { ...StyleSheet.absoluteFillObject, zIndex: 1000, elevation: 1000 },
   backdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.7)",
