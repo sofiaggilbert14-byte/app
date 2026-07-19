@@ -49,19 +49,14 @@ function resolveUrl(url: string): string {
   return secure;
 }
 
-async function fetchText(url: string, timeoutMs = 30000): Promise<string> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(resolveUrl(url), {
-      signal: controller.signal,
-      headers: { "User-Agent": "GridStream/1.0" },
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.text();
-  } finally {
-    clearTimeout(timer);
-  }
+async function fetchTextMaybeGzip(
+  url: string,
+  onDownload?: (ratio: number | null) => void,
+): Promise<string> {
+  // Handles both plain and GZIP-compressed sources (m3u4u serves some feeds
+  // gzipped). Downloads the bytes reliably, then inflates only if gzip-magic.
+  const bytes = await fetchBytes(url, onDownload);
+  return inflateIfGzip(bytes);
 }
 
 function gunzipAsync(data: Uint8Array): Promise<Uint8Array> {
@@ -96,14 +91,10 @@ function base64ToBytes(b64: string): Uint8Array {
   return out;
 }
 
-// The /epg/ endpoint serves the XMLTV GZIP-compressed (~2.5 MB vs ~16 MB
-// uncompressed) — a big download win on slow TV-box networks.
-//
-// On native, React Native's fetch().arrayBuffer() is unreliable for binary, so
-// we download the file to disk (with progress) and read it back as base64 —
-// the robust path that makes the guide actually load on the box. On web we
-// fetch via the dev proxy (arrayBuffer works there).
-async function fetchEpgBytes(
+// Reliable binary fetch used for BOTH the M3U and EPG. On native, RN's
+// fetch().arrayBuffer() is unreliable for binary, so we download to disk (with
+// progress) and read back as base64. On web we fetch via the dev proxy.
+async function fetchBytes(
   url: string,
   onDownload?: (ratio: number | null) => void,
 ): Promise<Uint8Array> {
@@ -112,7 +103,7 @@ async function fetchEpgBytes(
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return new Uint8Array(await res.arrayBuffer());
   }
-  const tmp = (FileSystem.cacheDirectory || FileSystem.documentDirectory || "") + "epg_download.bin";
+  const tmp = (FileSystem.cacheDirectory || FileSystem.documentDirectory || "") + "source_download.bin";
   const dl = FileSystem.createDownloadResumable(
     https(url),
     tmp,
@@ -346,7 +337,7 @@ async function parseXMLTV(
 
 // UI subscribers (the store) get notified when channels first appear and again
 // when the background EPG parse finishes.
-let listeners: Array<() => void> = [];
+let listeners: (() => void)[] = [];
 export function subscribeSource(fn: () => void): () => void {
   listeners.push(fn);
   return () => {
@@ -369,7 +360,7 @@ export type EpgProgress = {
   etaSeconds: number | null;
 };
 let progress: EpgProgress = { phase: "idle", ratio: 0, etaSeconds: null };
-let progressListeners: Array<(p: EpgProgress) => void> = [];
+let progressListeners: ((p: EpgProgress) => void)[] = [];
 export function subscribeProgress(fn: (p: EpgProgress) => void): () => void {
   progressListeners.push(fn);
   fn(progress);
@@ -418,7 +409,7 @@ async function loadEpg(channels: Channel[]) {
   const dlStart = Date.now();
   try {
     setProgress({ phase: "downloading", ratio: 0, etaSeconds: null }, true);
-    const bytes = await fetchEpgBytes(SOURCE_EPG, (ratio) => {
+    const bytes = await fetchBytes(SOURCE_EPG, (ratio) => {
       if (ratio == null) {
         setProgress({ phase: "downloading", ratio: 0, etaSeconds: null });
         return;
@@ -479,7 +470,7 @@ function maybeLoadEpg() {
 async function doFetchParse(): Promise<Parsed> {
   // Stage 1 (fast): parse the small M3U so the guide paints immediately, even
   // on low-power Android TV / Firestick boxes.
-  const m3uText = await fetchText(SOURCE_M3U);
+  const m3uText = await fetchTextMaybeGzip(SOURCE_M3U);
   const channels = parseM3U(m3uText);
   channels.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
   MEM = { ts: Date.now(), channels, programs: MEM?.programs || {} };
