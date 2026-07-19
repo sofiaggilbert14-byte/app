@@ -1,7 +1,6 @@
 import React from "react";
 import { View, Text, StyleSheet, Pressable, ScrollView } from "react-native";
 import { useRouter } from "expo-router";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import dayjs from "dayjs";
@@ -32,7 +31,6 @@ function ChannelRow({ channel, onPress, right }: { channel: Channel; onPress: ()
 }
 
 export default function FavoritesScreen() {
-  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { channels, favorites, toggleFavorite, recent, reminders, removeReminder, addRecent, channelById } = useStore();
 
@@ -45,7 +43,7 @@ export default function FavoritesScreen() {
   const upcoming = [...reminders].sort((a, b) => a.start.localeCompare(b.start));
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={[styles.container, { paddingTop: spacing.md }]}>
       <View style={styles.header}>
         <Text style={styles.brand}>My Stuff</Text>
         <Text style={styles.title}>Favorites</Text>

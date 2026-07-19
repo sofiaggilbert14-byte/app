@@ -7,8 +7,8 @@ import {
   ScrollView,
   ActivityIndicator,
   RefreshControl,
+  Switch,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import dayjs from "dayjs";
@@ -18,8 +18,7 @@ import { useStore } from "@/src/store";
 import { sourceStatus, refreshSource, subscribeSource } from "@/src/source";
 
 export default function SettingsScreen() {
-  const insets = useSafeAreaInsets();
-  const { refresh: refreshGuide, hardRefresh, refreshing } = useStore();
+  const { refresh: refreshGuide, hardRefresh, refreshing, pointerMode, setPointerMode } = useStore();
   const [status, setStatus] = useState<SourceStatus | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -51,7 +50,7 @@ export default function SettingsScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
+      <View style={[styles.header, { paddingTop: spacing.md }]}>
         <Text style={styles.brand}>Configuration</Text>
         <Text style={styles.title}>Settings</Text>
       </View>
@@ -95,6 +94,26 @@ export default function SettingsScreen() {
         </View>
 
         <View style={styles.card}>
+          <View style={styles.rowBetween}>
+            <View style={{ flex: 1, paddingRight: spacing.md }}>
+              <Text style={styles.cardTitle}>Pointer (mouse) mode</Text>
+              <Text style={styles.sub}>
+                For Android TV / Fire TV boxes where the D-pad focus isn't reliable. Turns the remote's
+                arrow keys into an on-screen mouse pointer — move with the D-pad and press OK/Select to
+                click whatever the pointer is on. Only works on an installed Android TV build.
+              </Text>
+            </View>
+            <Switch
+              value={pointerMode}
+              onValueChange={setPointerMode}
+              trackColor={{ false: colors.surfaceTertiary, true: colors.brand }}
+              thumbColor="#fff"
+              testID="settings-pointer-toggle"
+            />
+          </View>
+        </View>
+
+        <View style={styles.card}>
           <Text style={styles.cardTitle}>About Reminders</Text>
           <Text style={styles.sub}>
             Set reminders from the guide to get a local notification before a program starts, with a tap-to-switch
@@ -131,6 +150,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   cardTitle: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 16 },
+  rowBetween: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   sub: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 13, lineHeight: 19 },
   hint: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 11, textAlign: "center" },
   statRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: spacing.xs },

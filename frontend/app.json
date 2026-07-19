@@ -31,6 +31,12 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
+      [
+        "@react-native-tvos/config-tv",
+        {
+          "isTV": false
+        }
+      ],
       "expo-router",
       [
         "expo-splash-screen",
@@ -59,7 +65,8 @@
       ],
       "react-native-vlc-media-player",
       "expo-screen-orientation",
-      "./plugins/withAndroidTv"
+      "./plugins/withAndroidTv",
+      "./plugins/withTvRemote"
     ],
     "experiments": {
       "typedRoutes": true

@@ -10,7 +10,6 @@ import {
   Platform,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import dayjs from "dayjs";
@@ -20,7 +19,6 @@ import { Channel, Program } from "@/src/api";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
 
 export default function SearchScreen() {
-  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { channels, addRecent, openProgram } = useStore();
   const [q, setQ] = useState("");
@@ -55,7 +53,7 @@ export default function SearchScreen() {
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <View style={{ paddingTop: insets.top }}>
+      <View style={{ paddingTop: spacing.md }}>
         <View style={styles.header}>
           <Text style={styles.brand}>Find anything</Text>
           <Text style={styles.title}>Search</Text>

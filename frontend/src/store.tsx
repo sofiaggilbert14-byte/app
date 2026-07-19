@@ -13,6 +13,7 @@ import {
 const FAV_KEY = "gs_favorites";
 const RECENT_KEY = "gs_recent";
 const REM_KEY = "gs_reminders";
+const PMODE_KEY = "gs_pointer_mode";
 
 export type Reminder = {
   key: string;
@@ -54,6 +55,9 @@ type Store = {
   activeProgram: ActiveProgram;
   openProgram: (program: Program, channel: Channel) => void;
   closeProgram: () => void;
+
+  pointerMode: boolean;
+  setPointerMode: (v: boolean) => void;
 };
 
 const Ctx = createContext<Store | null>(null);
@@ -78,6 +82,12 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [recent, setRecent] = useState<Channel[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [activeProgram, setActiveProgram] = useState<ActiveProgram>(null);
+  const [pointerMode, setPointerModeState] = useState(false);
+
+  const setPointerMode = useCallback((v: boolean) => {
+    setPointerModeState(v);
+    storage.setItem(PMODE_KEY, v);
+  }, []);
 
   const refresh = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -120,6 +130,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setFavorites((await storage.getItem<string[]>(FAV_KEY, [])) || []);
       setRecent((await storage.getItem<Channel[]>(RECENT_KEY, [])) || []);
       setReminders((await storage.getItem<Reminder[]>(REM_KEY, [])) || []);
+      setPointerModeState((await storage.getItem<boolean>(PMODE_KEY, false)) || false);
       requestNotificationPermission();
       // Loads instantly from the on-device cache when it's < 24h old; otherwise
       // fetches & parses once. No network hit on every launch — the source is
@@ -232,6 +243,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     activeProgram,
     openProgram,
     closeProgram,
+    pointerMode,
+    setPointerMode,
   };
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

@@ -12,6 +12,7 @@ import { useAppFonts } from "@/src/hooks/use-app-fonts";
 import { GuideProvider } from "@/src/store";
 import { ProgramModal } from "@/src/components/ProgramModal";
 import { ErrorBoundary } from "@/src/components/ErrorBoundary";
+import { PointerOverlay } from "@/src/components/PointerOverlay";
 
 LogBox.ignoreAllLogs(true);
 SplashScreen.preventAutoHideAsync();
@@ -55,6 +56,7 @@ export default function RootLayout() {
             </Stack>
           </ErrorBoundary>
           <ProgramModal />
+          <PointerOverlay />
         </GuideProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Pressable } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -31,6 +32,7 @@ function TabBarButton({ style, children, onFocus, onBlur, ...rest }: any) {
 }
 
 export default function TabsLayout() {
+  const insets = useSafeAreaInsets();
   return (
     <Tabs
       screenListeners={{
@@ -38,15 +40,17 @@ export default function TabsLayout() {
       }}
       screenOptions={{
         headerShown: false,
+        tabBarPosition: "top",
         tabBarActiveTintColor: colors.brand,
         tabBarInactiveTintColor: colors.onSurfaceTertiary,
         tabBarButton: (props) => <TabBarButton {...props} />,
         tabBarStyle: {
           backgroundColor: colors.surfaceSecondary,
-          borderTopColor: colors.border,
-          borderTopWidth: 1,
-          height: 88,
-          paddingTop: 8,
+          borderBottomColor: colors.border,
+          borderBottomWidth: 1,
+          height: 60 + insets.top,
+          paddingTop: insets.top + 4,
+          paddingBottom: 4,
         },
         tabBarLabelStyle: { fontFamily: fonts.medium, fontSize: 11 },
       }}

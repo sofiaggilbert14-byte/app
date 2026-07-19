@@ -57,12 +57,8 @@ export default function GuideScreen() {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={styles.container}>
       <View style={styles.header}>
-        <View>
-          <Text style={styles.brand}>Charm IPTV</Text>
-          <Text style={styles.title}>TV Guide</Text>
-        </View>
         <View style={styles.headerActions}>
           <Pressable style={({ focused }: any) => [styles.iconBtn, focused && styles.focusRing]} onPress={() => refresh()} testID="guide-refresh-btn">
             <Ionicons name="refresh" size={18} color={colors.onSurface} />
@@ -152,6 +148,11 @@ export default function GuideScreen() {
           onRefresh={hardRefresh}
         />
       )}
+
+      <View style={[styles.footerTitles, { paddingBottom: insets.bottom + spacing.sm }]}>
+        <Text style={styles.footerBrand}>Charm IPTV</Text>
+        <Text style={styles.footerTitle}>TV Guide</Text>
+      </View>
     </View>
   );
 }
@@ -159,16 +160,28 @@ export default function GuideScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
   header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+    flexDirection: "column",
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
     paddingBottom: spacing.md,
+    gap: spacing.sm,
   },
   brand: { color: colors.brandSecondary, fontFamily: fonts.semibold, fontSize: 12 },
   title: { color: colors.onSurface, fontFamily: fonts.display, fontSize: 28 },
   headerActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  headerTitles: { marginTop: spacing.xs },
+  footerTitles: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "center",
+    gap: 6,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  footerBrand: { color: colors.brandSecondary, fontFamily: fonts.semibold, fontSize: 12 },
+  footerTitle: { color: colors.onSurface, fontFamily: fonts.display, fontSize: 18 },
   iconBtn: {
     width: 40,
     height: 40,
