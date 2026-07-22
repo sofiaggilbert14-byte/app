@@ -1,6 +1,6 @@
 import React, { useRef } from "react";
 import { View, Text, StyleSheet, Pressable, useWindowDimensions, RefreshControl } from "react-native";
-import { FlashList } from "@shopify/flash-list";
+import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, fonts, radius, spacing } from "@/src/theme";
 import { Channel, Program } from "@/src/api";
@@ -31,7 +31,7 @@ export function BoxGrid({
   const numColumns = width >= 1200 ? 5 : width >= 900 ? 4 : width >= 600 ? 3 : 2;
   const nowDate = new Date(now);
   const { isFavorite, toggleFavorite } = useStore();
-  const listRef = useRef<FlashList<Channel>>(null);
+  const listRef = useRef<FlashListRef<Channel>>(null);
 
   return (
     <View style={styles.wrap}>
@@ -41,7 +41,7 @@ export function BoxGrid({
       ref={listRef}
       numColumns={numColumns}
       keyExtractor={(c) => c.id}
-      drawDistance={2000}
+      drawDistance={600}
       contentContainerStyle={{ paddingBottom: 130, paddingHorizontal: spacing.sm, paddingTop: spacing.sm }}
       ListHeaderComponent={ListHeaderComponent}
       showsVerticalScrollIndicator={false}

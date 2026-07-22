@@ -80,3 +80,7 @@ memory/test_credentials.md
 
 # Mobile development
 android-sdk/cloudflare-backend/worker/node_modules/@cloudflare/workerd-linux-arm64/bin/workerd
+# Local deployment configuration and credentials
+.env
+.env.*
+!.env.example

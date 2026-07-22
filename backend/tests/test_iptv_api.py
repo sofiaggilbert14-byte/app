@@ -5,6 +5,8 @@ import pytest
 import requests
 
 BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://iptv-player-guide.preview.emergentagent.com").rstrip("/")
+TEST_M3U_URL = os.environ.get("TEST_M3U_URL", "")
+TEST_EPG_URL = os.environ.get("TEST_EPG_URL", "")
 
 
 @pytest.fixture(scope="session")
@@ -150,7 +152,9 @@ class TestProxy:
     when fetching m3u4u playlist/xml. Native app fetches m3u4u directly."""
 
     def test_proxy_fetches_m3u(self, api):
-        m3u_url = "https://m3u4u.com/m3u/jwmzn1grpmu99585n721"
+        if not TEST_M3U_URL:
+            pytest.skip("TEST_M3U_URL is not configured")
+        m3u_url = TEST_M3U_URL
         r = api.get(f"{BASE_URL}/api/proxy", params={"url": m3u_url}, timeout=90)
         assert r.status_code == 200, f"proxy returned {r.status_code}: {r.text[:200]}"
         text = r.text
@@ -159,7 +163,9 @@ class TestProxy:
         assert text.count("#EXTINF") > 500, f"only {text.count('#EXTINF')} EXTINF lines"
 
     def test_proxy_fetches_epg_xml(self, api):
-        epg_url = "https://m3u4u.com/xml/jwmzn1grpmu99585n721"
+        if not TEST_EPG_URL:
+            pytest.skip("TEST_EPG_URL is not configured")
+        epg_url = TEST_EPG_URL
         r = api.get(f"{BASE_URL}/api/proxy", params={"url": epg_url}, timeout=120)
         assert r.status_code == 200, f"proxy returned {r.status_code}: {r.text[:200]}"
         text = r.text
@@ -176,14 +182,16 @@ class TestProxy:
 
 
 # ---- Iteration 4: Admin Auth (case sensitive) ----
-ADMIN_USER = "CharmCity"
-ADMIN_PASS = "CharmCityExotics"
-DEFAULT_M3U = "http://m3u4u.com/m3u/jwmzn1grpmu99585n721"
-DEFAULT_EPG = "http://m3u4u.com/xml/jwmzn1grpmu99585n721"
+ADMIN_USER = os.environ.get("TEST_ADMIN_USERNAME", "")
+ADMIN_PASS = os.environ.get("TEST_ADMIN_PASSWORD", "")
+DEFAULT_M3U = TEST_M3U_URL
+DEFAULT_EPG = TEST_EPG_URL
 
 
 @pytest.fixture(scope="session")
 def admin_token(api):
+    if not all((ADMIN_USER, ADMIN_PASS, DEFAULT_M3U, DEFAULT_EPG)):
+        pytest.skip("Admin integration-test secrets are not configured")
     r = api.post(
         f"{BASE_URL}/api/auth/login",
         json={"username": ADMIN_USER, "password": ADMIN_PASS},
@@ -195,6 +203,7 @@ def admin_token(api):
     return tok
 
 
+@pytest.mark.skipif(not ADMIN_USER or not ADMIN_PASS, reason="Admin integration-test secrets are not configured")
 class TestAuthLogin:
     def test_login_success(self, api):
         r = api.post(

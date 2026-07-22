@@ -15,15 +15,24 @@ import dayjs from "dayjs";
 import { colors, fonts, radius, spacing } from "@/src/theme";
 import type { SourceStatus } from "@/src/api";
 import { useStore } from "@/src/store";
-import { sourceStatus, refreshSource, subscribeSource } from "@/src/source";
+import {
+  sourceStatus,
+  refreshSource,
+  subscribeSource,
+  sourceDiagnostics,
+  clearGuideCache,
+  type SourceDiagnostics,
+} from "@/src/source";
 
 export default function SettingsScreen() {
   const { refresh: refreshGuide, hardRefresh, refreshing, pointerMode, setPointerMode } = useStore();
   const [status, setStatus] = useState<SourceStatus | null>(null);
   const [busy, setBusy] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<SourceDiagnostics | null>(null);
 
   const loadStatus = useCallback(() => {
     setStatus(sourceStatus());
+    sourceDiagnostics().then(setDiagnostics).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -94,11 +103,37 @@ export default function SettingsScreen() {
         </View>
 
         <View style={styles.card}>
+          <Text style={styles.cardTitle}>Phoenix Diagnostics</Text>
+          <Stat label="Build" value="2.0.0-beta.1" />
+          <Stat label="Data mode" value={diagnostics?.mode || "—"} />
+          <Stat label="Cached programs" value={String(diagnostics?.programs || 0)} />
+          <Stat
+            label="Guide cache"
+            value={diagnostics ? `${(diagnostics.cacheBytes / 1024 / 1024).toFixed(1)} MB` : "—"}
+          />
+          <Stat
+            label="Cache age"
+            value={diagnostics?.cacheAgeMinutes == null ? "—" : `${diagnostics.cacheAgeMinutes} min`}
+          />
+          <Pressable
+            style={({ focused }: any) => [styles.secondaryBtn, focused && styles.focusRing]}
+            onPress={async () => {
+              await clearGuideCache();
+              loadStatus();
+            }}
+            testID="settings-clear-guide-cache-btn"
+          >
+            <Ionicons name="trash-outline" size={16} color={colors.onSurface} />
+            <Text style={styles.secondaryText}>Clear Guide Cache</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.card}>
           <View style={styles.rowBetween}>
             <View style={{ flex: 1, paddingRight: spacing.md }}>
               <Text style={styles.cardTitle}>Pointer (mouse) mode</Text>
               <Text style={styles.sub}>
-                For Android TV / Fire TV boxes where the D-pad focus isn't reliable. Turns the remote's
+                For Android TV / Fire TV boxes where the D-pad focus isn’t reliable. Turns the remote’s
                 arrow keys into an on-screen mouse pointer — move with the D-pad and press OK/Select to
                 click whatever the pointer is on. Only works on an installed Android TV build.
               </Text>
@@ -168,5 +203,16 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   primaryText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 14 },
+  secondaryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.surfaceTertiary,
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
+    marginTop: spacing.sm,
+  },
+  secondaryText: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 14 },
   focusRing: { borderWidth: 2, borderColor: "#fff" },
 });

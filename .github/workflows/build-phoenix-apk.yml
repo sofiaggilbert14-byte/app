@@ -1,0 +1,115 @@
+name: Build Phoenix APK
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "frontend/**"
+      - ".github/workflows/build-phoenix-apk.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "frontend/**"
+      - ".github/workflows/build-phoenix-apk.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phoenix-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Standalone Android TV release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      EXPO_PUBLIC_CHARM_API_URL: ${{ vars.EXPO_PUBLIC_CHARM_API_URL }}
+      CMAKE_BUILD_PARALLEL_LEVEL: "2"
+
+    steps:
+      - name: Checkout Phoenix
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android native toolchain
+        run: |
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006" "cmake;3.22.1"
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Validate Phoenix
+        run: |
+          npm run typecheck
+          npm run lint
+
+      - name: Regenerate Android project
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Configure cloud build resources
+        run: |
+          cat >> android/gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8
+          org.gradle.parallel=false
+          org.gradle.workers.max=2
+          kotlin.compiler.execution.strategy=in-process
+          reactNativeArchitectures=armeabi-v7a,arm64-v8a
+          EOF
+
+      - name: Check backend configuration
+        shell: bash
+        run: |
+          if [ -z "$EXPO_PUBLIC_CHARM_API_URL" ]; then
+            echo "::warning::EXPO_PUBLIC_CHARM_API_URL is not configured. The APK will build, but live channel data will be unavailable until the Cloudflare Worker URL is added as a repository variable."
+          fi
+
+      - name: Build standalone universal release APK
+        run: |
+          chmod +x android/gradlew
+          ./android/gradlew -p android :app:assembleRelease --no-daemon --max-workers=2
+
+      - name: Verify packaged APK
+        shell: bash
+        run: |
+          APK="android/app/build/outputs/apk/release/app-release.apk"
+          test -f "$APK"
+          unzip -l "$APK" | grep -q "assets/index.android.bundle"
+          unzip -l "$APK" | grep -q "lib/armeabi-v7a/"
+          unzip -l "$APK" | grep -q "lib/arm64-v8a/"
+          mkdir -p artifacts
+          cp "$APK" "artifacts/CharmIPTV-Phoenix-Universal-Beta.apk"
+
+      - name: Upload Phoenix APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: CharmIPTV-Phoenix-Universal-Beta
+          path: frontend/artifacts/CharmIPTV-Phoenix-Universal-Beta.apk
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0

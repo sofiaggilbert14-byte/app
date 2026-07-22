@@ -5,8 +5,9 @@ import { gunzip, strFromU8 } from "fflate";
 import type { Channel, Program, GuideResponse, SourceStatus } from "@/src/api";
 
 // Developer source — fetched & parsed on-device (no backend needed).
-export const SOURCE_M3U = "http://m3u4u.com/m3u/jwmzn1grpmu99585n721";
-export const SOURCE_EPG = "http://m3u4u.com/epg/jwmzn1grpmu99585n721";
+export const API_BASE = (process.env.EXPO_PUBLIC_CHARM_API_URL || "").replace(/\/+$/, "");
+export const SOURCE_M3U = process.env.EXPO_PUBLIC_M3U_URL || "";
+export const SOURCE_EPG = process.env.EXPO_PUBLIC_EPG_URL || "";
 
 const TTL_MS = 24 * 60 * 60 * 1000; // refresh at most once a day
 const EXTINF_ATTR = /([a-zA-Z0-9-]+)="([^"]*)"/g;
@@ -16,6 +17,8 @@ const EXTINF_ATTR = /([a-zA-Z0-9-]+)="([^"]*)"/g;
 const CACHE_FILE = FileSystem.documentDirectory
   ? FileSystem.documentDirectory + "guide_cache_v3.json"
   : "";
+const CACHE_TMP_FILE = CACHE_FILE ? `${CACHE_FILE}.tmp` : "";
+const MAX_CACHE_BYTES = 32 * 1024 * 1024;
 
 type Parsed = {
   ts: number;
@@ -241,6 +244,9 @@ function parseXmltvTime(s: string): string | null {
   const mi = +t.slice(10, 12);
   const se = +t.slice(12, 14);
   if (isNaN(y) || isNaN(mo) || isNaN(d) || isNaN(h) || isNaN(mi) || isNaN(se)) return null;
+  if (y < 2000 || y > 2100 || mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59 || se > 59) {
+    return null;
+  }
   let ms = Date.UTC(y, mo - 1, d, h, mi, se);
   const rest = t.slice(14).trim();
   if (rest.length >= 5 && (rest[0] === "+" || rest[0] === "-")) {
@@ -260,8 +266,8 @@ type Sink = {
 };
 
 // Streaming XMLTV parser using plain indexOf scanning (no `new RegExp`, no XML
-// DOM). Yields to the UI thread every batch and calls onProgress so the guide
-// fills in live while parsing — the app stays fully navigable throughout.
+// DOM). Yields to the UI thread every batch and reports progress without
+// rebuilding every guide row during parsing.
 async function parseXMLTV(
   xml: string,
   sink: Sink = {},
@@ -313,9 +319,14 @@ async function parseXMLTV(
     const cid = xmlAttr(head, "channel");
     const start = parseXmltvTime(xmlAttr(head, "start"));
     if (cid && start && Date.parse(start) <= maxStart) {
-      const stop = parseXmltvTime(xmlAttr(head, "stop"));
-      if (!(stop && Date.parse(stop) < minStop)) {
+      const parsedStop = parseXmltvTime(xmlAttr(head, "stop"));
+      if (!(parsedStop && Date.parse(parsedStop) < minStop)) {
         const body = xml.slice(gt + 1, e);
+        const startMs = Date.parse(start);
+        const parsedStopMs = parsedStop ? Date.parse(parsedStop) : NaN;
+        const stop = Number.isFinite(parsedStopMs) && parsedStopMs > startMs && parsedStopMs - startMs <= 24 * 3600 * 1000
+          ? parsedStop
+          : new Date(startMs + 30 * 60000).toISOString();
         (programs[cid] = programs[cid] || []).push({
           title: xmlFirstTag(body, "title") || "No Title",
           desc: xmlFirstTag(body, "desc"),
@@ -385,7 +396,11 @@ function setProgress(p: Partial<EpgProgress>, force = false) {
 async function persist() {
   if (Platform.OS === "web" || !MEM || !CACHE_FILE) return;
   try {
-    await FileSystem.writeAsStringAsync(CACHE_FILE, JSON.stringify(MEM));
+    const payload = JSON.stringify(MEM);
+    if (payload.length > MAX_CACHE_BYTES) return;
+    await FileSystem.writeAsStringAsync(CACHE_TMP_FILE, payload);
+    await FileSystem.deleteAsync(CACHE_FILE, { idempotent: true });
+    await FileSystem.moveAsync({ from: CACHE_TMP_FILE, to: CACHE_FILE });
   } catch {}
 }
 
@@ -394,16 +409,85 @@ async function readCache(): Promise<Parsed | null> {
   try {
     const info = await FileSystem.getInfoAsync(CACHE_FILE);
     if (!info.exists) return null;
+    if (typeof info.size === "number" && info.size > MAX_CACHE_BYTES) {
+      await FileSystem.deleteAsync(CACHE_FILE, { idempotent: true });
+      return null;
+    }
     const txt = await FileSystem.readAsStringAsync(CACHE_FILE);
     const data = JSON.parse(txt) as Parsed;
-    return data && data.channels?.length ? data : null;
+    if (!data || !Number.isFinite(data.ts) || !Array.isArray(data.channels) || !data.channels.length || !data.programs) {
+      await FileSystem.deleteAsync(CACHE_FILE, { idempotent: true });
+      return null;
+    }
+    return data;
   } catch {
+    try {
+      await FileSystem.deleteAsync(CACHE_FILE, { idempotent: true });
+    } catch {}
     return null;
   }
 }
 
+type RemoteChannel = {
+  id: string;
+  tvgId?: string;
+  name: string;
+  logo?: string;
+  category?: string;
+  url: string;
+};
+type RemoteProgram = { t: string; s: number; e: number; d?: string; c?: string };
+type RemoteGuide = { updatedAt?: number; channels: { id: string; p?: RemoteProgram[] }[] };
+
+async function fetchRemoteJson(): Promise<Parsed> {
+  if (!API_BASE) throw new Error("Cloudflare API URL is not configured");
+  setProgress({ phase: "downloading", ratio: 0.1, etaSeconds: null }, true);
+  const [channelsRes, guideRes] = await Promise.all([
+    fetch(`${API_BASE}/channels`, { headers: { Accept: "application/json" } }),
+    fetch(`${API_BASE}/guide`, { headers: { Accept: "application/json" } }),
+  ]);
+  if (!channelsRes.ok || !guideRes.ok) {
+    throw new Error(`Guide service unavailable (${channelsRes.status}/${guideRes.status})`);
+  }
+  const rawChannels = (await channelsRes.json()) as RemoteChannel[];
+  const rawGuide = (await guideRes.json()) as RemoteGuide;
+  if (!Array.isArray(rawChannels) || !Array.isArray(rawGuide?.channels)) {
+    throw new Error("Guide service returned invalid data");
+  }
+
+  const programs: Record<string, Program[]> = {};
+  for (const entry of rawGuide.channels) {
+    if (!entry?.id || !Array.isArray(entry.p)) continue;
+    programs[entry.id] = entry.p
+      .filter((p) => Number.isFinite(p.s) && Number.isFinite(p.e) && p.e > p.s)
+      .map((p) => ({
+        title: p.t || "No Title",
+        desc: p.d || "",
+        category: p.c || "",
+        start: new Date(p.s).toISOString(),
+        stop: new Date(p.e).toISOString(),
+      }));
+  }
+
+  const channels: Channel[] = rawChannels
+    .filter((c) => c?.id && c?.name && c?.url)
+    .map((c) => ({
+      id: c.id,
+      tvg_id: c.id,
+      name: c.name,
+      logo: c.logo || "",
+      group: c.category || "Uncategorized",
+      url: c.url,
+      stream_type: streamType(c.url),
+    }));
+  if (!channels.length) throw new Error("Guide service returned no channels");
+  setProgress({ phase: "ready", ratio: 1, etaSeconds: 0 }, true);
+  return { ts: rawGuide.updatedAt || Date.now(), channels, programs };
+}
+
 let epgLoading = false;
 async function loadEpg(channels: Channel[]) {
+  if (!SOURCE_EPG) return;
   if (epgLoading) return;
   epgLoading = true;
   const dlStart = Date.now();
@@ -425,10 +509,10 @@ async function loadEpg(channels: Channel[]) {
 
     const icons: Record<string, string> = {};
     const programs: Record<string, Program[]> = {};
-    // Point MEM at the live `programs` object so the guide fills in as we parse.
+    // Keep the live object internal until parsing completes so progress updates
+    // do not force full-guide React rebuilds.
     MEM = { ts: Date.now(), channels, programs };
     const parseStart = Date.now();
-    let lastEmit = 0;
     await parseXMLTV(epgText, {
       icons,
       programs,
@@ -437,11 +521,6 @@ async function loadEpg(channels: Channel[]) {
         const eta = r > 0.02 && elapsed > 0.3 ? (elapsed / r) * (1 - r) : null;
         // Parsing is the remaining 70% (0.3 → 1.0).
         setProgress({ phase: "parsing", ratio: 0.3 + r * 0.7, etaSeconds: eta });
-        const t = Date.now();
-        if (t - lastEmit > 900) {
-          lastEmit = t;
-          emit();
-        }
       },
     });
     for (const c of channels) {
@@ -468,6 +547,16 @@ function maybeLoadEpg() {
 }
 
 async function doFetchParse(): Promise<Parsed> {
+  if (API_BASE) {
+    const remote = await fetchRemoteJson();
+    MEM = remote;
+    await persist();
+    emit();
+    return remote;
+  }
+  if (!SOURCE_M3U) {
+    throw new Error("Set EXPO_PUBLIC_CHARM_API_URL before building Phoenix");
+  }
   // Stage 1 (fast): parse the small M3U so the guide paints immediately, even
   // on low-power Android TV / Firestick boxes.
   const m3uText = await fetchTextMaybeGzip(SOURCE_M3U);
@@ -480,6 +569,17 @@ async function doFetchParse(): Promise<Parsed> {
   // Stage 2 (slower): parse the large EPG in the background, then notify.
   loadEpg(channels);
   return MEM;
+}
+
+let fetchPromise: Promise<Parsed> | null = null;
+async function fetchParseOnce(): Promise<Parsed> {
+  if (fetchPromise) return fetchPromise;
+  fetchPromise = doFetchParse();
+  try {
+    return await fetchPromise;
+  } finally {
+    fetchPromise = null;
+  }
 }
 
 async function ensureParsed(force: boolean): Promise<Parsed> {
@@ -496,7 +596,7 @@ async function ensureParsed(force: boolean): Promise<Parsed> {
     }
   }
   try {
-    return await doFetchParse();
+    return await fetchParseOnce();
   } catch (e) {
     if (MEM) return MEM; // fall back to whatever we have
     throw e;
@@ -535,7 +635,7 @@ export async function loadGuide(startISO?: string, hours = 12, force = false): P
 }
 
 export async function refreshSource(): Promise<SourceStatus> {
-  await doFetchParse();
+  await fetchParseOnce();
   return sourceStatus();
 }
 
@@ -543,12 +643,52 @@ export function sourceStatus(): SourceStatus {
   const channels = MEM?.channels || [];
   const withEpg = channels.filter((c) => c.tvg_id && MEM?.programs[c.tvg_id]?.length).length;
   return {
-    m3u_url: SOURCE_M3U,
-    epg_url: SOURCE_EPG,
+    m3u_url: API_BASE ? `${API_BASE}/channels` : SOURCE_M3U ? "configured" : "not configured",
+    epg_url: API_BASE ? `${API_BASE}/guide` : SOURCE_EPG ? "configured" : "not configured",
     channel_count: channels.length,
     channels_with_epg: withEpg,
     last_refresh: MEM ? new Date(MEM.ts).toISOString() : null,
     refreshing: false,
     error: null,
   };
+}
+
+export type SourceDiagnostics = {
+  mode: "cloudflare" | "direct" | "unconfigured";
+  cacheBytes: number;
+  cacheAgeMinutes: number | null;
+  channels: number;
+  programs: number;
+  refreshInFlight: boolean;
+};
+
+export async function sourceDiagnostics(): Promise<SourceDiagnostics> {
+  let cacheBytes = 0;
+  if (Platform.OS !== "web" && CACHE_FILE) {
+    try {
+      const info = await FileSystem.getInfoAsync(CACHE_FILE);
+      if (info.exists && typeof info.size === "number") cacheBytes = info.size;
+    } catch {}
+  }
+  const programCount = MEM
+    ? Object.values(MEM.programs).reduce((total, list) => total + list.length, 0)
+    : 0;
+  return {
+    mode: API_BASE ? "cloudflare" : SOURCE_M3U ? "direct" : "unconfigured",
+    cacheBytes,
+    cacheAgeMinutes: MEM ? Math.max(0, Math.round((Date.now() - MEM.ts) / 60000)) : null,
+    channels: MEM?.channels.length || 0,
+    programs: programCount,
+    refreshInFlight: !!fetchPromise || epgLoading,
+  };
+}
+
+export async function clearGuideCache(): Promise<void> {
+  MEM = null;
+  if (Platform.OS !== "web" && CACHE_FILE) {
+    await FileSystem.deleteAsync(CACHE_FILE, { idempotent: true });
+    await FileSystem.deleteAsync(CACHE_TMP_FILE, { idempotent: true });
+  }
+  setProgress({ phase: "idle", ratio: 0, etaSeconds: null }, true);
+  emit();
 }

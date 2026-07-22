@@ -18,6 +18,7 @@ import { TimelineGrid } from "@/src/components/TimelineGrid";
 import { BoxGrid } from "@/src/components/BoxGrid";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { EpgProgressBar } from "@/src/components/EpgProgressBar";
+import dayjs from "dayjs";
 
 export default function GuideScreen() {
   const insets = useSafeAreaInsets();
@@ -34,6 +35,8 @@ export default function GuideScreen() {
     addRecent,
     openProgram,
     favorites,
+    setSelectedDate,
+    lastChannelId,
   } = useStore();
   const now = new Date().toISOString();
 
@@ -65,6 +68,27 @@ export default function GuideScreen() {
           <Pressable style={({ focused }: any) => [styles.iconBtn, focused && styles.focusRing]} onPress={() => hardRefresh()} testID="guide-refresh-btn">
             <Ionicons name="refresh" size={18} color={colors.onSurface} />
           </Pressable>
+          <Pressable
+            style={({ focused }: any) => [styles.nowBtn, focused && styles.focusRing]}
+            onPress={() => setSelectedDate(dayjs().format("YYYY-MM-DD"))}
+            testID="guide-jump-now-btn"
+          >
+            <Ionicons name="time-outline" size={17} color={colors.onSurface} />
+            <Text style={styles.nowBtnText}>Now</Text>
+          </Pressable>
+          {lastChannelId && (
+            <Pressable
+              style={({ focused }: any) => [styles.nowBtn, focused && styles.focusRing]}
+              onPress={() => {
+                const last = channels.find((c) => c.id === lastChannelId);
+                if (last) openChannel(last);
+              }}
+              testID="guide-resume-channel-btn"
+            >
+              <Ionicons name="play" size={16} color={colors.brandSecondary} />
+              <Text style={styles.nowBtnText}>Resume</Text>
+            </Pressable>
+          )}
           <View style={styles.toggle}>
             <Pressable
               onPress={() => setMode("timeline")}
@@ -203,6 +227,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+  nowBtn: {
+    height: 40,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  nowBtnText: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 12 },
   toggle: {
     flexDirection: "row",
     backgroundColor: colors.surfaceSecondary,

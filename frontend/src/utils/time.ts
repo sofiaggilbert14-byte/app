@@ -1,5 +1,5 @@
 import dayjs from "dayjs";
-import type { Channel, Program } from "./api";
+import type { Program } from "@/src/api";
 
 export function fmtTime(iso: string): string {
   return dayjs(iso).format("h:mm A");

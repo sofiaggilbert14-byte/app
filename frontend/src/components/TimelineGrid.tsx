@@ -10,7 +10,7 @@ import {
   useWindowDimensions,
   LayoutChangeEvent,
 } from "react-native";
-import { FlashList } from "@shopify/flash-list";
+import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import dayjs from "dayjs";
 import { colors, fonts, radius, spacing } from "@/src/theme";
 import { Channel, Program } from "@/src/api";
@@ -53,7 +53,7 @@ export function TimelineGrid({
   const scrollX = useRef(new Animated.Value(0)).current;
   const negScrollX = useMemo(() => Animated.multiply(scrollX, -1), [scrollX]);
   const [bodyH, setBodyH] = useState(0);
-  const listRef = useRef<FlashList<Channel>>(null);
+  const listRef = useRef<FlashListRef<Channel>>(null);
 
   const totalMin = mins(windowEnd, windowStart);
   const timelineWidth = totalMin * PX_PER_MIN;
@@ -108,7 +108,7 @@ export function TimelineGrid({
                 data={channels}
                 ref={listRef}
                 keyExtractor={(c) => c.id}
-                drawDistance={2000}
+                drawDistance={big ? 600 : 400}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingBottom: 120 }}
                 refreshControl={
@@ -136,13 +136,21 @@ export function TimelineGrid({
                     {/* programs */}
                     <View style={{ width: timelineWidth, height: ROW_H }}>
                       {(item.programs || []).map((p, i) => {
-                        const left = Math.max(0, mins(p.start, windowStart) * PX_PER_MIN);
-                        const end = p.stop || dayjs(p.start).add(30, "minute").toISOString();
-                        const w = Math.max(24, mins(end, p.start) * PX_PER_MIN - 3);
+                        const startMs = Date.parse(p.start);
+                        const rawEndMs = p.stop ? Date.parse(p.stop) : startMs + 30 * 60 * 1000;
+                        const windowStartMs = Date.parse(windowStart);
+                        const windowEndMs = Date.parse(windowEnd);
+                        if (!Number.isFinite(startMs) || !Number.isFinite(rawEndMs) || rawEndMs <= startMs) return null;
+                        if (rawEndMs <= windowStartMs || startMs >= windowEndMs) return null;
+                        const visibleStart = Math.max(startMs, windowStartMs);
+                        const visibleEnd = Math.min(rawEndMs, windowEndMs);
+                        const left = ((visibleStart - windowStartMs) / 60000) * PX_PER_MIN;
+                        const w = Math.max(24, ((visibleEnd - visibleStart) / 60000) * PX_PER_MIN - 3);
+                        const end = new Date(rawEndMs).toISOString();
                         const isLive = dayjs(now).isAfter(p.start) && dayjs(now).isBefore(end);
                         return (
                           <Pressable
-                            key={i}
+                            key={`${item.id}:${p.start}:${p.stop || "open"}:${p.title}`}
                             onPress={() => onProgramPress(p, item)}
                             style={({ focused }: any) => [
                               styles.progCell,
