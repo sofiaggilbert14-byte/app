@@ -24,3 +24,6 @@ The native VLC player is unavailable in Expo Go and the browser preview.
 Never commit playlist URLs, administrator passwords, Cloudflare tokens, keystores, or signing passwords. Configure feed URLs through GitHub repository secrets named `M3U_URL` and `EPG_URL`.
 
 See [the Phoenix roadmap](docs/ROADMAP.md) and [testing checklist](docs/TESTING_CHECKLIST.md).
+
+Cloud APK builds and downloads are documented in
+[docs/GITHUB_ACTIONS.md](docs/GITHUB_ACTIONS.md).

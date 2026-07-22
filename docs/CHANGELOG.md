@@ -2,6 +2,13 @@
 
 ## Phoenix Closed Beta
 
+### Build and distribution
+
+- Added a GitHub Actions cloud build that validates Phoenix and produces a
+  standalone universal Android TV APK for 32-bit and 64-bit ARM devices.
+- Added seven-day APK artifact retention and verification that the JavaScript
+  bundle and both TV processor architectures are packaged.
+
 ### Security
 
 - Moved playlist and EPG source configuration to GitHub repository secrets.

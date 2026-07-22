@@ -1,0 +1,33 @@
+# Phoenix cloud APK builds
+
+The `Build Phoenix APK` workflow produces one standalone release APK containing
+both `armeabi-v7a` (32-bit TV devices) and `arm64-v8a` (64-bit TV devices).
+The JavaScript bundle is packaged in the APK, so Metro is not required.
+
+## One-time configuration
+
+1. Deploy the Cloudflare Worker described in `cloudflare-backend/README.md`.
+2. In GitHub, open **Settings > Secrets and variables > Actions > Variables**.
+3. Create the repository variable `EXPO_PUBLIC_CHARM_API_URL` containing the
+   Worker URL without a trailing slash.
+
+Do not put raw M3U or EPG credentials in an `EXPO_PUBLIC_*` variable. Values
+with that prefix are compiled into the APK and can be inspected by users.
+
+## Build and download
+
+1. Open the repository's **Actions** tab.
+2. Select **Build Phoenix APK**.
+3. Select **Run workflow**, choose `main`, and confirm.
+4. Open the completed run after it receives a green check mark.
+5. Download the `CharmIPTV-Phoenix-Universal-Beta` artifact.
+6. Extract the ZIP and install `CharmIPTV-Phoenix-Universal-Beta.apk`.
+
+Artifacts expire after seven days to conserve the GitHub Free storage quota.
+
+## Signing
+
+The Closed Beta currently uses the generated Android debug keystore for a
+standalone, installable release build. Before public distribution, replace it
+with a permanent release keystore stored through encrypted GitHub secrets.
+
