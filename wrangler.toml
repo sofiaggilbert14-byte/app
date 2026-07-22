@@ -1,0 +1,6 @@
+name = "charmiptv-api"
+main = "worker/src/index.js"
+compatibility_date = "2026-07-22"
+
+[observability]
+enabled = true
