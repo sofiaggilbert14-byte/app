@@ -21,8 +21,8 @@ const ACC = requireEnv("CF_ACCOUNT_ID");
 const NS = requireEnv("CF_KV_NAMESPACE_ID");
 const TOKEN = requireEnv("CF_API_TOKEN");
 
-const M3U_URL = process.env.M3U_URL || "http://m3u4u.com/m3u/jwmzn1grpmu99585n721";
-const EPG_URL = process.env.EPG_URL || "http://m3u4u.com/epg/jwmzn1grpmu99585n721";
+const M3U_URL = requireEnv("M3U_URL");
+const EPG_URL = requireEnv("EPG_URL");
 
 // EPG window kept in the guide / per-channel windows.
 const NOW = Date.now();
@@ -135,6 +135,9 @@ function xTime(s) {
     mi = +t.slice(10, 12),
     se = +t.slice(12, 14);
   if ([y, mo, d, h, mi, se].some(isNaN)) return null;
+  if (y < 2000 || y > 2100 || mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59 || se > 59) {
+    return null;
+  }
   let ms = Date.UTC(y, mo - 1, d, h, mi, se);
   const rest = t.slice(14).trim();
   if (rest.length >= 5 && (rest[0] === "+" || rest[0] === "-")) {
@@ -179,15 +182,18 @@ function parseXMLTV(xml) {
     const cid = xAttr(head, "channel");
     const start = xTime(xAttr(head, "start"));
     if (!cid || start === null || start > GUIDE_END) continue;
-    const stop = xTime(xAttr(head, "stop"));
-    if (stop !== null && stop < GUIDE_START) continue;
+    const parsedStop = xTime(xAttr(head, "stop"));
+    if (parsedStop !== null && parsedStop < GUIDE_START) continue;
+    const stop = parsedStop && parsedStop > start && parsedStop - start <= 24 * 3600 * 1000
+      ? parsedStop
+      : start + 30 * 60000;
     const body = xml.slice(gt + 1, e);
     let desc = xTag(body, "desc");
     if (desc.length > 220) desc = desc.slice(0, 217) + "…";
     (byChannel[cid] = byChannel[cid] || []).push({
       t: xTag(body, "title") || "No Title",
       s: start,
-      e: stop ?? start + 30 * 60000,
+      e: stop,
       d: desc || undefined,
       c: xTag(body, "category") || undefined,
     });

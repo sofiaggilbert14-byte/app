@@ -52,7 +52,7 @@ export async function scheduleProgramReminder(opts: {
       },
     });
     return id;
-  } catch (e) {
+  } catch {
     return null;
   }
 }

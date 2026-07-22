@@ -122,6 +122,18 @@ function withTvRemotePackageRegistered(config) {
           anchor,
           `${anchor}\n            packages.add(TvRemotePackage())`,
         );
+      } else {
+        // Expo SDK 54 uses an expression body with `.apply {}` rather than a
+        // mutable `val packages`. Register inside that block.
+        const applyAnchor = "PackageList(this).packages.apply {";
+        if (src.includes(applyAnchor)) {
+          src = src.replace(
+            applyAnchor,
+            `${applyAnchor}\n              add(TvRemotePackage())`,
+          );
+        } else {
+          throw new Error("Unable to register TvRemotePackage in MainApplication.kt");
+        }
       }
     }
     cfg.modResults.contents = src;

@@ -2,7 +2,10 @@
 // Concrete implementations live in index.ts (native) and index.web.ts (web).
 
 export type StorageItemKey = string;
-export type StorageItemValue = string | number | boolean | null;
+// Values are JSON-serialized by concrete storage implementations. `unknown`
+// keeps the API usable for typed arrays and records while callers still choose
+// the exact return type through their fallback value.
+export type StorageItemValue = unknown;
 
 // Helper for subclasses to enforce that they don't declare methods beyond
 // StorageBase. Use as: type _ = AssertNoExtras<Exclude<keyof Storage, keyof StorageBase>>;

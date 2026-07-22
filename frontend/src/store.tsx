@@ -12,6 +12,7 @@ import {
 
 const FAV_KEY = "gs_favorites";
 const RECENT_KEY = "gs_recent";
+const LAST_CHANNEL_KEY = "gs_last_channel";
 const REM_KEY = "gs_reminders";
 const PMODE_KEY = "gs_pointer_mode";
 
@@ -45,6 +46,7 @@ type Store = {
   toggleFavorite: (id: string) => void;
 
   recent: Channel[];
+  lastChannelId: string | null;
   addRecent: (c: Channel) => void;
 
   reminders: Reminder[];
@@ -82,6 +84,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
 
   const [favorites, setFavorites] = useState<string[]>([]);
   const [recent, setRecent] = useState<Channel[]>([]);
+  const [lastChannelId, setLastChannelId] = useState<string | null>(null);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [activeProgram, setActiveProgram] = useState<ActiveProgram>(null);
   const [pointerMode, setPointerModeState] = useState(false);
@@ -103,7 +106,9 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       const day = dayjs(dateRef.current);
       const isToday = day.isSame(dayjs(), "day");
       const start = isToday ? undefined : day.startOf("day").toISOString();
-      const data = await loadGuide(start, 12);
+      // Keep only a moving four-hour window in rendered channel objects. The
+      // source cache can retain more guide data without creating a huge TV UI.
+      const data = await loadGuide(start, 4);
       setChannels(data.channels);
       setWindowStart(data.start);
       setWindowEnd(data.end);
@@ -136,6 +141,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       setFavorites((await storage.getItem<string[]>(FAV_KEY, [])) || []);
       setRecent((await storage.getItem<Channel[]>(RECENT_KEY, [])) || []);
+      setLastChannelId(await storage.getItem<string | null>(LAST_CHANNEL_KEY, null));
       setReminders((await storage.getItem<Reminder[]>(REM_KEY, [])) || []);
       setPointerModeState((await storage.getItem<boolean>(PMODE_KEY, false)) || false);
       requestNotificationPermission();
@@ -167,6 +173,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const addRecent = useCallback((c: Channel) => {
+    setLastChannelId(c.id);
+    storage.setItem(LAST_CHANNEL_KEY, c.id);
     setRecent((prev) => {
       const next = [c, ...prev.filter((x) => x.id !== c.id)].slice(0, 15);
       storage.setItem(RECENT_KEY, next);
@@ -245,6 +253,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     isFavorite,
     toggleFavorite,
     recent,
+    lastChannelId,
     addRecent,
     reminders,
     hasReminder,

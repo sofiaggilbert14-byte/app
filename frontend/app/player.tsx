@@ -22,6 +22,9 @@ import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { nowNext, fmtTime } from "@/src/utils/time";
 import { addTvKeyListener } from "@/src/utils/tvRemote";
 
+const CONTROLS_HIDE_MS = 15_000;
+const CHANNEL_PREVIEW_DELAY_MS = 650;
+
 export default function PlayerScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -36,6 +39,7 @@ export default function PlayerScreen() {
   const [retryToken, setRetryToken] = useState(0);
   const [fullscreen, setFullscreen] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // TVs are fixed landscape and reject runtime orientation locking (throws
   // ERR_SCREEN_ORIENTATION_UNSUPPORTED_ORIENTATION_LOCK → crash). Only rotate
@@ -87,6 +91,7 @@ export default function PlayerScreen() {
   };
 
   const surf = (id: string) => {
+    if (previewTimer.current) clearTimeout(previewTimer.current);
     const c = channelById(id);
     if (!c) return;
     Haptics.selectionAsync();
@@ -95,9 +100,20 @@ export default function PlayerScreen() {
     scheduleHide();
   };
 
+  const previewChannel = (id: string) => {
+    if (id === channelId) return;
+    if (previewTimer.current) clearTimeout(previewTimer.current);
+    previewTimer.current = setTimeout(() => {
+      if (channelById(id)) {
+        setStatus("loading");
+        setChannelId(id);
+      }
+    }, CHANNEL_PREVIEW_DELAY_MS);
+  };
+
   const scheduleHide = () => {
     if (hideTimer.current) clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(() => setControls(false), 4000);
+    hideTimer.current = setTimeout(() => setControls(false), CONTROLS_HIDE_MS);
   };
 
   // Auto-hide the controls (incl. the bottom channel list) once the stream is
@@ -107,8 +123,8 @@ export default function PlayerScreen() {
     if (status === "playing") scheduleHide();
     return () => {
       if (hideTimer.current) clearTimeout(hideTimer.current);
+      if (previewTimer.current) clearTimeout(previewTimer.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
 
   // On TV, any D-pad / remote key reveals the controls again, then re-arms the
@@ -120,7 +136,6 @@ export default function PlayerScreen() {
       scheduleHide();
     });
     return unsub;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isTV]);
 
   const toggleControls = () => {
@@ -247,6 +262,7 @@ export default function PlayerScreen() {
               renderItem={({ item }) => (
                 <Pressable
                   onPress={() => surf(item.id)}
+                  onFocus={() => previewChannel(item.id)}
                   style={({ focused }: any) => [
                     styles.surfItem,
                     item.id === channelId && styles.surfActive,

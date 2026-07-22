@@ -14,6 +14,7 @@ export const vlcAvailable =
 // Only require the native module when its view is actually registered — this
 // avoids crashing the JS bundle in Expo Go and on web.
 const VLCPlayer: any = vlcAvailable
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- native module must be lazy outside installed builds
   ? require("react-native-vlc-media-player").VLCPlayer
   : null;
 

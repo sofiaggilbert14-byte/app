@@ -2,7 +2,7 @@
   "expo": {
     "name": "Charm IPTV",
     "slug": "frontend",
-    "version": "1.0.0",
+    "version": "2.0.0-beta.1",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "frontend",
@@ -66,7 +66,8 @@
       "react-native-vlc-media-player",
       "expo-screen-orientation",
       "./plugins/withAndroidTv",
-      "./plugins/withTvRemote"
+      "./plugins/withTvRemote",
+      "./plugins/withLowMemoryAndroidBuild"
     ],
     "experiments": {
       "typedRoutes": true

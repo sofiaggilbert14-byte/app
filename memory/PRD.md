@@ -28,9 +28,8 @@ rebuilding the app.
   - Channel IDs deduped for repeated tvg-ids.
 
 ## Data Source
-- M3U: http://m3u4u.com/m3u/jwmzn1grpmu99585n721
-- XMLTV: http://m3u4u.com/xml/jwmzn1grpmu99585n721
-- ~688 channels, ~665 with EPG.
+- Source URLs are private deployment configuration and must not be committed.
+- GitHub Actions reads `M3U_URL` and `EPG_URL` from repository secrets.
 
 ## Backend API
 - GET /api/status/source, POST /api/refresh, GET/POST /api/settings
@@ -51,8 +50,8 @@ rebuilding the app.
 - Per-day EPG date picker (Today + next 6 days) on the TV Guide.
 - Pull-to-refresh on the guide (timeline + box) and Settings; "Refresh Playlist Now" button.
 - Password-protected Admin section in Settings to edit the M3U + EPG source URLs live
-  (case-sensitive username `CharmCity` / password `CharmCityExotics`, JWT via passlib+pyjwt;
-  ADMIN_USERNAME/ADMIN_PASSWORD in backend/.env are the source of truth). POST /api/settings
+  (credentials are deployment secrets, JWT via passlib+pyjwt;
+  `ADMIN_USERNAME`/`ADMIN_PASSWORD` are the source of truth). POST /api/settings
   is Bearer-protected; token stored in secure storage on device.
 - Verified via testing_agent (iterations 1-4): backend 17/17, all frontend flows passing.
 
