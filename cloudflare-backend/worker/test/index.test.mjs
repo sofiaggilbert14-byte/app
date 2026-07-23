@@ -50,6 +50,7 @@ test("config serves the data builder status from KV", async () => {
   const body = await response.json();
   assert.equal(body.ready, true);
   assert.equal(body.channelCount, 12);
+  assert.equal(body.channelsWithGuide, 0);
   assert.equal(body.guideAvailable, false);
   assert.deepEqual(body.announcements, []);
 });

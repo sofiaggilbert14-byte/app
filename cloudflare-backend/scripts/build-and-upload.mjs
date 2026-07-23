@@ -1,34 +1,19 @@
 #!/usr/bin/env node
 /**
- * Charm IPTV — data builder (runs on GitHub Actions every 6h).
+ * Charm IPTV data builder (runs on GitHub Actions every 6h).
  *
  * Downloads the M3U playlist + gzipped EPG, parses them on a full-power runner,
- * builds compact/optimized JSON, gzips the big payloads, and writes everything
- * to Cloudflare KV via the REST API. If a source is unavailable, it skips that
- * write so the last-good data keeps serving.
- *
- * Zero external dependencies — Node 20 built-ins only (fetch, node:zlib).
- *
- * Env required:
- *   CF_ACCOUNT_ID, CF_KV_NAMESPACE_ID, CF_API_TOKEN
- * Optional:
- *   M3U_URL, EPG_URL, APP_VERSION, MAINTENANCE ("true"/"false"), ANNOUNCEMENTS (JSON array)
+ * builds compact JSON, gzips the big payloads, and writes everything to
+ * Cloudflare KV. The Worker only serves the finished data.
  */
 
 import { gunzipSync, gzipSync } from "node:zlib";
+import { pathToFileURL } from "node:url";
 
-const ACC = requireEnv("CF_ACCOUNT_ID");
-const NS = requireEnv("CF_KV_NAMESPACE_ID");
-const TOKEN = requireEnv("CF_API_TOKEN");
-
-const M3U_URL = requireEnv("M3U_URL");
-const EPG_URL = requireEnv("EPG_URL");
-
-// EPG window kept in the guide / per-channel windows.
 const NOW = Date.now();
-const GUIDE_START = NOW - 6 * 3600 * 1000; // 6h in the past
-const GUIDE_END = NOW + 48 * 3600 * 1000; // 48h ahead
-const WIN_START = NOW - 1 * 3600 * 1000; // per-channel now/next window
+const GUIDE_START = NOW - 6 * 3600 * 1000;
+const GUIDE_END = NOW + 48 * 3600 * 1000;
+const WIN_START = NOW - 1 * 3600 * 1000;
 const WIN_END = NOW + 12 * 3600 * 1000;
 
 function requireEnv(name) {
@@ -51,23 +36,23 @@ async function fetchBytes(url) {
   });
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
   const buf = Buffer.from(await res.arrayBuffer());
-  // Inflate only if gzip magic bytes are present.
   if (buf.length > 2 && buf[0] === 0x1f && buf[1] === 0x8b) return gunzipSync(buf);
   return buf;
 }
 
-// ── M3U parsing ──────────────────────────────────────────────────────────────
 function attr(line, name) {
   const m = line.match(new RegExp(`${name}="([^"]*)"`));
-  return m ? m[1] : "";
+  return m ? m[1].trim() : "";
 }
-function parseM3U(text) {
+
+export function parseM3U(text) {
   const lines = text.split(/\r?\n/);
   const channels = [];
   const seen = new Set();
   let pending = null;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
     if (line.startsWith("#EXTINF")) {
       const comma = line.lastIndexOf(",");
       const name = (comma !== -1 ? line.slice(comma + 1) : "").trim();
@@ -77,25 +62,30 @@ function parseM3U(text) {
         logo: https(attr(line, "tvg-logo")),
         group: attr(line, "group-title") || "Uncategorized",
       };
-    } else if (line && !line.startsWith("#") && pending) {
-      let id = pending.tvgId || slug(pending.name);
-      let base = id;
-      let n = 2;
-      while (seen.has(id)) id = `${base}-${n++}`;
-      seen.add(id);
-      channels.push({
-        id,
-        tvgId: pending.tvgId || id,
-        name: pending.name,
-        logo: pending.logo || "",
-        category: pending.group,
-        url: line,
-      });
-      pending = null;
+      continue;
     }
+
+    if (!line || line.startsWith("#") || !pending) continue;
+
+    const base = pending.tvgId || slug(pending.name);
+    let id = base;
+    let n = 2;
+    while (seen.has(id)) id = `${base}-${n++}`;
+    seen.add(id);
+    channels.push({
+      id,
+      tvgId: pending.tvgId || id,
+      name: pending.name,
+      logo: pending.logo || "",
+      category: pending.group,
+      url: line,
+    });
+    pending = null;
   }
+
   return channels;
 }
+
 function slug(s) {
   return (s || "")
     .toLowerCase()
@@ -104,7 +94,6 @@ function slug(s) {
     .slice(0, 60) || "ch";
 }
 
-// ── XMLTV parsing (indexOf scanning — fast, no DOM) ───────────────────────────
 const ENT = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
 function decode(s) {
   if (s.indexOf("&") === -1) return s;
@@ -116,41 +105,54 @@ function decode(s) {
     return ENT[e] ?? m;
   });
 }
+
 function xAttr(head, name) {
   const m = head.match(new RegExp(`\\b${name}="([^"]*)"`));
-  return m ? m[1] : "";
+  return m ? decode(m[1].trim()) : "";
 }
+
 function xTag(body, name) {
   const m = body.match(new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)</${name}>`));
   return m ? decode(m[1].trim()) : "";
 }
+
+function xTags(body, name) {
+  const values = [];
+  const re = new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)</${name}>`, "g");
+  let m;
+  while ((m = re.exec(body))) values.push(decode(m[1].trim()));
+  return values.filter(Boolean);
+}
+
 function xTime(s) {
   if (!s) return null;
   const t = s.trim();
   if (t.length < 14) return null;
-  const y = +t.slice(0, 4),
-    mo = +t.slice(4, 6),
-    d = +t.slice(6, 8),
-    h = +t.slice(8, 10),
-    mi = +t.slice(10, 12),
-    se = +t.slice(12, 14);
+  const y = +t.slice(0, 4);
+  const mo = +t.slice(4, 6);
+  const d = +t.slice(6, 8);
+  const h = +t.slice(8, 10);
+  const mi = +t.slice(10, 12);
+  const se = +t.slice(12, 14);
   if ([y, mo, d, h, mi, se].some(isNaN)) return null;
   if (y < 2000 || y > 2100 || mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59 || se > 59) {
     return null;
   }
+
   let ms = Date.UTC(y, mo - 1, d, h, mi, se);
   const rest = t.slice(14).trim();
   if (rest.length >= 5 && (rest[0] === "+" || rest[0] === "-")) {
     const sign = rest[0] === "-" ? -1 : 1;
-    const oh = +rest.slice(1, 3),
-      om = +rest.slice(3, 5);
+    const oh = +rest.slice(1, 3);
+    const om = +rest.slice(3, 5);
     if (!isNaN(oh) && !isNaN(om)) ms -= sign * (oh * 60 + om) * 60000;
   }
   return isNaN(ms) ? null : ms;
 }
-function parseXMLTV(xml) {
-  // icons by channel id
+
+export function parseXMLTV(xml) {
   const icons = {};
+  const channelNames = {};
   let cp = 0;
   while (true) {
     const s = xml.indexOf("<channel", cp);
@@ -158,17 +160,21 @@ function parseXMLTV(xml) {
     const gt = xml.indexOf(">", s);
     const e = xml.indexOf("</channel>", gt);
     if (gt === -1 || e === -1) break;
+
     const id = xAttr(xml.slice(s + 8, gt), "id");
     const body = xml.slice(gt + 1, e);
     cp = e + 10;
+
+    if (!id) continue;
+    channelNames[id] = xTags(body, "display-name");
     const ii = body.indexOf("<icon");
-    if (id && ii !== -1) {
+    if (ii !== -1) {
       const ie = body.indexOf(">", ii);
-      const src = xAttr(body.slice(ii + 5, ie), "src");
+      const src = ie === -1 ? "" : xAttr(body.slice(ii + 5, ie), "src");
       if (src) icons[id] = https(src);
     }
   }
-  // programmes by channel id (windowed)
+
   const byChannel = {};
   let p = 0;
   while (true) {
@@ -177,19 +183,23 @@ function parseXMLTV(xml) {
     const gt = xml.indexOf(">", s);
     const e = xml.indexOf("</programme>", gt);
     if (gt === -1 || e === -1) break;
+
     const head = xml.slice(s + 10, gt);
     p = e + 12;
+
     const cid = xAttr(head, "channel");
     const start = xTime(xAttr(head, "start"));
     if (!cid || start === null || start > GUIDE_END) continue;
+
     const parsedStop = xTime(xAttr(head, "stop"));
     if (parsedStop !== null && parsedStop < GUIDE_START) continue;
     const stop = parsedStop && parsedStop > start && parsedStop - start <= 24 * 3600 * 1000
       ? parsedStop
       : start + 30 * 60000;
+
     const body = xml.slice(gt + 1, e);
     let desc = xTag(body, "desc");
-    if (desc.length > 220) desc = desc.slice(0, 217) + "…";
+    if (desc.length > 220) desc = `${desc.slice(0, 217)}...`;
     (byChannel[cid] = byChannel[cid] || []).push({
       t: xTag(body, "title") || "No Title",
       s: start,
@@ -198,56 +208,153 @@ function parseXMLTV(xml) {
       c: xTag(body, "category") || undefined,
     });
   }
+
   for (const k in byChannel) byChannel[k].sort((a, b) => a.s - b.s);
-  return { icons, byChannel };
+  return { icons, byChannel, channelNames };
 }
 
-// ── Cloudflare KV REST ────────────────────────────────────────────────────────
-async function kvPut(key, body, contentType) {
-  const url = `https://api.cloudflare.com/client/v4/accounts/${ACC}/storage/kv/namespaces/${NS}/values/${encodeURIComponent(
+function stripSourceSuffix(value) {
+  return (value || "")
+    .replace(/\s*\((m3u4u|src\d+|source\d+)\)\s*$/i, "")
+    .replace(/[#-](m3u4u|src\d+|source\d+)$/i, "")
+    .trim();
+}
+
+function normalizedKey(value) {
+  const stripped = stripSourceSuffix(decode(String(value || "")));
+  return stripped
+    .toLowerCase()
+    .replace(/\b(hd|fhd|uhd|sd)\b/g, "")
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function candidateKeys(...values) {
+  const out = [];
+  const seen = new Set();
+  for (const value of values) {
+    const raw = String(value || "").trim();
+    const stripped = stripSourceSuffix(raw);
+    for (const item of [raw, stripped, normalizedKey(raw), normalizedKey(stripped)]) {
+      if (item && !seen.has(item)) {
+        seen.add(item);
+        out.push(item);
+      }
+    }
+  }
+  return out;
+}
+
+function addUnique(map, key, value) {
+  if (!key) return;
+  if (!map.has(key)) {
+    map.set(key, value);
+    return;
+  }
+  if (map.get(key) !== value) map.set(key, null);
+}
+
+function buildEpgIndex(byChannel, channelNames) {
+  const exact = new Map();
+  const fuzzy = new Map();
+  for (const id of Object.keys(byChannel)) {
+    exact.set(id, id);
+    addUnique(fuzzy, normalizedKey(id), id);
+    for (const name of channelNames[id] || []) {
+      addUnique(fuzzy, normalizedKey(name), id);
+    }
+  }
+  return { exact, fuzzy };
+}
+
+function resolveEpgId(channel, epgIndex) {
+  for (const key of [channel.tvgId, channel.id, channel.name, stripSourceSuffix(channel.tvgId), stripSourceSuffix(channel.name)]) {
+    if (key && epgIndex.exact.has(key)) return epgIndex.exact.get(key);
+  }
+  for (const key of candidateKeys(channel.tvgId, channel.id, channel.name)) {
+    const match = epgIndex.fuzzy.get(normalizedKey(key));
+    if (match) return match;
+  }
+  return null;
+}
+
+export function buildGuideData(channels, epg) {
+  const epgIndex = buildEpgIndex(epg.byChannel, epg.channelNames || {});
+  const matches = new Map();
+  for (const channel of channels) {
+    matches.set(channel.id, resolveEpgId(channel, epgIndex));
+  }
+
+  const guideChannels = channels.map((channel) => {
+    const epgId = matches.get(channel.id);
+    return {
+      id: channel.id,
+      p: epgId ? epg.byChannel[epgId] || [] : [],
+    };
+  });
+
+  const channelsWithGuide = guideChannels.filter((channel) => channel.p.length > 0).length;
+  const unmatchedSamples = channels
+    .filter((channel) => !(matches.get(channel.id) && epg.byChannel[matches.get(channel.id)]?.length))
+    .slice(0, 15)
+    .map((channel) => ({ id: channel.id, tvgId: channel.tvgId, name: channel.name }));
+
+  return { guideChannels, matches, channelsWithGuide, unmatchedSamples };
+}
+
+async function kvPut(acc, ns, token, key, body, contentType) {
+  const url = `https://api.cloudflare.com/client/v4/accounts/${acc}/storage/kv/namespaces/${ns}/values/${encodeURIComponent(
     key,
   )}`;
   const res = await fetch(url, {
     method: "PUT",
-    headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": contentType },
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": contentType },
     body,
   });
   if (!res.ok) throw new Error(`KV PUT ${key} failed: ${res.status} ${await res.text()}`);
-  console.log(`✓ KV wrote "${key}" (${Buffer.byteLength(body)} bytes)`);
+  console.log(`KV wrote "${key}" (${Buffer.byteLength(body)} bytes)`);
 }
 
-// ── Main ──────────────────────────────────────────────────────────────────────
-(async () => {
-  console.log("Charm IPTV builder starting…");
+export async function main() {
+  const acc = requireEnv("CF_ACCOUNT_ID");
+  const ns = requireEnv("CF_KV_NAMESPACE_ID");
+  const token = requireEnv("CF_API_TOKEN");
+  const m3uUrl = requireEnv("M3U_URL");
+  const epgUrl = requireEnv("EPG_URL");
 
-  // 1) Channels (required). If this fails, abort without touching KV.
+  console.log("Charm IPTV builder starting...");
+
   let channels;
   try {
-    const m3uText = (await fetchBytes(M3U_URL)).toString("utf8");
+    const m3uText = (await fetchBytes(m3uUrl)).toString("utf8");
     channels = parseM3U(m3uText);
     if (!channels.length) throw new Error("M3U parsed to 0 channels");
     console.log(`Parsed ${channels.length} channels`);
   } catch (err) {
-    console.error("M3U fetch/parse failed — keeping last-good KV data:", err.message);
+    console.error("M3U fetch/parse failed - keeping last-good KV data:", err.message);
     process.exit(1);
   }
 
-  // 2) EPG (optional). On failure, still publish channels + config.
-  let byChannel = null;
-  let icons = {};
+  let epg = null;
   try {
-    const epgXml = (await fetchBytes(EPG_URL)).toString("utf8");
-    ({ icons, byChannel } = parseXMLTV(epgXml));
-    const progCount = Object.values(byChannel).reduce((a, v) => a + v.length, 0);
-    console.log(`Parsed EPG: ${progCount} programmes across ${Object.keys(byChannel).length} channels`);
+    const epgXml = (await fetchBytes(epgUrl)).toString("utf8");
+    epg = parseXMLTV(epgXml);
+    const progCount = Object.values(epg.byChannel).reduce((a, v) => a + v.length, 0);
+    console.log(`Parsed EPG: ${progCount} programmes across ${Object.keys(epg.byChannel).length} channels`);
   } catch (err) {
-    console.error("EPG fetch/parse failed — keeping last-good guide:", err.message);
+    console.error("EPG fetch/parse failed - keeping last-good guide:", err.message);
   }
 
-  // Backfill missing logos from EPG icons.
-  for (const c of channels) if (!c.logo && icons[c.tvgId]) c.logo = icons[c.tvgId];
+  let channelsWithGuide = 0;
+  let unmatchedSamples = [];
 
-  // channels payload (only what the app needs)
+  if (epg) {
+    const epgIndex = buildEpgIndex(epg.byChannel, epg.channelNames);
+    for (const channel of channels) {
+      const epgId = resolveEpgId(channel, epgIndex);
+      if (!channel.logo && epgId && epg.icons[epgId]) channel.logo = epg.icons[epgId];
+    }
+  }
+
   const channelsPayload = channels.map((c) => ({
     id: c.id,
     tvgId: c.tvgId,
@@ -256,47 +363,50 @@ async function kvPut(key, body, contentType) {
     category: c.category,
     url: c.url,
   }));
-  await kvPut("channels_gz", gzipSync(Buffer.from(JSON.stringify(channelsPayload))), "application/octet-stream");
+  await kvPut(acc, ns, token, "channels_gz", gzipSync(Buffer.from(JSON.stringify(channelsPayload))), "application/octet-stream");
 
-  // guide + per-channel windows (only if EPG parsed)
-  if (byChannel) {
+  if (epg) {
+    const guideData = buildGuideData(channels, epg);
+    channelsWithGuide = guideData.channelsWithGuide;
+    unmatchedSamples = guideData.unmatchedSamples;
+
+    console.log(`Matched EPG: ${channelsWithGuide}/${channels.length} channels with programs`);
+    if (unmatchedSamples.length) {
+      console.log(`Unmatched channel samples: ${unmatchedSamples.map((c) => c.name).join(", ")}`);
+    }
+
     const guide = {
       updatedAt: NOW,
-      channels: channels.map((c) => ({
-        id: c.id,
-        p: byChannel[c.tvgId] || [],
-      })),
+      channels: guideData.guideChannels,
     };
-    await kvPut("guide_gz", gzipSync(Buffer.from(JSON.stringify(guide))), "application/octet-stream");
+    await kvPut(acc, ns, token, "guide_gz", gzipSync(Buffer.from(JSON.stringify(guide))), "application/octet-stream");
 
     const windows = {};
     for (const c of channels) {
-      const list = byChannel[c.tvgId] || [];
+      const epgId = guideData.matches.get(c.id);
+      const list = epgId ? epg.byChannel[epgId] || [] : [];
       const w = list
         .filter((p) => p.e > WIN_START && p.s < WIN_END)
         .map((p) => ({ t: p.t, s: p.s, e: p.e, c: p.c }));
       windows[c.id] = { n: c.name, l: c.logo || "", g: c.category, p: w };
     }
-    await kvPut("windows", JSON.stringify(windows), "text/plain");
+    await kvPut(acc, ns, token, "windows", JSON.stringify(windows), "text/plain");
   }
 
-  // config
   const config = {
     version: process.env.APP_VERSION || "1.0.0",
     maintenance: (process.env.MAINTENANCE || "false").toLowerCase() === "true",
     announcements: safeJson(process.env.ANNOUNCEMENTS, []),
     lastUpdated: NOW,
     channelCount: channels.length,
-    guideAvailable: !!byChannel,
+    channelsWithGuide,
+    guideAvailable: !!epg,
     ready: true,
   };
-  await kvPut("config", JSON.stringify(config), "application/json");
+  await kvPut(acc, ns, token, "config", JSON.stringify(config), "application/json");
 
-  console.log("Charm IPTV builder finished ✔");
-})().catch((e) => {
-  console.error("Builder crashed:", e);
-  process.exit(1);
-});
+  console.log("Charm IPTV builder finished");
+}
 
 function safeJson(s, fallback) {
   if (!s) return fallback;
@@ -305,4 +415,11 @@ function safeJson(s, fallback) {
   } catch {
     return fallback;
   }
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((e) => {
+    console.error("Builder crashed:", e);
+    process.exit(1);
+  });
 }
