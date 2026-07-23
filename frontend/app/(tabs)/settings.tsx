@@ -48,6 +48,21 @@ export default function SettingsScreen() {
       const s = await refreshSource();
       setStatus(s);
       await refreshGuide(true);
+      loadStatus();
+    } catch {}
+    setBusy(false);
+  };
+
+  const resetGuideData = async () => {
+    setBusy(true);
+    Haptics.selectionAsync();
+    try {
+      await clearGuideCache();
+      loadStatus();
+      const s = await refreshSource();
+      setStatus(s);
+      await refreshGuide(true);
+      loadStatus();
     } catch {}
     setBusy(false);
   };
@@ -121,10 +136,27 @@ export default function SettingsScreen() {
               await clearGuideCache();
               loadStatus();
             }}
+            focusable
             testID="settings-clear-guide-cache-btn"
           >
             <Ionicons name="trash-outline" size={16} color={colors.onSurface} />
             <Text style={styles.secondaryText}>Clear Guide Cache</Text>
+          </Pressable>
+          <Pressable
+            style={({ focused }: any) => [styles.primaryBtn, focused && styles.focusRing]}
+            onPress={resetGuideData}
+            disabled={busy}
+            focusable
+            testID="settings-reset-guide-data-btn"
+          >
+            {busy ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <Ionicons name="cloud-download-outline" size={16} color="#fff" />
+                <Text style={styles.primaryText}>Reset & Reload Guide</Text>
+              </>
+            )}
           </Pressable>
         </View>
 

@@ -439,18 +439,45 @@ type RemoteChannel = {
 type RemoteProgram = { t: string; s: number; e: number; d?: string; c?: string };
 type RemoteGuide = { updatedAt?: number; channels: { id: string; p?: RemoteProgram[] }[] };
 
+async function fetchRemoteText(path: string): Promise<string> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: {
+      Accept: "application/json",
+      "Accept-Encoding": "identity",
+      "Cache-Control": "no-cache",
+    },
+  });
+  if (!res.ok) {
+    throw new Error(`${path} unavailable (${res.status})`);
+  }
+  const text = await res.text();
+  if (!text.trim()) {
+    throw new Error(`${path} returned empty data`);
+  }
+  if (text.charCodeAt(0) === 0x1f || text.charCodeAt(1) === 0x8b) {
+    throw new Error(`${path} returned compressed data the app could not decode`);
+  }
+  return text;
+}
+
+function parseRemoteJson<T>(label: string, text: string): T {
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    const sample = text.slice(0, 80).replace(/\s+/g, " ");
+    throw new Error(`${label} returned invalid JSON: ${sample}`);
+  }
+}
+
 async function fetchRemoteJson(): Promise<Parsed> {
   if (!API_BASE) throw new Error("Cloudflare API URL is not configured");
   setProgress({ phase: "downloading", ratio: 0.1, etaSeconds: null }, true);
-  const [channelsRes, guideRes] = await Promise.all([
-    fetch(`${API_BASE}/channels`, { headers: { Accept: "application/json" } }),
-    fetch(`${API_BASE}/guide`, { headers: { Accept: "application/json" } }),
+  const [channelsText, guideText] = await Promise.all([
+    fetchRemoteText("/channels"),
+    fetchRemoteText("/guide"),
   ]);
-  if (!channelsRes.ok || !guideRes.ok) {
-    throw new Error(`Guide service unavailable (${channelsRes.status}/${guideRes.status})`);
-  }
-  const rawChannels = (await channelsRes.json()) as RemoteChannel[];
-  const rawGuide = (await guideRes.json()) as RemoteGuide;
+  const rawChannels = parseRemoteJson<RemoteChannel[]>("/channels", channelsText);
+  const rawGuide = parseRemoteJson<RemoteGuide>("/guide", guideText);
   if (!Array.isArray(rawChannels) || !Array.isArray(rawGuide?.channels)) {
     throw new Error("Guide service returned invalid data");
   }
@@ -481,6 +508,10 @@ async function fetchRemoteJson(): Promise<Parsed> {
       stream_type: streamType(c.url),
     }));
   if (!channels.length) throw new Error("Guide service returned no channels");
+  const channelsWithPrograms = channels.filter((c) => programs[c.id]?.length).length;
+  if (!channelsWithPrograms) {
+    throw new Error("Guide service returned no matched EPG programs");
+  }
   setProgress({ phase: "ready", ratio: 1, etaSeconds: 0 }, true);
   return { ts: rawGuide.updatedAt || Date.now(), channels, programs };
 }
