@@ -6,6 +6,7 @@ import {
   Pressable,
   ActivityIndicator,
   ScrollView,
+  Platform,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -40,7 +41,8 @@ export default function GuideScreen() {
   } = useStore();
   const now = new Date().toISOString();
 
-  const [mode, setMode] = useState<"timeline" | "box">("timeline");
+  const isTV = Platform.isTV;
+  const [mode, setMode] = useState<"timeline" | "box">(isTV ? "timeline" : "box");
   const [group, setGroup] = useState<string>("All");
 
   const groups = useMemo(() => {
@@ -89,30 +91,32 @@ export default function GuideScreen() {
               <Text style={styles.nowBtnText}>Resume</Text>
             </Pressable>
           )}
-          <View style={styles.toggle}>
-            <Pressable
-              onPress={() => setMode("timeline")}
-              style={({ focused }: any) => [styles.toggleBtn, mode === "timeline" && styles.toggleActive, focused && styles.focusRing]}
-              testID="mode-timeline-btn"
-            >
-              <Ionicons
-                name="list"
-                size={16}
-                color={mode === "timeline" ? "#fff" : colors.onSurfaceTertiary}
-              />
-            </Pressable>
-            <Pressable
-              onPress={() => setMode("box")}
-              style={({ focused }: any) => [styles.toggleBtn, mode === "box" && styles.toggleActive, focused && styles.focusRing]}
-              testID="mode-box-btn"
-            >
-              <Ionicons
-                name="grid"
-                size={16}
-                color={mode === "box" ? "#fff" : colors.onSurfaceTertiary}
-              />
-            </Pressable>
-          </View>
+          {isTV ? (
+            <View style={styles.toggle}>
+              <Pressable
+                onPress={() => setMode("timeline")}
+                style={({ focused }: any) => [styles.toggleBtn, mode === "timeline" && styles.toggleActive, focused && styles.focusRing]}
+                testID="mode-timeline-btn"
+              >
+                <Ionicons
+                  name="list"
+                  size={16}
+                  color={mode === "timeline" ? "#fff" : colors.onSurfaceTertiary}
+                />
+              </Pressable>
+              <Pressable
+                onPress={() => setMode("box")}
+                style={({ focused }: any) => [styles.toggleBtn, mode === "box" && styles.toggleActive, focused && styles.focusRing]}
+                testID="mode-box-btn"
+              >
+                <Ionicons
+                  name="grid"
+                  size={16}
+                  color={mode === "box" ? "#fff" : colors.onSurfaceTertiary}
+                />
+              </Pressable>
+            </View>
+          ) : null}
         </View>
       </View>
 

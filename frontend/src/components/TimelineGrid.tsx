@@ -100,7 +100,7 @@ export function TimelineGrid({
           horizontal
           showsHorizontalScrollIndicator={false}
           scrollEventThrottle={16}
-          onScroll={Animated.event([{ nativeEvent: { contentOffset: { x: scrollX } } }], { useNativeDriver: true })}
+          onScroll={Animated.event([{ nativeEvent: { contentOffset: { x: scrollX } } }], { useNativeDriver: false })}
         >
           <View style={{ width: LOGO_W + timelineWidth, height: bodyH }}>
             {bodyH > 0 && (
