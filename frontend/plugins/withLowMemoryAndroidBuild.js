@@ -28,6 +28,10 @@ module.exports = function withLowMemoryAndroidBuild(config) {
     setProperty(properties, "kotlin.daemon.jvmargs", "-Xmx384m");
     setProperty(properties, "kotlin.compiler.execution.strategy", "in-process");
 
+    // Use conventional compressed native libraries for sideload compatibility
+    // across Fire OS, Android TV boxes, and phone file-manager installers.
+    setProperty(properties, "expo.useLegacyPackaging", "true");
+
     // Phoenix targets Android TV and Fire TV hardware, which use ARM ABIs.
     // An emulator ABI can still be supplied from the command line when needed.
     setProperty(

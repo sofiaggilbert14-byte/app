@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "Charm IPTV",
+    "name": "Charm IPTV Phoenix",
     "slug": "frontend",
-    "version": "2.0.0-beta.1",
+    "version": "2.0.0-beta.2",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "frontend",
@@ -18,7 +18,8 @@
         "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.charmiptv.app",
+      "package": "com.charmiptv.phoenixbeta",
+      "versionCode": 2,
       "permissions": [
         "INTERNET",
         "ACCESS_NETWORK_STATE",
