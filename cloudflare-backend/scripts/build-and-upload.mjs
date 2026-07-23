@@ -153,6 +153,17 @@ function xTime(s) {
 export function parseXMLTV(xml) {
   const icons = {};
   const channelNames = {};
+  const stats = {
+    declaredChannels: 0,
+    rawProgrammes: 0,
+    keptProgrammes: 0,
+    skippedMissingChannel: 0,
+    skippedBadStart: 0,
+    skippedOutsideWindow: 0,
+    firstProgrammeHead: "",
+    firstProgrammeStart: null,
+    lastProgrammeStop: null,
+  };
   let cp = 0;
   while (true) {
     const s = xml.indexOf("<channel", cp);
@@ -166,6 +177,7 @@ export function parseXMLTV(xml) {
     cp = e + 10;
 
     if (!id) continue;
+    stats.declaredChannels++;
     channelNames[id] = xTags(body, "display-name");
     const ii = body.indexOf("<icon");
     if (ii !== -1) {
@@ -186,13 +198,29 @@ export function parseXMLTV(xml) {
 
     const head = xml.slice(s + 10, gt);
     p = e + 12;
+    stats.rawProgrammes++;
+    if (!stats.firstProgrammeHead) stats.firstProgrammeHead = head.trim().slice(0, 180);
 
     const cid = xAttr(head, "channel");
     const start = xTime(xAttr(head, "start"));
-    if (!cid || start === null || start > GUIDE_END) continue;
+    if (!cid) {
+      stats.skippedMissingChannel++;
+      continue;
+    }
+    if (start === null) {
+      stats.skippedBadStart++;
+      continue;
+    }
+    if (stats.firstProgrammeStart === null || start < stats.firstProgrammeStart) stats.firstProgrammeStart = start;
 
     const parsedStop = xTime(xAttr(head, "stop"));
-    if (parsedStop !== null && parsedStop < GUIDE_START) continue;
+    if (parsedStop !== null && (stats.lastProgrammeStop === null || parsedStop > stats.lastProgrammeStop)) {
+      stats.lastProgrammeStop = parsedStop;
+    }
+    if (start > GUIDE_END || (parsedStop !== null && parsedStop < GUIDE_START)) {
+      stats.skippedOutsideWindow++;
+      continue;
+    }
     const stop = parsedStop && parsedStop > start && parsedStop - start <= 24 * 3600 * 1000
       ? parsedStop
       : start + 30 * 60000;
@@ -207,10 +235,11 @@ export function parseXMLTV(xml) {
       d: desc || undefined,
       c: xTag(body, "category") || undefined,
     });
+    stats.keptProgrammes++;
   }
 
   for (const k in byChannel) byChannel[k].sort((a, b) => a.s - b.s);
-  return { icons, byChannel, channelNames };
+  return { icons, byChannel, channelNames, stats };
 }
 
 function stripSourceSuffix(value) {
@@ -364,6 +393,19 @@ export async function main() {
     epg = parseXMLTV(epgXml);
     const progCount = Object.values(epg.byChannel).reduce((a, v) => a + v.length, 0);
     console.log(`Parsed EPG: ${progCount} programmes across ${Object.keys(epg.byChannel).length} channels`);
+    if (epg.stats) {
+      console.log(
+        `EPG parser stats: declaredChannels=${epg.stats.declaredChannels} rawProgrammes=${epg.stats.rawProgrammes} kept=${epg.stats.keptProgrammes} outsideWindow=${epg.stats.skippedOutsideWindow} badStart=${epg.stats.skippedBadStart} missingChannel=${epg.stats.skippedMissingChannel}`,
+      );
+      console.log(
+        `EPG raw time range: ${
+          epg.stats.firstProgrammeStart === null ? "none" : new Date(epg.stats.firstProgrammeStart).toISOString()
+        } -> ${epg.stats.lastProgrammeStop === null ? "none" : new Date(epg.stats.lastProgrammeStop).toISOString()}`,
+      );
+      if (epg.stats.firstProgrammeHead) {
+        console.log(`EPG first programme head: ${epg.stats.firstProgrammeHead}`);
+      }
+    }
     if (progCount === 0) {
       console.log(`EPG response sample: ${epgXml.slice(0, 200).replace(/\s+/g, " ").trim() || "(empty)"}`);
     }
