@@ -1,6 +1,11 @@
 name = "charmiptv-api"
-main = "worker/src/index.js"
+main = "cloudflare-backend/worker/src/index.js"
 compatibility_date = "2026-07-22"
+workers_dev = true
+
+[[kv_namespaces]]
+binding = "KV"
+id = "REPLACE_WITH_CF_KV_NAMESPACE_ID"
 
 [observability]
 enabled = true

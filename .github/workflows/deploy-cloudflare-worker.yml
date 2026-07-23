@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - "worker/**"
+      - "cloudflare-backend/worker/**"
       - "wrangler.toml"
       - ".github/workflows/deploy-cloudflare-worker.yml"
 
@@ -19,6 +19,17 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+
+      - name: Configure Cloudflare KV binding
+        shell: bash
+        env:
+          CF_KV_NAMESPACE_ID: ${{ secrets.CF_KV_NAMESPACE_ID }}
+        run: |
+          if [ -z "$CF_KV_NAMESPACE_ID" ]; then
+            echo "::error::CF_KV_NAMESPACE_ID is not configured"
+            exit 1
+          fi
+          sed -i "s/REPLACE_WITH_CF_KV_NAMESPACE_ID/$CF_KV_NAMESPACE_ID/" wrangler.toml
 
       - name: Deploy Cloudflare Worker
         uses: cloudflare/wrangler-action@v3
