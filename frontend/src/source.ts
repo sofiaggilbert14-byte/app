@@ -440,7 +440,32 @@ type RemoteProgram = { t: string; s: number; e: number; d?: string; c?: string }
 type RemoteGuide = { updatedAt?: number; channels: { id: string; p?: RemoteProgram[] }[] };
 
 async function fetchRemoteText(path: string): Promise<string> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const url = `${API_BASE}${path}`;
+  const headers = {
+    Accept: "application/json",
+    "Accept-Encoding": "identity",
+    "Cache-Control": "no-cache",
+  };
+
+  if (Platform.OS !== "web") {
+    const tmp = (FileSystem.cacheDirectory || FileSystem.documentDirectory || "") + `remote_${path.replace(/[^a-z0-9]+/gi, "_")}.json`;
+    const dl = FileSystem.createDownloadResumable(url, tmp, { headers });
+    const res = await dl.downloadAsync();
+    if (!res) throw new Error(`${path} download failed`);
+    const text = await FileSystem.readAsStringAsync(res.uri);
+    try {
+      await FileSystem.deleteAsync(res.uri, { idempotent: true });
+    } catch {}
+    if (!text.trim()) {
+      throw new Error(`${path} returned empty data`);
+    }
+    if (text.charCodeAt(0) === 0x1f || text.charCodeAt(1) === 0x8b) {
+      throw new Error(`${path} returned compressed data the app could not decode`);
+    }
+    return text;
+  }
+
+  const res = await fetch(url, {
     headers: {
       Accept: "application/json",
       "Accept-Encoding": "identity",
@@ -469,17 +494,55 @@ function parseRemoteJson<T>(label: string, text: string): T {
   }
 }
 
+async function fetchRemoteTextWithBinaryFallback(plainPath: string, gzipPath: string): Promise<string> {
+  try {
+    return await fetchRemoteText(plainPath);
+  } catch (firstError) {
+    try {
+      return await inflateIfGzip(await fetchBytes(`${API_BASE}${gzipPath}`));
+    } catch {
+      throw firstError;
+    }
+  }
+}
+
 async function fetchRemoteJson(): Promise<Parsed> {
   if (!API_BASE) throw new Error("Cloudflare API URL is not configured");
   setProgress({ phase: "downloading", ratio: 0.1, etaSeconds: null }, true);
-  const [channelsText, guideText] = await Promise.all([
-    fetchRemoteText("/channels.json"),
-    fetchRemoteText("/guide.json"),
-  ]);
+  const channelsText = await fetchRemoteTextWithBinaryFallback("/channels.json", "/channels");
   const rawChannels = parseRemoteJson<RemoteChannel[]>("/channels.json", channelsText);
+  if (!Array.isArray(rawChannels)) {
+    throw new Error("Guide service returned invalid channel data");
+  }
+
+  const channels: Channel[] = rawChannels
+    .filter((c) => c?.id && c?.name && c?.url)
+    .map((c) => ({
+      id: c.id,
+      tvg_id: c.id,
+      name: c.name,
+      logo: c.logo || "",
+      group: c.category || "Uncategorized",
+      url: c.url,
+      stream_type: streamType(c.url),
+    }));
+  if (!channels.length) throw new Error("Guide service returned no channels");
+
+  MEM = { ts: Date.now(), channels, programs: MEM?.programs || {} };
+  await persist();
+  emit();
+  setProgress({ phase: "channels", ratio: 0.25, etaSeconds: null }, true);
+
+  let guideText = "";
+  try {
+    guideText = await fetchRemoteTextWithBinaryFallback("/guide.json", "/guide");
+  } catch (e) {
+    setProgress({ phase: "error", ratio: 0, etaSeconds: null }, true);
+    throw e;
+  }
   const rawGuide = parseRemoteJson<RemoteGuide>("/guide.json", guideText);
-  if (!Array.isArray(rawChannels) || !Array.isArray(rawGuide?.channels)) {
-    throw new Error("Guide service returned invalid data");
+  if (!Array.isArray(rawGuide?.channels)) {
+    throw new Error("Guide service returned invalid EPG data");
   }
 
   const programs: Record<string, Program[]> = {};
@@ -496,18 +559,6 @@ async function fetchRemoteJson(): Promise<Parsed> {
       }));
   }
 
-  const channels: Channel[] = rawChannels
-    .filter((c) => c?.id && c?.name && c?.url)
-    .map((c) => ({
-      id: c.id,
-      tvg_id: c.id,
-      name: c.name,
-      logo: c.logo || "",
-      group: c.category || "Uncategorized",
-      url: c.url,
-      stream_type: streamType(c.url),
-    }));
-  if (!channels.length) throw new Error("Guide service returned no channels");
   const channelsWithPrograms = channels.filter((c) => programs[c.id]?.length).length;
   if (!channelsWithPrograms) {
     throw new Error("Guide service returned no matched EPG programs");
