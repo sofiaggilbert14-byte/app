@@ -41,18 +41,33 @@ async function fetchBytes(url) {
 }
 
 function attr(line, name) {
-  const m = line.match(new RegExp(`${name}="([^"]*)"`));
+  const m = line.match(new RegExp(`\\b${name}=["']([^"']*)["']`, "i"));
   return m ? m[1].trim() : "";
 }
 
-export function parseM3U(text) {
+function playlistGuideUrls(line) {
+  return [
+    attr(line, "url-tvg"),
+    attr(line, "x-tvg-url"),
+    attr(line, "tvg-url"),
+    attr(line, "epg-url"),
+  ].filter(Boolean);
+}
+
+export function parseM3UWithMeta(text) {
   const lines = text.split(/\r?\n/);
   const channels = [];
+  const epgUrls = [];
   const seen = new Set();
   let pending = null;
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
+    if (line.startsWith("#EXTM3U")) {
+      epgUrls.push(...playlistGuideUrls(line));
+      continue;
+    }
+
     if (line.startsWith("#EXTINF")) {
       const comma = line.lastIndexOf(",");
       const name = (comma !== -1 ? line.slice(comma + 1) : "").trim();
@@ -83,7 +98,11 @@ export function parseM3U(text) {
     pending = null;
   }
 
-  return channels;
+  return { channels, epgUrls: [...new Set(epgUrls)] };
+}
+
+export function parseM3U(text) {
+  return parseM3UWithMeta(text).channels;
 }
 
 function slug(s) {
@@ -316,6 +335,42 @@ function describeProgramRange(byChannel) {
   return `${new Date(first).toISOString()} -> ${new Date(last).toISOString()}`;
 }
 
+function summarizeEpg(epg, label, epgXml = "") {
+  const progCount = Object.values(epg.byChannel).reduce((a, v) => a + v.length, 0);
+  console.log(`Parsed EPG (${label}): ${progCount} programmes across ${Object.keys(epg.byChannel).length} channels`);
+  if (epg.stats) {
+    console.log(
+      `EPG parser stats (${label}): declaredChannels=${epg.stats.declaredChannels} rawProgrammes=${epg.stats.rawProgrammes} kept=${epg.stats.keptProgrammes} outsideWindow=${epg.stats.skippedOutsideWindow} badStart=${epg.stats.skippedBadStart} missingChannel=${epg.stats.skippedMissingChannel}`,
+    );
+    console.log(
+      `EPG raw time range (${label}): ${
+        epg.stats.firstProgrammeStart === null ? "none" : new Date(epg.stats.firstProgrammeStart).toISOString()
+      } -> ${epg.stats.lastProgrammeStop === null ? "none" : new Date(epg.stats.lastProgrammeStop).toISOString()}`,
+    );
+    if (epg.stats.firstProgrammeHead) {
+      console.log(`EPG first programme head (${label}): ${epg.stats.firstProgrammeHead}`);
+    }
+  }
+  if (progCount === 0 && epgXml) {
+    console.log(`EPG response sample (${label}): ${epgXml.slice(0, 200).replace(/\s+/g, " ").trim() || "(empty)"}`);
+  }
+  console.log(`EPG program time range (${label}): ${describeProgramRange(epg.byChannel)}`);
+  console.log(
+    `EPG channel samples (${label}): ${sampleList(Object.keys(epg.byChannel), (id) => {
+      const names = epg.channelNames[id] || [];
+      return `${id} [names=${names.slice(0, 2).join(" / ") || "-"}]`;
+    })}`,
+  );
+  return progCount;
+}
+
+async function fetchAndParseEpg(url, label) {
+  const epgXml = (await fetchBytes(url)).toString("utf8");
+  const epg = parseXMLTV(epgXml);
+  const progCount = summarizeEpg(epg, label, epgXml);
+  return { epg, progCount };
+}
+
 function resolveEpgId(channel, epgIndex) {
   for (const key of [channel.tvgId, channel.id, channel.name, stripSourceSuffix(channel.tvgId), stripSourceSuffix(channel.name)]) {
     if (key && epgIndex.exact.has(key)) return epgIndex.exact.get(key);
@@ -369,16 +424,24 @@ export async function main() {
   const ns = requireEnv("CF_KV_NAMESPACE_ID");
   const token = requireEnv("CF_API_TOKEN");
   const m3uUrl = requireEnv("M3U_URL");
-  const epgUrl = requireEnv("EPG_URL");
+  const fallbackEpgUrl = process.env.EPG_URL || "";
 
   console.log("Charm IPTV builder starting...");
 
   let channels;
+  let embeddedEpgUrls = [];
   try {
     const m3uText = (await fetchBytes(m3uUrl)).toString("utf8");
-    channels = parseM3U(m3uText);
+    const playlist = parseM3UWithMeta(m3uText);
+    channels = playlist.channels;
+    embeddedEpgUrls = playlist.epgUrls;
     if (!channels.length) throw new Error("M3U parsed to 0 channels");
     console.log(`Parsed ${channels.length} channels`);
+    if (embeddedEpgUrls.length) {
+      console.log(`Found ${embeddedEpgUrls.length} embedded EPG URL(s) in playlist`);
+    } else {
+      console.log("Found 0 embedded EPG URLs in playlist");
+    }
     console.log(
       `Playlist samples: ${sampleList(channels, (c) => `${c.name} [id=${c.id || "-"} tvgId=${c.tvgId || "-"}]`)}`,
     );
@@ -388,36 +451,28 @@ export async function main() {
   }
 
   let epg = null;
-  try {
-    const epgXml = (await fetchBytes(epgUrl)).toString("utf8");
-    epg = parseXMLTV(epgXml);
-    const progCount = Object.values(epg.byChannel).reduce((a, v) => a + v.length, 0);
-    console.log(`Parsed EPG: ${progCount} programmes across ${Object.keys(epg.byChannel).length} channels`);
-    if (epg.stats) {
-      console.log(
-        `EPG parser stats: declaredChannels=${epg.stats.declaredChannels} rawProgrammes=${epg.stats.rawProgrammes} kept=${epg.stats.keptProgrammes} outsideWindow=${epg.stats.skippedOutsideWindow} badStart=${epg.stats.skippedBadStart} missingChannel=${epg.stats.skippedMissingChannel}`,
-      );
-      console.log(
-        `EPG raw time range: ${
-          epg.stats.firstProgrammeStart === null ? "none" : new Date(epg.stats.firstProgrammeStart).toISOString()
-        } -> ${epg.stats.lastProgrammeStop === null ? "none" : new Date(epg.stats.lastProgrammeStop).toISOString()}`,
-      );
-      if (epg.stats.firstProgrammeHead) {
-        console.log(`EPG first programme head: ${epg.stats.firstProgrammeHead}`);
+  const epgSources = [
+    ...embeddedEpgUrls.map((url, index) => ({ url, label: `playlist embedded #${index + 1}` })),
+    ...(fallbackEpgUrl ? [{ url: fallbackEpgUrl, label: "EPG_URL secret fallback" }] : []),
+  ];
+  if (!epgSources.length) {
+    console.error("No EPG source found: playlist has no embedded EPG URL and EPG_URL is not configured");
+  }
+  for (const source of epgSources) {
+    try {
+      const result = await fetchAndParseEpg(source.url, source.label);
+      if (result.progCount > 0) {
+        epg = result.epg;
+        console.log(`Using EPG source: ${source.label}`);
+        break;
       }
+      console.log(`Skipping EPG source with no current programmes: ${source.label}`);
+    } catch (err) {
+      console.error(`EPG fetch/parse failed for ${source.label}:`, err.message);
     }
-    if (progCount === 0) {
-      console.log(`EPG response sample: ${epgXml.slice(0, 200).replace(/\s+/g, " ").trim() || "(empty)"}`);
-    }
-    console.log(`EPG program time range: ${describeProgramRange(epg.byChannel)}`);
-    console.log(
-      `EPG channel samples: ${sampleList(Object.keys(epg.byChannel), (id) => {
-        const names = epg.channelNames[id] || [];
-        return `${id} [names=${names.slice(0, 2).join(" / ") || "-"}]`;
-      })}`,
-    );
-  } catch (err) {
-    console.error("EPG fetch/parse failed - keeping last-good guide:", err.message);
+  }
+  if (!epg) {
+    console.error("No usable current EPG data found - keeping last-good guide/windows in KV");
   }
 
   let channelsWithGuide = 0;

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildGuideData, parseM3U, parseXMLTV } from "./build-and-upload.mjs";
+import { buildGuideData, parseM3U, parseM3UWithMeta, parseXMLTV } from "./build-and-upload.mjs";
 
 function xmltvTime(offsetMs) {
   const date = new Date(Date.now() + offsetMs);
@@ -22,6 +22,17 @@ https://example.test/hallmark-west.m3u8
   assert.equal(channels[1].id, "HALL.us-2");
   assert.equal(channels[0].tvgId, "HALL.us");
   assert.equal(channels[1].tvgId, "HALL.us");
+});
+
+test("builder detects embedded EPG URL from playlist header", () => {
+  const playlist = parseM3UWithMeta(`#EXTM3U url-tvg="http://example.test/guide.xml.gz"
+#EXTINF:-1 tvg-id="AETV.us" tvg-name="A&E TV" group-title="TV",A&E TV
+https://example.test/aetv.m3u8
+`);
+
+  assert.deepEqual(playlist.epgUrls, ["http://example.test/guide.xml.gz"]);
+  assert.equal(playlist.channels.length, 1);
+  assert.equal(playlist.channels[0].tvgId, "AETV.us");
 });
 
 test("builder matches EPG when playlist tvg-id has a source suffix", () => {
