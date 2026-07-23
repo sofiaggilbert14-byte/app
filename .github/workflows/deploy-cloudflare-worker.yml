@@ -25,11 +25,16 @@ jobs:
         env:
           CF_KV_NAMESPACE_ID: ${{ secrets.CF_KV_NAMESPACE_ID }}
         run: |
-          if [ -z "$CF_KV_NAMESPACE_ID" ]; then
-            echo "::error::CF_KV_NAMESPACE_ID is not configured"
+          if [[ ! "$CF_KV_NAMESPACE_ID" =~ ^[a-fA-F0-9]{32}$ ]]; then
+            echo "::error::CF_KV_NAMESPACE_ID must contain only the 32-character namespace ID from Cloudflare KV"
             exit 1
           fi
-          sed -i "s/REPLACE_WITH_CF_KV_NAMESPACE_ID/$CF_KV_NAMESPACE_ID/" wrangler.toml
+          node --input-type=module -e '
+            import { readFileSync, writeFileSync } from "node:fs";
+            const path = "wrangler.toml";
+            const config = readFileSync(path, "utf8");
+            writeFileSync(path, config.replace("REPLACE_WITH_CF_KV_NAMESPACE_ID", process.env.CF_KV_NAMESPACE_ID));
+          '
 
       - name: Deploy Cloudflare Worker
         uses: cloudflare/wrangler-action@v3
