@@ -30,7 +30,7 @@ function https(u) {
 }
 
 async function fetchBytes(url) {
-  const res = await fetch(https(url), {
+  const res = await fetch(url, {
     headers: { "User-Agent": "CharmIPTV-Builder/1.0" },
     redirect: "follow",
   });
@@ -364,6 +364,9 @@ export async function main() {
     epg = parseXMLTV(epgXml);
     const progCount = Object.values(epg.byChannel).reduce((a, v) => a + v.length, 0);
     console.log(`Parsed EPG: ${progCount} programmes across ${Object.keys(epg.byChannel).length} channels`);
+    if (progCount === 0) {
+      console.log(`EPG response sample: ${epgXml.slice(0, 200).replace(/\s+/g, " ").trim() || "(empty)"}`);
+    }
     console.log(`EPG program time range: ${describeProgramRange(epg.byChannel)}`);
     console.log(
       `EPG channel samples: ${sampleList(Object.keys(epg.byChannel), (id) => {

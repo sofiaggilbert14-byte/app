@@ -3,6 +3,12 @@ import test from "node:test";
 
 import { buildGuideData, parseM3U, parseXMLTV } from "./build-and-upload.mjs";
 
+function xmltvTime(offsetMs) {
+  const date = new Date(Date.now() + offsetMs);
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())} +0000`;
+}
+
 test("builder keeps duplicate playlist channels unique", () => {
   const channels = parseM3U(`#EXTM3U
 #EXTINF:-1 tvg-id="HALL.us" tvg-name="Hallmark" group-title="Movies",Hallmark
@@ -25,7 +31,7 @@ https://example.test/aetv.m3u8
 `);
   const epg = parseXMLTV(`<tv>
 <channel id="AETV.us"><display-name>A&E TV</display-name></channel>
-<programme channel="AETV.us" start="20260723090000 +0000" stop="20260723100000 +0000">
+<programme channel="AETV.us" start="${xmltvTime(60 * 60 * 1000)}" stop="${xmltvTime(2 * 60 * 60 * 1000)}">
   <title>Storage Wars</title>
 </programme>
 </tv>`);
@@ -44,7 +50,7 @@ https://example.test/espn-news.m3u8
 `);
   const epg = parseXMLTV(`<tv>
 <channel id="ESPNEWS.us"><display-name>ESPN News</display-name></channel>
-<programme channel="ESPNEWS.us" start="20260723090000 +0000" stop="20260723100000 +0000">
+<programme channel="ESPNEWS.us" start="${xmltvTime(60 * 60 * 1000)}" stop="${xmltvTime(2 * 60 * 60 * 1000)}">
   <title>SportsCenter</title>
 </programme>
 </tv>`);
