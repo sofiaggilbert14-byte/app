@@ -10,6 +10,13 @@ import { Channel } from "@/src/api";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { nowNext } from "@/src/utils/time";
 
+function byChannelName(a: Channel, b: Channel): number {
+  return (a.name || "").localeCompare(b.name || "", undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
 function ChannelRow({ channel, onPress, right }: { channel: Channel; onPress: () => void; right?: React.ReactNode }) {
   const { current } = nowNext(channel.programs, new Date());
   return (
@@ -34,7 +41,7 @@ export default function FavoritesScreen() {
   const router = useRouter();
   const { channels, favorites, toggleFavorite, recent, reminders, removeReminder, addRecent, channelById } = useStore();
 
-  const favChannels = channels.filter((c) => favorites.includes(c.id));
+  const favChannels = channels.filter((c) => favorites.includes(c.id)).sort(byChannelName);
   const play = (c: Channel) => {
     Haptics.selectionAsync();
     addRecent(c);

@@ -26,6 +26,15 @@ type Parsed = {
   programs: Record<string, Program[]>;
 };
 
+function sortChannelsAlphabetically(channels: Channel[]): Channel[] {
+  return [...channels].sort((a, b) =>
+    (a.name || "").localeCompare(b.name || "", undefined, {
+      numeric: true,
+      sensitivity: "base",
+    }),
+  );
+}
+
 let MEM: Parsed | null = null;
 
 function streamType(url: string): string {
@@ -528,7 +537,7 @@ async function fetchRemoteJson(): Promise<Parsed> {
     }));
   if (!channels.length) throw new Error("Guide service returned no channels");
 
-  MEM = { ts: Date.now(), channels, programs: MEM?.programs || {} };
+  MEM = { ts: Date.now(), channels: sortChannelsAlphabetically(channels), programs: MEM?.programs || {} };
   await persist();
   emit();
   setProgress({ phase: "channels", ratio: 0.25, etaSeconds: null }, true);
@@ -564,7 +573,7 @@ async function fetchRemoteJson(): Promise<Parsed> {
     throw new Error("Guide service returned no matched EPG programs");
   }
   setProgress({ phase: "ready", ratio: 1, etaSeconds: 0 }, true);
-  return { ts: rawGuide.updatedAt || Date.now(), channels, programs };
+  return { ts: rawGuide.updatedAt || Date.now(), channels: sortChannelsAlphabetically(channels), programs };
 }
 
 let epgLoading = false;
@@ -643,8 +652,7 @@ async function doFetchParse(): Promise<Parsed> {
   // on low-power Android TV / Firestick boxes.
   const m3uText = await fetchTextMaybeGzip(SOURCE_M3U);
   const channels = parseM3U(m3uText);
-  channels.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
-  MEM = { ts: Date.now(), channels, programs: MEM?.programs || {} };
+  MEM = { ts: Date.now(), channels: sortChannelsAlphabetically(channels), programs: MEM?.programs || {} };
   await persist();
   emit();
   setProgress({ phase: "channels", ratio: 0, etaSeconds: null }, true);

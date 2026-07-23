@@ -18,6 +18,13 @@ import { useStore } from "@/src/store";
 import { Channel, Program } from "@/src/api";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
 
+function byChannelName(a: Channel, b: Channel): number {
+  return (a.name || "").localeCompare(b.name || "", undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
 export default function SearchScreen() {
   const router = useRouter();
   const { channels, addRecent, openProgram } = useStore();
@@ -26,7 +33,7 @@ export default function SearchScreen() {
   const { chResults, progResults } = useMemo(() => {
     const ql = q.toLowerCase().trim();
     if (!ql) return { chResults: [], progResults: [] as { p: Program; c: Channel }[] };
-    const chResults = channels.filter((c) => c.name.toLowerCase().includes(ql)).slice(0, 40);
+    const chResults = channels.filter((c) => c.name.toLowerCase().includes(ql)).sort(byChannelName).slice(0, 40);
     const now = Date.now();
     const progResults: { p: Program; c: Channel }[] = [];
     for (const c of channels) {

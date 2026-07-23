@@ -21,6 +21,13 @@ import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { EpgProgressBar } from "@/src/components/EpgProgressBar";
 import dayjs from "dayjs";
 
+function byChannelName(a: Channel, b: Channel): number {
+  return (a.name || "").localeCompare(b.name || "", undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
 export default function GuideScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -52,9 +59,13 @@ export default function GuideScreen() {
   }, [channels]);
 
   const filtered = useMemo(() => {
-    if (group === "All") return channels;
-    if (group === "Favorites") return channels.filter((c: Channel) => favorites.includes(c.id));
-    return channels.filter((c: Channel) => c.group === group);
+    const list =
+      group === "All"
+        ? channels
+        : group === "Favorites"
+          ? channels.filter((c: Channel) => favorites.includes(c.id))
+          : channels.filter((c: Channel) => c.group === group);
+    return [...list].sort(byChannelName);
   }, [channels, group, favorites]);
 
   const openChannel = (c: Channel) => {
