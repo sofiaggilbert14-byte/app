@@ -266,6 +266,27 @@ function buildEpgIndex(byChannel, channelNames) {
   return { exact, fuzzy };
 }
 
+function sampleList(items, mapper, limit = 8) {
+  return items
+    .slice(0, limit)
+    .map(mapper)
+    .filter(Boolean)
+    .join(" | ");
+}
+
+function describeProgramRange(byChannel) {
+  let first = Infinity;
+  let last = 0;
+  for (const programs of Object.values(byChannel)) {
+    for (const program of programs) {
+      if (program.s < first) first = program.s;
+      if (program.e > last) last = program.e;
+    }
+  }
+  if (!Number.isFinite(first) || !last) return "none";
+  return `${new Date(first).toISOString()} -> ${new Date(last).toISOString()}`;
+}
+
 function resolveEpgId(channel, epgIndex) {
   for (const key of [channel.tvgId, channel.id, channel.name, stripSourceSuffix(channel.tvgId), stripSourceSuffix(channel.name)]) {
     if (key && epgIndex.exact.has(key)) return epgIndex.exact.get(key);
@@ -329,6 +350,9 @@ export async function main() {
     channels = parseM3U(m3uText);
     if (!channels.length) throw new Error("M3U parsed to 0 channels");
     console.log(`Parsed ${channels.length} channels`);
+    console.log(
+      `Playlist samples: ${sampleList(channels, (c) => `${c.name} [id=${c.id || "-"} tvgId=${c.tvgId || "-"}]`)}`,
+    );
   } catch (err) {
     console.error("M3U fetch/parse failed - keeping last-good KV data:", err.message);
     process.exit(1);
@@ -340,6 +364,13 @@ export async function main() {
     epg = parseXMLTV(epgXml);
     const progCount = Object.values(epg.byChannel).reduce((a, v) => a + v.length, 0);
     console.log(`Parsed EPG: ${progCount} programmes across ${Object.keys(epg.byChannel).length} channels`);
+    console.log(`EPG program time range: ${describeProgramRange(epg.byChannel)}`);
+    console.log(
+      `EPG channel samples: ${sampleList(Object.keys(epg.byChannel), (id) => {
+        const names = epg.channelNames[id] || [];
+        return `${id} [names=${names.slice(0, 2).join(" / ") || "-"}]`;
+      })}`,
+    );
   } catch (err) {
     console.error("EPG fetch/parse failed - keeping last-good guide:", err.message);
   }
