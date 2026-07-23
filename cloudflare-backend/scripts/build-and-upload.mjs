@@ -179,10 +179,13 @@ export function parseXMLTV(xml) {
     skippedMissingChannel: 0,
     skippedBadStart: 0,
     skippedOutsideWindow: 0,
+    recoveredStaleProgrammes: 0,
+    staleShiftDays: 0,
     firstProgrammeHead: "",
     firstProgrammeStart: null,
     lastProgrammeStop: null,
   };
+  const expiredProgrammes = [];
   let cp = 0;
   while (true) {
     const s = xml.indexOf("<channel", cp);
@@ -236,25 +239,51 @@ export function parseXMLTV(xml) {
     if (parsedStop !== null && (stats.lastProgrammeStop === null || parsedStop > stats.lastProgrammeStop)) {
       stats.lastProgrammeStop = parsedStop;
     }
-    if (start > GUIDE_END || (parsedStop !== null && parsedStop < GUIDE_START)) {
-      stats.skippedOutsideWindow++;
-      continue;
-    }
     const stop = parsedStop && parsedStop > start && parsedStop - start <= 24 * 3600 * 1000
       ? parsedStop
       : start + 30 * 60000;
-
     const body = xml.slice(gt + 1, e);
     let desc = xTag(body, "desc");
     if (desc.length > 220) desc = `${desc.slice(0, 217)}...`;
-    (byChannel[cid] = byChannel[cid] || []).push({
+    const program = {
       t: xTag(body, "title") || "No Title",
       s: start,
       e: stop,
       d: desc || undefined,
       c: xTag(body, "category") || undefined,
-    });
+    };
+
+    if (start > GUIDE_END || stop < GUIDE_START) {
+      stats.skippedOutsideWindow++;
+      if (stop < GUIDE_START) expiredProgrammes.push({ cid, program });
+      continue;
+    }
+
+    (byChannel[cid] = byChannel[cid] || []).push(program);
     stats.keptProgrammes++;
+  }
+
+  // M3U4U can occasionally serve a valid XMLTV file whose programme dates are
+  // stale. For Phoenix beta, recover that data by sliding it forward by whole
+  // days so the guide remains usable while still only showing playlist channels.
+  if (stats.keptProgrammes === 0 && expiredProgrammes.length && stats.lastProgrammeStop !== null && stats.lastProgrammeStop < GUIDE_START) {
+    const dayMs = 24 * 3600 * 1000;
+    const shiftDays = Math.max(1, Math.ceil((GUIDE_START - stats.lastProgrammeStop) / dayMs));
+    const shiftMs = shiftDays * dayMs;
+    stats.staleShiftDays = shiftDays;
+
+    for (const { cid, program } of expiredProgrammes) {
+      const shifted = {
+        ...program,
+        s: program.s + shiftMs,
+        e: program.e + shiftMs,
+      };
+      if (shifted.e > GUIDE_START && shifted.s < GUIDE_END) {
+        (byChannel[cid] = byChannel[cid] || []).push(shifted);
+        stats.recoveredStaleProgrammes++;
+      }
+    }
+    stats.keptProgrammes = stats.recoveredStaleProgrammes;
   }
 
   for (const k in byChannel) byChannel[k].sort((a, b) => a.s - b.s);
@@ -340,7 +369,7 @@ function summarizeEpg(epg, label, epgXml = "") {
   console.log(`Parsed EPG (${label}): ${progCount} programmes across ${Object.keys(epg.byChannel).length} channels`);
   if (epg.stats) {
     console.log(
-      `EPG parser stats (${label}): declaredChannels=${epg.stats.declaredChannels} rawProgrammes=${epg.stats.rawProgrammes} kept=${epg.stats.keptProgrammes} outsideWindow=${epg.stats.skippedOutsideWindow} badStart=${epg.stats.skippedBadStart} missingChannel=${epg.stats.skippedMissingChannel}`,
+      `EPG parser stats (${label}): declaredChannels=${epg.stats.declaredChannels} rawProgrammes=${epg.stats.rawProgrammes} kept=${epg.stats.keptProgrammes} outsideWindow=${epg.stats.skippedOutsideWindow} recoveredStale=${epg.stats.recoveredStaleProgrammes} staleShiftDays=${epg.stats.staleShiftDays} badStart=${epg.stats.skippedBadStart} missingChannel=${epg.stats.skippedMissingChannel}`,
     );
     console.log(
       `EPG raw time range (${label}): ${

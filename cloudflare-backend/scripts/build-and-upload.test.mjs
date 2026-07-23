@@ -71,3 +71,18 @@ https://example.test/espn-news.m3u8
   assert.equal(guide.channelsWithGuide, 1);
   assert.equal(guide.guideChannels[0].p[0].t, "SportsCenter");
 });
+
+test("builder recovers stale EPG by shifting it forward by whole days", () => {
+  const epg = parseXMLTV(`<tv>
+<channel id="AMC.us"><display-name>AMC</display-name></channel>
+<programme channel="AMC.us" start="${xmltvTime(-48 * 60 * 60 * 1000)}" stop="${xmltvTime(-47 * 60 * 60 * 1000)}">
+  <title>Recovered Old Show</title>
+</programme>
+</tv>`);
+
+  assert.equal(epg.stats.rawProgrammes, 1);
+  assert.equal(epg.stats.recoveredStaleProgrammes, 1);
+  assert.ok(epg.stats.staleShiftDays >= 1);
+  assert.equal(epg.byChannel["AMC.us"][0].t, "Recovered Old Show");
+  assert.ok(epg.byChannel["AMC.us"][0].e > Date.now() - 6 * 60 * 60 * 1000);
+});
