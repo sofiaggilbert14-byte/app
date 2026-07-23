@@ -473,11 +473,11 @@ async function fetchRemoteJson(): Promise<Parsed> {
   if (!API_BASE) throw new Error("Cloudflare API URL is not configured");
   setProgress({ phase: "downloading", ratio: 0.1, etaSeconds: null }, true);
   const [channelsText, guideText] = await Promise.all([
-    fetchRemoteText("/channels"),
-    fetchRemoteText("/guide"),
+    fetchRemoteText("/channels.json"),
+    fetchRemoteText("/guide.json"),
   ]);
-  const rawChannels = parseRemoteJson<RemoteChannel[]>("/channels", channelsText);
-  const rawGuide = parseRemoteJson<RemoteGuide>("/guide", guideText);
+  const rawChannels = parseRemoteJson<RemoteChannel[]>("/channels.json", channelsText);
+  const rawGuide = parseRemoteJson<RemoteGuide>("/guide.json", guideText);
   if (!Array.isArray(rawChannels) || !Array.isArray(rawGuide?.channels)) {
     throw new Error("Guide service returned invalid data");
   }
@@ -674,8 +674,8 @@ export function sourceStatus(): SourceStatus {
   const channels = MEM?.channels || [];
   const withEpg = channels.filter((c) => c.tvg_id && MEM?.programs[c.tvg_id]?.length).length;
   return {
-    m3u_url: API_BASE ? `${API_BASE}/channels` : SOURCE_M3U ? "configured" : "not configured",
-    epg_url: API_BASE ? `${API_BASE}/guide` : SOURCE_EPG ? "configured" : "not configured",
+    m3u_url: API_BASE ? `${API_BASE}/channels.json` : SOURCE_M3U ? "configured" : "not configured",
+    epg_url: API_BASE ? `${API_BASE}/guide.json` : SOURCE_EPG ? "configured" : "not configured",
     channel_count: channels.length,
     channels_with_epg: withEpg,
     last_refresh: MEM ? new Date(MEM.ts).toISOString() : null,

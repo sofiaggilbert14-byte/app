@@ -12,7 +12,8 @@
  *   windows     -> JSON string         ({ [channelId]: { n, l, g, p:[{t,s,e,c}] } })
  *
  * Endpoints:
- *   GET /config          GET /channels          GET /guide          GET /channel/{id}
+ *   GET /config          GET /channels          GET /guide          GET /channels.json
+ *   GET /guide.json      GET /channel/{id}
  */
 
 const CORS = {
@@ -58,6 +59,29 @@ async function serveGzip(env, key, acceptEncoding, maxAge) {
 
   const stream = new Response(buf).body.pipeThrough(new DecompressionStream("gzip"));
   return new Response(stream, { status: 200, headers });
+}
+
+// Mobile/TV apps can be inconsistent about automatically decoding gzip from
+// fetch(). These endpoints always return plain JSON, no matter what headers the
+// device sends.
+async function servePlainJsonFromGzip(env, key, maxAge) {
+  const buf = await env.KV.get(key, "arrayBuffer");
+  if (!buf) {
+    return jsonResponse(
+      { error: "not_ready", message: "Data is still being built. Try again shortly." },
+      { status: 503, maxAge: 15 },
+    );
+  }
+
+  const stream = new Response(buf).body.pipeThrough(new DecompressionStream("gzip"));
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": `public, max-age=${maxAge}, stale-while-revalidate=86400`,
+      ...CORS,
+    },
+  });
 }
 
 async function serveConfig(env) {
@@ -165,7 +189,7 @@ export default {
             ok: true,
             service: "CharmIPTV API",
             status: "online",
-            endpoints: ["/config", "/channels", "/guide", "/channel/{id}"],
+            endpoints: ["/config", "/channels", "/guide", "/channels.json", "/guide.json", "/channel/{id}"],
           },
           { maxAge: 30 },
         );
@@ -173,6 +197,8 @@ export default {
       if (path === "/config") return await serveConfig(env);
       if (path === "/channels") return await serveGzip(env, "channels_gz", ae, 1800);
       if (path === "/guide") return await serveGzip(env, "guide_gz", ae, 1800);
+      if (path === "/channels.json") return await servePlainJsonFromGzip(env, "channels_gz", 1800);
+      if (path === "/guide.json") return await servePlainJsonFromGzip(env, "guide_gz", 1800);
 
       const m = path.match(/^\/channel\/(.+)$/);
       if (m) return await serveChannel(env, decodeURIComponent(m[1]));

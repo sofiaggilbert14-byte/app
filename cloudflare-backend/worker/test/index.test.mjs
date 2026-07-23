@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { gzipSync } from "node:zlib";
 
 import worker from "../src/index.js";
 
@@ -26,7 +27,7 @@ test("health endpoint identifies the service", async () => {
   assert.equal(body.ok, true);
   assert.equal(body.service, "CharmIPTV API");
   assert.equal(body.status, "online");
-  assert.deepEqual(body.endpoints, ["/config", "/channels", "/guide", "/channel/{id}"]);
+  assert.deepEqual(body.endpoints, ["/config", "/channels", "/guide", "/channels.json", "/guide.json", "/channel/{id}"]);
 });
 
 test("config reports not ready before the first data refresh", async () => {
@@ -73,4 +74,18 @@ test("channels returns a temporary unavailable response before KV is populated",
 
   assert.equal(response.status, 503);
   assert.equal((await response.json()).error, "not_ready");
+});
+
+test("plain app endpoints return uncompressed JSON even when the client asks for gzip", async () => {
+  const channels = [{ id: "AETV.us", name: "A&E", url: "https://example.test/live.m3u8" }];
+  const response = await worker.fetch(
+    new Request("https://example.test/channels.json", {
+      headers: { "Accept-Encoding": "gzip" },
+    }),
+    environment({ channels_gz: gzipSync(Buffer.from(JSON.stringify(channels))) }),
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-encoding"), null);
+  assert.deepEqual(await response.json(), channels);
 });
