@@ -1,5 +1,6 @@
 import os
 import re
+import gzip
 import asyncio
 import logging
 import xml.etree.ElementTree as ET
@@ -217,9 +218,29 @@ def parse_xmltv(text: str):
 
 
 def _fetch(url: str) -> str:
-    resp = requests.get(url, timeout=60, headers={"User-Agent": "GridStream/1.0"})
+    resp = requests.get(
+        url,
+        timeout=60,
+        allow_redirects=True,
+        headers={
+            "User-Agent": "GridStream/1.0",
+            "Accept-Encoding": "gzip, deflate",
+        },
+    )
     resp.raise_for_status()
-    return resp.text
+
+    data = resp.content
+
+    # Detect gzip files by their first two bytes.
+    if data.startswith(b"\x1f\x8b"):
+        try:
+            data = gzip.decompress(data)
+        except gzip.BadGzipFile as exc:
+            raise RuntimeError(
+                "EPG response could not be decompressed"
+            ) from exc
+
+    return data.decode("utf-8-sig", errors="replace")
 
 
 def _do_refresh(m3u_url: str, epg_url: str):
@@ -229,8 +250,12 @@ def _do_refresh(m3u_url: str, epg_url: str):
     icons, programs = ({}, {})
     if epg_url:
         try:
-            epg_text = _fetch(epg_url)
-            icons, programs = parse_xmltv(epg_text)
+epg_text = _fetch(epg_url)
+
+if "<tv" not in epg_text[:1000]:
+    raise ValueError("EPG response is not valid XMLTV data")
+
+icons, programs = parse_xmltv(epg_text)
         except Exception as e:
             logger.warning("EPG fetch/parse failed: %s", e)
     # merge logos from EPG when M3U logo missing; force https so mobile/web can load them
