@@ -37,7 +37,7 @@ export function ProgramModal() {
   const isLive = dayjs().isAfter(program.start) && program.stop && dayjs().isBefore(program.stop);
 
   const watch = () => {
-    Haptics.selectionAsync();
+    void Haptics.selectionAsync().catch(() => {});
     closeProgram();
     router.push({ pathname: "/player", params: { channelId: channel.id } });
   };
@@ -50,7 +50,7 @@ export function ProgramModal() {
     }
     const ok = await addReminder(program, channel);
     if (ok) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       setMsg("Reminder set — we'll alert you before it starts");
     } else {
       setMsg("Enable notifications to set reminders");

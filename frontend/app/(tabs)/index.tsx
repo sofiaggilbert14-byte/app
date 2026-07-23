@@ -56,7 +56,7 @@ export default function GuideScreen() {
   }, [channels, group, favorites]);
 
   const openChannel = (c: Channel) => {
-    Haptics.selectionAsync();
+    void Haptics.selectionAsync().catch(() => {});
     addRecent(c);
     router.push({ pathname: "/player", params: { channelId: c.id } });
   };

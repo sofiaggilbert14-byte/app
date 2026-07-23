@@ -55,7 +55,9 @@ export default function RootLayout() {
               <Stack.Screen name="player" options={{ animation: "fade" }} />
             </Stack>
           </ErrorBoundary>
-          <ProgramModal />
+          <ErrorBoundary>
+            <ProgramModal />
+          </ErrorBoundary>
           <PointerOverlay />
         </GuideProvider>
       </SafeAreaProvider>

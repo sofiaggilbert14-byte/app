@@ -233,7 +233,19 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   );
 
   const openProgram = useCallback((program: Program, channel: Channel) => {
-    setActiveProgram({ program, channel });
+    if (!program || !channel || !channel.id || !program.start || Number.isNaN(Date.parse(program.start))) {
+      return;
+    }
+    setActiveProgram({
+      program: {
+        title: program.title || "No Title",
+        desc: program.desc || "",
+        category: program.category || "",
+        start: program.start,
+        stop: program.stop && !Number.isNaN(Date.parse(program.stop)) ? program.stop : null,
+      },
+      channel,
+    });
   }, []);
   const closeProgram = useCallback(() => setActiveProgram(null), []);
 
