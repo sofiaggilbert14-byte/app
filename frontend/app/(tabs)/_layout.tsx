@@ -6,6 +6,9 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { colors, fonts } from "@/src/theme";
 
+const GOLD = "#F6B73C";
+const GOLD_SOFT = "#FFE3A3";
+
 // Custom tab button that highlights when focused by a TV remote's D-pad.
 function TabBarButton({ style, children, onFocus, onBlur, ...rest }: any) {
   const [focused, setFocused] = useState(false);
@@ -23,7 +26,7 @@ function TabBarButton({ style, children, onFocus, onBlur, ...rest }: any) {
       style={[
         style,
         { alignItems: "center", justifyContent: "center" },
-        focused && { backgroundColor: colors.brandTertiary, borderRadius: 10, borderWidth: 2, borderColor: "#fff" },
+        focused && { backgroundColor: "rgba(246,183,60,0.20)", borderRadius: 10, borderWidth: 2, borderColor: GOLD_SOFT },
       ]}
     >
       {children}
@@ -41,12 +44,12 @@ export default function TabsLayout() {
       screenOptions={{
         headerShown: false,
         tabBarPosition: "top",
-        tabBarActiveTintColor: colors.brand,
+        tabBarActiveTintColor: GOLD,
         tabBarInactiveTintColor: colors.onSurfaceTertiary,
         tabBarButton: (props) => <TabBarButton {...props} />,
         tabBarStyle: {
-          backgroundColor: colors.surfaceSecondary,
-          borderBottomColor: colors.border,
+          backgroundColor: "#080503",
+          borderBottomColor: "rgba(246,183,60,0.18)",
           borderBottomWidth: 1,
           height: 60 + insets.top,
           paddingTop: insets.top + 4,

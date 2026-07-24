@@ -9,6 +9,9 @@ import { nowNext, progressPct, fmtTime } from "@/src/utils/time";
 import { useStore } from "@/src/store";
 import { AZRail } from "./AZRail";
 
+const GOLD = "#F6B73C";
+const GOLD_SOFT = "#FFE3A3";
+
 export function BoxGrid({
   channels,
   now,
@@ -28,7 +31,7 @@ export function BoxGrid({
 }) {
   const { width } = useWindowDimensions();
   // Adapt column count to the screen ratio — phones 2, tablets/TVs up to 5.
-  const numColumns = width >= 1200 ? 5 : width >= 900 ? 4 : width >= 600 ? 3 : 2;
+  const numColumns = width >= 1400 ? 6 : width >= 1150 ? 5 : width >= 900 ? 4 : width >= 600 ? 3 : 2;
   const nowDate = new Date(now);
   const { isFavorite, toggleFavorite } = useStore();
   const listRef = useRef<FlashListRef<Channel>>(null);
@@ -42,7 +45,7 @@ export function BoxGrid({
       numColumns={numColumns}
       keyExtractor={(c) => c.id}
       drawDistance={600}
-      contentContainerStyle={{ paddingBottom: 130, paddingHorizontal: spacing.sm, paddingTop: spacing.sm }}
+      contentContainerStyle={{ paddingBottom: 130, paddingHorizontal: spacing.xs, paddingTop: spacing.xs }}
       ListHeaderComponent={ListHeaderComponent}
       showsVerticalScrollIndicator={false}
       refreshControl={
@@ -115,30 +118,33 @@ const styles = StyleSheet.create({
   cell: { flex: 1, padding: spacing.xs },
   card: {
     flex: 1,
-    backgroundColor: colors.surfaceSecondary,
+    backgroundColor: "rgba(35, 25, 18, 0.88)",
     borderRadius: radius.md,
     padding: spacing.md,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: "rgba(255, 227, 163, 0.13)",
     gap: spacing.xs,
-    minHeight: 140,
+    minHeight: 132,
   },
   cardFocused: {
-    borderColor: "#fff",
-    borderWidth: 2,
-    backgroundColor: "#2a121b",
+    borderColor: GOLD_SOFT,
+    borderWidth: 3,
+    backgroundColor: "rgba(92, 53, 15, 0.72)",
+    shadowColor: GOLD,
+    shadowOpacity: 0.65,
+    shadowRadius: 14,
   },
   cardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  chName: { color: colors.onSurfaceTertiary, fontFamily: fonts.medium, fontSize: 12 },
-  nowTitle: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 14, minHeight: 36 },
+  chName: { color: "rgba(255,255,255,0.82)", fontFamily: fonts.semibold, fontSize: 12 },
+  nowTitle: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 14, minHeight: 34 },
   noNow: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 12, marginTop: 4 },
   progressTrack: {
     height: 4,
-    backgroundColor: colors.surfaceTertiary,
+    backgroundColor: "rgba(255,255,255,0.18)",
     borderRadius: radius.pill,
     marginTop: spacing.sm,
     overflow: "hidden",
   },
-  progressFill: { height: 4, backgroundColor: colors.brand },
-  nextLine: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 11, marginTop: 6 },
+  progressFill: { height: 4, backgroundColor: GOLD },
+  nextLine: { color: "rgba(255,227,163,0.72)", fontFamily: fonts.regular, fontSize: 11, marginTop: 6 },
 });
