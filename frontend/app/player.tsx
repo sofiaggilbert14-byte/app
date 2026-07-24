@@ -34,6 +34,7 @@ export default function PlayerScreen() {
 
   const [channelId, setChannelId] = useState(params.channelId);
   const channel = useMemo(() => channelById(channelId), [channelId, channelById]);
+  const channelIndex = useMemo(() => channels.findIndex((c) => c.id === channelId), [channels, channelId]);
   const hasStream = !!channel?.url;
   const [controls, setControls] = useState(true);
   const [status, setStatus] = useState<StreamStatus>("loading");
@@ -97,9 +98,17 @@ export default function PlayerScreen() {
     const c = channelById(id);
     if (!c) return;
     void Haptics.selectionAsync().catch(() => {});
+    setStatus("loading");
     setChannelId(id);
     addRecent(c);
     scheduleHide();
+  };
+
+  const surfByOffset = (offset: number) => {
+    if (!channels.length || channelIndex < 0) return;
+    const nextIndex = (channelIndex + offset + channels.length) % channels.length;
+    const next = channels[nextIndex];
+    if (next) surf(next.id);
   };
 
   const previewChannel = (id: string) => {
@@ -136,6 +145,10 @@ export default function PlayerScreen() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channelId, hasStream, retryToken]);
+
+  useEffect(() => {
+    if (channel) addRecent(channel);
+  }, [channel, addRecent]);
 
   useEffect(() => {
     if (status === "playing" && controlsRef.current) scheduleHide();
@@ -250,7 +263,7 @@ export default function PlayerScreen() {
           >
             <Pressable
               style={({ focused }: any) => [styles.backBtn, focused && styles.ctrlFocused]}
-              onPress={() => router.back()}
+              onPress={stopAndExit}
               testID="player-back-btn"
             >
               <Ionicons name="chevron-back" size={26} color="#fff" />
@@ -279,6 +292,24 @@ export default function PlayerScreen() {
             colors={["transparent", "rgba(0,0,0,0.9)"]}
             style={[styles.bottomScrim, { paddingBottom: insets.bottom + spacing.md }]}
           >
+            <View style={styles.quickControls}>
+              <Pressable
+                style={({ focused }: any) => [styles.quickBtn, focused && styles.ctrlFocused]}
+                onPress={() => surfByOffset(-1)}
+                testID="player-prev-channel-btn"
+              >
+                <Ionicons name="play-skip-back" size={18} color="#fff" />
+                <Text style={styles.quickBtnText}>Previous</Text>
+              </Pressable>
+              <Pressable
+                style={({ focused }: any) => [styles.quickBtn, focused && styles.ctrlFocused]}
+                onPress={() => surfByOffset(1)}
+                testID="player-next-channel-btn"
+              >
+                <Ionicons name="play-skip-forward" size={18} color="#fff" />
+                <Text style={styles.quickBtnText}>Next</Text>
+              </Pressable>
+            </View>
             <Text style={styles.surfLabel}>Channels</Text>
             <FlatList
               data={channels}
@@ -366,6 +397,23 @@ const styles = StyleSheet.create({
     paddingTop: spacing.xxl,
     gap: spacing.sm,
   },
+  quickControls: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+  },
+  quickBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    backgroundColor: "rgba(255,255,255,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  quickBtnText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 12 },
   surfLabel: { color: "rgba(255,255,255,0.9)", fontFamily: fonts.semibold, fontSize: 13, paddingHorizontal: spacing.lg },
   surfItem: { width: 68, alignItems: "center", gap: 4 },
   surfActive: { opacity: 1 },
