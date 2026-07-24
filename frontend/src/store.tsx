@@ -106,9 +106,9 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       const day = dayjs(dateRef.current);
       const isToday = day.isSame(dayjs(), "day");
       const start = isToday ? undefined : day.startOf("day").toISOString();
-      // Keep only a moving four-hour window in rendered channel objects. The
+      // Keep only a moving guide window in rendered channel objects. The
       // source cache can retain more guide data without creating a huge TV UI.
-      const data = await loadGuide(start, 4);
+      const data = await loadGuide(start, 12);
       setChannels(data.channels);
       setWindowStart(data.start);
       setWindowEnd(data.end);

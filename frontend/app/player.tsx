@@ -22,7 +22,7 @@ import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { nowNext, fmtTime } from "@/src/utils/time";
 import { addTvKeyListener } from "@/src/utils/tvRemote";
 
-const CONTROLS_HIDE_MS = 15_000;
+const CONTROLS_HIDE_MS = 60_000;
 const CHANNEL_PREVIEW_DELAY_MS = 650;
 
 export default function PlayerScreen() {
@@ -71,7 +71,7 @@ export default function PlayerScreen() {
   }, []);
 
   const toggleFullscreen = async () => {
-    Haptics.selectionAsync();
+    void Haptics.selectionAsync().catch(() => {});
     scheduleHide();
     if (Platform.OS === "web") {
       setFullscreen((v) => !v);
@@ -94,7 +94,7 @@ export default function PlayerScreen() {
     if (previewTimer.current) clearTimeout(previewTimer.current);
     const c = channelById(id);
     if (!c) return;
-    Haptics.selectionAsync();
+    void Haptics.selectionAsync().catch(() => {});
     setChannelId(id);
     addRecent(c);
     scheduleHide();
@@ -147,7 +147,7 @@ export default function PlayerScreen() {
   };
 
   const stopAndExit = async () => {
-    Haptics.selectionAsync();
+    void Haptics.selectionAsync().catch(() => {});
     if (canRotate) {
       try {
         await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
@@ -202,7 +202,7 @@ export default function PlayerScreen() {
 
       {controls && (
         <>
-          {status === "playing" && (
+          {hasStream && (
             <Pressable
               style={({ focused }: any) => [styles.stopBtn, focused && styles.stopFocused]}
               hasTVPreferredFocus
