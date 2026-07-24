@@ -7,6 +7,7 @@ import {
   FlatList,
   Platform,
   StatusBar as RNStatusBar,
+  BackHandler,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -22,7 +23,7 @@ import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { nowNext, fmtTime } from "@/src/utils/time";
 import { addTvKeyListener } from "@/src/utils/tvRemote";
 
-const CONTROLS_HIDE_MS = 60_000;
+const CONTROLS_HIDE_MS = 8_000;
 const CHANNEL_PREVIEW_DELAY_MS = 650;
 
 export default function PlayerScreen() {
@@ -116,9 +117,9 @@ export default function PlayerScreen() {
     hideTimer.current = setTimeout(() => setControls(false), CONTROLS_HIDE_MS);
   };
 
-  // Auto-hide the controls (incl. the bottom channel list) once the stream is
-  // actually playing, so nothing blocks the video — on mobile AND TV. Tap the
-  // screen (mobile) or press any remote key (TV) to bring them back.
+  // Burn-in protection: auto-hide the controls (incl. the top channel name and
+  // bottom channel list) shortly after the stream starts. Tap the screen
+  // (mobile) or press any remote key (TV) to bring them back briefly.
   useEffect(() => {
     if (status === "playing") scheduleHide();
     return () => {
@@ -157,6 +158,20 @@ export default function PlayerScreen() {
     // Leaving the screen unmounts <StreamPlayer/>, which stops the stream.
     router.back();
   };
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (!controls) {
+        setControls(true);
+        scheduleHide();
+        return true;
+      }
+      stopAndExit();
+      return true;
+    });
+    return () => sub.remove();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [controls]);
 
   const { current, next } = nowNext(channel?.programs, new Date());
 
