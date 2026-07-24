@@ -6,7 +6,6 @@ import {
   Pressable,
   ActivityIndicator,
   ScrollView,
-  Platform,
   useWindowDimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
@@ -24,6 +23,9 @@ import { EpgProgressBar } from "@/src/components/EpgProgressBar";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { nowNext, progressPct, fmtTime } from "@/src/utils/time";
 import dayjs from "dayjs";
+
+type IconName = React.ComponentProps<typeof Ionicons>["name"];
+type AppRoute = "/search" | "/favorites" | "/settings";
 
 const GOLD = "#F6B73C";
 const GOLD_SOFT = "#FFE3A3";
@@ -46,7 +48,7 @@ function NavItem({
   onPress,
   testID,
 }: {
-  icon: keyof typeof Ionicons.glyphMap;
+  icon: IconName;
   label: string;
   active?: boolean;
   onPress: () => void;
@@ -73,7 +75,7 @@ function CommandButton({
   preferred,
   testID,
 }: {
-  icon: keyof typeof Ionicons.glyphMap;
+  icon: IconName;
   label: string;
   onPress: () => void;
   preferred?: boolean;
@@ -101,7 +103,7 @@ function GuideRow({
   onPress,
 }: {
   label: string;
-  program: Program | null;
+  program?: Program;
   active?: boolean;
   onPress?: () => void;
 }) {
@@ -143,13 +145,10 @@ export default function GuideScreen() {
     addRecent,
     openProgram,
     favorites,
-    selectedDate,
-    setSelectedDate,
     lastChannelId,
   } = useStore();
   const now = new Date().toISOString();
 
-  const isTV = Platform.isTV;
   const compact = width < 900;
   const [mode, setMode] = useState<"timeline" | "box">("box");
   const [group, setGroup] = useState<string>("All");
@@ -176,7 +175,7 @@ export default function GuideScreen() {
   }, [channels, filtered, lastChannelId]);
 
   const preview = useMemo(
-    () => (previewChannel ? nowNext(previewChannel.programs, new Date(now)) : { current: null, next: null }),
+    () => (previewChannel ? nowNext(previewChannel.programs, new Date(now)) : {}),
     [previewChannel, now],
   );
 
@@ -209,8 +208,8 @@ export default function GuideScreen() {
     if (target) openChannel(target);
   };
 
-  const navTo = (route: "/search" | "/favorites" | "/settings") => {
-    router.push(route);
+  const navTo = (route: AppRoute) => {
+    router.push(route as any);
   };
 
   return (
@@ -249,7 +248,7 @@ export default function GuideScreen() {
         <View style={styles.main}>
           <View style={styles.topBar}>
             <View>
-              <Text style={styles.kicker}>● Live Preview</Text>
+              <Text style={styles.kicker}>Live Preview</Text>
               <Text style={styles.title}>Black & Gold Command Center</Text>
             </View>
             <View style={styles.topActions}>
