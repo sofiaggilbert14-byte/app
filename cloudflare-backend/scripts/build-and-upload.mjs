@@ -15,6 +15,21 @@ const GUIDE_START = NOW - 6 * 3600 * 1000;
 const GUIDE_END = NOW + 48 * 3600 * 1000;
 const WIN_START = NOW - 1 * 3600 * 1000;
 const WIN_END = NOW + 12 * 3600 * 1000;
+const FETCH_ATTEMPTS = [
+  {
+    "User-Agent": "TiviMate/5.1.6 (Linux; Android TV)",
+    Accept: "application/x-mpegURL,application/xml,text/xml,*/*",
+  },
+  {
+    "User-Agent": "OTT Navigator/1.7.0 (Linux; Android)",
+    Accept: "application/x-mpegURL,application/xml,text/xml,*/*",
+  },
+  {
+    "User-Agent":
+      "Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
+    Accept: "*/*",
+  },
+];
 
 function requireEnv(name) {
   const v = process.env[name];
@@ -30,14 +45,29 @@ function https(u) {
 }
 
 async function fetchBytes(url) {
-  const res = await fetch(url, {
-    headers: { "User-Agent": "CharmIPTV-Builder/1.0" },
-    redirect: "follow",
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-  const buf = Buffer.from(await res.arrayBuffer());
-  if (buf.length > 2 && buf[0] === 0x1f && buf[1] === 0x8b) return gunzipSync(buf);
-  return buf;
+  let lastError = null;
+  for (let i = 0; i < FETCH_ATTEMPTS.length; i++) {
+    try {
+      const res = await fetch(url, {
+        headers: {
+          ...FETCH_ATTEMPTS[i],
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
+        },
+        redirect: "follow",
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length > 2 && buf[0] === 0x1f && buf[1] === 0x8b) return gunzipSync(buf);
+      return buf;
+    } catch (err) {
+      lastError = err;
+      if (i < FETCH_ATTEMPTS.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 750 * (i + 1)));
+      }
+    }
+  }
+  throw lastError;
 }
 
 function attr(line, name) {
@@ -476,7 +506,8 @@ export async function main() {
     );
   } catch (err) {
     console.error("M3U fetch/parse failed - keeping last-good KV data:", err.message);
-    process.exit(1);
+    console.log("::warning::Playlist source was unavailable during refresh; Cloudflare will keep serving the last-good data.");
+    return;
   }
 
   let epg = null;
