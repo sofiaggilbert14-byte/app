@@ -40,9 +40,14 @@ export default function PlayerScreen() {
   const [status, setStatus] = useState<StreamStatus>("loading");
   const [retryToken, setRetryToken] = useState(0);
   const [fullscreen, setFullscreen] = useState(false);
+  const [lastPlayerChannelId, setLastPlayerChannelId] = useState<string | null>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const controlsRef = useRef(controls);
+  const lastPlayerChannel = useMemo(
+    () => (lastPlayerChannelId ? channelById(lastPlayerChannelId) : undefined),
+    [lastPlayerChannelId, channelById],
+  );
 
   // TVs are fixed landscape and reject runtime orientation locking (throws
   // ERR_SCREEN_ORIENTATION_UNSUPPORTED_ORIENTATION_LOCK → crash). Only rotate
@@ -93,15 +98,21 @@ export default function PlayerScreen() {
     } catch {}
   };
 
-  const surf = (id: string) => {
+  const changeChannel = (id: string, { haptic = false } = {}) => {
+    if (id === channelId) return;
     if (previewTimer.current) clearTimeout(previewTimer.current);
     const c = channelById(id);
     if (!c) return;
-    void Haptics.selectionAsync().catch(() => {});
+    if (haptic) void Haptics.selectionAsync().catch(() => {});
+    setLastPlayerChannelId(channelId);
     setStatus("loading");
     setChannelId(id);
     addRecent(c);
     scheduleHide();
+  };
+
+  const surf = (id: string) => {
+    changeChannel(id, { haptic: true });
   };
 
   const surfByOffset = (offset: number) => {
@@ -115,10 +126,7 @@ export default function PlayerScreen() {
     if (id === channelId) return;
     if (previewTimer.current) clearTimeout(previewTimer.current);
     previewTimer.current = setTimeout(() => {
-      if (channelById(id)) {
-        setStatus("loading");
-        setChannelId(id);
-      }
+      changeChannel(id);
     }, CHANNEL_PREVIEW_DELAY_MS);
   };
 
@@ -302,6 +310,19 @@ export default function PlayerScreen() {
                 <Text style={styles.quickBtnText}>Previous</Text>
               </Pressable>
               <Pressable
+                style={({ focused }: any) => [
+                  styles.quickBtn,
+                  !lastPlayerChannel && styles.quickBtnDisabled,
+                  focused && styles.ctrlFocused,
+                ]}
+                disabled={!lastPlayerChannel}
+                onPress={() => lastPlayerChannel && surf(lastPlayerChannel.id)}
+                testID="player-last-channel-btn"
+              >
+                <Ionicons name="return-up-back" size={18} color="#fff" />
+                <Text style={styles.quickBtnText}>Last</Text>
+              </Pressable>
+              <Pressable
                 style={({ focused }: any) => [styles.quickBtn, focused && styles.ctrlFocused]}
                 onPress={() => surfByOffset(1)}
                 testID="player-next-channel-btn"
@@ -413,6 +434,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
   },
+  quickBtnDisabled: { opacity: 0.35 },
   quickBtnText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 12 },
   surfLabel: { color: "rgba(255,255,255,0.9)", fontFamily: fonts.semibold, fontSize: 13, paddingHorizontal: spacing.lg },
   surfItem: { width: 68, alignItems: "center", gap: 4 },
