@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   Switch,
+  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -120,8 +121,11 @@ export default function SettingsScreen() {
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Phoenix Diagnostics</Text>
           <Stat label="Build" value="2.0.0-beta.1" />
+          <Stat label="Platform" value={Platform.isTV ? "Android TV / Fire TV" : Platform.OS} />
           <Stat label="Data mode" value={diagnostics?.mode || "—"} />
+          <Stat label="Channels" value={String(diagnostics?.channels || status?.channel_count || 0)} />
           <Stat label="Cached programs" value={String(diagnostics?.programs || 0)} />
+          <Stat label="Refresh in progress" value={diagnostics?.refreshInFlight ? "Yes" : "No"} />
           <Stat
             label="Guide cache"
             value={diagnostics ? `${(diagnostics.cacheBytes / 1024 / 1024).toFixed(1)} MB` : "—"}
@@ -158,6 +162,15 @@ export default function SettingsScreen() {
               </>
             )}
           </Pressable>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Beta Tester Checklist</Text>
+          <ChecklistItem label="Guide loads and scrolls without crashing" />
+          <ChecklistItem label="Player controls fade away after playback starts" />
+          <ChecklistItem label="Previous / Last / Next channel buttons work" />
+          <ChecklistItem label="Search finds channels and programs" />
+          <ChecklistItem label="Favorites and Continue Watching show the right channels" />
         </View>
 
         <View style={styles.card}>
@@ -201,6 +214,15 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
+function ChecklistItem({ label }: { label: string }) {
+  return (
+    <View style={styles.checkRow}>
+      <Ionicons name="checkmark-circle" size={17} color={colors.success} />
+      <Text style={styles.checkText}>{label}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
   header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.sm },
@@ -224,6 +246,8 @@ const styles = StyleSheet.create({
   statLabel: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 14 },
   statValue: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 14 },
   errText: { color: colors.error, fontFamily: fonts.medium, fontSize: 12 },
+  checkRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingVertical: spacing.xs },
+  checkText: { color: colors.onSurfaceSecondary, fontFamily: fonts.regular, fontSize: 13, flex: 1 },
   primaryBtn: {
     flexDirection: "row",
     alignItems: "center",

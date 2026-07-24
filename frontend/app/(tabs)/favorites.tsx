@@ -39,9 +39,10 @@ function ChannelRow({ channel, onPress, right }: { channel: Channel; onPress: ()
 
 export default function FavoritesScreen() {
   const router = useRouter();
-  const { channels, favorites, toggleFavorite, recent, reminders, removeReminder, addRecent, channelById } = useStore();
+  const { channels, favorites, toggleFavorite, recent, reminders, removeReminder, addRecent, channelById, lastChannelId } = useStore();
 
   const favChannels = channels.filter((c) => favorites.includes(c.id)).sort(byChannelName);
+  const lastChannel = lastChannelId ? channelById(lastChannelId) : null;
   const play = (c: Channel) => {
     Haptics.selectionAsync();
     addRecent(c);
@@ -56,6 +57,27 @@ export default function FavoritesScreen() {
         <Text style={styles.title}>Favorites</Text>
       </View>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 130 }}>
+        {lastChannel && (
+          <>
+            <Text style={styles.section}>Continue Watching</Text>
+            <Pressable
+              style={({ focused }: any) => [styles.continueCard, focused && styles.rowFocused]}
+              onPress={() => play(lastChannel)}
+              testID="favorites-continue-watching"
+            >
+              <ChannelLogo name={lastChannel.name} logo={lastChannel.logo} size={58} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.continueLabel}>Last channel</Text>
+                <Text numberOfLines={1} style={styles.continueName}>{lastChannel.name}</Text>
+                <Text numberOfLines={1} style={styles.rowSub}>
+                  {nowNext(lastChannel.programs, new Date()).current?.title || "Tap to resume playback"}
+                </Text>
+              </View>
+              <Ionicons name="play-circle" size={34} color={colors.brandSecondary} />
+            </Pressable>
+          </>
+        )}
+
         <Text style={styles.section}>Favorite Channels</Text>
         {favChannels.length === 0 ? (
           <View style={styles.empty}>
@@ -139,6 +161,27 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
     marginBottom: spacing.sm,
   },
+  continueCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.lg,
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+    backgroundColor: "#14141A",
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  continueLabel: {
+    color: colors.brandSecondary,
+    fontFamily: fonts.semibold,
+    fontSize: 11,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  continueName: { color: colors.onSurface, fontFamily: fonts.bold, fontSize: 17, marginTop: 2 },
   row: {
     flexDirection: "row",
     alignItems: "center",
