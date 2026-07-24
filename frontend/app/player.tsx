@@ -5,6 +5,7 @@ import {
   StyleSheet,
   Pressable,
   FlatList,
+  ActivityIndicator,
   Platform,
   StatusBar as RNStatusBar,
   BackHandler,
@@ -25,6 +26,7 @@ import { addTvKeyListener } from "@/src/utils/tvRemote";
 
 const CONTROLS_HIDE_MS = 8_000;
 const CHANNEL_PREVIEW_DELAY_MS = 650;
+const SWITCH_NOTICE_MS = 2_500;
 
 export default function PlayerScreen() {
   const insets = useSafeAreaInsets();
@@ -41,8 +43,10 @@ export default function PlayerScreen() {
   const [retryToken, setRetryToken] = useState(0);
   const [fullscreen, setFullscreen] = useState(false);
   const [lastPlayerChannelId, setLastPlayerChannelId] = useState<string | null>(null);
+  const [switchNotice, setSwitchNotice] = useState<string | null>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const switchNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const controlsRef = useRef(controls);
   const lastPlayerChannel = useMemo(
     () => (lastPlayerChannelId ? channelById(lastPlayerChannelId) : undefined),
@@ -98,6 +102,12 @@ export default function PlayerScreen() {
     } catch {}
   };
 
+  const showSwitchNotice = (name: string) => {
+    if (switchNoticeTimer.current) clearTimeout(switchNoticeTimer.current);
+    setSwitchNotice(name);
+    switchNoticeTimer.current = setTimeout(() => setSwitchNotice(null), SWITCH_NOTICE_MS);
+  };
+
   const changeChannel = (id: string, { haptic = false } = {}) => {
     if (id === channelId) return;
     if (previewTimer.current) clearTimeout(previewTimer.current);
@@ -105,6 +115,7 @@ export default function PlayerScreen() {
     if (!c) return;
     if (haptic) void Haptics.selectionAsync().catch(() => {});
     setLastPlayerChannelId(channelId);
+    showSwitchNotice(c.name);
     setStatus("loading");
     setChannelId(id);
     addRecent(c);
@@ -154,6 +165,13 @@ export default function PlayerScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channelId, hasStream, retryToken]);
 
+  useEffect(
+    () => () => {
+      if (switchNoticeTimer.current) clearTimeout(switchNoticeTimer.current);
+    },
+    [],
+  );
+
   useEffect(() => {
     if (channel) addRecent(channel);
   }, [channel, addRecent]);
@@ -170,8 +188,8 @@ export default function PlayerScreen() {
     const unsub = addTvKeyListener(() => {
       if (!controlsRef.current) {
         setControls(true);
-        scheduleHide();
       }
+      scheduleHide();
     });
     return unsub;
   }, [isTV]);
@@ -242,6 +260,7 @@ export default function PlayerScreen() {
               style={({ focused }: any) => [styles.retryBtn, focused && styles.ctrlFocused]}
               onPress={() => {
                 setStatus("loading");
+                showSwitchNotice(channel?.name || "channel");
                 setRetryToken((t) => t + 1);
               }}
               testID="player-retry-btn"
@@ -249,6 +268,15 @@ export default function PlayerScreen() {
               <Text style={styles.retryText}>Retry Source</Text>
             </Pressable>
           )}
+        </View>
+      )}
+
+      {switchNotice && (
+        <View style={styles.switchNotice} pointerEvents="none">
+          <ActivityIndicator color="#fff" size="small" />
+          <Text numberOfLines={1} style={styles.switchNoticeText}>
+            Switching to {switchNotice}
+          </Text>
         </View>
       )}
 
@@ -393,6 +421,23 @@ const styles = StyleSheet.create({
   },
   stopText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 15 },
   stopFocused: { borderWidth: 3, borderColor: "#fff" },
+  switchNotice: {
+    position: "absolute",
+    alignSelf: "center",
+    top: "54%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: "rgba(0,0,0,0.72)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    zIndex: 9,
+    maxWidth: "82%",
+  },
+  switchNoticeText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 13, maxWidth: 320 },
   ctrlFocused: { borderWidth: 2, borderColor: "#fff", borderRadius: radius.sm, backgroundColor: "rgba(255,255,255,0.15)" },
   surfFocused: { borderWidth: 2, borderColor: "#fff", borderRadius: radius.sm, backgroundColor: "rgba(255,255,255,0.15)" },
   topScrim: {

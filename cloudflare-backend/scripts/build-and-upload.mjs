@@ -14,7 +14,7 @@ const NOW = Date.now();
 const GUIDE_START = NOW - 6 * 3600 * 1000;
 const GUIDE_END = NOW + 48 * 3600 * 1000;
 const WIN_START = NOW - 1 * 3600 * 1000;
-const WIN_END = NOW + 12 * 3600 * 1000;
+const WIN_END = NOW + 24 * 3600 * 1000;
 const FETCH_ATTEMPTS = [
   {
     "User-Agent": "TiviMate/5.1.6 (Linux; Android TV)",

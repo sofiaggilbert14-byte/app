@@ -15,6 +15,7 @@ const RECENT_KEY = "gs_recent";
 const LAST_CHANNEL_KEY = "gs_last_channel";
 const REM_KEY = "gs_reminders";
 const PMODE_KEY = "gs_pointer_mode";
+const GUIDE_WINDOW_HOURS = 24;
 
 export type Reminder = {
   key: string;
@@ -108,7 +109,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       const start = isToday ? undefined : day.startOf("day").toISOString();
       // Keep only a moving guide window in rendered channel objects. The
       // source cache can retain more guide data without creating a huge TV UI.
-      const data = await loadGuide(start, 12);
+      const data = await loadGuide(start, GUIDE_WINDOW_HOURS);
       setChannels(data.channels);
       setWindowStart(data.start);
       setWindowEnd(data.end);

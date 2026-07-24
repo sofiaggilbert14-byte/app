@@ -19,6 +19,8 @@ import { TimelineGrid } from "@/src/components/TimelineGrid";
 import { BoxGrid } from "@/src/components/BoxGrid";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { EpgProgressBar } from "@/src/components/EpgProgressBar";
+import { ChannelLogo } from "@/src/components/ChannelLogo";
+import { nowNext, fmtTime } from "@/src/utils/time";
 import dayjs from "dayjs";
 
 function byChannelName(a: Channel, b: Channel): number {
@@ -43,6 +45,7 @@ export default function GuideScreen() {
     addRecent,
     openProgram,
     favorites,
+    selectedDate,
     setSelectedDate,
     lastChannelId,
   } = useStore();
@@ -68,6 +71,16 @@ export default function GuideScreen() {
     return [...list].sort(byChannelName);
   }, [channels, group, favorites]);
 
+  const previewChannel = useMemo(() => {
+    const last = lastChannelId ? channels.find((c) => c.id === lastChannelId) : null;
+    return last || filtered.find((c) => c.programs?.length) || filtered[0] || null;
+  }, [channels, filtered, lastChannelId]);
+
+  const preview = useMemo(
+    () => (previewChannel ? nowNext(previewChannel.programs, new Date(now)) : { current: null, next: null }),
+    [previewChannel, now],
+  );
+
   const openChannel = (c: Channel) => {
     void Haptics.selectionAsync().catch(() => {});
     addRecent(c);
@@ -88,6 +101,22 @@ export default function GuideScreen() {
           >
             <Ionicons name="time-outline" size={17} color={colors.onSurface} />
             <Text style={styles.nowBtnText}>Now</Text>
+          </Pressable>
+          <Pressable
+            style={({ focused }: any) => [styles.nowBtn, focused && styles.focusRing]}
+            onPress={() => setSelectedDate(dayjs(selectedDate).subtract(1, "day").format("YYYY-MM-DD"))}
+            testID="guide-prev-day-btn"
+          >
+            <Ionicons name="play-back" size={16} color={colors.onSurface} />
+            <Text style={styles.nowBtnText}>Prev Day</Text>
+          </Pressable>
+          <Pressable
+            style={({ focused }: any) => [styles.nowBtn, focused && styles.focusRing]}
+            onPress={() => setSelectedDate(dayjs(selectedDate).add(1, "day").format("YYYY-MM-DD"))}
+            testID="guide-next-day-btn"
+          >
+            <Ionicons name="play-forward" size={16} color={colors.onSurface} />
+            <Text style={styles.nowBtnText}>Next Day</Text>
           </Pressable>
           {lastChannelId && (
             <Pressable
@@ -129,6 +158,30 @@ export default function GuideScreen() {
             </View>
           ) : null}
         </View>
+        {previewChannel && (
+          <Pressable
+            style={({ focused }: any) => [styles.previewCard, focused && styles.focusRing]}
+            onPress={() => openChannel(previewChannel)}
+            testID="guide-preview-card"
+          >
+            <ChannelLogo name={previewChannel.name} logo={previewChannel.logo} size={42} />
+            <View style={styles.previewTextWrap}>
+              <Text style={styles.previewKicker}>Live preview</Text>
+              <Text numberOfLines={1} style={styles.previewChannel}>
+                {previewChannel.name}
+              </Text>
+              <Text numberOfLines={1} style={styles.previewNow}>
+                {preview.current ? `Now: ${preview.current.title}` : "No current program info"}
+              </Text>
+              {preview.next && (
+                <Text numberOfLines={1} style={styles.previewNext}>
+                  Next {fmtTime(preview.next.start)}: {preview.next.title}
+                </Text>
+              )}
+            </View>
+            <Ionicons name="play-circle" size={28} color={colors.brandSecondary} />
+          </Pressable>
+        )}
       </View>
 
       <View style={styles.chipRowWrap}>
@@ -218,8 +271,31 @@ const styles = StyleSheet.create({
   },
   brand: { color: colors.brandSecondary, fontFamily: fonts.semibold, fontSize: 12 },
   title: { color: colors.onSurface, fontFamily: fonts.display, fontSize: 28 },
-  headerActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm, flexWrap: "wrap" },
   headerTitles: { marginTop: spacing.xs },
+  previewCard: {
+    minHeight: 78,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    backgroundColor: "#14141A",
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  previewTextWrap: { flex: 1, minWidth: 0 },
+  previewKicker: {
+    color: colors.brandSecondary,
+    fontFamily: fonts.semibold,
+    fontSize: 11,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  previewChannel: { color: colors.onSurface, fontFamily: fonts.bold, fontSize: 15, marginTop: 1 },
+  previewNow: { color: colors.onSurfaceSecondary, fontFamily: fonts.medium, fontSize: 12, marginTop: 2 },
+  previewNext: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 11, marginTop: 1 },
   footerTitles: {
     flexDirection: "row",
     alignItems: "baseline",
