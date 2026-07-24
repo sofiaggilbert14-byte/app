@@ -124,7 +124,7 @@ const styles = StyleSheet.create({
     minHeight: 140,
   },
   cardFocused: {
-    borderColor: colors.brand,
+    borderColor: "#fff",
     borderWidth: 2,
     backgroundColor: "#2a121b",
   },

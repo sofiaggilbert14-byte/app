@@ -253,7 +253,7 @@ const styles = StyleSheet.create({
   },
   progLive: { borderColor: colors.brand, backgroundColor: "#241018" },
   cellFocused: {
-    borderColor: colors.brand,
+    borderColor: "#fff",
     borderWidth: 2,
     backgroundColor: "#2a121b",
   },

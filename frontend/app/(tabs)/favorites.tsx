@@ -9,6 +9,7 @@ import { useStore } from "@/src/store";
 import { Channel } from "@/src/api";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { nowNext } from "@/src/utils/time";
+import { useTvBackToGuide } from "@/src/hooks/use-tv-back-to-guide";
 
 function byChannelName(a: Channel, b: Channel): number {
   return (a.name || "").localeCompare(b.name || "", undefined, {
@@ -40,6 +41,7 @@ function ChannelRow({ channel, onPress, right }: { channel: Channel; onPress: ()
 export default function FavoritesScreen() {
   const router = useRouter();
   const { channels, favorites, toggleFavorite, recent, reminders, removeReminder, addRecent, channelById, lastChannelId } = useStore();
+  useTvBackToGuide();
 
   const favChannels = channels.filter((c) => favorites.includes(c.id)).sort(byChannelName);
   const lastChannel = lastChannelId ? channelById(lastChannelId) : null;
@@ -197,7 +199,7 @@ const styles = StyleSheet.create({
   },
   rowName: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 14 },
   rowSub: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 12, marginTop: 2 },
-  rowFocused: { borderColor: colors.brand, borderWidth: 2, backgroundColor: "#2a121b" },
+  rowFocused: { borderColor: "#fff", borderWidth: 2, backgroundColor: "#2a121b" },
   reminderRow: {
     flexDirection: "row",
     alignItems: "center",

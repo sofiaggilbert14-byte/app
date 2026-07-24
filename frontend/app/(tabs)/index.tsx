@@ -52,7 +52,7 @@ export default function GuideScreen() {
   const now = new Date().toISOString();
 
   const isTV = Platform.isTV;
-  const [mode, setMode] = useState<"timeline" | "box">(isTV ? "timeline" : "box");
+  const [mode, setMode] = useState<"timeline" | "box">("box");
   const [group, setGroup] = useState<string>("All");
 
   const groups = useMemo(() => {

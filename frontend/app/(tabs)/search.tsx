@@ -17,6 +17,7 @@ import { colors, fonts, radius, spacing } from "@/src/theme";
 import { useStore } from "@/src/store";
 import { Channel, Program } from "@/src/api";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
+import { useTvBackToGuide } from "@/src/hooks/use-tv-back-to-guide";
 
 function byChannelName(a: Channel, b: Channel): number {
   return (a.name || "").localeCompare(b.name || "", undefined, {
@@ -29,6 +30,7 @@ export default function SearchScreen() {
   const router = useRouter();
   const { channels, addRecent, openProgram, favorites, recent, lastChannelId, channelById } = useStore();
   const [q, setQ] = useState("");
+  useTvBackToGuide();
 
   const { chResults, progResults } = useMemo(() => {
     const ql = q.toLowerCase().trim();
@@ -218,7 +220,7 @@ const styles = StyleSheet.create({
   },
   rowName: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 14, flex: 1 },
   rowSub: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 12, marginTop: 2 },
-  rowFocused: { borderColor: colors.brand, borderWidth: 2, backgroundColor: "#2a121b" },
+  rowFocused: { borderColor: "#fff", borderWidth: 2, backgroundColor: "#2a121b" },
   empty: { alignItems: "center", gap: spacing.md, paddingVertical: spacing.xxxl, paddingHorizontal: spacing.xl },
   emptyText: { color: colors.onSurfaceTertiary, fontFamily: fonts.medium, fontSize: 14, textAlign: "center" },
 });

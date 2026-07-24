@@ -8,7 +8,7 @@ import { addTvKeyListener, setPointerActive, tap, tvRemoteAvailable } from "@/sr
 // moves this cursor and the SELECT button taps whatever is underneath it.
 // Only active on Android with the native TvRemote module present.
 export function PointerOverlay() {
-  const { pointerMode } = useStore();
+  const { pointerMode, setPointerMode } = useStore();
   const { width, height } = useWindowDimensions();
   const active = pointerMode && Platform.OS === "android" && tvRemoteAvailable;
 
@@ -32,6 +32,10 @@ export function PointerOverlay() {
         tap(posRef.current.x, posRef.current.y);
         return;
       }
+      if (key === "BACK") {
+        setPointerMode(false);
+        return;
+      }
       const step = speedRef.current;
       setPos((p) => {
         let { x, y } = p;
@@ -43,7 +47,7 @@ export function PointerOverlay() {
       });
     });
     return unsub;
-  }, [active, width, height]);
+  }, [active, setPointerMode, width, height]);
 
   if (!active) return null;
 

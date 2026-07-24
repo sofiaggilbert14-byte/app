@@ -89,6 +89,8 @@ const styles = StyleSheet.create({
   },
   itemFocused: {
     backgroundColor: colors.brand,
+    borderWidth: 2,
+    borderColor: "#fff",
   },
   letter: {
     color: colors.onSurfaceTertiary,

@@ -24,12 +24,14 @@ import {
   clearGuideCache,
   type SourceDiagnostics,
 } from "@/src/source";
+import { useTvBackToGuide } from "@/src/hooks/use-tv-back-to-guide";
 
 export default function SettingsScreen() {
   const { refresh: refreshGuide, hardRefresh, refreshing, pointerMode, setPointerMode } = useStore();
   const [status, setStatus] = useState<SourceStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [diagnostics, setDiagnostics] = useState<SourceDiagnostics | null>(null);
+  useTvBackToGuide();
 
   const loadStatus = useCallback(() => {
     setStatus(sourceStatus());
