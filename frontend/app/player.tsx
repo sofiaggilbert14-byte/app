@@ -41,6 +41,7 @@ export default function PlayerScreen() {
   const [fullscreen, setFullscreen] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const controlsRef = useRef(controls);
 
   // TVs are fixed landscape and reject runtime orientation locking (throws
   // ERR_SCREEN_ORIENTATION_UNSUPPORTED_ORIENTATION_LOCK → crash). Only rotate
@@ -117,15 +118,28 @@ export default function PlayerScreen() {
     hideTimer.current = setTimeout(() => setControls(false), CONTROLS_HIDE_MS);
   };
 
+  useEffect(() => {
+    controlsRef.current = controls;
+  }, [controls]);
+
   // Burn-in protection: auto-hide the controls (incl. the top channel name and
   // bottom channel list) shortly after the stream starts. Tap the screen
   // (mobile) or press any remote key (TV) to bring them back briefly.
   useEffect(() => {
-    if (status === "playing") scheduleHide();
+    if (hasStream) {
+      setControls(true);
+      scheduleHide();
+    }
     return () => {
       if (hideTimer.current) clearTimeout(hideTimer.current);
       if (previewTimer.current) clearTimeout(previewTimer.current);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channelId, hasStream, retryToken]);
+
+  useEffect(() => {
+    if (status === "playing" && controlsRef.current) scheduleHide();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
 
   // On TV, any D-pad / remote key reveals the controls again, then re-arms the
@@ -133,8 +147,10 @@ export default function PlayerScreen() {
   useEffect(() => {
     if (!isTV) return;
     const unsub = addTvKeyListener(() => {
-      setControls(true);
-      scheduleHide();
+      if (!controlsRef.current) {
+        setControls(true);
+        scheduleHide();
+      }
     });
     return unsub;
   }, [isTV]);
