@@ -21,6 +21,8 @@ export function BoxGrid({
   ListHeaderComponent,
   refreshing,
   onRefresh,
+  showChannelNumbers = false,
+  channelNumberById,
 }: {
   channels: Channel[];
   now: string;
@@ -30,6 +32,8 @@ export function BoxGrid({
   ListHeaderComponent?: React.ReactElement;
   refreshing?: boolean;
   onRefresh?: () => void;
+  showChannelNumbers?: boolean;
+  channelNumberById?: Record<string, number>;
 }) {
   const { width } = useWindowDimensions();
   // Adapt column count to the screen ratio — phones 2, tablets/TVs up to 5.
@@ -70,7 +74,10 @@ export function BoxGrid({
               testID={`box-channel-${item.id}`}
             >
               <View style={styles.cardTop}>
-                <ChannelLogo name={item.name} logo={item.logo} size={40} />
+                <View style={styles.logoNumberRow}>
+                  {showChannelNumbers && <Text style={styles.channelNumber}>{channelNumberById?.[item.id] || index + 1}</Text>}
+                  <ChannelLogo name={item.name} logo={item.logo} size={40} />
+                </View>
                 <Pressable focusable={false} hitSlop={8} onPress={() => toggleFavorite(item.id)} testID={`box-fav-${item.id}`}>
                   <Ionicons
                     name={fav ? "star" : "star-outline"}
@@ -142,6 +149,8 @@ const styles = StyleSheet.create({
     shadowRadius: 14,
   },
   cardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  logoNumberRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs, flex: 1 },
+  channelNumber: { color: GOLD_SOFT, fontFamily: fonts.bold, fontSize: 12, minWidth: 26, textAlign: "right" },
   chName: { color: "rgba(255,255,255,0.82)", fontFamily: fonts.semibold, fontSize: 12 },
   nowTitle: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 14, minHeight: 34 },
   noNow: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 12, marginTop: 4 },

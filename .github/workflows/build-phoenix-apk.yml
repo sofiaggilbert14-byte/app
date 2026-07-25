@@ -69,6 +69,26 @@ jobs:
           npm run typecheck
           npm run lint
 
+      - name: Stamp Phoenix build version
+        shell: bash
+        run: |
+          PHOENIX_VERSION="2.0.${GITHUB_RUN_NUMBER}-beta"
+          PHOENIX_VERSION_CODE=$((2000 + GITHUB_RUN_NUMBER))
+          PHOENIX_APK_NAME="CharmIPTV Phoenix Universal BETA v${PHOENIX_VERSION}.apk"
+          export PHOENIX_VERSION PHOENIX_VERSION_CODE
+          node - <<'NODE'
+          const fs = require("fs");
+          const app = JSON.parse(fs.readFileSync("app.json", "utf8"));
+          app.expo.version = process.env.PHOENIX_VERSION;
+          app.expo.android = app.expo.android || {};
+          app.expo.android.versionCode = Number(process.env.PHOENIX_VERSION_CODE);
+          fs.writeFileSync("app.json", `${JSON.stringify(app, null, 2)}\n`);
+          NODE
+          echo "PHOENIX_VERSION=${PHOENIX_VERSION}" >> "$GITHUB_ENV"
+          echo "PHOENIX_VERSION_CODE=${PHOENIX_VERSION_CODE}" >> "$GITHUB_ENV"
+          echo "PHOENIX_APK_NAME=${PHOENIX_APK_NAME}" >> "$GITHUB_ENV"
+          echo "Stamped Phoenix ${PHOENIX_VERSION} (${PHOENIX_VERSION_CODE})"
+
       - name: Regenerate Android project
         run: npx expo prebuild --platform android --no-install
 
@@ -103,13 +123,13 @@ jobs:
           unzip -l "$APK" | grep -q "lib/armeabi-v7a/"
           unzip -l "$APK" | grep -q "lib/arm64-v8a/"
           mkdir -p artifacts
-          cp "$APK" "artifacts/CharmIPTV-Phoenix-Universal-Beta.apk"
+          cp "$APK" "artifacts/${PHOENIX_APK_NAME}"
 
       - name: Upload Phoenix APK
         uses: actions/upload-artifact@v4
         with:
-          name: CharmIPTV-Phoenix-Universal-Beta
-          path: frontend/artifacts/CharmIPTV-Phoenix-Universal-Beta.apk
+          name: CharmIPTV Phoenix Universal BETA v${{ env.PHOENIX_VERSION }}
+          path: frontend/artifacts/${{ env.PHOENIX_APK_NAME }}
           if-no-files-found: error
           retention-days: 7
           compression-level: 0

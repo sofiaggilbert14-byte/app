@@ -42,11 +42,21 @@ export default function PlayerScreen() {
     autoRetryStreams,
     isFavorite,
     toggleFavorite,
+    channelNumbers,
   } = useStore();
 
   const [channelId, setChannelId] = useState(params.channelId);
   const channel = useMemo(() => channelById(channelId), [channelId, channelById]);
   const channelIndex = useMemo(() => channels.findIndex((c) => c.id === channelId), [channels, channelId]);
+  const channelNumberById = useMemo(() => {
+    const map: Record<string, number> = {};
+    [...channels]
+      .sort((a, b) => (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" }))
+      .forEach((item, index) => {
+        map[item.id] = index + 1;
+      });
+    return map;
+  }, [channels]);
   const hasStream = !!channel?.url;
   const [controls, setControls] = useState(true);
   const [status, setStatus] = useState<StreamStatus>("loading");
@@ -286,7 +296,9 @@ export default function PlayerScreen() {
               <Ionicons name="chevron-back" size={26} color="#fff" />
             </Pressable>
             <View style={{ flex: 1 }}>
-              <Text numberOfLines={1} style={styles.chTitle}>{channel?.name || "Channel"}</Text>
+              <Text numberOfLines={1} style={styles.chTitle}>
+                {channel ? `${channelNumbers ? `${channelNumberById[channel.id] || ""} · ` : ""}${channel.name}` : "Channel"}
+              </Text>
               {current && (
                 <Text numberOfLines={1} style={styles.chNow}>
                   Now: {current.title}
@@ -412,6 +424,7 @@ export default function PlayerScreen() {
                   testID={`surf-${item.id}`}
                 >
                   <ChannelLogo name={item.name} logo={item.logo} size={44} />
+                  {channelNumbers && <Text style={styles.surfNumber}>{channelNumberById[item.id] || ""}</Text>}
                   <Text numberOfLines={1} style={styles.surfName}>{item.name}</Text>
                 </Pressable>
               )}
@@ -514,4 +527,5 @@ const styles = StyleSheet.create({
   },
   surfActive: { opacity: 1 },
   surfName: { color: "rgba(255,255,255,0.8)", fontFamily: fonts.medium, fontSize: 10, textAlign: "center" },
+  surfNumber: { color: GOLD_SOFT, fontFamily: fonts.bold, fontSize: 10 },
 });

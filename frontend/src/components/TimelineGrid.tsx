@@ -36,6 +36,8 @@ export function TimelineGrid({
   refreshing,
   onRefresh,
   density = "normal",
+  showChannelNumbers = false,
+  channelNumberById,
 }: {
   channels: Channel[];
   windowStart: string;
@@ -47,6 +49,8 @@ export function TimelineGrid({
   refreshing?: boolean;
   onRefresh?: () => void;
   density?: "large" | "normal" | "compact";
+  showChannelNumbers?: boolean;
+  channelNumberById?: Record<string, number>;
 }) {
   const { width } = useWindowDimensions();
   // Scale up for tablets / TVs so it stays readable on large landscape screens.
@@ -134,6 +138,9 @@ export function TimelineGrid({
                         onPress={() => onChannelPress(item)}
                         testID={`epg-channel-${item.id}`}
                       >
+                        {showChannelNumbers && (
+                          <Text style={styles.channelNumber}>{channelNumberById?.[item.id] || index + 1}</Text>
+                        )}
                         <ChannelLogo name={item.name} logo={item.logo} size={LOGO_SIZE} />
                         <Text numberOfLines={1} style={styles.logoName}>
                           {item.name}
@@ -249,6 +256,13 @@ const styles = StyleSheet.create({
     justifyContent: "flex-start",
     paddingHorizontal: spacing.sm,
     gap: spacing.sm,
+  },
+  channelNumber: {
+    minWidth: 34,
+    color: GOLD_SOFT,
+    fontFamily: fonts.bold,
+    fontSize: 12,
+    textAlign: "right",
   },
   logoName: { color: "#fff", fontFamily: fonts.semibold, fontSize: 12, textAlign: "left", flex: 1 },
   progCell: {

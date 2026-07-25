@@ -28,9 +28,16 @@ function byChannelName(a: Channel, b: Channel): number {
 
 export default function SearchScreen() {
   const router = useRouter();
-  const { channels, addRecent, openProgram, favorites, recent, lastChannelId, channelById } = useStore();
+  const { channels, addRecent, openProgram, favorites, recent, lastChannelId, channelById, channelNumbers } = useStore();
   const [q, setQ] = useState("");
   useTvBackToGuide();
+  const channelNumberById = useMemo(() => {
+    const map: Record<string, number> = {};
+    [...channels].sort(byChannelName).forEach((channel, index) => {
+      map[channel.id] = index + 1;
+    });
+    return map;
+  }, [channels]);
 
   const { chResults, progResults } = useMemo(() => {
     const ql = q.toLowerCase().trim();
@@ -129,6 +136,7 @@ export default function SearchScreen() {
                     onPress={() => play(c)}
                     testID={`search-quick-${c.id}`}
                   >
+                    {channelNumbers && <Text style={styles.channelNumber}>{channelNumberById[c.id] || ""}</Text>}
                     <ChannelLogo name={c.name} logo={c.logo} size={40} />
                     <View style={{ flex: 1 }}>
                       <Text numberOfLines={1} style={styles.rowName}>{c.name}</Text>
@@ -149,6 +157,7 @@ export default function SearchScreen() {
             {chResults.length > 0 && <Text style={styles.section}>Channels</Text>}
             {chResults.map((c) => (
               <Pressable key={c.id} style={({ focused }: any) => [styles.row, focused && styles.rowFocused]} onPress={() => play(c)} testID={`search-ch-${c.id}`}>
+                {channelNumbers && <Text style={styles.channelNumber}>{channelNumberById[c.id] || ""}</Text>}
                 <ChannelLogo name={c.name} logo={c.logo} size={40} />
                 <Text numberOfLines={1} style={styles.rowName}>{c.name}</Text>
                 <Ionicons name="play-circle" size={22} color={colors.brand} />
@@ -163,6 +172,7 @@ export default function SearchScreen() {
                 onPress={() => openProgram(p, c)}
                 testID={`search-prog-${c.id}-${i}`}
               >
+                {channelNumbers && <Text style={styles.channelNumber}>{channelNumberById[c.id] || ""}</Text>}
                 <ChannelLogo name={c.name} logo={c.logo} size={40} />
                 <View style={{ flex: 1 }}>
                   <Text numberOfLines={1} style={styles.rowName}>{p.title}</Text>
@@ -219,6 +229,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   rowName: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 14, flex: 1 },
+  channelNumber: { color: colors.brandSecondary, fontFamily: fonts.bold, fontSize: 13, minWidth: 34, textAlign: "right" },
   rowSub: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 12, marginTop: 2 },
   rowFocused: { borderColor: "#fff", borderWidth: 2, backgroundColor: "#2a121b" },
   empty: { alignItems: "center", gap: spacing.md, paddingVertical: spacing.xxxl, paddingHorizontal: spacing.xl },

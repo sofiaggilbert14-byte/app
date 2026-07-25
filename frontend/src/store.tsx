@@ -18,6 +18,7 @@ const PMODE_KEY = "gs_pointer_mode";
 const GUIDE_LAYOUT_KEY = "gs_guide_layout";
 const GUIDE_DENSITY_KEY = "gs_guide_density";
 const SAFE_PREVIEW_MODE_KEY = "gs_safe_preview_mode";
+const CHANNEL_NUMBERS_KEY = "gs_channel_numbers";
 const PLAYER_TIMEOUT_KEY = "gs_player_timeout_ms";
 const AUTO_RETRY_KEY = "gs_auto_retry_streams";
 const GUIDE_WINDOW_HOURS = 24;
@@ -78,6 +79,8 @@ type Store = {
   setGuideDensity: (v: GuideDensity) => void;
   safePreviewMode: SafePreviewMode;
   setSafePreviewMode: (v: SafePreviewMode) => void;
+  channelNumbers: boolean;
+  setChannelNumbers: (v: boolean) => void;
   playerControlsTimeoutMs: PlayerControlsTimeoutMs;
   setPlayerControlsTimeoutMs: (v: PlayerControlsTimeoutMs) => void;
   autoRetryStreams: boolean;
@@ -113,6 +116,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [guideLayout, setGuideLayoutState] = useState<GuideLayout>("cinematic");
   const [guideDensity, setGuideDensityState] = useState<GuideDensity>("normal");
   const [safePreviewMode, setSafePreviewModeState] = useState<SafePreviewMode>("delayed");
+  const [channelNumbers, setChannelNumbersState] = useState(false);
   const [playerControlsTimeoutMs, setPlayerControlsTimeoutMsState] = useState<PlayerControlsTimeoutMs>(60000);
   const [autoRetryStreams, setAutoRetryStreamsState] = useState(true);
   const [epgProgress, setEpgProgress] = useState<EpgProgress>({
@@ -139,6 +143,11 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const setSafePreviewMode = useCallback((v: SafePreviewMode) => {
     setSafePreviewModeState(v);
     storage.setItem(SAFE_PREVIEW_MODE_KEY, v);
+  }, []);
+
+  const setChannelNumbers = useCallback((v: boolean) => {
+    setChannelNumbersState(v);
+    storage.setItem(CHANNEL_NUMBERS_KEY, v);
   }, []);
 
   const setPlayerControlsTimeoutMs = useCallback((v: PlayerControlsTimeoutMs) => {
@@ -199,6 +208,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setGuideLayoutState((await storage.getItem<GuideLayout>(GUIDE_LAYOUT_KEY, "cinematic")) || "cinematic");
       setGuideDensityState((await storage.getItem<GuideDensity>(GUIDE_DENSITY_KEY, "normal")) || "normal");
       setSafePreviewModeState((await storage.getItem<SafePreviewMode>(SAFE_PREVIEW_MODE_KEY, "delayed")) || "delayed");
+      setChannelNumbersState((await storage.getItem<boolean>(CHANNEL_NUMBERS_KEY, false)) || false);
       setPlayerControlsTimeoutMsState((await storage.getItem<PlayerControlsTimeoutMs>(PLAYER_TIMEOUT_KEY, 60000)) || 60000);
       setAutoRetryStreamsState((await storage.getItem<boolean>(AUTO_RETRY_KEY, true)) ?? true);
       requestNotificationPermission();
@@ -339,6 +349,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     setGuideDensity,
     safePreviewMode,
     setSafePreviewMode,
+    channelNumbers,
+    setChannelNumbers,
     playerControlsTimeoutMs,
     setPlayerControlsTimeoutMs,
     autoRetryStreams,

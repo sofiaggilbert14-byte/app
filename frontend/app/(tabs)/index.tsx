@@ -154,6 +154,7 @@ export default function GuideScreen() {
     guideLayout,
     guideDensity,
     safePreviewMode,
+    channelNumbers,
   } = useStore();
   const now = new Date().toISOString();
   const shortScreen = height < 760;
@@ -192,6 +193,14 @@ export default function GuideScreen() {
           : channels.filter((c: Channel) => categoryMatches(c, category));
     return [...list].sort(byChannelName);
   }, [channels, category, favorites, recent]);
+
+  const channelNumberById = useMemo(() => {
+    const map: Record<string, number> = {};
+    [...channels].sort(byChannelName).forEach((channel, index) => {
+      map[channel.id] = index + 1;
+    });
+    return map;
+  }, [channels]);
 
   const previewChannel = useMemo(() => {
     const focused = focusedChannelId ? filtered.find((c) => c.id === focusedChannelId) : null;
@@ -387,7 +396,9 @@ export default function GuideScreen() {
                 <Ionicons name="tv-outline" size={compactGuide || shortScreen ? 40 : 56} color={GOLD_SOFT} />
               )}
               <Text numberOfLines={1} style={styles.previewChannelName}>
-                {previewChannel?.name || "Select a channel"}
+                {previewChannel
+                  ? `${channelNumbers ? `${channelNumberById[previewChannel.id] || ""} · ` : ""}${previewChannel.name}`
+                  : "Select a channel"}
               </Text>
             </View>
             <View style={styles.liveBadge}>
@@ -478,6 +489,8 @@ export default function GuideScreen() {
             onProgramPress={openProgram}
             refreshing={refreshing}
             onRefresh={hardRefresh}
+            showChannelNumbers={channelNumbers}
+            channelNumberById={channelNumberById}
           />
         ) : (
           <FocusGuide style={styles.timelineArea} autoFocus>
@@ -493,6 +506,8 @@ export default function GuideScreen() {
               refreshing={refreshing}
               onRefresh={hardRefresh}
               density={guideDensity}
+              showChannelNumbers={channelNumbers}
+              channelNumberById={channelNumberById}
             />
           </FocusGuide>
         )}

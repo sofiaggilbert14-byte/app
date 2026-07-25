@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import Constants from "expo-constants";
 import dayjs from "dayjs";
 import { colors, fonts, radius, spacing } from "@/src/theme";
 import type { SourceStatus } from "@/src/api";
@@ -39,6 +40,8 @@ export default function SettingsScreen() {
     setGuideDensity,
     safePreviewMode,
     setSafePreviewMode,
+    channelNumbers,
+    setChannelNumbers,
     playerControlsTimeoutMs,
     setPlayerControlsTimeoutMs,
     autoRetryStreams,
@@ -48,6 +51,8 @@ export default function SettingsScreen() {
   const [busy, setBusy] = useState(false);
   const [diagnostics, setDiagnostics] = useState<SourceDiagnostics | null>(null);
   useTvBackToGuide();
+  const appVersion = Constants.expoConfig?.version || "2.0.0-beta";
+  const androidVersionCode = (Constants.expoConfig as any)?.android?.versionCode;
 
   const loadStatus = useCallback(() => {
     setStatus(sourceStatus());
@@ -138,7 +143,7 @@ export default function SettingsScreen() {
 
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Phoenix Diagnostics</Text>
-          <Stat label="Build" value="2.0.0-beta.1" />
+          <Stat label="Build" value={`v${appVersion}${androidVersionCode ? ` (${androidVersionCode})` : ""}`} />
           <Stat label="Platform" value={Platform.isTV ? "Android TV / Fire TV" : Platform.OS} />
           <Stat label="Data mode" value={diagnostics?.mode || "—"} />
           <Stat label="Channels" value={String(diagnostics?.channels || status?.channel_count || 0)} />
@@ -217,6 +222,22 @@ export default function SettingsScreen() {
             ]}
             onChange={setSafePreviewMode}
           />
+          <View style={styles.rowBetween}>
+            <View style={{ flex: 1, paddingRight: spacing.md }}>
+              <Text style={styles.settingLabel}>Channel numbers</Text>
+              <Text style={styles.sub}>
+                Automatically numbers the current channel lineup. If channels are added or removed, Phoenix rebuilds
+                the numbering from the latest channel list.
+              </Text>
+            </View>
+            <Switch
+              value={channelNumbers}
+              onValueChange={setChannelNumbers}
+              trackColor={{ false: colors.surfaceTertiary, true: colors.brand }}
+              thumbColor="#fff"
+              testID="settings-channel-numbers-toggle"
+            />
+          </View>
           <ChoiceRow<PlayerControlsTimeoutMs>
             label="Player controls timeout"
             value={playerControlsTimeoutMs}

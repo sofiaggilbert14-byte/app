@@ -18,7 +18,17 @@ function byChannelName(a: Channel, b: Channel): number {
   });
 }
 
-function ChannelRow({ channel, onPress, right }: { channel: Channel; onPress: () => void; right?: React.ReactNode }) {
+function ChannelRow({
+  channel,
+  onPress,
+  right,
+  channelNumber,
+}: {
+  channel: Channel;
+  onPress: () => void;
+  right?: React.ReactNode;
+  channelNumber?: number;
+}) {
   const { current } = nowNext(channel.programs, new Date());
   return (
     <Pressable
@@ -26,6 +36,7 @@ function ChannelRow({ channel, onPress, right }: { channel: Channel; onPress: ()
       onPress={onPress}
       testID={`fav-row-${channel.id}`}
     >
+      {channelNumber ? <Text style={styles.channelNumber}>{channelNumber}</Text> : null}
       <ChannelLogo name={channel.name} logo={channel.logo} size={44} />
       <View style={{ flex: 1 }}>
         <Text numberOfLines={1} style={styles.rowName}>{channel.name}</Text>
@@ -40,10 +51,14 @@ function ChannelRow({ channel, onPress, right }: { channel: Channel; onPress: ()
 
 export default function FavoritesScreen() {
   const router = useRouter();
-  const { channels, favorites, toggleFavorite, recent, reminders, removeReminder, addRecent, channelById, lastChannelId } = useStore();
+  const { channels, favorites, toggleFavorite, recent, reminders, removeReminder, addRecent, channelById, lastChannelId, channelNumbers } = useStore();
   useTvBackToGuide();
 
   const favChannels = channels.filter((c) => favorites.includes(c.id)).sort(byChannelName);
+  const channelNumberById: Record<string, number> = {};
+  [...channels].sort(byChannelName).forEach((channel, index) => {
+    channelNumberById[channel.id] = index + 1;
+  });
   const lastChannel = lastChannelId ? channelById(lastChannelId) : null;
   const play = (c: Channel) => {
     Haptics.selectionAsync();
@@ -70,7 +85,9 @@ export default function FavoritesScreen() {
               <ChannelLogo name={lastChannel.name} logo={lastChannel.logo} size={58} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.continueLabel}>Last channel</Text>
-                <Text numberOfLines={1} style={styles.continueName}>{lastChannel.name}</Text>
+                <Text numberOfLines={1} style={styles.continueName}>
+                  {channelNumbers ? `${channelNumberById[lastChannel.id] || ""} · ` : ""}{lastChannel.name}
+                </Text>
                 <Text numberOfLines={1} style={styles.rowSub}>
                   {nowNext(lastChannel.programs, new Date()).current?.title || "Tap to resume playback"}
                 </Text>
@@ -92,6 +109,7 @@ export default function FavoritesScreen() {
               key={c.id}
               channel={c}
               onPress={() => play(c)}
+              channelNumber={channelNumbers ? channelNumberById[c.id] : undefined}
               right={
                 <Pressable hitSlop={8} onPress={() => toggleFavorite(c.id)} testID={`unfav-${c.id}`}>
                   <Ionicons name="star" size={20} color={colors.warning} />
@@ -143,7 +161,10 @@ export default function FavoritesScreen() {
             <Text style={styles.emptyText}>Channels you watch will show up here</Text>
           </View>
         ) : (
-          recent.map((c) => <ChannelRow key={c.id} channel={channelById(c.id) || c} onPress={() => play(c)} />)
+          recent.map((c) => {
+            const live = channelById(c.id) || c;
+            return <ChannelRow key={c.id} channel={live} onPress={() => play(live)} channelNumber={channelNumbers ? channelNumberById[live.id] : undefined} />;
+          })
         )}
       </ScrollView>
     </View>
@@ -198,6 +219,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   rowName: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 14 },
+  channelNumber: { color: colors.brandSecondary, fontFamily: fonts.bold, fontSize: 13, minWidth: 34, textAlign: "right" },
   rowSub: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 12, marginTop: 2 },
   rowFocused: { borderColor: "#fff", borderWidth: 2, backgroundColor: "#2a121b" },
   reminderRow: {
