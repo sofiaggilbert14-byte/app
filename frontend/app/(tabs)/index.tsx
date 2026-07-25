@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -8,6 +8,8 @@ import {
   ScrollView,
   useWindowDimensions,
   Platform,
+  Animated,
+  Easing,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -63,6 +65,69 @@ function categoryMatches(channel: Channel, category: string): boolean {
     default:
       return channel.group === category;
   }
+}
+
+function AutoScrollDescription({
+  text,
+  activeKey,
+  compact,
+}: {
+  text: string;
+  activeKey: string;
+  compact: boolean;
+}) {
+  const translateY = useRef(new Animated.Value(0)).current;
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const [contentHeight, setContentHeight] = useState(0);
+
+  useEffect(() => {
+    translateY.stopAnimation();
+    translateY.setValue(0);
+
+    if (!viewportHeight || !contentHeight || contentHeight <= viewportHeight + 2) {
+      return;
+    }
+
+    const overflow = contentHeight - viewportHeight;
+    const scrollDuration = Math.max(6500, overflow * 95);
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.delay(1500),
+        Animated.timing(translateY, {
+          toValue: -overflow,
+          duration: scrollDuration,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }),
+        Animated.delay(1300),
+        Animated.timing(translateY, {
+          toValue: 0,
+          duration: 0,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+
+    loop.start();
+    return () => {
+      loop.stop();
+      translateY.stopAnimation();
+    };
+  }, [activeKey, contentHeight, translateY, viewportHeight]);
+
+  return (
+    <View
+      style={[styles.descriptionViewport, compact && styles.descriptionViewportCompact]}
+      onLayout={(event) => setViewportHeight(event.nativeEvent.layout.height)}
+    >
+      <Animated.Text
+        onLayout={(event) => setContentHeight(event.nativeEvent.layout.height)}
+        style={[styles.description, { transform: [{ translateY }] }]}
+      >
+        {text}
+      </Animated.Text>
+    </View>
+  );
 }
 
 export default function GuideScreen() {
@@ -136,6 +201,10 @@ export default function GuideScreen() {
     [previewChannel, now],
   );
   const previewProgress = progressPct(preview.current, new Date(now));
+  const descriptionText =
+    preview.current?.desc ||
+    "Highlight a program in the guide to see its title, time, and description here. Press OK to watch the highlighted channel.";
+  const descriptionKey = `${previewChannel?.id || "none"}:${preview.current?.start || ""}:${preview.current?.title || ""}`;
 
   useEffect(() => {
     setPreviewStatus("loading");
@@ -328,10 +397,7 @@ export default function GuideScreen() {
               <Text style={styles.programMeta}>{preview.current?.stop ? `${Math.max(0, dayjs(preview.current.stop).diff(dayjs(), "minute"))} min left` : ""}</Text>
             </View>
             <Text style={styles.descriptionLabel}>PROGRAM DESCRIPTION</Text>
-            <Text numberOfLines={compactGuide || shortScreen ? 1 : 3} style={styles.description}>
-              {preview.current?.desc ||
-                "Highlight a program in the guide to see its title, time, and description here. Press OK to watch the highlighted channel."}
-            </Text>
+            <AutoScrollDescription text={descriptionText} activeKey={descriptionKey} compact={compactGuide || shortScreen} />
           </View>
         </View>
         )}
@@ -492,7 +558,8 @@ const styles = StyleSheet.create({
   previewDetailsRowCompact: { height: 110 },
   previewDetailsRowShort: { height: 126 },
   livePreviewPanel: {
-    flex: 0.82,
+    height: "100%",
+    aspectRatio: 16 / 9,
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: BORDER_GOLD,
@@ -515,7 +582,7 @@ const styles = StyleSheet.create({
   liveDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: colors.error },
   liveBadgeText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 12 },
   detailsPanel: {
-    flex: 1.16,
+    flex: 1,
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: BORDER_GOLD,
@@ -550,6 +617,8 @@ const styles = StyleSheet.create({
   },
   progressFill: { height: 4, backgroundColor: GOLD },
   descriptionLabel: { color: GOLD, fontFamily: fonts.semibold, fontSize: 10, marginTop: 1 },
+  descriptionViewport: { flex: 1, minHeight: 42, overflow: "hidden" },
+  descriptionViewportCompact: { minHeight: 18 },
   description: { color: "rgba(255,255,255,0.84)", fontFamily: fonts.regular, fontSize: 12, lineHeight: 16 },
   stripLabel: { color: GOLD, fontFamily: fonts.semibold, fontSize: 10, textAlign: "center", marginBottom: 1 },
   categoryWrap: { minHeight: 44 },
