@@ -17,6 +17,7 @@ export function BoxGrid({
   now,
   onChannelPress,
   onProgramPress,
+  onChannelFocus,
   ListHeaderComponent,
   refreshing,
   onRefresh,
@@ -25,6 +26,7 @@ export function BoxGrid({
   now: string;
   onChannelPress: (c: Channel) => void;
   onProgramPress: (p: Program, c: Channel) => void;
+  onChannelFocus?: (c: Channel) => void;
   ListHeaderComponent?: React.ReactElement;
   refreshing?: boolean;
   onRefresh?: () => void;
@@ -53,20 +55,22 @@ export function BoxGrid({
           <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={colors.brand} colors={[colors.brand]} />
         ) : undefined
       }
-      renderItem={({ item }) => {
+      renderItem={({ item, index }) => {
         const { current, next } = nowNext(item.programs, nowDate);
         const pct = progressPct(current, nowDate);
         const fav = isFavorite(item.id);
         return (
           <View style={styles.cell}>
             <Pressable
+              hasTVPreferredFocus={index === 0}
+              onFocus={() => onChannelFocus?.(item)}
               style={({ focused }: any) => [styles.card, focused && styles.cardFocused]}
               onPress={() => onChannelPress(item)}
               testID={`box-channel-${item.id}`}
             >
               <View style={styles.cardTop}>
                 <ChannelLogo name={item.name} logo={item.logo} size={40} />
-                <Pressable hitSlop={8} onPress={() => toggleFavorite(item.id)} testID={`box-fav-${item.id}`}>
+                <Pressable focusable={false} hitSlop={8} onPress={() => toggleFavorite(item.id)} testID={`box-fav-${item.id}`}>
                   <Ionicons
                     name={fav ? "star" : "star-outline"}
                     size={18}
@@ -78,7 +82,7 @@ export function BoxGrid({
                 {item.name}
               </Text>
               {current ? (
-                <Pressable onPress={() => onProgramPress(current, item)}>
+                <Pressable focusable={false} onPress={() => onProgramPress(current, item)}>
                   <Text numberOfLines={2} style={styles.nowTitle}>
                     {current.title}
                   </Text>
@@ -90,7 +94,7 @@ export function BoxGrid({
                 <Text style={styles.noNow}>No program info</Text>
               )}
               {next && (
-                <Pressable onPress={() => onProgramPress(next, item)}>
+                <Pressable focusable={false} onPress={() => onProgramPress(next, item)}>
                   <Text numberOfLines={1} style={styles.nextLine}>
                     Next: {fmtTime(next.start)} · {next.title}
                   </Text>

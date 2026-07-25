@@ -132,7 +132,7 @@ function GuideRow({
 export default function GuideScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const {
     channels,
     windowStart,
@@ -150,8 +150,10 @@ export default function GuideScreen() {
   const now = new Date().toISOString();
 
   const compact = width < 900;
+  const shortScreen = height < 760;
   const [mode, setMode] = useState<"timeline" | "box">("box");
   const [group, setGroup] = useState<string>("All");
+  const [focusedChannelId, setFocusedChannelId] = useState<string | null>(null);
 
   const groups = useMemo(() => {
     const set = new Set<string>();
@@ -170,9 +172,11 @@ export default function GuideScreen() {
   }, [channels, group, favorites]);
 
   const previewChannel = useMemo(() => {
+    const focused = focusedChannelId ? filtered.find((c) => c.id === focusedChannelId) : null;
+    if (focused) return focused;
     const last = lastChannelId ? channels.find((c) => c.id === lastChannelId) : null;
     return last || filtered.find((c) => c.programs?.length) || filtered[0] || null;
-  }, [channels, filtered, lastChannelId]);
+  }, [channels, filtered, focusedChannelId, lastChannelId]);
 
   const preview = useMemo(
     () => (previewChannel ? nowNext(previewChannel.programs, new Date(now)) : {}),
@@ -186,6 +190,12 @@ export default function GuideScreen() {
       .filter((p) => Date.parse(p.start) >= nowMs)
       .slice(0, 4);
   }, [previewChannel, now]);
+
+  const visibleUpcoming = useMemo(() => {
+    const start = preview.next ? 1 : 0;
+    const count = shortScreen ? 0 : 2;
+    return upcoming.slice(start, start + count);
+  }, [preview.next, shortScreen, upcoming]);
 
   const previewProgress = progressPct(preview.current, new Date(now));
 
@@ -219,7 +229,7 @@ export default function GuideScreen() {
       end={{ x: 1, y: 1 }}
       style={styles.container}
     >
-      <View style={[styles.safeWrap, { paddingTop: insets.top + spacing.md }]}>
+      <View style={[styles.safeWrap, { paddingTop: insets.top + (shortScreen ? spacing.xs : spacing.md) }]}>
         {!compact && (
           <View style={styles.leftRail}>
             <View style={styles.brandBlock}>
@@ -246,7 +256,7 @@ export default function GuideScreen() {
         )}
 
         <View style={styles.main}>
-          <View style={styles.topBar}>
+          <View style={[styles.topBar, shortScreen && styles.topBarShort]}>
             <View>
               <Text style={styles.kicker}>Live Preview</Text>
               <Text style={styles.title}>Black & Gold Command Center</Text>
@@ -262,9 +272,9 @@ export default function GuideScreen() {
             </View>
           </View>
 
-          <View style={styles.commandRow}>
+          <View style={[styles.commandRow, shortScreen && styles.commandRowShort]}>
             <Pressable
-              style={({ focused }: any) => [styles.heroCard, focused && styles.goldFocus]}
+              style={({ focused }: any) => [styles.heroCard, shortScreen && styles.heroCardShort, focused && styles.goldFocus]}
               onPress={() => previewChannel && openChannel(previewChannel)}
               testID="guide-preview-card"
             >
@@ -299,7 +309,7 @@ export default function GuideScreen() {
               </View>
             </Pressable>
 
-            <View style={styles.guidePanel}>
+            <View style={[styles.guidePanel, shortScreen && styles.guidePanelShort]}>
               <View style={styles.panelTabs}>
                 <Text style={[styles.panelTab, styles.panelTabActive]}>Now</Text>
                 <Text style={styles.panelTab}>Next</Text>
@@ -316,7 +326,7 @@ export default function GuideScreen() {
                 program={preview.next}
                 onPress={preview.next && previewChannel ? () => openProgram(preview.next!, previewChannel) : undefined}
               />
-              {upcoming.slice(preview.next ? 1 : 0, preview.next ? 3 : 2).map((p, i) => (
+              {visibleUpcoming.map((p, i) => (
                 <GuideRow
                   key={`${p.start}-${p.title}-${i}`}
                   label={i === 0 ? "Later" : fmtTime(p.start)}
@@ -324,21 +334,18 @@ export default function GuideScreen() {
                   onPress={previewChannel ? () => openProgram(p, previewChannel) : undefined}
                 />
               ))}
-              <View style={styles.guidePanelFooter}>
-                <CommandButton icon="calendar-outline" label="Guide" onPress={() => setMode("box")} testID="cmd-guide-button" />
-              </View>
             </View>
           </View>
 
-          <View style={styles.commandControls}>
+          <View style={[styles.commandControls, shortScreen && styles.commandControlsShort]}>
             <CommandButton icon="play-back" label="Previous" onPress={() => openAdjacentChannel(-1)} testID="cmd-prev-btn" />
             <CommandButton icon="return-up-back" label="Last Channel" onPress={openLastChannel} testID="cmd-last-btn" />
             <CommandButton icon="play-forward" label="Next Channel" onPress={() => openAdjacentChannel(1)} testID="cmd-next-btn" />
-            <CommandButton icon="play" label="Continue Watching" onPress={() => previewChannel && openChannel(previewChannel)} preferred testID="cmd-continue-btn" />
+            <CommandButton icon="play" label="Continue" onPress={() => previewChannel && openChannel(previewChannel)} testID="cmd-continue-btn" />
             <CommandButton icon={mode === "box" ? "grid" : "list"} label={mode === "box" ? "Timeline" : "Box Grid"} onPress={() => setMode(mode === "box" ? "timeline" : "box")} testID="cmd-mode-btn" />
           </View>
 
-          <View style={styles.groupWrap}>
+          <View style={[styles.groupWrap, shortScreen && styles.groupWrapShort]}>
             <Text style={styles.sectionTitle}>A-Z Channels</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
               {groups.map((g) => (
@@ -375,7 +382,7 @@ export default function GuideScreen() {
               <Text style={styles.centerText}>No channels here yet</Text>
             </View>
           ) : (
-            <FocusGuide style={styles.gridArea} autoFocus trapFocusLeft trapFocusRight>
+            <FocusGuide style={styles.gridArea} autoFocus>
               {mode === "timeline" ? (
                 <TimelineGrid
                   channels={filtered}
@@ -384,6 +391,7 @@ export default function GuideScreen() {
                   now={now}
                   onChannelPress={openChannel}
                   onProgramPress={openProgram}
+                  onChannelFocus={(c) => setFocusedChannelId(c.id)}
                   refreshing={refreshing}
                   onRefresh={hardRefresh}
                 />
@@ -393,6 +401,7 @@ export default function GuideScreen() {
                   now={now}
                   onChannelPress={openChannel}
                   onProgramPress={openProgram}
+                  onChannelFocus={(c) => setFocusedChannelId(c.id)}
                   refreshing={refreshing}
                   onRefresh={hardRefresh}
                 />
@@ -445,8 +454,9 @@ const styles = StyleSheet.create({
   },
   navText: { color: "rgba(255,255,255,0.74)", fontFamily: fonts.semibold, fontSize: 15 },
   navTextActive: { color: "#fff" },
-  main: { flex: 1, paddingLeft: spacing.lg, gap: spacing.sm },
+  main: { flex: 1, paddingLeft: spacing.lg, gap: spacing.xs },
   topBar: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", minHeight: 46 },
+  topBarShort: { minHeight: 34 },
   kicker: { color: colors.error, fontFamily: fonts.semibold, fontSize: 13 },
   title: { color: GOLD_SOFT, fontFamily: fonts.display, fontSize: 25, marginTop: 1 },
   topActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
@@ -461,10 +471,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.12)",
   },
-  commandRow: { flexDirection: "row", gap: spacing.md, minHeight: 270, maxHeight: 330 },
+  commandRow: { flexDirection: "row", gap: spacing.md, minHeight: 238, maxHeight: 280 },
+  commandRowShort: { minHeight: 190, maxHeight: 212 },
   heroCard: {
     flex: 1.22,
-    minHeight: 270,
+    minHeight: 238,
     borderRadius: radius.lg,
     overflow: "hidden",
     borderWidth: 1,
@@ -472,6 +483,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#130C06",
     padding: spacing.lg,
     justifyContent: "space-between",
+  },
+  heroCardShort: {
+    minHeight: 190,
+    padding: spacing.md,
   },
   heroGlowA: {
     position: "absolute",
@@ -511,7 +526,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,227,163,0.16)",
   },
   heroInfo: { gap: spacing.xs },
-  heroProgram: { color: "#fff", fontFamily: fonts.bold, fontSize: 22 },
+  heroProgram: { color: "#fff", fontFamily: fonts.bold, fontSize: 20 },
   heroMeta: { color: "rgba(255,235,200,0.82)", fontFamily: fonts.medium, fontSize: 13 },
   progressTrack: {
     height: 5,
@@ -523,19 +538,20 @@ const styles = StyleSheet.create({
   progressFill: { height: 5, backgroundColor: GOLD },
   guidePanel: {
     flex: 0.92,
-    minHeight: 270,
+    minHeight: 238,
     borderRadius: radius.lg,
     backgroundColor: PANEL,
     borderWidth: 1,
     borderColor: BORDER_GOLD,
     padding: spacing.md,
-    gap: spacing.sm,
+    gap: spacing.xs,
   },
+  guidePanelShort: { minHeight: 190, padding: spacing.sm },
   panelTabs: { flexDirection: "row", justifyContent: "space-around", borderBottomWidth: 1, borderBottomColor: "rgba(246,183,60,0.18)" },
   panelTab: { color: "rgba(255,255,255,0.65)", fontFamily: fonts.semibold, fontSize: 14, paddingBottom: spacing.sm },
   panelTabActive: { color: GOLD_SOFT, borderBottomWidth: 2, borderBottomColor: GOLD },
   guideRow: {
-    minHeight: 54,
+    minHeight: 46,
     flexDirection: "row",
     alignItems: "center",
     borderRadius: radius.md,
@@ -553,11 +569,11 @@ const styles = StyleSheet.create({
   guideTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 14 },
   guideTitleActive: { color: GOLD_SOFT },
   guideMeta: { color: "rgba(255,255,255,0.62)", fontFamily: fonts.regular, fontSize: 11, marginTop: 2 },
-  guidePanelFooter: { marginTop: "auto" },
-  commandControls: { flexDirection: "row", gap: spacing.sm },
+  commandControls: { flexDirection: "row", gap: spacing.sm, minHeight: 42 },
+  commandControlsShort: { minHeight: 36 },
   commandBtn: {
     flex: 1,
-    minHeight: 44,
+    minHeight: 40,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -568,8 +584,9 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,227,163,0.16)",
     paddingHorizontal: spacing.sm,
   },
-  commandText: { color: "rgba(255,255,255,0.88)", fontFamily: fonts.semibold, fontSize: 12 },
+  commandText: { color: "rgba(255,255,255,0.88)", fontFamily: fonts.semibold, fontSize: 11 },
   groupWrap: { gap: spacing.xs, minHeight: 66 },
+  groupWrapShort: { minHeight: 46 },
   sectionTitle: { color: GOLD, fontFamily: fonts.bold, fontSize: 18 },
   chipRow: { gap: spacing.sm, alignItems: "center", paddingRight: spacing.lg },
   chip: {
