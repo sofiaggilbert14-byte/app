@@ -25,14 +25,10 @@ import { StreamPlayer, StreamStatus } from "@/src/components/StreamPlayer";
 import { nowNext, progressPct, fmtTime } from "@/src/utils/time";
 import dayjs from "dayjs";
 
-type IconName = React.ComponentProps<typeof Ionicons>["name"];
-type AppRoute = "/search" | "/favorites" | "/settings";
-
 const GOLD = "#F6B73C";
 const GOLD_SOFT = "#FFE3A3";
 const GOLD_DEEP = "#7C4A11";
 const PANEL = "rgba(18, 13, 8, 0.92)";
-const PANEL_LIGHT = "rgba(43, 29, 17, 0.88)";
 const BORDER_GOLD = "rgba(246, 183, 60, 0.34)";
 const BASE_CATEGORIES = ["All", "Movies", "TV", "Sports", "Kids", "News", "Favorites"];
 
@@ -59,34 +55,6 @@ function categoryMatches(channel: Channel, category: string): boolean {
     default:
       return channel.group === category;
   }
-}
-
-function CommandButton({
-  icon,
-  label,
-  onPress,
-  preferred,
-  testID,
-}: {
-  icon: IconName;
-  label: string;
-  onPress: () => void;
-  preferred?: boolean;
-  testID: string;
-}) {
-  return (
-    <Pressable
-      hasTVPreferredFocus={preferred}
-      onPress={onPress}
-      style={({ focused }: any) => [styles.commandBtn, focused && styles.goldFocus]}
-      testID={testID}
-    >
-      <Ionicons name={icon} size={18} color={GOLD_SOFT} />
-      <Text numberOfLines={1} style={styles.commandText}>
-        {label}
-      </Text>
-    </Pressable>
-  );
 }
 
 export default function GuideScreen() {
@@ -153,28 +121,6 @@ export default function GuideScreen() {
     void Haptics.selectionAsync().catch(() => {});
     addRecent(c);
     router.push({ pathname: "/player", params: { channelId: c.id } });
-  };
-
-  const openLastChannel = () => {
-    const last = lastChannelId ? channels.find((c) => c.id === lastChannelId) : null;
-    if (last) openChannel(last);
-  };
-
-  const openAdjacentChannel = (offset: number) => {
-    if (!filtered.length) return;
-    const currentIndex = previewChannel ? filtered.findIndex((c) => c.id === previewChannel.id) : 0;
-    const safeIndex = currentIndex >= 0 ? currentIndex : 0;
-    const target = filtered[(safeIndex + offset + filtered.length) % filtered.length];
-    if (target) openChannel(target);
-  };
-
-  const navTo = (route: AppRoute) => {
-    router.push(route as any);
-  };
-
-  const stopPreview = () => {
-    void Haptics.selectionAsync().catch(() => {});
-    setFocusedChannelId(null);
   };
 
   return (
@@ -260,19 +206,6 @@ export default function GuideScreen() {
               {preview.current?.desc ||
                 "Highlight a program in the guide to see its title, time, and description here. Press OK to watch the highlighted channel."}
             </Text>
-          </View>
-        </View>
-
-        <View style={styles.controlsWrap}>
-          <Text style={styles.stripLabel}>QUICK CONTROL BUTTONS</Text>
-          <View style={styles.commandControls}>
-            <CommandButton icon="settings-outline" label="Settings" onPress={() => navTo("/settings")} testID="cmd-settings-btn" />
-            <CommandButton icon="play-back" label="Previous" onPress={() => openAdjacentChannel(-1)} testID="cmd-prev-btn" />
-            <CommandButton icon="stop" label="Stop" onPress={stopPreview} testID="cmd-stop-btn" />
-            <CommandButton icon="return-up-back" label="Last" onPress={openLastChannel} testID="cmd-last-btn" />
-            <CommandButton icon="play-forward" label="Next" onPress={() => openAdjacentChannel(1)} testID="cmd-next-btn" />
-            <CommandButton icon="search" label="Search" onPress={() => navTo("/search")} testID="cmd-search-btn" />
-            <CommandButton icon="refresh" label="Guide Refresh" onPress={hardRefresh} testID="cmd-guide-refresh-btn" />
           </View>
         </View>
 
@@ -400,28 +333,7 @@ const styles = StyleSheet.create({
   progressFill: { height: 4, backgroundColor: GOLD },
   descriptionLabel: { color: GOLD, fontFamily: fonts.semibold, fontSize: 10, marginTop: 1 },
   description: { color: "rgba(255,255,255,0.84)", fontFamily: fonts.regular, fontSize: 12, lineHeight: 16 },
-  controlsWrap: {
-    minHeight: 42,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: "rgba(246,183,60,0.20)",
-  },
   stripLabel: { color: GOLD, fontFamily: fonts.semibold, fontSize: 10, textAlign: "center", marginBottom: 1 },
-  commandControls: { flexDirection: "row", gap: spacing.xs, alignItems: "center" },
-  commandBtn: {
-    flex: 1,
-    minHeight: 30,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.xs,
-    borderRadius: radius.md,
-    backgroundColor: PANEL_LIGHT,
-    borderWidth: 1,
-    borderColor: "rgba(255,227,163,0.18)",
-    paddingHorizontal: spacing.xs,
-  },
-  commandText: { color: "rgba(255,255,255,0.90)", fontFamily: fonts.semibold, fontSize: 10 },
   categoryWrap: { minHeight: 44 },
   categoryRow: { gap: spacing.sm, alignItems: "center", paddingRight: spacing.lg },
   categoryChip: {

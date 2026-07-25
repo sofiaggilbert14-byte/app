@@ -27,6 +27,7 @@ import { addTvKeyListener } from "@/src/utils/tvRemote";
 const CONTROLS_HIDE_MS = 60_000;
 const CHANNEL_PREVIEW_DELAY_MS = 650;
 const SWITCH_NOTICE_MS = 2_500;
+const STREAM_RETRY_MS = 3_000;
 const GOLD = "#F6B73C";
 const GOLD_SOFT = "#FFE3A3";
 
@@ -48,6 +49,7 @@ export default function PlayerScreen() {
   const [switchNotice, setSwitchNotice] = useState<string | null>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const switchNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const controlsRef = useRef(controls);
   const lastPlayerChannel = useMemo(
@@ -110,9 +112,17 @@ export default function PlayerScreen() {
     switchNoticeTimer.current = setTimeout(() => setSwitchNotice(null), SWITCH_NOTICE_MS);
   };
 
+  const retryStreamNow = () => {
+    if (retryTimer.current) clearTimeout(retryTimer.current);
+    setStatus("loading");
+    showSwitchNotice(`Reconnecting ${channel?.name || "stream"}`);
+    setRetryToken((t) => t + 1);
+  };
+
   const changeChannel = (id: string, { haptic = false } = {}) => {
     if (id === channelId) return;
     if (previewTimer.current) clearTimeout(previewTimer.current);
+    if (retryTimer.current) clearTimeout(retryTimer.current);
     const c = channelById(id);
     if (!c) return;
     if (haptic) void Haptics.selectionAsync().catch(() => {});
@@ -163,6 +173,7 @@ export default function PlayerScreen() {
     return () => {
       if (hideTimer.current) clearTimeout(hideTimer.current);
       if (previewTimer.current) clearTimeout(previewTimer.current);
+      if (retryTimer.current) clearTimeout(retryTimer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channelId, hasStream, retryToken]);
@@ -182,6 +193,21 @@ export default function PlayerScreen() {
     if (status === "playing" && controlsRef.current) scheduleHide();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
+
+  // Keep trying forever when a stream drops. The user stays in control: Stop,
+  // Back, Guide, Search, or another channel will leave the stream and cancel
+  // the retry loop by unmounting this screen or changing channel.
+  useEffect(() => {
+    if (!hasStream || status !== "error") return;
+    if (retryTimer.current) clearTimeout(retryTimer.current);
+    retryTimer.current = setTimeout(() => {
+      retryStreamNow();
+    }, STREAM_RETRY_MS);
+    return () => {
+      if (retryTimer.current) clearTimeout(retryTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, hasStream, channelId]);
 
   // On TV, any D-pad / remote key reveals the controls again, then re-arms the
   // auto-hide. Uses native TvRemoteKey events from the withTvRemote plugin.
@@ -262,7 +288,7 @@ export default function PlayerScreen() {
       {(!hasStream || status === "error") && (
         <View style={styles.centerOverlay}>
           <Ionicons name="warning-outline" size={40} color={colors.onSurfaceTertiary} />
-          <Text style={styles.errText}>{hasStream ? "Unable to play this stream" : "This channel has no stream"}</Text>
+          <Text style={styles.errText}>{hasStream ? "Reconnecting to stream..." : "This channel has no stream"}</Text>
           {hasStream && !vlcAvailable && (
             <Text style={styles.errHint}>
               Live playback needs the installed app build — not the Expo Go preview.
@@ -272,13 +298,11 @@ export default function PlayerScreen() {
             <Pressable
               style={({ focused }: any) => [styles.retryBtn, focused && styles.ctrlFocused]}
               onPress={() => {
-                setStatus("loading");
-                showSwitchNotice(channel?.name || "channel");
-                setRetryToken((t) => t + 1);
+                retryStreamNow();
               }}
               testID="player-retry-btn"
             >
-              <Text style={styles.retryText}>Retry Source</Text>
+              <Text style={styles.retryText}>Retry Now</Text>
             </Pressable>
           )}
         </View>
