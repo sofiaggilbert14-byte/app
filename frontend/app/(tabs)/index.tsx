@@ -25,6 +25,8 @@ import { StreamPlayer, StreamStatus } from "@/src/components/StreamPlayer";
 import { nowNext, progressPct, fmtTime } from "@/src/utils/time";
 import dayjs from "dayjs";
 
+type MenuRoute = "/" | "/favorites" | "/search" | "/settings";
+
 const GOLD = "#F6B73C";
 const GOLD_SOFT = "#FFE3A3";
 const GOLD_DEEP = "#7C4A11";
@@ -81,6 +83,7 @@ export default function GuideScreen() {
   const [category, setCategory] = useState<string>("All");
   const [focusedChannelId, setFocusedChannelId] = useState<string | null>(null);
   const [previewStatus, setPreviewStatus] = useState<StreamStatus>("loading");
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const categories = useMemo(() => {
     const known = new Set(BASE_CATEGORIES);
@@ -123,6 +126,17 @@ export default function GuideScreen() {
     router.push({ pathname: "/player", params: { channelId: c.id } });
   };
 
+  const goMenu = (route: MenuRoute) => {
+    void Haptics.selectionAsync().catch(() => {});
+    setMenuOpen(false);
+    if (route === "/") {
+      setCategory("All");
+      setFocusedChannelId(null);
+      return;
+    }
+    router.push(route as any);
+  };
+
   return (
     <LinearGradient
       colors={["#050403", "#120B05", "#050403"]}
@@ -132,13 +146,61 @@ export default function GuideScreen() {
     >
       <View style={[styles.screen, { paddingTop: insets.top + (shortScreen ? spacing.xs : spacing.sm) }]}>
         <View style={styles.topBrand}>
-          <View style={styles.brandRow}>
+          <Pressable
+            onPress={() => {
+              void Haptics.selectionAsync().catch(() => {});
+              setMenuOpen((v) => !v);
+            }}
+            style={({ focused }: any) => [styles.menuButton, focused && styles.goldFocus]}
+            testID="home-menu-button"
+          >
+            <Ionicons name={menuOpen ? "chevron-up" : "menu"} size={20} color={GOLD_SOFT} />
+            <Text style={styles.menuButtonText}>Menu</Text>
+          </Pressable>
+
+          <View pointerEvents="none" style={styles.brandRow}>
             <Ionicons name="flame" size={26} color={GOLD} />
             <Text style={styles.brandText}>
               Charm<Text style={styles.brandGold}>IPTV</Text> Phoenix
             </Text>
           </View>
           <Text style={styles.clock}>{dayjs().format("ddd, MMM D, h:mm A")}</Text>
+          {menuOpen && (
+            <View style={styles.menuDropdown}>
+              <Pressable
+                onPress={() => goMenu("/")}
+                style={({ focused }: any) => [styles.menuItem, focused && styles.goldFocus]}
+                testID="home-menu-guide"
+              >
+                <Ionicons name="grid" size={18} color={GOLD_SOFT} />
+                <Text style={styles.menuItemText}>TV Guide</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => goMenu("/favorites")}
+                style={({ focused }: any) => [styles.menuItem, focused && styles.goldFocus]}
+                testID="home-menu-favorites"
+              >
+                <Ionicons name="star" size={18} color={GOLD_SOFT} />
+                <Text style={styles.menuItemText}>Favorites</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => goMenu("/search")}
+                style={({ focused }: any) => [styles.menuItem, focused && styles.goldFocus]}
+                testID="home-menu-search"
+              >
+                <Ionicons name="search" size={18} color={GOLD_SOFT} />
+                <Text style={styles.menuItemText}>Search</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => goMenu("/settings")}
+                style={({ focused }: any) => [styles.menuItem, focused && styles.goldFocus]}
+                testID="home-menu-settings"
+              >
+                <Ionicons name="settings" size={18} color={GOLD_SOFT} />
+                <Text style={styles.menuItemText}>Settings</Text>
+              </Pressable>
+            </View>
+          )}
         </View>
 
         <View style={[styles.previewDetailsRow, shortScreen && styles.previewDetailsRowShort]}>
@@ -276,14 +338,55 @@ const styles = StyleSheet.create({
     minHeight: 30,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "center",
     borderBottomWidth: 1,
     borderBottomColor: "rgba(246,183,60,0.25)",
+    zIndex: 30,
   },
+  menuButton: {
+    position: "absolute",
+    left: 0,
+    minWidth: 96,
+    height: 28,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xs,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: "rgba(255,227,163,0.22)",
+    backgroundColor: "rgba(28,18,10,0.82)",
+  },
+  menuButtonText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 11 },
+  menuDropdown: {
+    position: "absolute",
+    top: 34,
+    left: 0,
+    width: 178,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: BORDER_GOLD,
+    backgroundColor: "rgba(10,7,4,0.98)",
+    padding: spacing.xs,
+    gap: spacing.xs,
+    zIndex: 40,
+    shadowColor: GOLD,
+    shadowOpacity: 0.28,
+    shadowRadius: 14,
+  },
+  menuItem: {
+    minHeight: 36,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.sm,
+  },
+  menuItemText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 13 },
   brandRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   brandText: { color: "#fff", fontFamily: fonts.bold, fontSize: 18 },
   brandGold: { color: GOLD },
-  clock: { color: "rgba(255,255,255,0.72)", fontFamily: fonts.medium, fontSize: 12 },
+  clock: { position: "absolute", right: 0, color: "rgba(255,255,255,0.72)", fontFamily: fonts.medium, fontSize: 12 },
   previewDetailsRow: { flexDirection: "row", gap: spacing.sm, height: 150 },
   previewDetailsRowShort: { height: 126 },
   livePreviewPanel: {
