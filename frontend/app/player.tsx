@@ -72,6 +72,14 @@ export default function PlayerScreen() {
   const isTV = Platform.OS !== "web" && Platform.isTV;
   const canRotate = Platform.OS !== "web" && !Platform.isTV;
 
+  const restoreDeviceOrientation = async () => {
+    if (!canRotate) return;
+    try {
+      await ScreenOrientation.unlockAsync();
+      setFullscreen(false);
+    } catch {}
+  };
+
   // Auto-rotate handheld devices to landscape so the video plays full-screen
   // with the correct aspect ratio; restore portrait on exit. The lock is
   // delayed until AFTER the screen-transition animation — locking during the
@@ -85,12 +93,7 @@ export default function PlayerScreen() {
     }, 400);
     return () => {
       clearTimeout(t);
-      (async () => {
-        try {
-          await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
-          await ScreenOrientation.unlockAsync();
-        } catch {}
-      })();
+      restoreDeviceOrientation();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -108,9 +111,7 @@ export default function PlayerScreen() {
         await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
         setFullscreen(true);
       } else {
-        await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
-        setFullscreen(false);
-        setTimeout(() => ScreenOrientation.unlockAsync().catch(() => {}), 300);
+        await restoreDeviceOrientation();
       }
     } catch {}
   };
@@ -246,24 +247,14 @@ export default function PlayerScreen() {
 
   const stopAndExit = async () => {
     void Haptics.selectionAsync().catch(() => {});
-    if (canRotate) {
-      try {
-        await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
-        await ScreenOrientation.unlockAsync();
-      } catch {}
-    }
+    await restoreDeviceOrientation();
     // Leaving the screen unmounts <StreamPlayer/>, which stops the stream.
     router.back();
   };
 
   const leavePlayerTo = async (route: "/" | "/search" | "/settings") => {
     void Haptics.selectionAsync().catch(() => {});
-    if (canRotate) {
-      try {
-        await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
-        await ScreenOrientation.unlockAsync();
-      } catch {}
-    }
+    await restoreDeviceOrientation();
     router.replace(route as any);
   };
 

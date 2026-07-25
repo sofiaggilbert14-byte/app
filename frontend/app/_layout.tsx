@@ -2,7 +2,7 @@ import { Stack, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import * as Notifications from "expo-notifications";
 import { useEffect } from "react";
-import { LogBox } from "react-native";
+import { LogBox, useWindowDimensions } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
@@ -34,6 +34,7 @@ function NotificationRouter() {
 export default function RootLayout() {
   const [iconsLoaded, iconErr] = useIconFonts();
   const [fontsLoaded, fontErr] = useAppFonts();
+  const { width, height } = useWindowDimensions();
 
   const ready = (iconsLoaded || iconErr) && (fontsLoaded || fontErr);
 
@@ -44,7 +45,7 @@ export default function RootLayout() {
   if (!ready) return null;
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    <GestureHandlerRootView style={{ flex: 1, width, height }}>
       <SafeAreaProvider>
         <GuideProvider>
           <StatusBar style="light" />
