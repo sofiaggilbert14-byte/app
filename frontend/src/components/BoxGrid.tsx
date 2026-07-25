@@ -63,7 +63,7 @@ export function BoxGrid({
         return (
           <View style={styles.cell}>
             <Pressable
-              hasTVPreferredFocus={index === 0}
+              focusable
               onFocus={() => onChannelFocus?.(item)}
               style={({ focused }: any) => [styles.card, focused && styles.cardFocused]}
               onPress={() => onChannelPress(item)}

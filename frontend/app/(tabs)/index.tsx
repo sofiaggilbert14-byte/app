@@ -37,6 +37,7 @@ const GOLD_DEEP = "#7C4A11";
 const PANEL = "rgba(18, 13, 8, 0.92)";
 const BORDER_GOLD = "rgba(246, 183, 60, 0.34)";
 const BASE_CATEGORIES = ["All", "Favorites", "Recently Watched", "Movies", "TV", "Sports", "News", "Kids", "Music", "24/7"];
+const GUIDE_PREVIEW_FOCUS_DELAY_MS = 450;
 
 function byChannelName(a: Channel, b: Channel): number {
   return (a.name || "").localeCompare(b.name || "", undefined, {
@@ -162,6 +163,7 @@ export default function GuideScreen() {
   const [focusedChannelId, setFocusedChannelId] = useState<string | null>(null);
   const [previewStatus, setPreviewStatus] = useState<StreamStatus>("loading");
   const [menuOpen, setMenuOpen] = useState(false);
+  const previewFocusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const categories = useMemo(() => {
     const known = new Set(BASE_CATEGORIES);
@@ -207,8 +209,29 @@ export default function GuideScreen() {
   const descriptionKey = `${previewChannel?.id || "none"}:${preview.current?.start || ""}:${preview.current?.title || ""}`;
 
   useEffect(() => {
+    if (categories.length > 0 && !categories.includes(category)) {
+      setCategory("All");
+      setFocusedChannelId(null);
+    }
+  }, [categories, category]);
+
+  useEffect(
+    () => () => {
+      if (previewFocusTimer.current) clearTimeout(previewFocusTimer.current);
+    },
+    [],
+  );
+
+  useEffect(() => {
     setPreviewStatus("loading");
   }, [previewChannel?.id]);
+
+  const focusPreviewChannel = (c: Channel) => {
+    if (previewFocusTimer.current) clearTimeout(previewFocusTimer.current);
+    previewFocusTimer.current = setTimeout(() => {
+      setFocusedChannelId(c.id);
+    }, GUIDE_PREVIEW_FOCUS_DELAY_MS);
+  };
 
   const openChannel = (c: Channel) => {
     void Haptics.selectionAsync().catch(() => {});
@@ -460,7 +483,7 @@ export default function GuideScreen() {
               now={now}
               onChannelPress={openChannel}
               onProgramPress={openProgram}
-              onChannelFocus={(c) => setFocusedChannelId(c.id)}
+              onChannelFocus={focusPreviewChannel}
               refreshing={refreshing}
               onRefresh={hardRefresh}
               density={guideDensity}
