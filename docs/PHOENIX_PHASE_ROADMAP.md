@@ -45,7 +45,7 @@ Status: mostly complete, still needs hands-on testing.
 
 Goal: make Phoenix feel like a premium IPTV player while keeping the guide practical.
 
-Status: in progress.
+Status: bundled for tester build.
 
 - Black/gold Command Center layout added.
 - Live preview and now-playing details added to home guide.
@@ -56,24 +56,30 @@ Status: in progress.
   - Guide density: Large / Normal / Compact.
   - Player controls timeout: 8 / 15 / 30 / 60 seconds.
   - Auto retry streams: on/off.
+- Empty home guide categories are hidden automatically.
+- Recently Watched appears as a guide category when there is history.
+- Favorite/unfavorite is available from the home preview/details panel.
 
 Next Phase 4 items:
 
 - Test compact guide mode on TV.
 - Tune the dropdown menu if D-pad behavior feels awkward.
 - Decide whether the dropdown should become a slide-out drawer.
-- Add more polished reconnect messaging.
+- Compare Cinematic vs Compact layout with testers.
 
 ## Phase 5 — Favorites, search, and release polish
 
 Goal: make daily use smoother before RC1.
 
-Planned:
+Status: bundled for tester build.
 
 - Favorite/unfavorite directly from guide and player overlay.
 - Recently watched / last channel polish.
 - Smarter category cleanup and empty-category hiding.
 - Search improvements for channels and programs.
+
+Still planned:
+
 - Better tester feedback flow.
 - App icon and splash polish.
 - RC1 bug checklist.

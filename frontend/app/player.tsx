@@ -34,7 +34,16 @@ export default function PlayerScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const params = useLocalSearchParams<{ channelId: string }>();
-  const { channels, addRecent, channelById, hardRefresh, playerControlsTimeoutMs, autoRetryStreams } = useStore();
+  const {
+    channels,
+    addRecent,
+    channelById,
+    hardRefresh,
+    playerControlsTimeoutMs,
+    autoRetryStreams,
+    isFavorite,
+    toggleFavorite,
+  } = useStore();
 
   const [channelId, setChannelId] = useState(params.channelId);
   const channel = useMemo(() => channelById(channelId), [channelId, channelById]);
@@ -46,6 +55,7 @@ export default function PlayerScreen() {
   const [fullscreen, setFullscreen] = useState(false);
   const [lastPlayerChannelId, setLastPlayerChannelId] = useState<string | null>(null);
   const [switchNotice, setSwitchNotice] = useState<string | null>(null);
+  const [reconnectAttempt, setReconnectAttempt] = useState(0);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -114,6 +124,7 @@ export default function PlayerScreen() {
   const retryStreamNow = () => {
     if (retryTimer.current) clearTimeout(retryTimer.current);
     setStatus("loading");
+    setReconnectAttempt((n) => n + 1);
     showSwitchNotice(`Reconnecting ${channel?.name || "stream"}`);
     setRetryToken((t) => t + 1);
   };
@@ -128,6 +139,7 @@ export default function PlayerScreen() {
     setLastPlayerChannelId(channelId);
     showSwitchNotice(c.name);
     setStatus("loading");
+    setReconnectAttempt(0);
     setChannelId(id);
     addRecent(c);
     scheduleHide();
@@ -189,7 +201,10 @@ export default function PlayerScreen() {
   }, [channel, addRecent]);
 
   useEffect(() => {
-    if (status === "playing" && controlsRef.current) scheduleHide();
+    if (status === "playing") {
+      setReconnectAttempt(0);
+      if (controlsRef.current) scheduleHide();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
 
@@ -288,6 +303,11 @@ export default function PlayerScreen() {
         <View style={styles.centerOverlay}>
           <Ionicons name="warning-outline" size={40} color={colors.onSurfaceTertiary} />
           <Text style={styles.errText}>{hasStream ? "Reconnecting to stream..." : "This channel has no stream"}</Text>
+          {hasStream && (
+            <Text style={styles.errHint}>
+              Attempt {Math.max(1, reconnectAttempt + 1)}. Press Back, Stop, Guide, or pick another channel to leave.
+            </Text>
+          )}
           {hasStream && !vlcAvailable && (
             <Text style={styles.errHint}>
               Live playback needs the installed app build — not the Expo Go preview.
@@ -354,6 +374,20 @@ export default function PlayerScreen() {
             style={[styles.bottomScrim, { paddingBottom: insets.bottom + spacing.md }]}
           >
             <View style={styles.quickControls}>
+              <Pressable
+                style={({ focused }: any) => [styles.quickBtn, focused && styles.ctrlFocused]}
+                disabled={!channel}
+                onPress={() => {
+                  if (!channel) return;
+                  void Haptics.selectionAsync().catch(() => {});
+                  toggleFavorite(channel.id);
+                  scheduleHide();
+                }}
+                testID="player-favorite-btn"
+              >
+                <Ionicons name={channel && isFavorite(channel.id) ? "star" : "star-outline"} size={18} color={GOLD_SOFT} />
+                <Text style={styles.quickBtnText}>Favorite</Text>
+              </Pressable>
               <Pressable
                 style={({ focused }: any) => [styles.quickBtn, focused && styles.ctrlFocused]}
                 onPress={() => leavePlayerTo("/settings")}

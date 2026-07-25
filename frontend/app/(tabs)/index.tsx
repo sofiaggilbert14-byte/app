@@ -32,7 +32,7 @@ const GOLD_SOFT = "#FFE3A3";
 const GOLD_DEEP = "#7C4A11";
 const PANEL = "rgba(18, 13, 8, 0.92)";
 const BORDER_GOLD = "rgba(246, 183, 60, 0.34)";
-const BASE_CATEGORIES = ["All", "Movies", "TV", "Sports", "Kids", "News", "Favorites"];
+const BASE_CATEGORIES = ["All", "Favorites", "Recently Watched", "Movies", "TV", "Sports", "News", "Kids", "Music", "24/7"];
 
 function byChannelName(a: Channel, b: Channel): number {
   return (a.name || "").localeCompare(b.name || "", undefined, {
@@ -54,6 +54,10 @@ function categoryMatches(channel: Channel, category: string): boolean {
       return /kid|kids|family|cartoon|nick|disney/.test(haystack);
     case "News":
       return /news|weather|cnn|fox|msnbc|cnbc|bbc/.test(haystack);
+    case "Music":
+      return /music|mtv|vh1|audio|radio|hits/.test(haystack);
+    case "24/7":
+      return /24\/7|24-7|24 7|marathon|all day/.test(haystack);
     default:
       return channel.group === category;
   }
@@ -75,7 +79,10 @@ export default function GuideScreen() {
     addRecent,
     openProgram,
     favorites,
+    recent,
     lastChannelId,
+    isFavorite,
+    toggleFavorite,
     guideLayout,
     guideDensity,
   } = useStore();
@@ -93,8 +100,14 @@ export default function GuideScreen() {
     const extras = Array.from(new Set(channels.map((c) => c.group).filter(Boolean) as string[]))
       .filter((g) => !known.has(g))
       .slice(0, 10);
-    return [...BASE_CATEGORIES, ...extras];
-  }, [channels]);
+    const allCategories = [...BASE_CATEGORIES, ...extras];
+    return allCategories.filter((g) => {
+      if (g === "All") return channels.length > 0;
+      if (g === "Favorites") return favorites.length > 0;
+      if (g === "Recently Watched") return recent.length > 0;
+      return channels.some((c) => categoryMatches(c, g));
+    });
+  }, [channels, favorites.length, recent.length]);
 
   const filtered = useMemo(() => {
     const list =
@@ -102,9 +115,11 @@ export default function GuideScreen() {
         ? channels
         : category === "Favorites"
           ? channels.filter((c: Channel) => favorites.includes(c.id))
+          : category === "Recently Watched"
+            ? recent.map((c) => channels.find((live) => live.id === c.id) || c).filter(Boolean)
           : channels.filter((c: Channel) => categoryMatches(c, category));
     return [...list].sort(byChannelName);
-  }, [channels, category, favorites]);
+  }, [channels, category, favorites, recent]);
 
   const previewChannel = useMemo(() => {
     const focused = focusedChannelId ? filtered.find((c) => c.id === focusedChannelId) : null;
@@ -252,7 +267,19 @@ export default function GuideScreen() {
           <View style={styles.detailsPanel}>
             <View style={styles.detailsHeader}>
               <Text style={styles.detailsLabel}>NOW PLAYING DETAILS</Text>
-              {favorites.includes(previewChannel?.id || "") && <Ionicons name="star" size={20} color={GOLD} />}
+              {previewChannel && (
+                <Pressable
+                  onPress={() => {
+                    void Haptics.selectionAsync().catch(() => {});
+                    toggleFavorite(previewChannel.id);
+                  }}
+                  style={({ focused }: any) => [styles.favoriteButton, focused && styles.goldFocus]}
+                  testID="guide-preview-favorite-btn"
+                >
+                  <Ionicons name={isFavorite(previewChannel.id) ? "star" : "star-outline"} size={20} color={GOLD} />
+                  <Text style={styles.favoriteButtonText}>{isFavorite(previewChannel.id) ? "Favorite" : "Add Favorite"}</Text>
+                </Pressable>
+              )}
             </View>
             <Text numberOfLines={1} style={[styles.programTitle, compactGuide && styles.programTitleCompact]}>
               {preview.current?.title || "No program information"}
@@ -428,6 +455,18 @@ const styles = StyleSheet.create({
   },
   detailsHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   detailsLabel: { color: GOLD, fontFamily: fonts.bold, fontSize: 12 },
+  favoriteButton: {
+    minHeight: 28,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: "rgba(255,227,163,0.20)",
+    paddingHorizontal: spacing.sm,
+    backgroundColor: "rgba(0,0,0,0.22)",
+  },
+  favoriteButtonText: { color: GOLD_SOFT, fontFamily: fonts.semibold, fontSize: 11 },
   programTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 20 },
   programTitleCompact: { fontSize: 16 },
   programMetaRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
