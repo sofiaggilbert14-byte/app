@@ -153,11 +153,13 @@ export default function GuideScreen() {
     toggleFavorite,
     guideLayout,
     guideDensity,
+    safePreviewMode,
   } = useStore();
   const now = new Date().toISOString();
   const shortScreen = height < 760;
   const mobileSafeGuide = Platform.OS !== "web" && !Platform.isTV;
   const compactGuide = guideLayout === "compact";
+  const livePreviewEnabled = safePreviewMode !== "off";
 
   const [category, setCategory] = useState<string>("All");
   const [focusedChannelId, setFocusedChannelId] = useState<string | null>(null);
@@ -228,6 +230,10 @@ export default function GuideScreen() {
 
   const focusPreviewChannel = (c: Channel) => {
     if (previewFocusTimer.current) clearTimeout(previewFocusTimer.current);
+    if (safePreviewMode === "on" || safePreviewMode === "off") {
+      setFocusedChannelId(c.id);
+      return;
+    }
     previewFocusTimer.current = setTimeout(() => {
       setFocusedChannelId(c.id);
     }, GUIDE_PREVIEW_FOCUS_DELAY_MS);
@@ -357,7 +363,7 @@ export default function GuideScreen() {
               colors={["rgba(246,183,60,0.22)", "rgba(68,39,12,0.78)", "rgba(0,0,0,0.94)"]}
               style={StyleSheet.absoluteFill}
             />
-            {previewChannel?.url && previewStatus !== "error" && (
+            {livePreviewEnabled && previewChannel?.url && previewStatus !== "error" && (
               <ErrorBoundary fallback={() => null}>
                 <StreamPlayer
                   key={`guide-preview-${previewChannel.id}`}
@@ -374,7 +380,7 @@ export default function GuideScreen() {
             <View style={styles.previewLabel}>
               <Text style={styles.previewLabelText}>LIVE ACTIVE PREVIEW</Text>
             </View>
-            <View style={[styles.previewCenter, previewChannel?.url && previewStatus !== "error" && styles.previewCenterOverlay]}>
+            <View style={[styles.previewCenter, livePreviewEnabled && previewChannel?.url && previewStatus !== "error" && styles.previewCenterOverlay]}>
               {previewChannel ? (
                 <ChannelLogo name={previewChannel.name} logo={previewChannel.logo} size={compactGuide || shortScreen ? 42 : 58} />
               ) : (

@@ -17,12 +17,14 @@ const REM_KEY = "gs_reminders";
 const PMODE_KEY = "gs_pointer_mode";
 const GUIDE_LAYOUT_KEY = "gs_guide_layout";
 const GUIDE_DENSITY_KEY = "gs_guide_density";
+const SAFE_PREVIEW_MODE_KEY = "gs_safe_preview_mode";
 const PLAYER_TIMEOUT_KEY = "gs_player_timeout_ms";
 const AUTO_RETRY_KEY = "gs_auto_retry_streams";
 const GUIDE_WINDOW_HOURS = 24;
 
 export type GuideLayout = "cinematic" | "compact";
 export type GuideDensity = "large" | "normal" | "compact";
+export type SafePreviewMode = "on" | "delayed" | "off";
 export type PlayerControlsTimeoutMs = 8000 | 15000 | 30000 | 60000;
 
 export type Reminder = {
@@ -74,6 +76,8 @@ type Store = {
   setGuideLayout: (v: GuideLayout) => void;
   guideDensity: GuideDensity;
   setGuideDensity: (v: GuideDensity) => void;
+  safePreviewMode: SafePreviewMode;
+  setSafePreviewMode: (v: SafePreviewMode) => void;
   playerControlsTimeoutMs: PlayerControlsTimeoutMs;
   setPlayerControlsTimeoutMs: (v: PlayerControlsTimeoutMs) => void;
   autoRetryStreams: boolean;
@@ -108,6 +112,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [pointerMode, setPointerModeState] = useState(false);
   const [guideLayout, setGuideLayoutState] = useState<GuideLayout>("cinematic");
   const [guideDensity, setGuideDensityState] = useState<GuideDensity>("normal");
+  const [safePreviewMode, setSafePreviewModeState] = useState<SafePreviewMode>("delayed");
   const [playerControlsTimeoutMs, setPlayerControlsTimeoutMsState] = useState<PlayerControlsTimeoutMs>(60000);
   const [autoRetryStreams, setAutoRetryStreamsState] = useState(true);
   const [epgProgress, setEpgProgress] = useState<EpgProgress>({
@@ -129,6 +134,11 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const setGuideDensity = useCallback((v: GuideDensity) => {
     setGuideDensityState(v);
     storage.setItem(GUIDE_DENSITY_KEY, v);
+  }, []);
+
+  const setSafePreviewMode = useCallback((v: SafePreviewMode) => {
+    setSafePreviewModeState(v);
+    storage.setItem(SAFE_PREVIEW_MODE_KEY, v);
   }, []);
 
   const setPlayerControlsTimeoutMs = useCallback((v: PlayerControlsTimeoutMs) => {
@@ -188,6 +198,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setPointerModeState((await storage.getItem<boolean>(PMODE_KEY, false)) || false);
       setGuideLayoutState((await storage.getItem<GuideLayout>(GUIDE_LAYOUT_KEY, "cinematic")) || "cinematic");
       setGuideDensityState((await storage.getItem<GuideDensity>(GUIDE_DENSITY_KEY, "normal")) || "normal");
+      setSafePreviewModeState((await storage.getItem<SafePreviewMode>(SAFE_PREVIEW_MODE_KEY, "delayed")) || "delayed");
       setPlayerControlsTimeoutMsState((await storage.getItem<PlayerControlsTimeoutMs>(PLAYER_TIMEOUT_KEY, 60000)) || 60000);
       setAutoRetryStreamsState((await storage.getItem<boolean>(AUTO_RETRY_KEY, true)) ?? true);
       requestNotificationPermission();
@@ -326,6 +337,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     setGuideLayout,
     guideDensity,
     setGuideDensity,
+    safePreviewMode,
+    setSafePreviewMode,
     playerControlsTimeoutMs,
     setPlayerControlsTimeoutMs,
     autoRetryStreams,

@@ -15,7 +15,7 @@ import * as Haptics from "expo-haptics";
 import dayjs from "dayjs";
 import { colors, fonts, radius, spacing } from "@/src/theme";
 import type { SourceStatus } from "@/src/api";
-import { GuideDensity, GuideLayout, PlayerControlsTimeoutMs, useStore } from "@/src/store";
+import { GuideDensity, GuideLayout, PlayerControlsTimeoutMs, SafePreviewMode, useStore } from "@/src/store";
 import {
   sourceStatus,
   refreshSource,
@@ -37,6 +37,8 @@ export default function SettingsScreen() {
     setGuideLayout,
     guideDensity,
     setGuideDensity,
+    safePreviewMode,
+    setSafePreviewMode,
     playerControlsTimeoutMs,
     setPlayerControlsTimeoutMs,
     autoRetryStreams,
@@ -199,11 +201,21 @@ export default function SettingsScreen() {
             label="Guide density"
             value={guideDensity}
             options={[
-              { label: "Large", value: "large" },
+              { label: "Comfortable", value: "large" },
               { label: "Normal", value: "normal" },
               { label: "Compact", value: "compact" },
             ]}
             onChange={setGuideDensity}
+          />
+          <ChoiceRow<SafePreviewMode>
+            label="Safe preview mode"
+            value={safePreviewMode}
+            options={[
+              { label: "Live preview ON", value: "on" },
+              { label: "Live preview delayed", value: "delayed" },
+              { label: "Live preview OFF", value: "off" },
+            ]}
+            onChange={setSafePreviewMode}
           />
           <ChoiceRow<PlayerControlsTimeoutMs>
             label="Player controls timeout"
