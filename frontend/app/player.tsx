@@ -15,7 +15,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import * as ScreenOrientation from "expo-screen-orientation";
 import { colors, fonts, radius, spacing } from "@/src/theme";
 import { useStore } from "@/src/store";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
@@ -52,7 +51,6 @@ export default function PlayerScreen() {
   const [controls, setControls] = useState(true);
   const [status, setStatus] = useState<StreamStatus>("loading");
   const [retryToken, setRetryToken] = useState(0);
-  const [fullscreen, setFullscreen] = useState(false);
   const [lastPlayerChannelId, setLastPlayerChannelId] = useState<string | null>(null);
   const [switchNotice, setSwitchNotice] = useState<string | null>(null);
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
@@ -66,55 +64,8 @@ export default function PlayerScreen() {
     [lastPlayerChannelId, channelById],
   );
 
-  // TVs are fixed landscape and reject runtime orientation locking (throws
-  // ERR_SCREEN_ORIENTATION_UNSUPPORTED_ORIENTATION_LOCK → crash). Only rotate
-  // on real handheld devices.
+  // TVs use remote key events; phones rotate naturally without Phoenix forcing orientation.
   const isTV = Platform.OS !== "web" && Platform.isTV;
-  const canRotate = Platform.OS !== "web" && !Platform.isTV;
-
-  const restoreDeviceOrientation = async () => {
-    if (!canRotate) return;
-    try {
-      await ScreenOrientation.unlockAsync();
-      setFullscreen(false);
-    } catch {}
-  };
-
-  // Auto-rotate handheld devices to landscape so the video plays full-screen
-  // with the correct aspect ratio; restore portrait on exit. The lock is
-  // delayed until AFTER the screen-transition animation — locking during the
-  // transition is a known crash trigger on some devices.
-  useEffect(() => {
-    if (!canRotate) return;
-    const t = setTimeout(() => {
-      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE)
-        .then(() => setFullscreen(true))
-        .catch(() => {});
-    }, 400);
-    return () => {
-      clearTimeout(t);
-      restoreDeviceOrientation();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const toggleFullscreen = async () => {
-    void Haptics.selectionAsync().catch(() => {});
-    scheduleHide();
-    if (Platform.OS === "web") {
-      setFullscreen((v) => !v);
-      return;
-    }
-    if (!canRotate) return; // TV: always full-screen, nothing to toggle
-    try {
-      if (!fullscreen) {
-        await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
-        setFullscreen(true);
-      } else {
-        await restoreDeviceOrientation();
-      }
-    } catch {}
-  };
 
   const showSwitchNotice = (name: string) => {
     if (switchNoticeTimer.current) clearTimeout(switchNoticeTimer.current);
@@ -245,16 +196,14 @@ export default function PlayerScreen() {
     });
   };
 
-  const stopAndExit = async () => {
+  const stopAndExit = () => {
     void Haptics.selectionAsync().catch(() => {});
-    await restoreDeviceOrientation();
     // Leaving the screen unmounts <StreamPlayer/>, which stops the stream.
     router.back();
   };
 
-  const leavePlayerTo = async (route: "/" | "/search" | "/settings") => {
+  const leavePlayerTo = (route: "/" | "/search" | "/settings") => {
     void Haptics.selectionAsync().catch(() => {});
-    await restoreDeviceOrientation();
     router.replace(route as any);
   };
 
@@ -349,15 +298,6 @@ export default function PlayerScreen() {
                 </Text>
               )}
             </View>
-            {!isTV && (
-              <Pressable
-                style={({ focused }: any) => [styles.fsBtn, focused && styles.ctrlFocused]}
-                onPress={toggleFullscreen}
-                testID="player-fullscreen-btn"
-              >
-                <Ionicons name={fullscreen ? "contract" : "expand"} size={22} color="#fff" />
-              </Pressable>
-            )}
           </LinearGradient>
 
           <LinearGradient
@@ -531,7 +471,6 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xl,
   },
   backBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
-  fsBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
   chTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 18 },
   chNow: { color: "rgba(255,255,255,0.75)", fontFamily: fonts.regular, fontSize: 12, marginTop: 2 },
   bottomScrim: {

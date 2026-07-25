@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   ScrollView,
   useWindowDimensions,
+  Platform,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -17,6 +18,7 @@ import { colors, fonts, radius, spacing } from "@/src/theme";
 import { useStore } from "@/src/store";
 import { Channel } from "@/src/api";
 import { TimelineGrid } from "@/src/components/TimelineGrid";
+import { BoxGrid } from "@/src/components/BoxGrid";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { EpgProgressBar } from "@/src/components/EpgProgressBar";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
@@ -88,6 +90,7 @@ export default function GuideScreen() {
   } = useStore();
   const now = new Date().toISOString();
   const shortScreen = height < 760;
+  const mobileSafeGuide = Platform.OS !== "web" && !Platform.isTV;
   const compactGuide = guideLayout === "compact";
 
   const [category, setCategory] = useState<string>("All");
@@ -221,6 +224,37 @@ export default function GuideScreen() {
           )}
         </View>
 
+        {mobileSafeGuide ? (
+          <View style={styles.mobileHero}>
+            <View style={styles.mobileHeroText}>
+              <Text style={styles.detailsLabel}>MOBILE SAFE GUIDE</Text>
+              <Text numberOfLines={1} style={styles.mobileHeroTitle}>
+                {preview.current?.title || previewChannel?.name || "Phoenix guide"}
+              </Text>
+              <Text numberOfLines={2} style={styles.description}>
+                Cards are easier and safer on phones. Tap a channel card to play it; use the star to favorite it.
+              </Text>
+            </View>
+            <View style={styles.mobileHeroActions}>
+              <Pressable
+                style={({ focused }: any) => [styles.mobileHeroButton, focused && styles.goldFocus]}
+                onPress={() => previewChannel && openChannel(previewChannel)}
+                testID="mobile-continue-btn"
+              >
+                <Ionicons name="play" size={16} color="#fff" />
+                <Text style={styles.mobileHeroButtonText}>Play</Text>
+              </Pressable>
+              <Pressable
+                style={({ focused }: any) => [styles.mobileHeroButton, focused && styles.goldFocus]}
+                onPress={hardRefresh}
+                testID="mobile-refresh-btn"
+              >
+                <Ionicons name="refresh" size={16} color="#fff" />
+                <Text style={styles.mobileHeroButtonText}>Refresh</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : (
         <View style={[styles.previewDetailsRow, compactGuide && styles.previewDetailsRowCompact, shortScreen && styles.previewDetailsRowShort]}>
           <Pressable
             style={({ focused }: any) => [styles.livePreviewPanel, focused && styles.goldFocus]}
@@ -300,6 +334,7 @@ export default function GuideScreen() {
             </Text>
           </View>
         </View>
+        )}
 
         <View style={styles.categoryWrap}>
           <Text style={styles.stripLabel}>CATEGORY TABS</Text>
@@ -340,6 +375,15 @@ export default function GuideScreen() {
             <Ionicons name="tv-outline" size={42} color={GOLD_SOFT} />
             <Text style={styles.centerText}>No channels here yet</Text>
           </View>
+        ) : mobileSafeGuide ? (
+          <BoxGrid
+            channels={filtered}
+            now={now}
+            onChannelPress={openChannel}
+            onProgramPress={openProgram}
+            refreshing={refreshing}
+            onRefresh={hardRefresh}
+          />
         ) : (
           <FocusGuide style={styles.timelineArea} autoFocus>
             <Text style={styles.timelineTitle}>FULL GUIDE TIMELINE</Text>
@@ -418,6 +462,32 @@ const styles = StyleSheet.create({
   brandText: { color: "#fff", fontFamily: fonts.bold, fontSize: 18 },
   brandGold: { color: GOLD },
   clock: { position: "absolute", right: 0, color: "rgba(255,255,255,0.72)", fontFamily: fonts.medium, fontSize: 12 },
+  mobileHero: {
+    minHeight: 104,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: BORDER_GOLD,
+    backgroundColor: PANEL,
+    padding: spacing.sm,
+  },
+  mobileHeroText: { flex: 1, gap: 3 },
+  mobileHeroTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 18 },
+  mobileHeroActions: { gap: spacing.xs, width: 92 },
+  mobileHeroButton: {
+    minHeight: 36,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xs,
+    borderRadius: radius.md,
+    backgroundColor: GOLD_DEEP,
+    borderWidth: 1,
+    borderColor: BORDER_GOLD,
+  },
+  mobileHeroButtonText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 12 },
   previewDetailsRow: { flexDirection: "row", gap: spacing.sm, height: 150 },
   previewDetailsRowCompact: { height: 110 },
   previewDetailsRowShort: { height: 126 },

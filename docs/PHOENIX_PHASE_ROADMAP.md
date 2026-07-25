@@ -59,6 +59,7 @@ Status: bundled for tester build.
 - Empty home guide categories are hidden automatically.
 - Recently Watched appears as a guide category when there is history.
 - Favorite/unfavorite is available from the home preview/details panel.
+- Android phones now use a mobile-safe card guide instead of the TV live-preview timeline.
 
 Next Phase 4 items:
 
@@ -66,6 +67,7 @@ Next Phase 4 items:
 - Tune the dropdown menu if D-pad behavior feels awkward.
 - Decide whether the dropdown should become a slide-out drawer.
 - Compare Cinematic vs Compact layout with testers.
+- Confirm mobile rotation no longer crashes or returns half-screen.
 
 ## Phase 5 — Favorites, search, and release polish
 
@@ -76,6 +78,7 @@ Status: bundled for tester build.
 - Favorite/unfavorite directly from guide and player overlay.
 - Recently watched / last channel polish.
 - Smarter category cleanup and empty-category hiding.
+- Mobile card guide for phone testers.
 - Search improvements for channels and programs.
 
 Still planned:
