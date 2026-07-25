@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -67,21 +67,26 @@ export default function PlayerScreen() {
   // TVs use remote key events; phones rotate naturally without Phoenix forcing orientation.
   const isTV = Platform.OS !== "web" && Platform.isTV;
 
-  const showSwitchNotice = (name: string) => {
+  const showSwitchNotice = useCallback((name: string) => {
     if (switchNoticeTimer.current) clearTimeout(switchNoticeTimer.current);
     setSwitchNotice(name);
     switchNoticeTimer.current = setTimeout(() => setSwitchNotice(null), SWITCH_NOTICE_MS);
-  };
+  }, []);
 
-  const retryStreamNow = () => {
+  const scheduleHide = useCallback(() => {
+    if (hideTimer.current) clearTimeout(hideTimer.current);
+    hideTimer.current = setTimeout(() => setControls(false), playerControlsTimeoutMs);
+  }, [playerControlsTimeoutMs]);
+
+  const retryStreamNow = useCallback(() => {
     if (retryTimer.current) clearTimeout(retryTimer.current);
     setStatus("loading");
     setReconnectAttempt((n) => n + 1);
     showSwitchNotice(`Reconnecting ${channel?.name || "stream"}`);
     setRetryToken((t) => t + 1);
-  };
+  }, [channel?.name, showSwitchNotice]);
 
-  const changeChannel = (id: string, { haptic = false } = {}) => {
+  const changeChannel = useCallback((id: string, { haptic = false } = {}) => {
     if (id === channelId) return;
     if (previewTimer.current) clearTimeout(previewTimer.current);
     if (retryTimer.current) clearTimeout(retryTimer.current);
@@ -95,7 +100,7 @@ export default function PlayerScreen() {
     setChannelId(id);
     addRecent(c);
     scheduleHide();
-  };
+  }, [addRecent, channelById, channelId, scheduleHide, showSwitchNotice]);
 
   const surf = (id: string) => {
     changeChannel(id, { haptic: true });
@@ -116,11 +121,6 @@ export default function PlayerScreen() {
     }, CHANNEL_PREVIEW_DELAY_MS);
   };
 
-  const scheduleHide = () => {
-    if (hideTimer.current) clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(() => setControls(false), playerControlsTimeoutMs);
-  };
-
   useEffect(() => {
     controlsRef.current = controls;
   }, [controls]);
@@ -138,8 +138,7 @@ export default function PlayerScreen() {
       if (previewTimer.current) clearTimeout(previewTimer.current);
       if (retryTimer.current) clearTimeout(retryTimer.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [channelId, hasStream, retryToken]);
+  }, [channelId, hasStream, retryToken, scheduleHide]);
 
   useEffect(
     () => () => {
@@ -157,8 +156,7 @@ export default function PlayerScreen() {
       setReconnectAttempt(0);
       if (controlsRef.current) scheduleHide();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status]);
+  }, [scheduleHide, status]);
 
   // Keep trying forever when a stream drops. The user stays in control: Stop,
   // Back, Guide, Search, or another channel will leave the stream and cancel
@@ -172,8 +170,7 @@ export default function PlayerScreen() {
     return () => {
       if (retryTimer.current) clearTimeout(retryTimer.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, hasStream, channelId, autoRetryStreams]);
+  }, [autoRetryStreams, channelId, hasStream, retryStreamNow, status]);
 
   // On TV, any D-pad / remote key reveals the controls again, then re-arms the
   // auto-hide. Uses native TvRemoteKey events from the withTvRemote plugin.
@@ -186,7 +183,7 @@ export default function PlayerScreen() {
       scheduleHide();
     });
     return unsub;
-  }, [isTV]);
+  }, [isTV, scheduleHide]);
 
   const toggleControls = () => {
     setControls((v) => {
@@ -196,11 +193,11 @@ export default function PlayerScreen() {
     });
   };
 
-  const stopAndExit = () => {
+  const stopAndExit = useCallback(() => {
     void Haptics.selectionAsync().catch(() => {});
     // Leaving the screen unmounts <StreamPlayer/>, which stops the stream.
     router.back();
-  };
+  }, [router]);
 
   const leavePlayerTo = (route: "/" | "/search" | "/settings") => {
     void Haptics.selectionAsync().catch(() => {});
@@ -218,8 +215,7 @@ export default function PlayerScreen() {
       return true;
     });
     return () => sub.remove();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [controls]);
+  }, [controls, scheduleHide, stopAndExit]);
 
   const { current, next } = nowNext(channel?.programs, new Date());
 
