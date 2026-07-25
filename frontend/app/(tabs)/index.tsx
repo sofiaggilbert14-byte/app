@@ -155,12 +155,16 @@ export default function GuideScreen() {
     guideDensity,
     safePreviewMode,
     channelNumbers,
+    channelLogos,
+    deviceLayoutMode,
   } = useStore();
   const now = new Date().toISOString();
   const shortScreen = height < 760;
-  const mobileSafeGuide = Platform.OS !== "web" && !Platform.isTV;
+  const mobileSafeGuide =
+    deviceLayoutMode === "mobile" || (deviceLayoutMode === "auto" && Platform.OS !== "web" && !Platform.isTV);
   const compactGuide = guideLayout === "compact";
   const livePreviewEnabled = safePreviewMode !== "off";
+  const previewDelayMs = safePreviewMode === "delayed" ? 700 : GUIDE_PREVIEW_FOCUS_DELAY_MS;
 
   const [category, setCategory] = useState<string>("All");
   const [focusedChannelId, setFocusedChannelId] = useState<string | null>(null);
@@ -239,13 +243,13 @@ export default function GuideScreen() {
 
   const focusPreviewChannel = (c: Channel) => {
     if (previewFocusTimer.current) clearTimeout(previewFocusTimer.current);
-    if (safePreviewMode === "on" || safePreviewMode === "off") {
+    if (safePreviewMode === "off") {
       setFocusedChannelId(c.id);
       return;
     }
     previewFocusTimer.current = setTimeout(() => {
       setFocusedChannelId(c.id);
-    }, GUIDE_PREVIEW_FOCUS_DELAY_MS);
+    }, previewDelayMs);
   };
 
   const openChannel = (c: Channel) => {
@@ -391,7 +395,7 @@ export default function GuideScreen() {
             </View>
             <View style={[styles.previewCenter, livePreviewEnabled && previewChannel?.url && previewStatus !== "error" && styles.previewCenterOverlay]}>
               {previewChannel ? (
-                <ChannelLogo name={previewChannel.name} logo={previewChannel.logo} size={compactGuide || shortScreen ? 42 : 58} />
+                <ChannelLogo name={previewChannel.name} logo={previewChannel.logo} disabled={!channelLogos} size={compactGuide || shortScreen ? 42 : 58} />
               ) : (
                 <Ionicons name="tv-outline" size={compactGuide || shortScreen ? 40 : 56} color={GOLD_SOFT} />
               )}
@@ -491,6 +495,7 @@ export default function GuideScreen() {
             onRefresh={hardRefresh}
             showChannelNumbers={channelNumbers}
             channelNumberById={channelNumberById}
+            showChannelLogos={channelLogos}
           />
         ) : (
           <FocusGuide style={styles.timelineArea} autoFocus>
@@ -508,6 +513,7 @@ export default function GuideScreen() {
               density={guideDensity}
               showChannelNumbers={channelNumbers}
               channelNumberById={channelNumberById}
+              showChannelLogos={channelLogos}
             />
           </FocusGuide>
         )}
@@ -598,9 +604,9 @@ const styles = StyleSheet.create({
     borderColor: BORDER_GOLD,
   },
   mobileHeroButtonText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 12 },
-  previewDetailsRow: { flexDirection: "row", gap: spacing.sm, height: 150 },
-  previewDetailsRowCompact: { height: 110 },
-  previewDetailsRowShort: { height: 126 },
+  previewDetailsRow: { flexDirection: "row", gap: spacing.sm, height: 180, alignItems: "stretch" },
+  previewDetailsRowCompact: { height: 132 },
+  previewDetailsRowShort: { height: 151 },
   livePreviewPanel: {
     height: "100%",
     aspectRatio: 16 / 9,

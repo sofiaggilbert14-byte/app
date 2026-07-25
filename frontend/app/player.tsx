@@ -43,6 +43,7 @@ export default function PlayerScreen() {
     isFavorite,
     toggleFavorite,
     channelNumbers,
+    channelLogos,
   } = useStore();
 
   const [channelId, setChannelId] = useState(params.channelId);
@@ -423,7 +424,7 @@ export default function PlayerScreen() {
                   ]}
                   testID={`surf-${item.id}`}
                 >
-                  <ChannelLogo name={item.name} logo={item.logo} size={44} />
+                  <ChannelLogo name={item.name} logo={item.logo} disabled={!channelLogos} size={44} />
                   {channelNumbers && <Text style={styles.surfNumber}>{channelNumberById[item.id] || ""}</Text>}
                   <Text numberOfLines={1} style={styles.surfName}>{item.name}</Text>
                 </Pressable>

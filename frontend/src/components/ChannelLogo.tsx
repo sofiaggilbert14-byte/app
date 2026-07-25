@@ -14,14 +14,16 @@ export function ChannelLogo({
   name,
   logo,
   size = 48,
+  disabled = false,
 }: {
   name: string;
   logo?: string;
   size?: number;
+  disabled?: boolean;
 }) {
   const [failed, setFailed] = React.useState(false);
   React.useEffect(() => setFailed(false), [logo]);
-  const showImage = logo && logo.startsWith("http") && !failed;
+  const showImage = !disabled && logo && logo.startsWith("http") && !failed;
   if (showImage) {
     return (
       <Image

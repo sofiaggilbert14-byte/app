@@ -38,6 +38,7 @@ export function TimelineGrid({
   density = "normal",
   showChannelNumbers = false,
   channelNumberById,
+  showChannelLogos = true,
 }: {
   channels: Channel[];
   windowStart: string;
@@ -51,6 +52,7 @@ export function TimelineGrid({
   density?: "large" | "normal" | "compact";
   showChannelNumbers?: boolean;
   channelNumberById?: Record<string, number>;
+  showChannelLogos?: boolean;
 }) {
   const { width } = useWindowDimensions();
   // Scale up for tablets / TVs so it stays readable on large landscape screens.
@@ -141,7 +143,7 @@ export function TimelineGrid({
                         {showChannelNumbers && (
                           <Text style={styles.channelNumber}>{channelNumberById?.[item.id] || index + 1}</Text>
                         )}
-                        <ChannelLogo name={item.name} logo={item.logo} size={LOGO_SIZE} />
+                        <ChannelLogo name={item.name} logo={item.logo} disabled={!showChannelLogos} size={LOGO_SIZE} />
                         <Text numberOfLines={1} style={styles.logoName}>
                           {item.name}
                         </Text>

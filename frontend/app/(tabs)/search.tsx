@@ -28,7 +28,7 @@ function byChannelName(a: Channel, b: Channel): number {
 
 export default function SearchScreen() {
   const router = useRouter();
-  const { channels, addRecent, openProgram, favorites, recent, lastChannelId, channelById, channelNumbers } = useStore();
+  const { channels, addRecent, openProgram, favorites, recent, lastChannelId, channelById, channelNumbers, channelLogos } = useStore();
   const [q, setQ] = useState("");
   useTvBackToGuide();
   const channelNumberById = useMemo(() => {
@@ -137,7 +137,7 @@ export default function SearchScreen() {
                     testID={`search-quick-${c.id}`}
                   >
                     {channelNumbers && <Text style={styles.channelNumber}>{channelNumberById[c.id] || ""}</Text>}
-                    <ChannelLogo name={c.name} logo={c.logo} size={40} />
+                    <ChannelLogo name={c.name} logo={c.logo} disabled={!channelLogos} size={40} />
                     <View style={{ flex: 1 }}>
                       <Text numberOfLines={1} style={styles.rowName}>{c.name}</Text>
                       <Text numberOfLines={1} style={styles.rowSub}>{c.group || "Channel"}</Text>
@@ -158,7 +158,7 @@ export default function SearchScreen() {
             {chResults.map((c) => (
               <Pressable key={c.id} style={({ focused }: any) => [styles.row, focused && styles.rowFocused]} onPress={() => play(c)} testID={`search-ch-${c.id}`}>
                 {channelNumbers && <Text style={styles.channelNumber}>{channelNumberById[c.id] || ""}</Text>}
-                <ChannelLogo name={c.name} logo={c.logo} size={40} />
+                <ChannelLogo name={c.name} logo={c.logo} disabled={!channelLogos} size={40} />
                 <Text numberOfLines={1} style={styles.rowName}>{c.name}</Text>
                 <Ionicons name="play-circle" size={22} color={colors.brand} />
               </Pressable>
@@ -173,7 +173,7 @@ export default function SearchScreen() {
                 testID={`search-prog-${c.id}-${i}`}
               >
                 {channelNumbers && <Text style={styles.channelNumber}>{channelNumberById[c.id] || ""}</Text>}
-                <ChannelLogo name={c.name} logo={c.logo} size={40} />
+                <ChannelLogo name={c.name} logo={c.logo} disabled={!channelLogos} size={40} />
                 <View style={{ flex: 1 }}>
                   <Text numberOfLines={1} style={styles.rowName}>{p.title}</Text>
                   <Text numberOfLines={1} style={styles.rowSub}>

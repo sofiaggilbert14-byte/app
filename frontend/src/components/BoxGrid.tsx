@@ -23,6 +23,7 @@ export function BoxGrid({
   onRefresh,
   showChannelNumbers = false,
   channelNumberById,
+  showChannelLogos = true,
 }: {
   channels: Channel[];
   now: string;
@@ -34,6 +35,7 @@ export function BoxGrid({
   onRefresh?: () => void;
   showChannelNumbers?: boolean;
   channelNumberById?: Record<string, number>;
+  showChannelLogos?: boolean;
 }) {
   const { width } = useWindowDimensions();
   // Adapt column count to the screen ratio — phones 2, tablets/TVs up to 5.
@@ -76,7 +78,7 @@ export function BoxGrid({
               <View style={styles.cardTop}>
                 <View style={styles.logoNumberRow}>
                   {showChannelNumbers && <Text style={styles.channelNumber}>{channelNumberById?.[item.id] || index + 1}</Text>}
-                  <ChannelLogo name={item.name} logo={item.logo} size={40} />
+                  <ChannelLogo name={item.name} logo={item.logo} disabled={!showChannelLogos} size={40} />
                 </View>
                 <Pressable focusable={false} hitSlop={8} onPress={() => toggleFavorite(item.id)} testID={`box-fav-${item.id}`}>
                   <Ionicons

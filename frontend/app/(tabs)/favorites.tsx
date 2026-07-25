@@ -23,11 +23,13 @@ function ChannelRow({
   onPress,
   right,
   channelNumber,
+  showChannelLogos = true,
 }: {
   channel: Channel;
   onPress: () => void;
   right?: React.ReactNode;
   channelNumber?: number;
+  showChannelLogos?: boolean;
 }) {
   const { current } = nowNext(channel.programs, new Date());
   return (
@@ -37,7 +39,7 @@ function ChannelRow({
       testID={`fav-row-${channel.id}`}
     >
       {channelNumber ? <Text style={styles.channelNumber}>{channelNumber}</Text> : null}
-      <ChannelLogo name={channel.name} logo={channel.logo} size={44} />
+      <ChannelLogo name={channel.name} logo={channel.logo} disabled={!showChannelLogos} size={44} />
       <View style={{ flex: 1 }}>
         <Text numberOfLines={1} style={styles.rowName}>{channel.name}</Text>
         <Text numberOfLines={1} style={styles.rowSub}>
@@ -51,7 +53,7 @@ function ChannelRow({
 
 export default function FavoritesScreen() {
   const router = useRouter();
-  const { channels, favorites, toggleFavorite, recent, reminders, removeReminder, addRecent, channelById, lastChannelId, channelNumbers } = useStore();
+  const { channels, favorites, toggleFavorite, recent, reminders, removeReminder, addRecent, channelById, lastChannelId, channelNumbers, channelLogos } = useStore();
   useTvBackToGuide();
 
   const favChannels = channels.filter((c) => favorites.includes(c.id)).sort(byChannelName);
@@ -82,7 +84,7 @@ export default function FavoritesScreen() {
               onPress={() => play(lastChannel)}
               testID="favorites-continue-watching"
             >
-              <ChannelLogo name={lastChannel.name} logo={lastChannel.logo} size={58} />
+              <ChannelLogo name={lastChannel.name} logo={lastChannel.logo} disabled={!channelLogos} size={58} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.continueLabel}>Last channel</Text>
                 <Text numberOfLines={1} style={styles.continueName}>
@@ -110,6 +112,7 @@ export default function FavoritesScreen() {
               channel={c}
               onPress={() => play(c)}
               channelNumber={channelNumbers ? channelNumberById[c.id] : undefined}
+              showChannelLogos={channelLogos}
               right={
                 <Pressable hitSlop={8} onPress={() => toggleFavorite(c.id)} testID={`unfav-${c.id}`}>
                   <Ionicons name="star" size={20} color={colors.warning} />
@@ -163,7 +166,7 @@ export default function FavoritesScreen() {
         ) : (
           recent.map((c) => {
             const live = channelById(c.id) || c;
-            return <ChannelRow key={c.id} channel={live} onPress={() => play(live)} channelNumber={channelNumbers ? channelNumberById[live.id] : undefined} />;
+            return <ChannelRow key={c.id} channel={live} onPress={() => play(live)} channelNumber={channelNumbers ? channelNumberById[live.id] : undefined} showChannelLogos={channelLogos} />;
           })
         )}
       </ScrollView>

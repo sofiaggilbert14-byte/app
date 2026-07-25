@@ -19,6 +19,8 @@ const GUIDE_LAYOUT_KEY = "gs_guide_layout";
 const GUIDE_DENSITY_KEY = "gs_guide_density";
 const SAFE_PREVIEW_MODE_KEY = "gs_safe_preview_mode";
 const CHANNEL_NUMBERS_KEY = "gs_channel_numbers";
+const CHANNEL_LOGOS_KEY = "gs_channel_logos";
+const DEVICE_LAYOUT_MODE_KEY = "gs_device_layout_mode";
 const PLAYER_TIMEOUT_KEY = "gs_player_timeout_ms";
 const AUTO_RETRY_KEY = "gs_auto_retry_streams";
 const GUIDE_WINDOW_HOURS = 24;
@@ -26,6 +28,7 @@ const GUIDE_WINDOW_HOURS = 24;
 export type GuideLayout = "cinematic" | "compact";
 export type GuideDensity = "large" | "normal" | "compact";
 export type SafePreviewMode = "on" | "delayed" | "off";
+export type DeviceLayoutMode = "auto" | "tv" | "mobile";
 export type PlayerControlsTimeoutMs = 8000 | 15000 | 30000 | 60000;
 
 export type Reminder = {
@@ -81,6 +84,10 @@ type Store = {
   setSafePreviewMode: (v: SafePreviewMode) => void;
   channelNumbers: boolean;
   setChannelNumbers: (v: boolean) => void;
+  channelLogos: boolean;
+  setChannelLogos: (v: boolean) => void;
+  deviceLayoutMode: DeviceLayoutMode;
+  setDeviceLayoutMode: (v: DeviceLayoutMode) => void;
   playerControlsTimeoutMs: PlayerControlsTimeoutMs;
   setPlayerControlsTimeoutMs: (v: PlayerControlsTimeoutMs) => void;
   autoRetryStreams: boolean;
@@ -117,6 +124,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [guideDensity, setGuideDensityState] = useState<GuideDensity>("normal");
   const [safePreviewMode, setSafePreviewModeState] = useState<SafePreviewMode>("delayed");
   const [channelNumbers, setChannelNumbersState] = useState(false);
+  const [channelLogos, setChannelLogosState] = useState(true);
+  const [deviceLayoutMode, setDeviceLayoutModeState] = useState<DeviceLayoutMode>("auto");
   const [playerControlsTimeoutMs, setPlayerControlsTimeoutMsState] = useState<PlayerControlsTimeoutMs>(60000);
   const [autoRetryStreams, setAutoRetryStreamsState] = useState(true);
   const [epgProgress, setEpgProgress] = useState<EpgProgress>({
@@ -148,6 +157,16 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const setChannelNumbers = useCallback((v: boolean) => {
     setChannelNumbersState(v);
     storage.setItem(CHANNEL_NUMBERS_KEY, v);
+  }, []);
+
+  const setChannelLogos = useCallback((v: boolean) => {
+    setChannelLogosState(v);
+    storage.setItem(CHANNEL_LOGOS_KEY, v);
+  }, []);
+
+  const setDeviceLayoutMode = useCallback((v: DeviceLayoutMode) => {
+    setDeviceLayoutModeState(v);
+    storage.setItem(DEVICE_LAYOUT_MODE_KEY, v);
   }, []);
 
   const setPlayerControlsTimeoutMs = useCallback((v: PlayerControlsTimeoutMs) => {
@@ -209,6 +228,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setGuideDensityState((await storage.getItem<GuideDensity>(GUIDE_DENSITY_KEY, "normal")) || "normal");
       setSafePreviewModeState((await storage.getItem<SafePreviewMode>(SAFE_PREVIEW_MODE_KEY, "delayed")) || "delayed");
       setChannelNumbersState((await storage.getItem<boolean>(CHANNEL_NUMBERS_KEY, false)) || false);
+      setChannelLogosState((await storage.getItem<boolean>(CHANNEL_LOGOS_KEY, true)) ?? true);
+      setDeviceLayoutModeState((await storage.getItem<DeviceLayoutMode>(DEVICE_LAYOUT_MODE_KEY, "auto")) || "auto");
       setPlayerControlsTimeoutMsState((await storage.getItem<PlayerControlsTimeoutMs>(PLAYER_TIMEOUT_KEY, 60000)) || 60000);
       setAutoRetryStreamsState((await storage.getItem<boolean>(AUTO_RETRY_KEY, true)) ?? true);
       requestNotificationPermission();
@@ -351,6 +372,10 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     setSafePreviewMode,
     channelNumbers,
     setChannelNumbers,
+    channelLogos,
+    setChannelLogos,
+    deviceLayoutMode,
+    setDeviceLayoutMode,
     playerControlsTimeoutMs,
     setPlayerControlsTimeoutMs,
     autoRetryStreams,

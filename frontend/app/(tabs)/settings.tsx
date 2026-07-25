@@ -7,7 +7,6 @@ import {
   ScrollView,
   ActivityIndicator,
   RefreshControl,
-  Switch,
   Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -16,7 +15,7 @@ import Constants from "expo-constants";
 import dayjs from "dayjs";
 import { colors, fonts, radius, spacing } from "@/src/theme";
 import type { SourceStatus } from "@/src/api";
-import { GuideDensity, GuideLayout, PlayerControlsTimeoutMs, SafePreviewMode, useStore } from "@/src/store";
+import { DeviceLayoutMode, GuideDensity, GuideLayout, PlayerControlsTimeoutMs, SafePreviewMode, useStore } from "@/src/store";
 import {
   sourceStatus,
   refreshSource,
@@ -26,6 +25,12 @@ import {
   type SourceDiagnostics,
 } from "@/src/source";
 import { useTvBackToGuide } from "@/src/hooks/use-tv-back-to-guide";
+
+const GOLD = "#F6B73C";
+const GOLD_SOFT = "#FFE3A3";
+const GOLD_DEEP = "#7C4A11";
+const PANEL = "rgba(18, 13, 8, 0.92)";
+const BORDER_GOLD = "rgba(246, 183, 60, 0.34)";
 
 export default function SettingsScreen() {
   const {
@@ -42,6 +47,10 @@ export default function SettingsScreen() {
     setSafePreviewMode,
     channelNumbers,
     setChannelNumbers,
+    channelLogos,
+    setChannelLogos,
+    deviceLayoutMode,
+    setDeviceLayoutMode,
     playerControlsTimeoutMs,
     setPlayerControlsTimeoutMs,
     autoRetryStreams,
@@ -51,7 +60,7 @@ export default function SettingsScreen() {
   const [busy, setBusy] = useState(false);
   const [diagnostics, setDiagnostics] = useState<SourceDiagnostics | null>(null);
   useTvBackToGuide();
-  const appVersion = Constants.expoConfig?.version || "2.0.0-beta";
+const appVersion = Constants.expoConfig?.version || "2.0.0-beta";
   const androidVersionCode = (Constants.expoConfig as any)?.android?.versionCode;
 
   const loadStatus = useCallback(() => {
@@ -99,7 +108,7 @@ export default function SettingsScreen() {
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: spacing.md }]}>
-        <Text style={styles.brand}>Configuration</Text>
+        <Text style={styles.brand}>CharmIPTV Phoenix</Text>
         <Text style={styles.title}>Settings</Text>
       </View>
       <ScrollView
@@ -216,28 +225,36 @@ export default function SettingsScreen() {
             label="Safe preview mode"
             value={safePreviewMode}
             options={[
-              { label: "Live preview ON", value: "on" },
-              { label: "Live preview delayed", value: "delayed" },
+              { label: "Preview after focus stops", value: "on" },
+              { label: "Extra safe delay", value: "delayed" },
               { label: "Live preview OFF", value: "off" },
             ]}
             onChange={setSafePreviewMode}
           />
-          <View style={styles.rowBetween}>
-            <View style={{ flex: 1, paddingRight: spacing.md }}>
-              <Text style={styles.settingLabel}>Channel numbers</Text>
-              <Text style={styles.sub}>
-                Automatically numbers the current channel lineup. If channels are added or removed, Phoenix rebuilds
-                the numbering from the latest channel list.
-              </Text>
-            </View>
-            <Switch
-              value={channelNumbers}
-              onValueChange={setChannelNumbers}
-              trackColor={{ false: colors.surfaceTertiary, true: colors.brand }}
-              thumbColor="#fff"
-              testID="settings-channel-numbers-toggle"
-            />
-          </View>
+          <ChoiceRow<DeviceLayoutMode>
+            label="Device layout mode"
+            value={deviceLayoutMode}
+            options={[
+              { label: "Auto", value: "auto" },
+              { label: "TV", value: "tv" },
+              { label: "Mobile", value: "mobile" },
+            ]}
+            onChange={setDeviceLayoutMode}
+          />
+          <ToggleRow
+            label="Channel numbers"
+            sub="Automatically numbers the current lineup. If channels are added or removed, Phoenix rebuilds the numbering from the latest channel list."
+            value={channelNumbers}
+            onChange={setChannelNumbers}
+            testID="settings-channel-numbers-toggle"
+          />
+          <ToggleRow
+            label="Channel logos"
+            sub="Turn this off to use initials instead of loading channel logo images. This can make weaker boxes feel smoother."
+            value={channelLogos}
+            onChange={setChannelLogos}
+            testID="settings-channel-logos-toggle"
+          />
           <ChoiceRow<PlayerControlsTimeoutMs>
             label="Player controls timeout"
             value={playerControlsTimeoutMs}
@@ -249,19 +266,13 @@ export default function SettingsScreen() {
             ]}
             onChange={setPlayerControlsTimeoutMs}
           />
-          <View style={styles.rowBetween}>
-            <View style={{ flex: 1, paddingRight: spacing.md }}>
-              <Text style={styles.settingLabel}>Auto retry streams</Text>
-              <Text style={styles.sub}>When a stream drops, Phoenix keeps trying until you leave the player.</Text>
-            </View>
-            <Switch
-              value={autoRetryStreams}
-              onValueChange={setAutoRetryStreams}
-              trackColor={{ false: colors.surfaceTertiary, true: colors.brand }}
-              thumbColor="#fff"
-              testID="settings-auto-retry-toggle"
-            />
-          </View>
+          <ToggleRow
+            label="Auto retry streams"
+            sub="When a stream drops, Phoenix keeps trying until you leave the player."
+            value={autoRetryStreams}
+            onChange={setAutoRetryStreams}
+            testID="settings-auto-retry-toggle"
+          />
         </View>
 
         <View style={styles.card}>
@@ -283,14 +294,19 @@ export default function SettingsScreen() {
                 click whatever the pointer is on. Only works on an installed Android TV build.
               </Text>
             </View>
-            <Switch
-              value={pointerMode}
-              onValueChange={setPointerMode}
-              trackColor={{ false: colors.surfaceTertiary, true: colors.brand }}
-              thumbColor="#fff"
-              testID="settings-pointer-toggle"
-            />
+            <TogglePill value={pointerMode} />
           </View>
+          <Pressable
+            style={({ focused }: any) => [styles.togglePressRow, focused && styles.focusRing]}
+            onPress={() => {
+              Haptics.selectionAsync();
+              setPointerMode(!pointerMode);
+            }}
+            focusable
+            testID="settings-pointer-toggle"
+          >
+            <Text style={styles.toggleActionText}>{pointerMode ? "Turn pointer mode off" : "Turn pointer mode on"}</Text>
+          </Pressable>
         </View>
 
         <View style={styles.card}>
@@ -358,25 +374,75 @@ function ChoiceRow<T extends string | number>({
   );
 }
 
+function ToggleRow({
+  label,
+  sub,
+  value,
+  onChange,
+  testID,
+}: {
+  label: string;
+  sub: string;
+  value: boolean;
+  onChange: (v: boolean) => void;
+  testID: string;
+}) {
+  return (
+    <Pressable
+      style={({ focused }: any) => [styles.toggleRow, focused && styles.focusRing]}
+      onPress={() => {
+        Haptics.selectionAsync();
+        onChange(!value);
+      }}
+      focusable
+      testID={testID}
+    >
+      <View style={{ flex: 1, paddingRight: spacing.md }}>
+        <Text style={styles.settingLabel}>{label}</Text>
+        <Text style={styles.sub}>{sub}</Text>
+      </View>
+      <TogglePill value={value} />
+    </Pressable>
+  );
+}
+
+function TogglePill({ value }: { value: boolean }) {
+  return (
+    <View style={[styles.togglePill, value && styles.togglePillActive]}>
+      <View style={[styles.toggleDot, value && styles.toggleDotActive]} />
+      <Text style={[styles.toggleText, value && styles.toggleTextActive]}>{value ? "ON" : "OFF"}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.surface },
-  header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.sm },
-  brand: { color: colors.brandSecondary, fontFamily: fonts.semibold, fontSize: 12 },
-  title: { color: colors.onSurface, fontFamily: fonts.display, fontSize: 28 },
+  container: { flex: 1, backgroundColor: "#050403" },
+  header: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(246,183,60,0.24)",
+    backgroundColor: "rgba(8,5,3,0.96)",
+  },
+  brand: { color: GOLD, fontFamily: fonts.semibold, fontSize: 12 },
+  title: { color: "#fff", fontFamily: fonts.display, fontSize: 28 },
   card: {
-    backgroundColor: colors.surfaceSecondary,
+    backgroundColor: PANEL,
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: BORDER_GOLD,
     marginHorizontal: spacing.lg,
     marginTop: spacing.md,
     padding: spacing.lg,
     gap: spacing.sm,
+    shadowColor: GOLD,
+    shadowOpacity: 0.16,
+    shadowRadius: 12,
   },
-  cardTitle: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 16 },
-  settingLabel: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 14 },
+  cardTitle: { color: "#fff", fontFamily: fonts.semibold, fontSize: 16 },
+  settingLabel: { color: "#fff", fontFamily: fonts.semibold, fontSize: 14 },
   rowBetween: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  sub: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 13, lineHeight: 19 },
+  sub: { color: "rgba(255,255,255,0.68)", fontFamily: fonts.regular, fontSize: 13, lineHeight: 19 },
   choiceBlock: { gap: spacing.xs, marginTop: spacing.xs },
   choiceRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   choiceBtn: {
@@ -386,28 +452,30 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceTertiary,
+    borderColor: "rgba(255,227,163,0.18)",
+    backgroundColor: "rgba(255,255,255,0.05)",
   },
-  choiceBtnActive: { backgroundColor: colors.brand, borderColor: colors.brandSecondary },
-  choiceText: { color: colors.onSurfaceSecondary, fontFamily: fonts.semibold, fontSize: 12 },
+  choiceBtnActive: { backgroundColor: "rgba(246,183,60,0.26)", borderColor: GOLD },
+  choiceText: { color: "rgba(255,255,255,0.72)", fontFamily: fonts.semibold, fontSize: 12 },
   choiceTextActive: { color: "#fff" },
-  hint: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 11, textAlign: "center" },
+  hint: { color: "rgba(255,255,255,0.58)", fontFamily: fonts.regular, fontSize: 11, textAlign: "center" },
   statRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: spacing.xs },
-  statLabel: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 14 },
-  statValue: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 14 },
+  statLabel: { color: "rgba(255,255,255,0.62)", fontFamily: fonts.regular, fontSize: 14 },
+  statValue: { color: GOLD_SOFT, fontFamily: fonts.semibold, fontSize: 14 },
   errText: { color: colors.error, fontFamily: fonts.medium, fontSize: 12 },
   checkRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingVertical: spacing.xs },
-  checkText: { color: colors.onSurfaceSecondary, fontFamily: fonts.regular, fontSize: 13, flex: 1 },
+  checkText: { color: "rgba(255,255,255,0.78)", fontFamily: fonts.regular, fontSize: 13, flex: 1 },
   primaryBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: spacing.sm,
-    backgroundColor: colors.brand,
+    backgroundColor: GOLD_DEEP,
     paddingVertical: spacing.md,
     borderRadius: radius.md,
     marginTop: spacing.sm,
+    borderWidth: 1,
+    borderColor: BORDER_GOLD,
   },
   primaryText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 14 },
   secondaryBtn: {
@@ -415,11 +483,58 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: spacing.sm,
-    backgroundColor: colors.surfaceTertiary,
+    backgroundColor: "rgba(255,255,255,0.06)",
     paddingVertical: spacing.md,
     borderRadius: radius.md,
     marginTop: spacing.sm,
+    borderWidth: 1,
+    borderColor: "rgba(255,227,163,0.18)",
   },
-  secondaryText: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 14 },
-  focusRing: { borderWidth: 2, borderColor: "#fff" },
+  secondaryText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 14 },
+  toggleRow: {
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: "rgba(255,227,163,0.16)",
+    backgroundColor: "rgba(255,255,255,0.04)",
+    padding: spacing.md,
+    gap: spacing.md,
+  },
+  togglePressRow: {
+    minHeight: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: "rgba(255,227,163,0.16)",
+    backgroundColor: "rgba(255,255,255,0.04)",
+  },
+  toggleActionText: { color: GOLD_SOFT, fontFamily: fonts.semibold, fontSize: 13 },
+  togglePill: {
+    width: 76,
+    height: 32,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
+    backgroundColor: "rgba(255,255,255,0.08)",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xs,
+  },
+  togglePillActive: { borderColor: GOLD, backgroundColor: "rgba(246,183,60,0.22)" },
+  toggleDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "rgba(255,255,255,0.36)" },
+  toggleDotActive: { backgroundColor: GOLD },
+  toggleText: { color: "rgba(255,255,255,0.56)", fontFamily: fonts.bold, fontSize: 11 },
+  toggleTextActive: { color: GOLD_SOFT },
+  focusRing: {
+    borderWidth: 2,
+    borderColor: GOLD_SOFT,
+    shadowColor: GOLD,
+    shadowOpacity: 0.65,
+    shadowRadius: 12,
+  },
 });
