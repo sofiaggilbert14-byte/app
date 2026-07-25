@@ -5,7 +5,7 @@ Scope: Changes made after the APK build from approximately 9:25 AM
 
 Summary
 -------
-This update focuses on stability, guide navigation, mobile safety, player overlay reliability, layout polish, build versioning, and tester-facing settings. The biggest improvements are safer guide scrolling, better mobile behavior, live preview controls, automatic build/version display, and optional automatic channel numbers.
+This update focuses on stability, guide navigation, mobile safety, player overlay reliability, layout polish, build versioning, and tester-facing settings. The biggest improvements are safer guide scrolling, better mobile behavior, safer live preview controls, automatic build/version display, optional automatic channel numbers, optional channel logo loading, a TV/mobile layout preference, and a black/gold Settings redesign.
 
 
 New Features Added
@@ -84,6 +84,52 @@ Channel numbers were added to:
 - Quick Picks
 - Player channel strip
 - Current playing channel title area
+
+
+6. Channel Logos setting
+
+Added a new Settings toggle:
+
+- Channel logos ON/OFF
+
+Behavior:
+
+- When enabled, Phoenix loads normal channel logos.
+- When disabled, Phoenix uses initials/fallback logo blocks instead of loading logo images.
+
+Reason:
+
+This gives testers a quick way to reduce image loading and visual/network work on weaker boxes if scrolling or loading feels heavy.
+
+Channel logo disabling applies across:
+
+- Main guide
+- Box/card guide
+- Favorites
+- Recently watched
+- Search results
+- Quick Picks
+- Player channel strip
+- Current preview area
+
+
+7. Device Layout Mode setting
+
+Added a new Settings choice:
+
+- Auto
+- TV
+- Mobile
+
+Behavior:
+
+- Auto chooses the safest layout based on the device.
+- TV forces the TV/Command Center style layout.
+- Mobile forces the mobile-safe card layout.
+
+Reason:
+
+Some Android devices behave differently than expected. This gives testers and users a way to manually choose the layout that works best on their device.
 
 
 Fixes and Stability Improvements
@@ -199,6 +245,29 @@ Changes:
 - Player overlay hide/show behavior should be more predictable.
 
 
+9. Settings toggle focus fix
+
+Reworked Settings toggles so they can be reached and changed with a TV remote/D-pad.
+
+Fix target:
+
+- Some Settings switches/buttons were skipped while scrolling with the remote.
+- Users could see the setting but could not focus it to turn it on/off.
+
+Changes:
+
+- Replaced skipped native switches with focusable selectable rows.
+- Added visible ON/OFF pills.
+- The full setting row can now be selected with the remote.
+
+Affected settings:
+
+- Channel numbers
+- Channel logos
+- Auto retry streams
+- Pointer mode
+
+
 Removed or Reduced
 ------------------
 1. Removed forced first-item focus behavior
@@ -215,11 +284,20 @@ This behavior could pull focus back to the top unexpectedly and contribute to cr
 
 2. Reduced live preview aggressiveness
 
-The guide no longer has to instantly switch preview streams during rapid guide scrolling.
+The guide no longer instantly switches preview streams during rapid guide scrolling.
 
 Reason:
 
 Rapid preview switching was a likely cause of crashes during fast remote scrolling.
+
+
+3. Reduced optional logo loading
+
+Channel logo loading can now be disabled from Settings.
+
+Reason:
+
+This can improve performance on low-powered devices or connections where loading many logos makes the app feel heavier.
 
 
 Layout and UI Adjustments
@@ -231,14 +309,30 @@ Layout and UI Adjustments
 - Long descriptions can now be read without opening another screen.
 
 
-2. Mobile layout adjusted
+2. Live preview increased by 20%
+
+Adjusted the Command Center preview/details row:
+
+- Normal row height increased from 150 to 180.
+- Compact row height increased from 110 to 132.
+- Short-screen row height increased from 126 to 151.
+
+Behavior:
+
+- Live preview is larger.
+- Video remains in a proper 16:9 shape instead of stretching.
+- Description panel automatically narrows to make room.
+- Description panel matches the preview height.
+
+
+3. Mobile layout adjusted
 
 - Mobile uses a safer card guide.
 - Mobile avoids TV-style live-preview browsing.
 - Mobile avoids the A-Z rail.
 
 
-3. Settings area expanded
+4. Settings area expanded
 
 Settings now includes more tester/useful controls:
 
@@ -246,11 +340,27 @@ Settings now includes more tester/useful controls:
 - Guide density
 - Safe preview mode
 - Channel numbers
+- Channel logos
+- Device layout mode
 - Player controls timeout
 - Auto retry streams
 - Pointer mode
 - Diagnostics
 - Guide cache controls
+
+
+5. Settings page visual redesign
+
+Restyled Settings to better match the main Command Center app design.
+
+Changes:
+
+- Black/gold color scheme.
+- Dark translucent panels.
+- Gold borders.
+- Gold/white text treatment.
+- Stronger TV focus glow.
+- ON/OFF pill styling for toggle rows.
 
 
 Validation Performed
@@ -259,6 +369,8 @@ The following checks were run locally after the code changes:
 
 - TypeScript check passed.
 - Expo lint passed for the version/channel-number feature bundle.
+- TypeScript check passed after the Settings/layout/logo polish bundle.
+- Expo lint passed after the Settings/layout/logo polish bundle.
 - Git working tree was clean after commits.
 
 
@@ -272,6 +384,8 @@ ada7531 - Fix player overlay hook warning
 dc413dd - Harden guide tab and fast scroll stability
 f6f50f1 - Add safe preview and guide density settings
 e516ce1 - Add build versioning and channel numbers
+4e8817f - Add Phoenix tester release notes
+57d6dfb - Polish preview layout and settings controls
 
 
 Recommended Tester Notes
@@ -292,6 +406,14 @@ Ask testers to pay special attention to:
 6. Confirming the build/version number appears in Settings.
 7. Confirming the downloaded APK filename includes the version number.
 8. Turning Channel Numbers on/off and confirming numbering updates across the app.
+9. Turning Channel Logos on/off and confirming logos are replaced with initials/fallback blocks.
+10. Testing Device Layout Mode:
+   - Auto
+   - TV
+   - Mobile
+11. Confirming Settings toggle rows can be focused and changed with a TV remote.
+12. Confirming the larger live preview does not stretch video.
+13. Confirming long descriptions scroll inside the description box without bleeding outside it.
 
 
 Known Follow-Up Items
@@ -301,4 +423,5 @@ Known Follow-Up Items
 3. Continue tuning Command Center spacing after TV testing.
 4. Consider adding a Guide First / Hide Top Panels mode later for users who want more visible guide rows.
 5. Consider adding a tester issue-report template or screen.
-
+6. Continue testing whether the larger preview layout still leaves enough guide rows visible on smaller TVs.
+7. Continue testing whether logo disabling improves performance on low-powered boxes.
