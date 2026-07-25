@@ -1,0 +1,304 @@
+CharmIPTV Phoenix Universal Beta
+Release Notes
+Date: July 25, 2026
+Scope: Changes made after the APK build from approximately 9:25 AM
+
+Summary
+-------
+This update focuses on stability, guide navigation, mobile safety, player overlay reliability, layout polish, build versioning, and tester-facing settings. The biggest improvements are safer guide scrolling, better mobile behavior, live preview controls, automatic build/version display, and optional automatic channel numbers.
+
+
+New Features Added
+------------------
+1. Safe Preview Mode setting
+
+Added a new setting under Settings -> Guide & Player Preferences:
+
+- Live preview ON
+- Live preview delayed
+- Live preview OFF
+
+Behavior:
+
+- Live preview ON changes the live preview immediately when a channel is highlighted.
+- Live preview delayed waits briefly before changing the live preview. This is now the safer default for testers.
+- Live preview OFF keeps the guide/details active but prevents the live preview video from playing while browsing.
+
+Reason:
+
+This helps prevent crashes or stutters when scrolling quickly through the guide on lower-powered Android TV boxes, Onn boxes, Fire Stick devices, and phones.
+
+
+2. Guide Density setting
+
+Added/updated Guide Density choices in Settings:
+
+- Comfortable
+- Normal
+- Compact
+
+Behavior:
+
+- Comfortable uses larger rows for easier reading across the room.
+- Normal balances readability and number of visible guide rows.
+- Compact shows more guide rows on screen.
+
+
+3. Automatic build/version display in Settings
+
+Settings now displays the installed app build/version instead of relying on a hardcoded text label.
+
+The displayed version comes from the app configuration used to build the APK.
+
+
+4. Automatic APK version stamping
+
+The GitHub APK build workflow now automatically stamps each APK with a new version number based on the GitHub run number.
+
+Example APK filename:
+
+CharmIPTV Phoenix Universal BETA v2.0.123-beta.apk
+
+This makes it easier to know exactly which APK testers are using.
+
+
+5. Channel Numbers setting
+
+Added a new Settings toggle:
+
+- Channel numbers ON/OFF
+
+Behavior:
+
+- When enabled, Phoenix automatically numbers the current full channel lineup.
+- If channels are added or removed, the numbers automatically recalculate from the latest loaded channel list.
+- Numbers are based on the full sorted channel lineup, not just the current tab.
+
+Channel numbers were added to:
+
+- Main guide
+- Box/card guide
+- Favorites
+- Recently watched
+- Search results
+- Quick Picks
+- Player channel strip
+- Current playing channel title area
+
+
+Fixes and Stability Improvements
+--------------------------------
+1. Mobile orientation and half-screen resize fix
+
+Improved mobile behavior when rotating between portrait and landscape.
+
+Fix target:
+
+- App sometimes filled only half the screen after rotating.
+- App sometimes crashed after rotating and pressing Back.
+- App sometimes crashed immediately after reopening following a rotation crash.
+
+
+2. Mobile Safe Guide
+
+Added a safer mobile guide path for non-TV Android/mobile devices.
+
+Behavior:
+
+- Phones use a card/box guide instead of the full TV-style timeline/live-preview guide.
+- The A-Z rail is hidden on mobile.
+- Mobile layout avoids the live active preview while browsing.
+
+Reason:
+
+This reduces rotation issues and prevents mobile touch/scroll behavior from fighting the TV-focused guide layout.
+
+
+3. Preview ratio fix
+
+Fixed the live active preview box so video stays closer to the proper 16:9 shape.
+
+Adjustment:
+
+- Preview box is now less wide.
+- Details/description area gets more width.
+- Video preview should look less stretched.
+
+
+4. Auto-scrolling program descriptions
+
+Added automatic scrolling for long program descriptions.
+
+Behavior:
+
+- If the description fits, it stays still.
+- If the description is too long, it slowly scrolls upward.
+- When it reaches the end, it returns to the top, pauses briefly, then repeats.
+- The scroll resets when the user highlights another channel/program.
+
+
+5. Guide focus navigation stabilization
+
+Improved D-pad/remote behavior in the timeline guide.
+
+Fix target:
+
+- Guide sometimes jumped back up to the category tabs.
+- Guide sometimes would not let the user get back into the guide area after moving up to the menu/category tabs.
+
+Changes:
+
+- Removed forced focus behavior that kept preferring the first guide row.
+- Made guide channel cells and program cells explicitly focusable.
+- Added nested scrolling support for the timeline area.
+
+
+6. Favorites/category tab stability
+
+Hardened behavior when switching tabs/categories and when opening Favorites.
+
+Fix target:
+
+- Favorites tab sometimes crashed after adding channels.
+- Some category tabs sometimes crashed or behaved inconsistently.
+
+Changes:
+
+- Removed forced first-card focus from the box/favorites grid.
+- Added category safety so the app falls back to All if the selected category becomes invalid.
+
+
+7. Fast guide scrolling crash mitigation
+
+Added delayed guide preview switching.
+
+Fix target:
+
+- Holding Down on the remote to scroll quickly through the guide could crash the app.
+
+Behavior:
+
+- Guide focus/highlight can move quickly.
+- Live preview waits briefly before changing streams.
+- This prevents the preview player from trying to load many streams rapidly during fast scrolling.
+
+
+8. Player overlay hook warning fix
+
+Cleaned up React Hook warning in the player screen.
+
+Fix target:
+
+- GitHub Actions warning:
+  React Hook useEffect has a missing dependency: 'scheduleHide'.
+
+Changes:
+
+- Stabilized player overlay timer functions.
+- Removed hook warning suppressions around player timer/back-button behavior.
+- Player overlay hide/show behavior should be more predictable.
+
+
+Removed or Reduced
+------------------
+1. Removed forced first-item focus behavior
+
+Removed from:
+
+- Timeline guide first row
+- Box/card grid first item
+
+Reason:
+
+This behavior could pull focus back to the top unexpectedly and contribute to crashes or navigation traps.
+
+
+2. Reduced live preview aggressiveness
+
+The guide no longer has to instantly switch preview streams during rapid guide scrolling.
+
+Reason:
+
+Rapid preview switching was a likely cause of crashes during fast remote scrolling.
+
+
+Layout and UI Adjustments
+-------------------------
+1. Live preview/details layout adjusted
+
+- Live preview uses a more natural video ratio.
+- Description panel is wider.
+- Long descriptions can now be read without opening another screen.
+
+
+2. Mobile layout adjusted
+
+- Mobile uses a safer card guide.
+- Mobile avoids TV-style live-preview browsing.
+- Mobile avoids the A-Z rail.
+
+
+3. Settings area expanded
+
+Settings now includes more tester/useful controls:
+
+- Guide layout
+- Guide density
+- Safe preview mode
+- Channel numbers
+- Player controls timeout
+- Auto retry streams
+- Pointer mode
+- Diagnostics
+- Guide cache controls
+
+
+Validation Performed
+--------------------
+The following checks were run locally after the code changes:
+
+- TypeScript check passed.
+- Expo lint passed for the version/channel-number feature bundle.
+- Git working tree was clean after commits.
+
+
+Commits Included After 9:25 AM
+------------------------------
+b78de5d - Fix mobile orientation resize after playback
+8074eca - Add mobile safe guide and natural rotation
+08bffe7 - Fix preview ratio and auto-scroll descriptions
+7c88b32 - Stabilize guide focus navigation
+ada7531 - Fix player overlay hook warning
+dc413dd - Harden guide tab and fast scroll stability
+f6f50f1 - Add safe preview and guide density settings
+e516ce1 - Add build versioning and channel numbers
+
+
+Recommended Tester Notes
+------------------------
+Ask testers to pay special attention to:
+
+1. Fast scrolling through the guide by holding the remote Down button.
+2. Switching between All, Favorites, Movies, TV, Sports, and other tabs.
+3. Opening Favorites after adding/removing channels.
+4. Trying Safe Preview Mode:
+   - Live preview ON
+   - Live preview delayed
+   - Live preview OFF
+5. Trying Guide Density:
+   - Comfortable
+   - Normal
+   - Compact
+6. Confirming the build/version number appears in Settings.
+7. Confirming the downloaded APK filename includes the version number.
+8. Turning Channel Numbers on/off and confirming numbering updates across the app.
+
+
+Known Follow-Up Items
+---------------------
+1. Confirm the latest APK fully fixes Favorites/category crashes.
+2. Confirm fast guide scrolling no longer crashes on Onn box, Fire Stick, Android TV, and mobile.
+3. Continue tuning Command Center spacing after TV testing.
+4. Consider adding a Guide First / Hide Top Panels mode later for users who want more visible guide rows.
+5. Consider adding a tester issue-report template or screen.
+
