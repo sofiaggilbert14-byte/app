@@ -24,15 +24,17 @@ import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { nowNext, fmtTime } from "@/src/utils/time";
 import { addTvKeyListener } from "@/src/utils/tvRemote";
 
-const CONTROLS_HIDE_MS = 8_000;
+const CONTROLS_HIDE_MS = 60_000;
 const CHANNEL_PREVIEW_DELAY_MS = 650;
 const SWITCH_NOTICE_MS = 2_500;
+const GOLD = "#F6B73C";
+const GOLD_SOFT = "#FFE3A3";
 
 export default function PlayerScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const params = useLocalSearchParams<{ channelId: string }>();
-  const { channels, addRecent, channelById } = useStore();
+  const { channels, addRecent, channelById, hardRefresh } = useStore();
 
   const [channelId, setChannelId] = useState(params.channelId);
   const channel = useMemo(() => channelById(channelId), [channelId, channelById]);
@@ -214,6 +216,17 @@ export default function PlayerScreen() {
     router.back();
   };
 
+  const leavePlayerTo = async (route: "/" | "/search" | "/settings") => {
+    void Haptics.selectionAsync().catch(() => {});
+    if (canRotate) {
+      try {
+        await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+        await ScreenOrientation.unlockAsync();
+      } catch {}
+    }
+    router.replace(route as any);
+  };
+
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
       if (!controls) {
@@ -282,17 +295,6 @@ export default function PlayerScreen() {
 
       {controls && (
         <>
-          {hasStream && (
-            <Pressable
-              style={({ focused }: any) => [styles.stopBtn, focused && styles.stopFocused]}
-              hasTVPreferredFocus
-              onPress={stopAndExit}
-              testID="player-stop-btn"
-            >
-              <Ionicons name="stop" size={24} color="#fff" />
-              <Text style={styles.stopText}>Stop</Text>
-            </Pressable>
-          )}
           <LinearGradient
             colors={["rgba(0,0,0,0.85)", "transparent"]}
             style={[styles.topScrim, { paddingTop: insets.top + spacing.sm }]}
@@ -331,11 +333,27 @@ export default function PlayerScreen() {
             <View style={styles.quickControls}>
               <Pressable
                 style={({ focused }: any) => [styles.quickBtn, focused && styles.ctrlFocused]}
+                onPress={() => leavePlayerTo("/settings")}
+                testID="player-settings-btn"
+              >
+                <Ionicons name="settings-outline" size={18} color={GOLD_SOFT} />
+                <Text style={styles.quickBtnText}>Settings</Text>
+              </Pressable>
+              <Pressable
+                style={({ focused }: any) => [styles.quickBtn, focused && styles.ctrlFocused]}
                 onPress={() => surfByOffset(-1)}
                 testID="player-prev-channel-btn"
               >
-                <Ionicons name="play-skip-back" size={18} color="#fff" />
+                <Ionicons name="play-skip-back" size={18} color={GOLD_SOFT} />
                 <Text style={styles.quickBtnText}>Previous</Text>
+              </Pressable>
+              <Pressable
+                style={({ focused }: any) => [styles.quickBtn, focused && styles.ctrlFocused]}
+                onPress={stopAndExit}
+                testID="player-overlay-stop-btn"
+              >
+                <Ionicons name="stop" size={18} color={GOLD_SOFT} />
+                <Text style={styles.quickBtnText}>Stop</Text>
               </Pressable>
               <Pressable
                 style={({ focused }: any) => [
@@ -347,7 +365,7 @@ export default function PlayerScreen() {
                 onPress={() => lastPlayerChannel && surf(lastPlayerChannel.id)}
                 testID="player-last-channel-btn"
               >
-                <Ionicons name="return-up-back" size={18} color="#fff" />
+                <Ionicons name="return-up-back" size={18} color={GOLD_SOFT} />
                 <Text style={styles.quickBtnText}>Last</Text>
               </Pressable>
               <Pressable
@@ -355,8 +373,36 @@ export default function PlayerScreen() {
                 onPress={() => surfByOffset(1)}
                 testID="player-next-channel-btn"
               >
-                <Ionicons name="play-skip-forward" size={18} color="#fff" />
+                <Ionicons name="play-skip-forward" size={18} color={GOLD_SOFT} />
                 <Text style={styles.quickBtnText}>Next</Text>
+              </Pressable>
+              <Pressable
+                style={({ focused }: any) => [styles.quickBtn, focused && styles.ctrlFocused]}
+                onPress={() => leavePlayerTo("/")}
+                testID="player-guide-btn"
+              >
+                <Ionicons name="list" size={18} color={GOLD_SOFT} />
+                <Text style={styles.quickBtnText}>Guide</Text>
+              </Pressable>
+              <Pressable
+                style={({ focused }: any) => [styles.quickBtn, focused && styles.ctrlFocused]}
+                onPress={() => leavePlayerTo("/search")}
+                testID="player-search-btn"
+              >
+                <Ionicons name="search" size={18} color={GOLD_SOFT} />
+                <Text style={styles.quickBtnText}>Search</Text>
+              </Pressable>
+              <Pressable
+                style={({ focused }: any) => [styles.quickBtn, focused && styles.ctrlFocused]}
+                onPress={() => {
+                  void Haptics.selectionAsync().catch(() => {});
+                  hardRefresh();
+                  scheduleHide();
+                }}
+                testID="player-guide-refresh-btn"
+              >
+                <Ionicons name="refresh" size={18} color={GOLD_SOFT} />
+                <Text style={styles.quickBtnText}>Refresh</Text>
               </Pressable>
             </View>
             <Text style={styles.surfLabel}>Channels</Text>
@@ -406,21 +452,6 @@ const styles = StyleSheet.create({
   },
   retryBtn: { backgroundColor: colors.brand, paddingHorizontal: spacing.xl, paddingVertical: spacing.md, borderRadius: radius.md },
   retryText: { color: "#fff", fontFamily: fonts.semibold },
-  stopBtn: {
-    position: "absolute",
-    alignSelf: "center",
-    top: "44%",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    backgroundColor: colors.error,
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.md,
-    borderRadius: radius.pill,
-    zIndex: 10,
-  },
-  stopText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 15 },
-  stopFocused: { borderWidth: 3, borderColor: "#fff" },
   switchNotice: {
     position: "absolute",
     alignSelf: "center",
@@ -438,8 +469,8 @@ const styles = StyleSheet.create({
     maxWidth: "82%",
   },
   switchNoticeText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 13, maxWidth: 320 },
-  ctrlFocused: { borderWidth: 2, borderColor: "#fff", borderRadius: radius.sm, backgroundColor: "rgba(255,255,255,0.15)" },
-  surfFocused: { borderWidth: 2, borderColor: "#fff", borderRadius: radius.sm, backgroundColor: "rgba(255,255,255,0.15)" },
+  ctrlFocused: { borderWidth: 2, borderColor: GOLD_SOFT, borderRadius: radius.sm, backgroundColor: "rgba(246,183,60,0.18)" },
+  surfFocused: { borderWidth: 2, borderColor: GOLD_SOFT, borderRadius: radius.sm, backgroundColor: "rgba(246,183,60,0.18)" },
   topScrim: {
     position: "absolute",
     top: 0,
@@ -465,24 +496,39 @@ const styles = StyleSheet.create({
   },
   quickControls: {
     flexDirection: "row",
-    gap: spacing.sm,
-    paddingHorizontal: spacing.lg,
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+    justifyContent: "center",
+    flexWrap: "wrap",
   },
   quickBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.xs,
-    backgroundColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(30,20,12,0.82)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.18)",
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    borderColor: "rgba(255,227,163,0.20)",
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 7,
+    minWidth: 92,
+    justifyContent: "center",
   },
   quickBtnDisabled: { opacity: 0.35 },
-  quickBtnText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 12 },
-  surfLabel: { color: "rgba(255,255,255,0.9)", fontFamily: fonts.semibold, fontSize: 13, paddingHorizontal: spacing.lg },
-  surfItem: { width: 68, alignItems: "center", gap: 4 },
+  quickBtnText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 11 },
+  surfLabel: { color: GOLD, fontFamily: fonts.semibold, fontSize: 13, paddingHorizontal: spacing.lg },
+  surfItem: {
+    width: 98,
+    minHeight: 76,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: "rgba(255,227,163,0.12)",
+    backgroundColor: "rgba(0,0,0,0.22)",
+    padding: spacing.xs,
+  },
   surfActive: { opacity: 1 },
   surfName: { color: "rgba(255,255,255,0.8)", fontFamily: fonts.medium, fontSize: 10, textAlign: "center" },
 });

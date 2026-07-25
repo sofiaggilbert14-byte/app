@@ -18,6 +18,8 @@ import { ChannelLogo } from "./ChannelLogo";
 import { AZRail } from "./AZRail";
 
 const HEADER_H = 34;
+const GOLD = "#F6B73C";
+const GOLD_SOFT = "#FFE3A3";
 
 function mins(a: string, b: string) {
   return dayjs(a).diff(dayjs(b), "minute");
@@ -47,9 +49,9 @@ export function TimelineGrid({
   const { width } = useWindowDimensions();
   // Scale up for tablets / TVs so it stays readable on large landscape screens.
   const big = width >= 900;
-  const ROW_H = big ? 84 : 66;
-  const LOGO_W = big ? 108 : 76;
-  const LOGO_SIZE = big ? 54 : 40;
+  const ROW_H = big ? 78 : 66;
+  const LOGO_W = big ? 250 : 176;
+  const LOGO_SIZE = big ? 44 : 36;
   const PX_PER_MIN = big ? 4.4 : 3.4;
 
   const scrollX = useRef(new Animated.Value(0)).current;
@@ -115,7 +117,7 @@ export function TimelineGrid({
                 contentContainerStyle={{ paddingBottom: 120 }}
                 refreshControl={
                   onRefresh ? (
-                    <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={colors.brand} colors={[colors.brand]} />
+                    <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={GOLD} colors={[GOLD]} />
                   ) : undefined
                 }
                 renderItem={({ item, index }) => (
@@ -207,62 +209,63 @@ const styles = StyleSheet.create({
   headerRow: {
     flexDirection: "row",
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    backgroundColor: colors.surface,
+    borderBottomColor: "rgba(246,183,60,0.32)",
+    backgroundColor: "rgba(10,7,4,0.96)",
   },
   corner: {
     height: HEADER_H,
     alignItems: "center",
     justifyContent: "center",
     borderRightWidth: 1,
-    borderRightColor: colors.border,
-    backgroundColor: colors.surface,
+    borderRightColor: "rgba(246,183,60,0.38)",
+    backgroundColor: "rgba(0,0,0,0.72)",
     zIndex: 5,
   },
-  cornerText: { color: colors.onSurfaceTertiary, fontFamily: fonts.semibold, fontSize: 11 },
+  cornerText: { color: GOLD_SOFT, fontFamily: fonts.bold, fontSize: 11 },
   headerTrack: { flex: 1, height: HEADER_H, overflow: "hidden" },
   tickLabel: {
     position: "absolute",
     top: 9,
-    color: colors.onSurfaceTertiary,
-    fontFamily: fonts.medium,
-    fontSize: 11,
+    color: GOLD_SOFT,
+    fontFamily: fonts.semibold,
+    fontSize: 12,
     width: 100,
   },
-  row: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: colors.divider },
+  row: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "rgba(246,183,60,0.15)" },
   logoCol: {
     zIndex: 5,
-    backgroundColor: colors.surface,
+    backgroundColor: "rgba(8,5,3,0.97)",
     borderRightWidth: 1,
-    borderRightColor: colors.border,
+    borderRightColor: "rgba(246,183,60,0.30)",
   },
   logoCell: {
     flex: 1,
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 4,
-    gap: 2,
+    justifyContent: "flex-start",
+    paddingHorizontal: spacing.sm,
+    gap: spacing.sm,
   },
-  logoName: { color: colors.onSurfaceTertiary, fontFamily: fonts.medium, fontSize: 9, textAlign: "center" },
+  logoName: { color: "#fff", fontFamily: fonts.semibold, fontSize: 13, textAlign: "left", flex: 1 },
   progCell: {
     position: "absolute",
     top: 5,
     bottom: 5,
-    backgroundColor: colors.surfaceSecondary,
+    backgroundColor: "rgba(32,21,13,0.78)",
     borderRadius: radius.sm,
     borderWidth: 0.5,
-    borderColor: colors.border,
+    borderColor: "rgba(255,227,163,0.16)",
     paddingHorizontal: spacing.sm,
     justifyContent: "center",
   },
-  progLive: { borderColor: colors.brand, backgroundColor: "#241018" },
+  progLive: { borderColor: GOLD, backgroundColor: "rgba(246,183,60,0.18)" },
   cellFocused: {
-    borderColor: "#fff",
+    borderColor: GOLD_SOFT,
     borderWidth: 2,
-    backgroundColor: "#2a121b",
+    backgroundColor: "rgba(246,183,60,0.22)",
   },
   progTitle: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 12 },
-  progTime: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 10, marginTop: 2 },
+  progTime: { color: GOLD_SOFT, fontFamily: fonts.regular, fontSize: 10, marginTop: 2 },
   noData: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 11 },
-  nowLine: { position: "absolute", top: 0, bottom: 0, width: 2, backgroundColor: colors.brand, zIndex: 3, pointerEvents: "none" },
+  nowLine: { position: "absolute", top: 0, bottom: 0, width: 2, backgroundColor: GOLD, zIndex: 3, pointerEvents: "none" },
 });
