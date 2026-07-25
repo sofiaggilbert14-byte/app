@@ -15,7 +15,7 @@ import * as Haptics from "expo-haptics";
 import dayjs from "dayjs";
 import { colors, fonts, radius, spacing } from "@/src/theme";
 import type { SourceStatus } from "@/src/api";
-import { useStore } from "@/src/store";
+import { GuideDensity, GuideLayout, PlayerControlsTimeoutMs, useStore } from "@/src/store";
 import {
   sourceStatus,
   refreshSource,
@@ -27,7 +27,21 @@ import {
 import { useTvBackToGuide } from "@/src/hooks/use-tv-back-to-guide";
 
 export default function SettingsScreen() {
-  const { refresh: refreshGuide, hardRefresh, refreshing, pointerMode, setPointerMode } = useStore();
+  const {
+    refresh: refreshGuide,
+    hardRefresh,
+    refreshing,
+    pointerMode,
+    setPointerMode,
+    guideLayout,
+    setGuideLayout,
+    guideDensity,
+    setGuideDensity,
+    playerControlsTimeoutMs,
+    setPlayerControlsTimeoutMs,
+    autoRetryStreams,
+    setAutoRetryStreams,
+  } = useStore();
   const [status, setStatus] = useState<SourceStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [diagnostics, setDiagnostics] = useState<SourceDiagnostics | null>(null);
@@ -167,6 +181,57 @@ export default function SettingsScreen() {
         </View>
 
         <View style={styles.card}>
+          <Text style={styles.cardTitle}>Guide & Player Preferences</Text>
+          <Text style={styles.sub}>
+            Tune the layout for real TVs. Compact options show more guide rows; larger options are easier to read from
+            across the room.
+          </Text>
+          <ChoiceRow<GuideLayout>
+            label="Guide layout"
+            value={guideLayout}
+            options={[
+              { label: "Cinematic", value: "cinematic" },
+              { label: "Compact", value: "compact" },
+            ]}
+            onChange={setGuideLayout}
+          />
+          <ChoiceRow<GuideDensity>
+            label="Guide density"
+            value={guideDensity}
+            options={[
+              { label: "Large", value: "large" },
+              { label: "Normal", value: "normal" },
+              { label: "Compact", value: "compact" },
+            ]}
+            onChange={setGuideDensity}
+          />
+          <ChoiceRow<PlayerControlsTimeoutMs>
+            label="Player controls timeout"
+            value={playerControlsTimeoutMs}
+            options={[
+              { label: "8 sec", value: 8000 },
+              { label: "15 sec", value: 15000 },
+              { label: "30 sec", value: 30000 },
+              { label: "60 sec", value: 60000 },
+            ]}
+            onChange={setPlayerControlsTimeoutMs}
+          />
+          <View style={styles.rowBetween}>
+            <View style={{ flex: 1, paddingRight: spacing.md }}>
+              <Text style={styles.settingLabel}>Auto retry streams</Text>
+              <Text style={styles.sub}>When a stream drops, Phoenix keeps trying until you leave the player.</Text>
+            </View>
+            <Switch
+              value={autoRetryStreams}
+              onValueChange={setAutoRetryStreams}
+              trackColor={{ false: colors.surfaceTertiary, true: colors.brand }}
+              thumbColor="#fff"
+              testID="settings-auto-retry-toggle"
+            />
+          </View>
+        </View>
+
+        <View style={styles.card}>
           <Text style={styles.cardTitle}>Beta Tester Checklist</Text>
           <ChecklistItem label="Guide loads and scrolls without crashing" />
           <ChecklistItem label="Player controls fade away after playback starts" />
@@ -225,6 +290,41 @@ function ChecklistItem({ label }: { label: string }) {
   );
 }
 
+function ChoiceRow<T extends string | number>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: { label: string; value: T }[];
+  onChange: (v: T) => void;
+}) {
+  return (
+    <View style={styles.choiceBlock}>
+      <Text style={styles.settingLabel}>{label}</Text>
+      <View style={styles.choiceRow}>
+        {options.map((option) => {
+          const active = option.value === value;
+          return (
+            <Pressable
+              key={String(option.value)}
+              onPress={() => {
+                Haptics.selectionAsync();
+                onChange(option.value);
+              }}
+              style={({ focused }: any) => [styles.choiceBtn, active && styles.choiceBtnActive, focused && styles.focusRing]}
+            >
+              <Text style={[styles.choiceText, active && styles.choiceTextActive]}>{option.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
   header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.sm },
@@ -241,8 +341,24 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   cardTitle: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 16 },
+  settingLabel: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 14 },
   rowBetween: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   sub: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 13, lineHeight: 19 },
+  choiceBlock: { gap: spacing.xs, marginTop: spacing.xs },
+  choiceRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  choiceBtn: {
+    minHeight: 34,
+    paddingHorizontal: spacing.md,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceTertiary,
+  },
+  choiceBtnActive: { backgroundColor: colors.brand, borderColor: colors.brandSecondary },
+  choiceText: { color: colors.onSurfaceSecondary, fontFamily: fonts.semibold, fontSize: 12 },
+  choiceTextActive: { color: "#fff" },
   hint: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 11, textAlign: "center" },
   statRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: spacing.xs },
   statLabel: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 14 },

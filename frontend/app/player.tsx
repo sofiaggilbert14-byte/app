@@ -24,7 +24,6 @@ import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { nowNext, fmtTime } from "@/src/utils/time";
 import { addTvKeyListener } from "@/src/utils/tvRemote";
 
-const CONTROLS_HIDE_MS = 60_000;
 const CHANNEL_PREVIEW_DELAY_MS = 650;
 const SWITCH_NOTICE_MS = 2_500;
 const STREAM_RETRY_MS = 3_000;
@@ -35,7 +34,7 @@ export default function PlayerScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const params = useLocalSearchParams<{ channelId: string }>();
-  const { channels, addRecent, channelById, hardRefresh } = useStore();
+  const { channels, addRecent, channelById, hardRefresh, playerControlsTimeoutMs, autoRetryStreams } = useStore();
 
   const [channelId, setChannelId] = useState(params.channelId);
   const channel = useMemo(() => channelById(channelId), [channelId, channelById]);
@@ -155,7 +154,7 @@ export default function PlayerScreen() {
 
   const scheduleHide = () => {
     if (hideTimer.current) clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(() => setControls(false), CONTROLS_HIDE_MS);
+    hideTimer.current = setTimeout(() => setControls(false), playerControlsTimeoutMs);
   };
 
   useEffect(() => {
@@ -198,7 +197,7 @@ export default function PlayerScreen() {
   // Back, Guide, Search, or another channel will leave the stream and cancel
   // the retry loop by unmounting this screen or changing channel.
   useEffect(() => {
-    if (!hasStream || status !== "error") return;
+    if (!autoRetryStreams || !hasStream || status !== "error") return;
     if (retryTimer.current) clearTimeout(retryTimer.current);
     retryTimer.current = setTimeout(() => {
       retryStreamNow();
@@ -207,7 +206,7 @@ export default function PlayerScreen() {
       if (retryTimer.current) clearTimeout(retryTimer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, hasStream, channelId]);
+  }, [status, hasStream, channelId, autoRetryStreams]);
 
   // On TV, any D-pad / remote key reveals the controls again, then re-arms the
   // auto-hide. Uses native TvRemoteKey events from the withTvRemote plugin.

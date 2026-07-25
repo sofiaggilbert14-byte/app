@@ -15,7 +15,15 @@ const RECENT_KEY = "gs_recent";
 const LAST_CHANNEL_KEY = "gs_last_channel";
 const REM_KEY = "gs_reminders";
 const PMODE_KEY = "gs_pointer_mode";
+const GUIDE_LAYOUT_KEY = "gs_guide_layout";
+const GUIDE_DENSITY_KEY = "gs_guide_density";
+const PLAYER_TIMEOUT_KEY = "gs_player_timeout_ms";
+const AUTO_RETRY_KEY = "gs_auto_retry_streams";
 const GUIDE_WINDOW_HOURS = 24;
+
+export type GuideLayout = "cinematic" | "compact";
+export type GuideDensity = "large" | "normal" | "compact";
+export type PlayerControlsTimeoutMs = 8000 | 15000 | 30000 | 60000;
 
 export type Reminder = {
   key: string;
@@ -62,6 +70,15 @@ type Store = {
   pointerMode: boolean;
   setPointerMode: (v: boolean) => void;
 
+  guideLayout: GuideLayout;
+  setGuideLayout: (v: GuideLayout) => void;
+  guideDensity: GuideDensity;
+  setGuideDensity: (v: GuideDensity) => void;
+  playerControlsTimeoutMs: PlayerControlsTimeoutMs;
+  setPlayerControlsTimeoutMs: (v: PlayerControlsTimeoutMs) => void;
+  autoRetryStreams: boolean;
+  setAutoRetryStreams: (v: boolean) => void;
+
   epgProgress: EpgProgress;
 };
 
@@ -89,6 +106,10 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [activeProgram, setActiveProgram] = useState<ActiveProgram>(null);
   const [pointerMode, setPointerModeState] = useState(false);
+  const [guideLayout, setGuideLayoutState] = useState<GuideLayout>("cinematic");
+  const [guideDensity, setGuideDensityState] = useState<GuideDensity>("normal");
+  const [playerControlsTimeoutMs, setPlayerControlsTimeoutMsState] = useState<PlayerControlsTimeoutMs>(60000);
+  const [autoRetryStreams, setAutoRetryStreamsState] = useState(true);
   const [epgProgress, setEpgProgress] = useState<EpgProgress>({
     phase: "idle",
     ratio: 0,
@@ -98,6 +119,26 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const setPointerMode = useCallback((v: boolean) => {
     setPointerModeState(v);
     storage.setItem(PMODE_KEY, v);
+  }, []);
+
+  const setGuideLayout = useCallback((v: GuideLayout) => {
+    setGuideLayoutState(v);
+    storage.setItem(GUIDE_LAYOUT_KEY, v);
+  }, []);
+
+  const setGuideDensity = useCallback((v: GuideDensity) => {
+    setGuideDensityState(v);
+    storage.setItem(GUIDE_DENSITY_KEY, v);
+  }, []);
+
+  const setPlayerControlsTimeoutMs = useCallback((v: PlayerControlsTimeoutMs) => {
+    setPlayerControlsTimeoutMsState(v);
+    storage.setItem(PLAYER_TIMEOUT_KEY, v);
+  }, []);
+
+  const setAutoRetryStreams = useCallback((v: boolean) => {
+    setAutoRetryStreamsState(v);
+    storage.setItem(AUTO_RETRY_KEY, v);
   }, []);
 
   const refresh = useCallback(async (silent = false) => {
@@ -145,6 +186,10 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setLastChannelId(await storage.getItem<string | null>(LAST_CHANNEL_KEY, null));
       setReminders((await storage.getItem<Reminder[]>(REM_KEY, [])) || []);
       setPointerModeState((await storage.getItem<boolean>(PMODE_KEY, false)) || false);
+      setGuideLayoutState((await storage.getItem<GuideLayout>(GUIDE_LAYOUT_KEY, "cinematic")) || "cinematic");
+      setGuideDensityState((await storage.getItem<GuideDensity>(GUIDE_DENSITY_KEY, "normal")) || "normal");
+      setPlayerControlsTimeoutMsState((await storage.getItem<PlayerControlsTimeoutMs>(PLAYER_TIMEOUT_KEY, 60000)) || 60000);
+      setAutoRetryStreamsState((await storage.getItem<boolean>(AUTO_RETRY_KEY, true)) ?? true);
       requestNotificationPermission();
       // Loads instantly from the on-device cache when it's < 24h old; otherwise
       // fetches & parses once. No network hit on every launch — the source is
@@ -277,6 +322,14 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     closeProgram,
     pointerMode,
     setPointerMode,
+    guideLayout,
+    setGuideLayout,
+    guideDensity,
+    setGuideDensity,
+    playerControlsTimeoutMs,
+    setPlayerControlsTimeoutMs,
+    autoRetryStreams,
+    setAutoRetryStreams,
     epgProgress,
   };
 

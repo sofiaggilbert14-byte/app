@@ -76,9 +76,12 @@ export default function GuideScreen() {
     openProgram,
     favorites,
     lastChannelId,
+    guideLayout,
+    guideDensity,
   } = useStore();
   const now = new Date().toISOString();
   const shortScreen = height < 760;
+  const compactGuide = guideLayout === "compact";
 
   const [category, setCategory] = useState<string>("All");
   const [focusedChannelId, setFocusedChannelId] = useState<string | null>(null);
@@ -203,7 +206,7 @@ export default function GuideScreen() {
           )}
         </View>
 
-        <View style={[styles.previewDetailsRow, shortScreen && styles.previewDetailsRowShort]}>
+        <View style={[styles.previewDetailsRow, compactGuide && styles.previewDetailsRowCompact, shortScreen && styles.previewDetailsRowShort]}>
           <Pressable
             style={({ focused }: any) => [styles.livePreviewPanel, focused && styles.goldFocus]}
             onPress={() => previewChannel && openChannel(previewChannel)}
@@ -232,9 +235,9 @@ export default function GuideScreen() {
             </View>
             <View style={[styles.previewCenter, previewChannel?.url && previewStatus !== "error" && styles.previewCenterOverlay]}>
               {previewChannel ? (
-                <ChannelLogo name={previewChannel.name} logo={previewChannel.logo} size={shortScreen ? 46 : 58} />
+                <ChannelLogo name={previewChannel.name} logo={previewChannel.logo} size={compactGuide || shortScreen ? 42 : 58} />
               ) : (
-                <Ionicons name="tv-outline" size={shortScreen ? 44 : 56} color={GOLD_SOFT} />
+                <Ionicons name="tv-outline" size={compactGuide || shortScreen ? 40 : 56} color={GOLD_SOFT} />
               )}
               <Text numberOfLines={1} style={styles.previewChannelName}>
                 {previewChannel?.name || "Select a channel"}
@@ -251,7 +254,7 @@ export default function GuideScreen() {
               <Text style={styles.detailsLabel}>NOW PLAYING DETAILS</Text>
               {favorites.includes(previewChannel?.id || "") && <Ionicons name="star" size={20} color={GOLD} />}
             </View>
-            <Text numberOfLines={1} style={styles.programTitle}>
+            <Text numberOfLines={1} style={[styles.programTitle, compactGuide && styles.programTitleCompact]}>
               {preview.current?.title || "No program information"}
             </Text>
             <View style={styles.programMetaRow}>
@@ -264,7 +267,7 @@ export default function GuideScreen() {
               <Text style={styles.programMeta}>{preview.current?.stop ? `${Math.max(0, dayjs(preview.current.stop).diff(dayjs(), "minute"))} min left` : ""}</Text>
             </View>
             <Text style={styles.descriptionLabel}>PROGRAM DESCRIPTION</Text>
-            <Text numberOfLines={shortScreen ? 2 : 3} style={styles.description}>
+            <Text numberOfLines={compactGuide || shortScreen ? 1 : 3} style={styles.description}>
               {preview.current?.desc ||
                 "Highlight a program in the guide to see its title, time, and description here. Press OK to watch the highlighted channel."}
             </Text>
@@ -323,6 +326,7 @@ export default function GuideScreen() {
               onChannelFocus={(c) => setFocusedChannelId(c.id)}
               refreshing={refreshing}
               onRefresh={hardRefresh}
+              density={guideDensity}
             />
           </FocusGuide>
         )}
@@ -388,6 +392,7 @@ const styles = StyleSheet.create({
   brandGold: { color: GOLD },
   clock: { position: "absolute", right: 0, color: "rgba(255,255,255,0.72)", fontFamily: fonts.medium, fontSize: 12 },
   previewDetailsRow: { flexDirection: "row", gap: spacing.sm, height: 150 },
+  previewDetailsRowCompact: { height: 110 },
   previewDetailsRowShort: { height: 126 },
   livePreviewPanel: {
     flex: 0.82,
@@ -424,6 +429,7 @@ const styles = StyleSheet.create({
   detailsHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   detailsLabel: { color: GOLD, fontFamily: fonts.bold, fontSize: 12 },
   programTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 20 },
+  programTitleCompact: { fontSize: 16 },
   programMetaRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   programMeta: { color: GOLD_SOFT, fontFamily: fonts.medium, fontSize: 11 },
   progressTrack: {

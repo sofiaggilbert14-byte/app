@@ -35,6 +35,7 @@ export function TimelineGrid({
   onChannelFocus,
   refreshing,
   onRefresh,
+  density = "normal",
 }: {
   channels: Channel[];
   windowStart: string;
@@ -45,13 +46,14 @@ export function TimelineGrid({
   onChannelFocus?: (c: Channel) => void;
   refreshing?: boolean;
   onRefresh?: () => void;
+  density?: "large" | "normal" | "compact";
 }) {
   const { width } = useWindowDimensions();
   // Scale up for tablets / TVs so it stays readable on large landscape screens.
   const big = width >= 900;
-  const ROW_H = big ? 62 : 56;
+  const ROW_H = density === "large" ? (big ? 76 : 66) : density === "compact" ? (big ? 52 : 48) : big ? 62 : 56;
   const LOGO_W = big ? 250 : 176;
-  const LOGO_SIZE = big ? 34 : 30;
+  const LOGO_SIZE = density === "large" ? (big ? 44 : 36) : density === "compact" ? (big ? 30 : 26) : big ? 34 : 30;
   const PX_PER_MIN = big ? 4.4 : 3.4;
 
   const scrollX = useRef(new Animated.Value(0)).current;
