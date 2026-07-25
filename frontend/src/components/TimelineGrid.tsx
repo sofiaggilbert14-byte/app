@@ -49,9 +49,9 @@ export function TimelineGrid({
   const { width } = useWindowDimensions();
   // Scale up for tablets / TVs so it stays readable on large landscape screens.
   const big = width >= 900;
-  const ROW_H = big ? 78 : 66;
+  const ROW_H = big ? 62 : 56;
   const LOGO_W = big ? 250 : 176;
-  const LOGO_SIZE = big ? 44 : 36;
+  const LOGO_SIZE = big ? 34 : 30;
   const PX_PER_MIN = big ? 4.4 : 3.4;
 
   const scrollX = useRef(new Animated.Value(0)).current;
@@ -246,7 +246,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     gap: spacing.sm,
   },
-  logoName: { color: "#fff", fontFamily: fonts.semibold, fontSize: 13, textAlign: "left", flex: 1 },
+  logoName: { color: "#fff", fontFamily: fonts.semibold, fontSize: 12, textAlign: "left", flex: 1 },
   progCell: {
     position: "absolute",
     top: 5,
@@ -264,8 +264,8 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     backgroundColor: "rgba(246,183,60,0.22)",
   },
-  progTitle: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 12 },
-  progTime: { color: GOLD_SOFT, fontFamily: fonts.regular, fontSize: 10, marginTop: 2 },
-  noData: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 11 },
+  progTitle: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 11 },
+  progTime: { color: GOLD_SOFT, fontFamily: fonts.regular, fontSize: 9, marginTop: 1 },
+  noData: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 10 },
   nowLine: { position: "absolute", top: 0, bottom: 0, width: 2, backgroundColor: GOLD, zIndex: 3, pointerEvents: "none" },
 });

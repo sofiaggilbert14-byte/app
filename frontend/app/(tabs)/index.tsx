@@ -224,9 +224,9 @@ export default function GuideScreen() {
             </View>
             <View style={[styles.previewCenter, previewChannel?.url && previewStatus !== "error" && styles.previewCenterOverlay]}>
               {previewChannel ? (
-                <ChannelLogo name={previewChannel.name} logo={previewChannel.logo} size={shortScreen ? 62 : 86} />
+                <ChannelLogo name={previewChannel.name} logo={previewChannel.logo} size={shortScreen ? 46 : 58} />
               ) : (
-                <Ionicons name="tv-outline" size={shortScreen ? 56 : 78} color={GOLD_SOFT} />
+                <Ionicons name="tv-outline" size={shortScreen ? 44 : 56} color={GOLD_SOFT} />
               )}
               <Text numberOfLines={1} style={styles.previewChannelName}>
                 {previewChannel?.name || "Select a channel"}
@@ -256,7 +256,7 @@ export default function GuideScreen() {
               <Text style={styles.programMeta}>{preview.current?.stop ? `${Math.max(0, dayjs(preview.current.stop).diff(dayjs(), "minute"))} min left` : ""}</Text>
             </View>
             <Text style={styles.descriptionLabel}>PROGRAM DESCRIPTION</Text>
-            <Text numberOfLines={shortScreen ? 3 : 5} style={styles.description}>
+            <Text numberOfLines={shortScreen ? 2 : 3} style={styles.description}>
               {preview.current?.desc ||
                 "Highlight a program in the guide to see its title, time, and description here. Press OK to watch the highlighted channel."}
             </Text>
@@ -338,9 +338,9 @@ export default function GuideScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  screen: { flex: 1, paddingHorizontal: spacing.md, paddingBottom: spacing.sm, gap: spacing.xs },
+  screen: { flex: 1, paddingHorizontal: spacing.sm, paddingBottom: spacing.xs, gap: 4 },
   topBrand: {
-    minHeight: 38,
+    minHeight: 30,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -348,11 +348,11 @@ const styles = StyleSheet.create({
     borderBottomColor: "rgba(246,183,60,0.25)",
   },
   brandRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  brandText: { color: "#fff", fontFamily: fonts.bold, fontSize: 22 },
+  brandText: { color: "#fff", fontFamily: fonts.bold, fontSize: 18 },
   brandGold: { color: GOLD },
   clock: { color: "rgba(255,255,255,0.72)", fontFamily: fonts.medium, fontSize: 12 },
-  previewDetailsRow: { flexDirection: "row", gap: spacing.sm, minHeight: 218, maxHeight: 250 },
-  previewDetailsRowShort: { minHeight: 168, maxHeight: 182 },
+  previewDetailsRow: { flexDirection: "row", gap: spacing.sm, height: 150 },
+  previewDetailsRowShort: { height: 126 },
   livePreviewPanel: {
     flex: 0.82,
     borderRadius: radius.md,
@@ -360,7 +360,7 @@ const styles = StyleSheet.create({
     borderColor: BORDER_GOLD,
     backgroundColor: PANEL,
     overflow: "hidden",
-    padding: spacing.md,
+    padding: spacing.sm,
   },
   previewLabel: {
     alignSelf: "center",
@@ -372,7 +372,7 @@ const styles = StyleSheet.create({
   previewLabelText: { color: GOLD_SOFT, fontFamily: fonts.bold, fontSize: 11 },
   previewCenter: { flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.sm },
   previewCenterOverlay: { alignItems: "flex-start", justifyContent: "flex-end" },
-  previewChannelName: { color: "#fff", fontFamily: fonts.bold, fontSize: 15, textAlign: "center" },
+  previewChannelName: { color: "#fff", fontFamily: fonts.bold, fontSize: 13, textAlign: "center" },
   liveBadge: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
   liveDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: colors.error },
   liveBadgeText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 12 },
@@ -382,35 +382,35 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: BORDER_GOLD,
     backgroundColor: PANEL,
-    padding: spacing.md,
-    gap: spacing.xs,
+    padding: spacing.sm,
+    gap: 3,
   },
   detailsHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   detailsLabel: { color: GOLD, fontFamily: fonts.bold, fontSize: 12 },
-  programTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 25 },
-  programMetaRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
-  programMeta: { color: GOLD_SOFT, fontFamily: fonts.medium, fontSize: 13 },
+  programTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 20 },
+  programMetaRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  programMeta: { color: GOLD_SOFT, fontFamily: fonts.medium, fontSize: 11 },
   progressTrack: {
-    width: 126,
-    height: 5,
+    width: 90,
+    height: 4,
     borderRadius: radius.pill,
     backgroundColor: "rgba(255,255,255,0.20)",
     overflow: "hidden",
   },
-  progressFill: { height: 5, backgroundColor: GOLD },
-  descriptionLabel: { color: GOLD, fontFamily: fonts.semibold, fontSize: 12, marginTop: spacing.xs },
-  description: { color: "rgba(255,255,255,0.84)", fontFamily: fonts.regular, fontSize: 14, lineHeight: 20 },
+  progressFill: { height: 4, backgroundColor: GOLD },
+  descriptionLabel: { color: GOLD, fontFamily: fonts.semibold, fontSize: 10, marginTop: 1 },
+  description: { color: "rgba(255,255,255,0.84)", fontFamily: fonts.regular, fontSize: 12, lineHeight: 16 },
   controlsWrap: {
-    minHeight: 54,
+    minHeight: 42,
     borderTopWidth: 1,
     borderBottomWidth: 1,
     borderColor: "rgba(246,183,60,0.20)",
   },
-  stripLabel: { color: GOLD, fontFamily: fonts.semibold, fontSize: 11, textAlign: "center", marginBottom: 2 },
-  commandControls: { flexDirection: "row", gap: spacing.sm, alignItems: "center" },
+  stripLabel: { color: GOLD, fontFamily: fonts.semibold, fontSize: 10, textAlign: "center", marginBottom: 1 },
+  commandControls: { flexDirection: "row", gap: spacing.xs, alignItems: "center" },
   commandBtn: {
     flex: 1,
-    minHeight: 38,
+    minHeight: 30,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -421,13 +421,13 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,227,163,0.18)",
     paddingHorizontal: spacing.xs,
   },
-  commandText: { color: "rgba(255,255,255,0.90)", fontFamily: fonts.semibold, fontSize: 11 },
-  categoryWrap: { minHeight: 58 },
+  commandText: { color: "rgba(255,255,255,0.90)", fontFamily: fonts.semibold, fontSize: 10 },
+  categoryWrap: { minHeight: 44 },
   categoryRow: { gap: spacing.sm, alignItems: "center", paddingRight: spacing.lg },
   categoryChip: {
-    minWidth: 120,
-    height: 38,
-    paddingHorizontal: spacing.lg,
+    minWidth: 96,
+    height: 30,
+    paddingHorizontal: spacing.md,
     borderRadius: radius.md,
     backgroundColor: "rgba(255,255,255,0.05)",
     borderWidth: 1,
@@ -436,7 +436,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   categoryChipActive: { backgroundColor: "rgba(246,183,60,0.24)", borderColor: GOLD },
-  categoryText: { color: "rgba(255,255,255,0.68)", fontFamily: fonts.medium, fontSize: 13 },
+  categoryText: { color: "rgba(255,255,255,0.68)", fontFamily: fonts.medium, fontSize: 11 },
   categoryTextActive: { color: GOLD_SOFT, fontFamily: fonts.bold },
   timelineArea: {
     flex: 1,
@@ -449,9 +449,9 @@ const styles = StyleSheet.create({
   timelineTitle: {
     color: GOLD,
     fontFamily: fonts.bold,
-    fontSize: 13,
+    fontSize: 12,
     paddingHorizontal: spacing.sm,
-    paddingVertical: 3,
+    paddingVertical: 2,
     backgroundColor: "rgba(0,0,0,0.34)",
   },
   goldFocus: {
