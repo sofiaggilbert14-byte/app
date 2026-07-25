@@ -104,6 +104,7 @@ export function TimelineGrid({
       <View style={styles.body} onLayout={(e: LayoutChangeEvent) => setBodyH(e.nativeEvent.layout.height)}>
         <ScrollView
           horizontal
+          nestedScrollEnabled
           showsHorizontalScrollIndicator={false}
           scrollEventThrottle={16}
           onScroll={Animated.event([{ nativeEvent: { contentOffset: { x: scrollX } } }], { useNativeDriver: false })}
@@ -128,7 +129,7 @@ export function TimelineGrid({
                     <Animated.View style={[styles.logoCol, { width: LOGO_W, height: ROW_H, transform: [{ translateX: scrollX }] }]}>
                       <Pressable
                         style={({ focused }: any) => [styles.logoCell, focused && styles.cellFocused]}
-                        hasTVPreferredFocus={index === 0}
+                        focusable
                         onFocus={() => onChannelFocus?.(item)}
                         onPress={() => onChannelPress(item)}
                         testID={`epg-channel-${item.id}`}
@@ -160,6 +161,7 @@ export function TimelineGrid({
                             key={`${item.id}:${p.start}:${p.stop || "open"}:${p.title}`}
                             onFocus={() => onChannelFocus?.(item)}
                             onPress={() => onProgramPress(p, item)}
+                            focusable
                             style={({ focused }: any) => [
                               styles.progCell,
                               { left, width: w },
