@@ -62,7 +62,7 @@ export function BoxGrid({
       ref={listRef}
       numColumns={numColumns}
       keyExtractor={(c) => c.id}
-      drawDistance={600}
+      drawDistance={360}
       contentContainerStyle={{ paddingBottom: 130, paddingHorizontal: spacing.xs, paddingTop: spacing.xs }}
       ListHeaderComponent={ListHeaderComponent}
       showsVerticalScrollIndicator={false}

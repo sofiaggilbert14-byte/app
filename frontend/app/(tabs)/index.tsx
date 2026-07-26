@@ -238,6 +238,8 @@ export default function GuideScreen() {
     preview.current?.desc ||
     "Highlight a program in the guide to see its title, time, and description here. Press OK to watch the highlighted channel.";
   const descriptionKey = `${previewChannel?.id || "none"}:${preview.current?.start || ""}:${preview.current?.title || ""}`;
+  const previewPlayerVisible =
+    livePreviewEnabled && !!focusedChannelId && !!previewChannel?.url && previewStatus !== "error";
 
   useEffect(() => {
     if (categories.length > 0 && !categories.includes(category)) {
@@ -426,7 +428,7 @@ export default function GuideScreen() {
               colors={["rgba(246,183,60,0.22)", "rgba(68,39,12,0.78)", "rgba(0,0,0,0.94)"]}
               style={StyleSheet.absoluteFill}
             />
-            {livePreviewEnabled && previewChannel?.url && previewStatus !== "error" && (
+            {previewPlayerVisible && (
               <ErrorBoundary fallback={() => null}>
                 <StreamPlayer
                   key={`guide-preview-${previewChannel.id}`}
@@ -443,7 +445,7 @@ export default function GuideScreen() {
             <View style={styles.previewLabel}>
               <Text style={styles.previewLabelText}>LIVE ACTIVE PREVIEW</Text>
             </View>
-            <View style={[styles.previewCenter, livePreviewEnabled && previewChannel?.url && previewStatus !== "error" && styles.previewCenterOverlay]}>
+            <View style={[styles.previewCenter, previewPlayerVisible && styles.previewCenterOverlay]}>
               {previewChannel ? (
                 <ChannelLogo name={previewChannel.name} logo={previewChannel.logo} disabled={!channelLogos} size={compactGuide || shortScreen ? 42 : 58} />
               ) : (
@@ -587,7 +589,7 @@ export default function GuideScreen() {
             resetToken={guideResetToken}
           />
         ) : (
-          <FocusGuide style={styles.timelineArea} autoFocus>
+          <FocusGuide style={styles.timelineArea} autoFocus trapFocusUp>
             <Text style={styles.timelineTitle}>FULL GUIDE TIMELINE</Text>
             <TimelineGrid
               channels={filtered}

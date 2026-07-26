@@ -26,6 +26,7 @@ import { addTvKeyListener } from "@/src/utils/tvRemote";
 const CHANNEL_PREVIEW_DELAY_MS = 650;
 const SWITCH_NOTICE_MS = 2_500;
 const STREAM_RETRY_MS = 3_000;
+const TV_OVERLAY_HIDE_MS = 8_000;
 const GOLD = "#F6B73C";
 const GOLD_SOFT = "#FFE3A3";
 
@@ -77,6 +78,7 @@ export default function PlayerScreen() {
 
   // TVs use remote key events; phones rotate naturally without Phoenix forcing orientation.
   const isTV = Platform.OS !== "web" && Platform.isTV;
+  const overlayHideMs = isTV ? Math.min(playerControlsTimeoutMs, TV_OVERLAY_HIDE_MS) : playerControlsTimeoutMs;
 
   const showSwitchNotice = useCallback((name: string) => {
     if (switchNoticeTimer.current) clearTimeout(switchNoticeTimer.current);
@@ -86,8 +88,8 @@ export default function PlayerScreen() {
 
   const scheduleHide = useCallback(() => {
     if (hideTimer.current) clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(() => setControls(false), playerControlsTimeoutMs);
-  }, [playerControlsTimeoutMs]);
+    hideTimer.current = setTimeout(() => setControls(false), overlayHideMs);
+  }, [overlayHideMs]);
 
   const retryStreamNow = useCallback(() => {
     if (retryTimer.current) clearTimeout(retryTimer.current);

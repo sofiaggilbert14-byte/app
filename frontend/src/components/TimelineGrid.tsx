@@ -71,8 +71,8 @@ export function TimelineGrid({
   const horizontalRef = useRef<ScrollView>(null);
 
   const totalMin = mins(windowEnd, windowStart);
-  const longGuideWindow = totalMin > 26 * 60;
-  const PX_PER_MIN = longGuideWindow ? (big ? 2.35 : 1.85) : big ? 4.4 : 3.4;
+  const longGuideWindow = totalMin >= 20 * 60;
+  const PX_PER_MIN = longGuideWindow ? (big ? 2.25 : 1.75) : big ? 4.4 : 3.4;
   const timelineWidth = totalMin * PX_PER_MIN;
 
   const ticks = useMemo(() => {
@@ -136,7 +136,7 @@ export function TimelineGrid({
                 data={channels}
                 ref={listRef}
                 keyExtractor={(c) => c.id}
-                drawDistance={longGuideWindow ? (big ? 340 : 240) : big ? 600 : 400}
+                drawDistance={longGuideWindow ? (big ? 260 : 200) : big ? 520 : 360}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingBottom: 120 }}
                 refreshControl={
