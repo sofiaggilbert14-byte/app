@@ -239,11 +239,14 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setPlayerControlsTimeoutMsState((await storage.getItem<PlayerControlsTimeoutMs>(PLAYER_TIMEOUT_KEY, 60000)) || 60000);
       setAutoRetryStreamsState((await storage.getItem<boolean>(AUTO_RETRY_KEY, true)) ?? true);
       requestNotificationPermission();
-      // Loads instantly from the on-device cache when it's < 24h old; otherwise
-      // fetches & parses once. No network hit on every launch — the source is
-      // auto-refreshed at most once a day (see TTL in source.ts). Manual refresh
-      // and pull-to-refresh still force a fresh fetch.
-      await refresh();
+      // Launch should prefer the newest Cloudflare guide over the on-device
+      // cache, but still fall back to cache if the network is unavailable.
+      try {
+        await refreshSource();
+        await refresh();
+      } catch {
+        await refresh();
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
