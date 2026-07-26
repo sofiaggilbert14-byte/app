@@ -8,10 +8,11 @@ import {
   ScrollView,
   useWindowDimensions,
   Platform,
+  BackHandler,
   Animated,
   Easing,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -171,6 +172,7 @@ export default function GuideScreen() {
   const [focusedChannelId, setFocusedChannelId] = useState<string | null>(null);
   const [previewStatus, setPreviewStatus] = useState<StreamStatus>("loading");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [guideResetToken, setGuideResetToken] = useState(0);
   const previewFocusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const categories = useMemo(() => {
@@ -254,6 +256,24 @@ export default function GuideScreen() {
   useEffect(() => {
     setPreviewStatus("loading");
   }, [previewChannel?.id]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (Platform.OS === "web") return;
+      const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+        if (menuOpen) {
+          setMenuOpen(false);
+        }
+        setGuideResetToken((value) => value + 1);
+        if (filtered[0]) {
+          setFocusedChannelId(filtered[0].id);
+        }
+        void Haptics.selectionAsync().catch(() => {});
+        return true;
+      });
+      return () => sub.remove();
+    }, [filtered, menuOpen]),
+  );
 
   const focusPreviewChannel = (c: Channel) => {
     if (previewFocusTimer.current) clearTimeout(previewFocusTimer.current);
@@ -543,6 +563,7 @@ export default function GuideScreen() {
             showChannelNumbers={channelNumbers}
             channelNumberById={channelNumberById}
             showChannelLogos={channelLogos}
+            resetToken={guideResetToken}
           />
         ) : (
           <FocusGuide style={styles.timelineArea} autoFocus>
@@ -565,6 +586,7 @@ export default function GuideScreen() {
               showChannelNumbers={channelNumbers}
               channelNumberById={channelNumberById}
               showChannelLogos={channelLogos}
+              resetToken={guideResetToken}
             />
           </FocusGuide>
         )}

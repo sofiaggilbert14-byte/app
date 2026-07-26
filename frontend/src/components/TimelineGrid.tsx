@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -40,6 +40,7 @@ export function TimelineGrid({
   showChannelNumbers = false,
   channelNumberById,
   showChannelLogos = true,
+  resetToken = 0,
 }: {
   channels: Channel[];
   windowStart: string;
@@ -55,6 +56,7 @@ export function TimelineGrid({
   showChannelNumbers?: boolean;
   channelNumberById?: Record<string, number>;
   showChannelLogos?: boolean;
+  resetToken?: number;
 }) {
   const { width } = useWindowDimensions();
   // Scale up for tablets / TVs so it stays readable on large landscape screens.
@@ -66,6 +68,7 @@ export function TimelineGrid({
   const negScrollX = useMemo(() => Animated.multiply(scrollX, -1), [scrollX]);
   const [bodyH, setBodyH] = useState(0);
   const listRef = useRef<FlashListRef<Channel>>(null);
+  const horizontalRef = useRef<ScrollView>(null);
 
   const totalMin = mins(windowEnd, windowStart);
   const longGuideWindow = totalMin > 26 * 60;
@@ -89,6 +92,15 @@ export function TimelineGrid({
   const nowOffset = mins(now, windowStart) * PX_PER_MIN;
   const showNow = dayjs(now).isAfter(windowStart) && dayjs(now).isBefore(windowEnd);
 
+  useEffect(() => {
+    if (!resetToken) return;
+    try {
+      horizontalRef.current?.scrollTo({ x: 0, animated: true });
+      scrollX.setValue(0);
+      listRef.current?.scrollToIndex({ index: 0, animated: true, viewPosition: 0 });
+    } catch {}
+  }, [resetToken, scrollX]);
+
   return (
     <View style={styles.wrap} testID="epg-timeline-grid">
       {/* time header: sticky corner + horizontally-synced ticks */}
@@ -111,6 +123,7 @@ export function TimelineGrid({
           row holds the logo AND its programs, so they can never drift apart. */}
       <View style={styles.body} onLayout={(e: LayoutChangeEvent) => setBodyH(e.nativeEvent.layout.height)}>
         <ScrollView
+          ref={horizontalRef}
           horizontal
           nestedScrollEnabled
           showsHorizontalScrollIndicator={false}

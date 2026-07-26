@@ -1,4 +1,4 @@
-import React, { useRef } from "react";
+import React, { useEffect, useRef } from "react";
 import { View, Text, StyleSheet, Pressable, useWindowDimensions, RefreshControl, Platform } from "react-native";
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import { Ionicons } from "@expo/vector-icons";
@@ -24,6 +24,7 @@ export function BoxGrid({
   showChannelNumbers = false,
   channelNumberById,
   showChannelLogos = true,
+  resetToken = 0,
 }: {
   channels: Channel[];
   now: string;
@@ -36,6 +37,7 @@ export function BoxGrid({
   showChannelNumbers?: boolean;
   channelNumberById?: Record<string, number>;
   showChannelLogos?: boolean;
+  resetToken?: number;
 }) {
   const { width } = useWindowDimensions();
   // Adapt column count to the screen ratio — phones 2, tablets/TVs up to 5.
@@ -44,6 +46,13 @@ export function BoxGrid({
   const nowDate = new Date(now);
   const { isFavorite, toggleFavorite } = useStore();
   const listRef = useRef<FlashListRef<Channel>>(null);
+
+  useEffect(() => {
+    if (!resetToken) return;
+    try {
+      listRef.current?.scrollToIndex({ index: 0, animated: true, viewPosition: 0 });
+    } catch {}
+  }, [resetToken]);
 
   return (
     <View style={styles.wrap}>
