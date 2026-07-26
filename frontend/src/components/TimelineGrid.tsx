@@ -62,14 +62,14 @@ export function TimelineGrid({
   const ROW_H = density === "large" ? (big ? 76 : 66) : density === "compact" ? (big ? 52 : 48) : big ? 62 : 56;
   const LOGO_W = big ? 250 : 176;
   const LOGO_SIZE = density === "large" ? (big ? 44 : 36) : density === "compact" ? (big ? 30 : 26) : big ? 34 : 30;
-  const PX_PER_MIN = big ? 4.4 : 3.4;
-
   const scrollX = useRef(new Animated.Value(0)).current;
   const negScrollX = useMemo(() => Animated.multiply(scrollX, -1), [scrollX]);
   const [bodyH, setBodyH] = useState(0);
   const listRef = useRef<FlashListRef<Channel>>(null);
 
   const totalMin = mins(windowEnd, windowStart);
+  const longGuideWindow = totalMin > 26 * 60;
+  const PX_PER_MIN = longGuideWindow ? (big ? 2.35 : 1.85) : big ? 4.4 : 3.4;
   const timelineWidth = totalMin * PX_PER_MIN;
 
   const ticks = useMemo(() => {
@@ -123,7 +123,7 @@ export function TimelineGrid({
                 data={channels}
                 ref={listRef}
                 keyExtractor={(c) => c.id}
-                drawDistance={big ? 600 : 400}
+                drawDistance={longGuideWindow ? (big ? 340 : 240) : big ? 600 : 400}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingBottom: 120 }}
                 refreshControl={

@@ -72,6 +72,24 @@ https://example.test/espn-news.m3u8
   assert.equal(guide.guideChannels[0].p[0].t, "SportsCenter");
 });
 
+test("builder matches M3U4U channels with provider prefixes before a colon", () => {
+  const channels = parseM3U(`#EXTM3U
+#EXTINF:-1 tvg-id="random-m3u-id" tvg-name="VIP USA HD : Spike/Paramount" group-title="TV",VIP USA HD : Spike/Paramount
+https://example.test/paramount.m3u8
+`);
+  const epg = parseXMLTV(`<tv>
+<channel id="PARAMOUNT.us"><display-name>Spike/Paramount</display-name></channel>
+<programme channel="PARAMOUNT.us" start="${xmltvTime(60 * 60 * 1000)}" stop="${xmltvTime(2 * 60 * 60 * 1000)}">
+  <title>Two and a Half Men</title>
+</programme>
+</tv>`);
+
+  const guide = buildGuideData(channels, epg);
+
+  assert.equal(guide.channelsWithGuide, 1);
+  assert.equal(guide.guideChannels[0].p[0].t, "Two and a Half Men");
+});
+
 test("builder recovers stale EPG by shifting it forward by whole days", () => {
   const epg = parseXMLTV(`<tv>
 <channel id="AMC.us"><display-name>AMC</display-name></channel>

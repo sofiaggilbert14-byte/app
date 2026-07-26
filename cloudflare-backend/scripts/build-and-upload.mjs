@@ -14,7 +14,7 @@ const NOW = Date.now();
 const GUIDE_START = NOW - 6 * 3600 * 1000;
 const GUIDE_END = NOW + 48 * 3600 * 1000;
 const WIN_START = NOW - 1 * 3600 * 1000;
-const WIN_END = NOW + 24 * 3600 * 1000;
+const WIN_END = NOW + 48 * 3600 * 1000;
 const FETCH_ATTEMPTS = [
   {
     "User-Agent": "TiviMate/5.1.6 (Linux; Android TV)",
@@ -331,7 +331,7 @@ function normalizedKey(value) {
   const stripped = stripSourceSuffix(decode(String(value || "")));
   return stripped
     .toLowerCase()
-    .replace(/\b(hd|fhd|uhd|sd)\b/g, "")
+    .replace(/\b(vip|fhd|uhd|hd|sd|live)\b/g, "")
     .replace(/[^a-z0-9]+/g, "");
 }
 
@@ -341,7 +341,26 @@ function candidateKeys(...values) {
   for (const value of values) {
     const raw = String(value || "").trim();
     const stripped = stripSourceSuffix(raw);
-    for (const item of [raw, stripped, normalizedKey(raw), normalizedKey(stripped)]) {
+    const colonParts = stripped
+      .split(":")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    const afterColon = colonParts.length > 1 ? colonParts[colonParts.length - 1] : "";
+    const dashParts = stripped
+      .split(/\s+-\s+/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    const afterDash = dashParts.length > 1 ? dashParts[dashParts.length - 1] : "";
+    for (const item of [
+      raw,
+      stripped,
+      afterColon,
+      afterDash,
+      normalizedKey(raw),
+      normalizedKey(stripped),
+      normalizedKey(afterColon),
+      normalizedKey(afterDash),
+    ]) {
       if (item && !seen.has(item)) {
         seen.add(item);
         out.push(item);
@@ -365,9 +384,13 @@ function buildEpgIndex(byChannel, channelNames) {
   const fuzzy = new Map();
   for (const id of Object.keys(byChannel)) {
     exact.set(id, id);
-    addUnique(fuzzy, normalizedKey(id), id);
+    for (const key of candidateKeys(id)) {
+      addUnique(fuzzy, normalizedKey(key), id);
+    }
     for (const name of channelNames[id] || []) {
-      addUnique(fuzzy, normalizedKey(name), id);
+      for (const key of candidateKeys(name)) {
+        addUnique(fuzzy, normalizedKey(key), id);
+      }
     }
   }
   return { exact, fuzzy };

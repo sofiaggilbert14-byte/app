@@ -37,7 +37,7 @@ const GOLD_DEEP = "#7C4A11";
 const PANEL = "rgba(18, 13, 8, 0.92)";
 const BORDER_GOLD = "rgba(246, 183, 60, 0.34)";
 const BASE_CATEGORIES = ["All", "Favorites", "Recently Watched", "Movies", "TV", "Sports", "News", "Kids", "Music", "24/7"];
-const GUIDE_PREVIEW_FOCUS_DELAY_MS = 450;
+const GUIDE_PREVIEW_FOCUS_DELAY_MS = 900;
 
 function byChannelName(a: Channel, b: Channel): number {
   return (a.name || "").localeCompare(b.name || "", undefined, {
@@ -145,6 +145,7 @@ export default function GuideScreen() {
     refresh,
     hardRefresh,
     addRecent,
+    channelById,
     openProgram,
     favorites,
     recent,
@@ -164,7 +165,7 @@ export default function GuideScreen() {
     deviceLayoutMode === "mobile" || (deviceLayoutMode === "auto" && Platform.OS !== "web" && !Platform.isTV);
   const compactGuide = guideLayout === "compact";
   const livePreviewEnabled = safePreviewMode !== "off";
-  const previewDelayMs = safePreviewMode === "delayed" ? 700 : GUIDE_PREVIEW_FOCUS_DELAY_MS;
+  const previewDelayMs = safePreviewMode === "delayed" ? 1200 : GUIDE_PREVIEW_FOCUS_DELAY_MS;
 
   const [category, setCategory] = useState<string>("All");
   const [focusedChannelId, setFocusedChannelId] = useState<string | null>(null);
@@ -205,6 +206,19 @@ export default function GuideScreen() {
     });
     return map;
   }, [channels]);
+
+  const recentPreviewChannels = useMemo(() => {
+    const out: Channel[] = [];
+    const seen = new Set<string>();
+    for (const recentChannel of recent) {
+      const live = channelById(recentChannel.id) || recentChannel;
+      if (!live?.id || seen.has(live.id)) continue;
+      seen.add(live.id);
+      out.push(live);
+      if (out.length >= 4) break;
+    }
+    return out;
+  }, [channelById, recent]);
 
   const previewChannel = useMemo(() => {
     const focused = focusedChannelId ? filtered.find((c) => c.id === focusedChannelId) : null;
@@ -411,6 +425,39 @@ export default function GuideScreen() {
             </View>
           </Pressable>
 
+          <View style={styles.recentPanel}>
+            <Text style={styles.recentPanelLabel}>LAST WATCHED</Text>
+            {recentPreviewChannels.length === 0 ? (
+              <View style={styles.recentEmpty}>
+                <Ionicons name="time-outline" size={22} color={GOLD_SOFT} />
+                <Text style={styles.recentEmptyText}>Channels you watch will appear here.</Text>
+              </View>
+            ) : (
+              <View style={styles.recentList}>
+                {recentPreviewChannels.map((channel) => (
+                  <Pressable
+                    key={channel.id}
+                    focusable
+                    onFocus={() => focusPreviewChannel(channel)}
+                    onPress={() => openChannel(channel)}
+                    onLongPress={() => {
+                      void Haptics.selectionAsync().catch(() => {});
+                      toggleFavorite(channel.id);
+                    }}
+                    style={({ focused }: any) => [styles.recentItem, focused && styles.goldFocus]}
+                    testID={`recent-preview-${channel.id}`}
+                  >
+                    <ChannelLogo name={channel.name} logo={channel.logo} disabled={!channelLogos} size={compactGuide || shortScreen ? 22 : 26} />
+                    <Text numberOfLines={1} style={styles.recentItemText}>
+                      {channelNumbers ? `${channelNumberById[channel.id] || ""} · ` : ""}
+                      {channel.name}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+          </View>
+
           <View style={styles.detailsPanel}>
             <View style={styles.detailsHeader}>
               <Text style={styles.detailsLabel}>NOW PLAYING DETAILS</Text>
@@ -608,9 +655,9 @@ const styles = StyleSheet.create({
     borderColor: BORDER_GOLD,
   },
   mobileHeroButtonText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 12 },
-  previewDetailsRow: { flexDirection: "row", gap: spacing.sm, height: 225, alignItems: "stretch" },
-  previewDetailsRowCompact: { height: 165 },
-  previewDetailsRowShort: { height: 189 },
+  previewDetailsRow: { flexDirection: "row", gap: spacing.sm, height: 180, alignItems: "stretch" },
+  previewDetailsRowCompact: { height: 132 },
+  previewDetailsRowShort: { height: 151 },
   livePreviewPanel: {
     height: "100%",
     aspectRatio: 16 / 9,
@@ -635,6 +682,31 @@ const styles = StyleSheet.create({
   liveBadge: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
   liveDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: colors.error },
   liveBadgeText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 12 },
+  recentPanel: {
+    width: 220,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: BORDER_GOLD,
+    backgroundColor: "rgba(12,8,4,0.88)",
+    padding: spacing.sm,
+    gap: 5,
+  },
+  recentPanelLabel: { color: GOLD, fontFamily: fonts.bold, fontSize: 11 },
+  recentList: { flex: 1, gap: 4 },
+  recentItem: {
+    minHeight: 30,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: "rgba(255,227,163,0.14)",
+    backgroundColor: "rgba(255,255,255,0.045)",
+    paddingHorizontal: spacing.xs,
+  },
+  recentItemText: { flex: 1, color: "#fff", fontFamily: fonts.medium, fontSize: 11 },
+  recentEmpty: { flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.xs },
+  recentEmptyText: { color: "rgba(255,255,255,0.62)", fontFamily: fonts.medium, fontSize: 10, textAlign: "center" },
   detailsPanel: {
     flex: 1,
     borderRadius: radius.md,
