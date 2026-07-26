@@ -11,10 +11,11 @@ import { gunzipSync, gzipSync } from "node:zlib";
 import { pathToFileURL } from "node:url";
 
 const NOW = Date.now();
+const GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.GUIDE_WINDOW_HOURS, 48);
 const GUIDE_START = NOW - 6 * 3600 * 1000;
-const GUIDE_END = NOW + 48 * 3600 * 1000;
+const GUIDE_END = NOW + GUIDE_WINDOW_HOURS * 3600 * 1000;
 const WIN_START = NOW - 1 * 3600 * 1000;
-const WIN_END = NOW + 48 * 3600 * 1000;
+const WIN_END = NOW + GUIDE_WINDOW_HOURS * 3600 * 1000;
 const FETCH_ATTEMPTS = [
   {
     "User-Agent": "TiviMate/5.1.6 (Linux; Android TV)",
@@ -38,6 +39,12 @@ function requireEnv(name) {
     process.exit(1);
   }
   return v;
+}
+
+function readGuideWindowHours(value, fallback) {
+  const n = Number(value || fallback);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(72, Math.max(12, Math.round(n)));
 }
 
 function https(u) {
@@ -509,6 +516,7 @@ export async function main() {
   const fallbackEpgUrl = process.env.EPG_URL || "";
 
   console.log("Charm IPTV builder starting...");
+  console.log(`Guide window hours: ${GUIDE_WINDOW_HOURS}`);
 
   let channels;
   let embeddedEpgUrls = [];
@@ -614,6 +622,7 @@ export async function main() {
     lastUpdated: NOW,
     channelCount: channels.length,
     channelsWithGuide,
+    guideWindowHours: GUIDE_WINDOW_HOURS,
     guideAvailable: !!epg,
     ready: true,
   };

@@ -31,5 +31,6 @@ jobs:
           CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           M3U_URL: ${{ secrets.M3U_URL }}
           EPG_URL: ${{ secrets.EPG_URL }}
+          GUIDE_WINDOW_HOURS: ${{ vars.GUIDE_WINDOW_HOURS || vars.EXPO_PUBLIC_GUIDE_WINDOW_HOURS || '48' }}
           APP_VERSION: "2.0.0-beta.1"
           MAINTENANCE: "false"
