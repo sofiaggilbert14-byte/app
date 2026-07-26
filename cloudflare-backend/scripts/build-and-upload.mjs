@@ -11,7 +11,7 @@ import { gunzipSync, gzipSync } from "node:zlib";
 import { pathToFileURL } from "node:url";
 
 const NOW = Date.now();
-const GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.GUIDE_WINDOW_HOURS, 12);
+const GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.GUIDE_WINDOW_HOURS, 24);
 const GUIDE_START = NOW - 6 * 3600 * 1000;
 const GUIDE_END = NOW + GUIDE_WINDOW_HOURS * 3600 * 1000;
 const WIN_START = NOW - 1 * 3600 * 1000;

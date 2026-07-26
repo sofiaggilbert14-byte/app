@@ -217,7 +217,7 @@ export default function GuideScreen() {
       if (!live?.id || seen.has(live.id)) continue;
       seen.add(live.id);
       out.push(live);
-      if (out.length >= 4) break;
+      if (out.length >= 10) break;
     }
     return out;
   }, [channelById, recent]);
@@ -469,7 +469,12 @@ export default function GuideScreen() {
                 <Text style={styles.recentEmptyText}>Channels you watch will appear here.</Text>
               </View>
             ) : (
-              <View style={styles.recentList}>
+              <ScrollView
+                style={styles.recentScroll}
+                contentContainerStyle={styles.recentList}
+                showsVerticalScrollIndicator={false}
+                nestedScrollEnabled
+              >
                 {recentPreviewChannels.map((channel) => (
                   <Pressable
                     key={channel.id}
@@ -490,7 +495,7 @@ export default function GuideScreen() {
                     </Text>
                   </Pressable>
                 ))}
-              </View>
+              </ScrollView>
             )}
           </View>
 
@@ -729,9 +734,11 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(12,8,4,0.88)",
     padding: spacing.sm,
     gap: 5,
+    overflow: "hidden",
   },
   recentPanelLabel: { color: GOLD, fontFamily: fonts.bold, fontSize: 11 },
-  recentList: { flex: 1, gap: 4 },
+  recentScroll: { flex: 1, overflow: "hidden" },
+  recentList: { gap: 4, paddingBottom: 2 },
   recentItem: {
     minHeight: 30,
     flexDirection: "row",
