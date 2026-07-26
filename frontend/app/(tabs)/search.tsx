@@ -8,6 +8,7 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  useWindowDimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -18,6 +19,7 @@ import { useStore } from "@/src/store";
 import { Channel, Program } from "@/src/api";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { useTvBackToGuide } from "@/src/hooks/use-tv-back-to-guide";
+import { getTvSafeInsets } from "@/src/utils/tvLayout";
 
 function byChannelName(a: Channel, b: Channel): number {
   return (a.name || "").localeCompare(b.name || "", undefined, {
@@ -28,6 +30,8 @@ function byChannelName(a: Channel, b: Channel): number {
 
 export default function SearchScreen() {
   const router = useRouter();
+  const { width, height } = useWindowDimensions();
+  const tvSafe = getTvSafeInsets(width, height);
   const { channels, addRecent, openProgram, favorites, recent, lastChannelId, channelById, channelNumbers, channelLogos } = useStore();
   const [q, setQ] = useState("");
   useTvBackToGuide();
@@ -88,10 +92,10 @@ export default function SearchScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={[styles.container, { paddingLeft: tvSafe.left, paddingRight: tvSafe.right, paddingBottom: tvSafe.bottom }]}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <View style={{ paddingTop: spacing.md }}>
+      <View style={{ paddingTop: spacing.md + tvSafe.top }}>
         <View style={styles.header}>
           <Text style={styles.brand}>Find anything</Text>
           <Text style={styles.title}>Search</Text>
@@ -118,7 +122,7 @@ export default function SearchScreen() {
       <ScrollView
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 130 }}
+        contentContainerStyle={{ paddingBottom: 130 + tvSafe.bottom }}
       >
         {q.trim().length === 0 ? (
           <>

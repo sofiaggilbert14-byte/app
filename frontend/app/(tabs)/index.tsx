@@ -28,6 +28,7 @@ import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { StreamPlayer, StreamStatus } from "@/src/components/StreamPlayer";
 import { nowNext, progressPct, fmtTime } from "@/src/utils/time";
+import { getTvSafeInsets } from "@/src/utils/tvLayout";
 import dayjs from "dayjs";
 
 type MenuRoute = "/" | "/favorites" | "/search" | "/settings";
@@ -135,7 +136,8 @@ function AutoScrollDescription({
 export default function GuideScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { height } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
+  const tvSafe = getTvSafeInsets(width, height);
   const {
     channels,
     windowStart,
@@ -320,7 +322,17 @@ export default function GuideScreen() {
       end={{ x: 1, y: 1 }}
       style={styles.container}
     >
-      <View style={[styles.screen, { paddingTop: insets.top + (shortScreen ? spacing.xs : spacing.sm) }]}>
+      <View
+        style={[
+          styles.screen,
+          {
+            paddingTop: insets.top + tvSafe.top + (shortScreen ? spacing.xs : spacing.sm),
+            paddingLeft: spacing.sm + tvSafe.left,
+            paddingRight: spacing.sm + tvSafe.right,
+            paddingBottom: spacing.xs + tvSafe.bottom,
+          },
+        ]}
+      >
         <View style={styles.topBrand}>
           <Pressable
             onPress={() => {
@@ -620,7 +632,7 @@ export default function GuideScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  screen: { flex: 1, paddingHorizontal: spacing.sm, paddingBottom: spacing.xs, gap: 4 },
+  screen: { flex: 1, gap: 4 },
   topBrand: {
     minHeight: 30,
     flexDirection: "row",

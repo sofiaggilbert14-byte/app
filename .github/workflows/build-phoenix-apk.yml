@@ -30,7 +30,7 @@ jobs:
         working-directory: frontend
     env:
       EXPO_PUBLIC_CHARM_API_URL: ${{ vars.EXPO_PUBLIC_CHARM_API_URL }}
-      EXPO_PUBLIC_GUIDE_WINDOW_HOURS: ${{ vars.EXPO_PUBLIC_GUIDE_WINDOW_HOURS || '24' }}
+      EXPO_PUBLIC_GUIDE_WINDOW_HOURS: ${{ vars.EXPO_PUBLIC_GUIDE_WINDOW_HOURS || '12' }}
       CMAKE_BUILD_PARALLEL_LEVEL: "2"
 
     steps:

@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView } from "react-native";
+import { View, Text, StyleSheet, Pressable, ScrollView, useWindowDimensions } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -10,6 +10,7 @@ import { Channel } from "@/src/api";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { nowNext } from "@/src/utils/time";
 import { useTvBackToGuide } from "@/src/hooks/use-tv-back-to-guide";
+import { getTvSafeInsets } from "@/src/utils/tvLayout";
 
 function byChannelName(a: Channel, b: Channel): number {
   return (a.name || "").localeCompare(b.name || "", undefined, {
@@ -53,6 +54,8 @@ function ChannelRow({
 
 export default function FavoritesScreen() {
   const router = useRouter();
+  const { width, height } = useWindowDimensions();
+  const tvSafe = getTvSafeInsets(width, height);
   const { channels, favorites, toggleFavorite, recent, reminders, removeReminder, addRecent, channelById, lastChannelId, channelNumbers, channelLogos } = useStore();
   useTvBackToGuide();
 
@@ -70,7 +73,17 @@ export default function FavoritesScreen() {
   const upcoming = [...reminders].sort((a, b) => a.start.localeCompare(b.start));
 
   return (
-    <View style={[styles.container, { paddingTop: spacing.md }]}>
+    <View
+      style={[
+        styles.container,
+        {
+          paddingTop: spacing.md + tvSafe.top,
+          paddingLeft: tvSafe.left,
+          paddingRight: tvSafe.right,
+          paddingBottom: tvSafe.bottom,
+        },
+      ]}
+    >
       <View style={styles.header}>
         <Text style={styles.brand}>My Stuff</Text>
         <Text style={styles.title}>Favorites</Text>

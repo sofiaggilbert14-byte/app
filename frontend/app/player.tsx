@@ -9,6 +9,7 @@ import {
   Platform,
   StatusBar as RNStatusBar,
   BackHandler,
+  useWindowDimensions,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -22,6 +23,7 @@ import { StreamPlayer, StreamStatus, vlcAvailable } from "@/src/components/Strea
 import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { nowNext, fmtTime } from "@/src/utils/time";
 import { addTvKeyListener } from "@/src/utils/tvRemote";
+import { getTvSafeInsets } from "@/src/utils/tvLayout";
 
 const CHANNEL_PREVIEW_DELAY_MS = 650;
 const SWITCH_NOTICE_MS = 2_500;
@@ -32,6 +34,8 @@ const GOLD_SOFT = "#FFE3A3";
 
 export default function PlayerScreen() {
   const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
+  const tvSafe = getTvSafeInsets(width, height);
   const router = useRouter();
   const params = useLocalSearchParams<{ channelId: string }>();
   const {
@@ -289,7 +293,14 @@ export default function PlayerScreen() {
         <>
           <LinearGradient
             colors={["rgba(0,0,0,0.85)", "transparent"]}
-            style={[styles.topScrim, { paddingTop: insets.top + spacing.sm }]}
+            style={[
+              styles.topScrim,
+              {
+                paddingTop: insets.top + tvSafe.top + spacing.sm,
+                paddingLeft: spacing.lg + tvSafe.left,
+                paddingRight: spacing.lg + tvSafe.right,
+              },
+            ]}
           >
             <Pressable
               style={({ focused }: any) => [styles.backBtn, focused && styles.ctrlFocused]}
@@ -313,7 +324,14 @@ export default function PlayerScreen() {
 
           <LinearGradient
             colors={["transparent", "rgba(0,0,0,0.9)"]}
-            style={[styles.bottomScrim, { paddingBottom: insets.bottom + spacing.md }]}
+            style={[
+              styles.bottomScrim,
+              {
+                paddingBottom: insets.bottom + tvSafe.bottom + spacing.md,
+                paddingLeft: tvSafe.left,
+                paddingRight: tvSafe.right,
+              },
+            ]}
           >
             <View style={styles.quickControls}>
               <Pressable
@@ -414,7 +432,7 @@ export default function PlayerScreen() {
               maxToRenderPerBatch={8}
               windowSize={5}
               removeClippedSubviews
-              contentContainerStyle={{ gap: spacing.md, paddingHorizontal: spacing.lg }}
+              contentContainerStyle={{ gap: spacing.md, paddingHorizontal: spacing.lg + tvSafe.left }}
               renderItem={({ item }) => (
                 <Pressable
                   onPress={() => surf(item.id)}
@@ -479,7 +497,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
-    paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xl,
   },
   backBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },

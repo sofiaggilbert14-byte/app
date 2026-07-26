@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   Platform,
+  useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -25,6 +26,7 @@ import {
   type SourceDiagnostics,
 } from "@/src/source";
 import { useTvBackToGuide } from "@/src/hooks/use-tv-back-to-guide";
+import { getTvSafeInsets } from "@/src/utils/tvLayout";
 
 const GOLD = "#F6B73C";
 const GOLD_SOFT = "#FFE3A3";
@@ -56,6 +58,8 @@ export default function SettingsScreen() {
     autoRetryStreams,
     setAutoRetryStreams,
   } = useStore();
+  const { width, height } = useWindowDimensions();
+  const tvSafe = getTvSafeInsets(width, height);
   const [status, setStatus] = useState<SourceStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [diagnostics, setDiagnostics] = useState<SourceDiagnostics | null>(null);
@@ -106,14 +110,14 @@ const appVersion = Constants.expoConfig?.version || "2.0.0-beta";
   };
 
   return (
-    <View style={styles.container}>
-      <View style={[styles.header, { paddingTop: spacing.md }]}>
+    <View style={[styles.container, { paddingLeft: tvSafe.left, paddingRight: tvSafe.right, paddingBottom: tvSafe.bottom }]}>
+      <View style={[styles.header, { paddingTop: spacing.md + tvSafe.top }]}>
         <Text style={styles.brand}>CharmIPTV Phoenix</Text>
         <Text style={styles.title}>Settings</Text>
       </View>
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 140 }}
+        contentContainerStyle={{ paddingBottom: 140 + tvSafe.bottom }}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onPullRefresh} tintColor={colors.brand} colors={[colors.brand]} />
         }
