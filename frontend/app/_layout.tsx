@@ -9,7 +9,7 @@ import { StatusBar } from "expo-status-bar";
 
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { useAppFonts } from "@/src/hooks/use-app-fonts";
-import { GuideProvider } from "@/src/store";
+import { GuideProvider, useStore } from "@/src/store";
 import { ProgramModal } from "@/src/components/ProgramModal";
 import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { PointerOverlay } from "@/src/components/PointerOverlay";
@@ -28,6 +28,33 @@ function NotificationRouter() {
     });
     return () => sub.remove();
   }, [router]);
+  return null;
+}
+
+function ReminderAutoSwitcher() {
+  const router = useRouter();
+  const { reminders, removeReminder } = useStore();
+
+  useEffect(() => {
+    if (reminders.length === 0) return;
+    const check = () => {
+      const now = Date.now();
+      const due = [...reminders]
+        .sort((a, b) => a.start.localeCompare(b.start))
+        .find((reminder) => {
+          const start = Date.parse(reminder.start);
+          const stop = reminder.stop ? Date.parse(reminder.stop) : start + 2 * 60 * 60 * 1000;
+          return Number.isFinite(start) && now >= start && now <= stop;
+        });
+      if (!due) return;
+      removeReminder(due.key).catch(() => {});
+      router.replace({ pathname: "/player", params: { channelId: due.channelId } });
+    };
+    check();
+    const timer = setInterval(check, 15000);
+    return () => clearInterval(timer);
+  }, [reminders, removeReminder, router]);
+
   return null;
 }
 
@@ -50,6 +77,7 @@ export default function RootLayout() {
         <GuideProvider>
           <StatusBar style="light" />
           <NotificationRouter />
+          <ReminderAutoSwitcher />
           <ErrorBoundary>
             <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#0F0F13" } }}>
               <Stack.Screen name="(tabs)" />

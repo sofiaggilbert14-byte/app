@@ -508,6 +508,10 @@ export default function GuideScreen() {
               onChannelPress={openChannel}
               onProgramPress={openProgram}
               onChannelFocus={focusPreviewChannel}
+              onChannelLongPress={(c) => {
+                void Haptics.selectionAsync().catch(() => {});
+                toggleFavorite(c.id);
+              }}
               refreshing={refreshing}
               onRefresh={hardRefresh}
               density={guideDensity}
@@ -604,9 +608,9 @@ const styles = StyleSheet.create({
     borderColor: BORDER_GOLD,
   },
   mobileHeroButtonText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 12 },
-  previewDetailsRow: { flexDirection: "row", gap: spacing.sm, height: 180, alignItems: "stretch" },
-  previewDetailsRowCompact: { height: 132 },
-  previewDetailsRowShort: { height: 151 },
+  previewDetailsRow: { flexDirection: "row", gap: spacing.sm, height: 225, alignItems: "stretch" },
+  previewDetailsRowCompact: { height: 165 },
+  previewDetailsRowShort: { height: 189 },
   livePreviewPanel: {
     height: "100%",
     aspectRatio: 16 / 9,

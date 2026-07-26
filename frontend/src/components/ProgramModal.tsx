@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, StyleSheet, Pressable, BackHandler } from "react-native";
+import { View, Text, StyleSheet, Pressable, BackHandler, ScrollView } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -83,9 +83,9 @@ export function ProgramModal() {
             </Text>
             {!!program.category && <Text style={styles.category}>{program.category}</Text>}
             {!!program.desc && (
-              <Text style={styles.desc} numberOfLines={6}>
-                {program.desc}
-              </Text>
+              <ScrollView style={styles.descBox} nestedScrollEnabled showsVerticalScrollIndicator>
+                <Text style={styles.desc}>{program.desc}</Text>
+              </ScrollView>
             )}
 
             {msg && <Text style={styles.msg}>{msg}</Text>}
@@ -117,7 +117,7 @@ export function ProgramModal() {
                     color={reminded ? colors.brand : colors.onSurface}
                   />
                   <Text style={[styles.remindText, reminded && { color: colors.brand }]}>
-                    {reminded ? "Reminder on" : "Remind me"}
+                    {reminded ? "Cancel reminder" : "Remind me"}
                   </Text>
                 </Pressable>
               )}
@@ -151,7 +151,8 @@ const styles = StyleSheet.create({
   title: { color: colors.onSurface, fontFamily: fonts.display, fontSize: 24 },
   time: { color: colors.onSurfaceSecondary, fontFamily: fonts.medium, fontSize: 13 },
   category: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 12 },
-  desc: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 13, lineHeight: 19, marginTop: 4 },
+  descBox: { maxHeight: 138, marginTop: 4 },
+  desc: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 13, lineHeight: 19 },
   msg: { color: colors.success, fontFamily: fonts.medium, fontSize: 12, marginTop: 4 },
   actions: { flexDirection: "row", gap: spacing.md, marginTop: spacing.md },
   closeBtn: { padding: 4, borderRadius: radius.sm },

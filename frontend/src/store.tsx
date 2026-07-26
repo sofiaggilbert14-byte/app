@@ -23,7 +23,7 @@ const CHANNEL_LOGOS_KEY = "gs_channel_logos";
 const DEVICE_LAYOUT_MODE_KEY = "gs_device_layout_mode";
 const PLAYER_TIMEOUT_KEY = "gs_player_timeout_ms";
 const AUTO_RETRY_KEY = "gs_auto_retry_streams";
-const GUIDE_WINDOW_HOURS = 24;
+const GUIDE_WINDOW_HOURS = 48;
 
 export type GuideLayout = "cinematic" | "compact";
 export type GuideDensity = "large" | "normal" | "compact";

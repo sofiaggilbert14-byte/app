@@ -33,6 +33,7 @@ export function TimelineGrid({
   onProgramPress,
   onChannelPress,
   onChannelFocus,
+  onChannelLongPress,
   refreshing,
   onRefresh,
   density = "normal",
@@ -47,6 +48,7 @@ export function TimelineGrid({
   onProgramPress: (p: Program, c: Channel) => void;
   onChannelPress: (c: Channel) => void;
   onChannelFocus?: (c: Channel) => void;
+  onChannelLongPress?: (c: Channel) => void;
   refreshing?: boolean;
   onRefresh?: () => void;
   density?: "large" | "normal" | "compact";
@@ -138,6 +140,7 @@ export function TimelineGrid({
                         focusable
                         onFocus={() => onChannelFocus?.(item)}
                         onPress={() => onChannelPress(item)}
+                        onLongPress={() => onChannelLongPress?.(item)}
                         testID={`epg-channel-${item.id}`}
                       >
                         {showChannelNumbers && (
@@ -170,6 +173,7 @@ export function TimelineGrid({
                             key={`${item.id}:${p.start}:${p.stop || "open"}:${p.title}`}
                             onFocus={() => onChannelFocus?.(item)}
                             onPress={() => onProgramPress(p, item)}
+                            onLongPress={() => onChannelLongPress?.(item)}
                             focusable
                             style={({ focused }: any) => [
                               styles.progCell,
