@@ -91,10 +91,10 @@ function AutoScrollDescription({
     }
 
     const overflow = contentHeight - viewportHeight;
-    const scrollDuration = Math.max(6500, overflow * 95);
+    const scrollDuration = Math.max(7500, overflow * 115);
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.delay(1500),
+        Animated.delay(1200),
         Animated.timing(translateY, {
           toValue: -overflow,
           duration: scrollDuration,
@@ -303,6 +303,14 @@ export default function GuideScreen() {
     router.push(route as any);
   };
 
+  const exitApp = () => {
+    void Haptics.selectionAsync().catch(() => {});
+    setMenuOpen(false);
+    if (Platform.OS !== "web") {
+      BackHandler.exitApp();
+    }
+  };
+
   return (
     <LinearGradient
       colors={["#050403", "#120B05", "#050403"]}
@@ -364,6 +372,14 @@ export default function GuideScreen() {
               >
                 <Ionicons name="settings" size={18} color={GOLD_SOFT} />
                 <Text style={styles.menuItemText}>Settings</Text>
+              </Pressable>
+              <Pressable
+                onPress={exitApp}
+                style={({ focused }: any) => [styles.menuItem, styles.menuItemExit, focused && styles.goldFocus]}
+                testID="home-menu-exit"
+              >
+                <Ionicons name="power" size={18} color={GOLD_SOFT} />
+                <Text style={styles.menuItemText}>Exit App</Text>
               </Pressable>
             </View>
           )}
@@ -646,6 +662,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
     paddingHorizontal: spacing.sm,
   },
+  menuItemExit: { borderTopWidth: 1, borderTopColor: "rgba(246,183,60,0.18)" },
   menuItemText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 13 },
   brandRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   brandText: { color: "#fff", fontFamily: fonts.bold, fontSize: 18 },
@@ -737,6 +754,7 @@ const styles = StyleSheet.create({
     backgroundColor: PANEL,
     padding: spacing.sm,
     gap: 3,
+    overflow: "hidden",
   },
   detailsHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   detailsLabel: { color: GOLD, fontFamily: fonts.bold, fontSize: 12 },
@@ -765,7 +783,12 @@ const styles = StyleSheet.create({
   },
   progressFill: { height: 4, backgroundColor: GOLD },
   descriptionLabel: { color: GOLD, fontFamily: fonts.semibold, fontSize: 10, marginTop: 1 },
-  descriptionViewport: { flex: 1, minHeight: 42, overflow: "hidden" },
+  descriptionViewport: {
+    flex: 1,
+    minHeight: 42,
+    overflow: "hidden",
+    borderRadius: radius.sm,
+  },
   descriptionViewportCompact: { minHeight: 18 },
   description: { color: "rgba(255,255,255,0.84)", fontFamily: fonts.regular, fontSize: 12, lineHeight: 16 },
   stripLabel: { color: GOLD, fontFamily: fonts.semibold, fontSize: 10, textAlign: "center", marginBottom: 1 },
