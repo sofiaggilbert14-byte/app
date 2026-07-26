@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Charm IPTV data builder (runs on GitHub Actions every 6h).
+ * Charm IPTV data builder (runs on GitHub Actions every 3h).
  *
  * Downloads the M3U playlist + gzipped EPG, parses them on a full-power runner,
  * builds compact JSON, gzips the big payloads, and writes everything to
@@ -11,7 +11,7 @@ import { gunzipSync, gzipSync } from "node:zlib";
 import { pathToFileURL } from "node:url";
 
 const NOW = Date.now();
-const GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.GUIDE_WINDOW_HOURS, 48);
+const GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.GUIDE_WINDOW_HOURS, 12);
 const GUIDE_START = NOW - 6 * 3600 * 1000;
 const GUIDE_END = NOW + GUIDE_WINDOW_HOURS * 3600 * 1000;
 const WIN_START = NOW - 1 * 3600 * 1000;
