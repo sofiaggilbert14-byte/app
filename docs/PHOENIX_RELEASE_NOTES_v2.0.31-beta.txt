@@ -1,0 +1,304 @@
+CharmIPTV Phoenix Universal BETA v2.0.31-beta
+Release Notes
+Date: July 25, 2026
+
+Summary
+-------
+This APK focuses on making Phoenix more stable and more tester-friendly after the Command Center layout work. It includes guide stability fixes, mobile safety improvements, safer live preview behavior, versioned APK naming, new Settings controls, channel numbering, optional logo loading, a larger live preview, deeper future guide data, and improved future-show reminder behavior.
+
+
+Major New Features
+------------------
+1. Safe Preview Mode
+
+Added Settings control:
+
+- Preview after focus stops
+- Extra safe delay
+- Live preview OFF
+
+Purpose:
+
+This helps stop the live preview player from changing streams too aggressively while scrolling through the guide. It should reduce crashes when holding the remote button down to scan channels quickly.
+
+
+2. Guide Density
+
+Added Settings choices:
+
+- Comfortable
+- Normal
+- Compact
+
+Purpose:
+
+Lets testers choose between larger/easier-to-read guide rows or more visible guide rows on screen.
+
+
+3. Device Layout Mode
+
+Added Settings choices:
+
+- Auto
+- TV
+- Mobile
+
+Purpose:
+
+Lets users force the TV/Command Center layout or the mobile-safe layout if Auto does not feel right on their device.
+
+
+4. Channel Numbers
+
+Added Settings toggle:
+
+- Channel numbers ON/OFF
+
+Behavior:
+
+- Phoenix automatically numbers the current full channel lineup.
+- If channels are added or removed, numbering recalculates from the newest loaded channel list.
+- Numbers are based on the full sorted channel list, not just the current category tab.
+
+Channel numbers appear in:
+
+- Main guide
+- Card/box guide
+- Favorites
+- Recently watched
+- Search results
+- Quick Picks
+- Player channel strip
+- Current channel title area
+
+
+5. Channel Logos Toggle
+
+Added Settings toggle:
+
+- Channel logos ON/OFF
+
+Behavior:
+
+- ON loads normal channel logos.
+- OFF uses initials/fallback blocks instead of loading logo images.
+
+Purpose:
+
+This can reduce image loading work on weaker Android TV boxes, Fire Stick devices, and slow connections.
+
+
+6. Automatic Build Version Display
+
+Settings now displays the installed app version/build.
+
+APK builds now include the version in the downloaded file name, for example:
+
+CharmIPTV Phoenix Universal BETA v2.0.31-beta.apk
+
+
+Guide and EPG Changes
+---------------------
+1. Future guide depth restored/increased
+
+Changed the rendered guide window from 24 hours to 48 hours.
+
+Purpose:
+
+This should fix later guide times going blank when looking farther ahead in the timeline.
+
+
+2. Future-show popup and reminders
+
+Future programs in the guide can open the program popup.
+
+The popup includes:
+
+- Channel name
+- Program title
+- Start/stop time
+- Category when available
+- Program description
+- Watch now button
+- Reminder button
+
+Reminder behavior:
+
+- If no reminder exists, button says: Remind me
+- If a reminder already exists, button says: Cancel reminder
+- Long descriptions now scroll inside the popup instead of being cut off.
+
+
+3. In-app reminder auto-switch
+
+If Phoenix is open/running when a reminded show starts, Phoenix automatically switches to that channel.
+
+Important note:
+
+If Android has fully closed or backgrounded the app, the system requires user interaction. In that case, tapping the notification still opens the player for that channel.
+
+
+4. Long-press favorite shortcut
+
+Long-press OK/Enter on a focused guide channel/program to toggle that channel as a favorite.
+
+
+Live Preview and Layout Changes
+-------------------------------
+1. Live preview enlarged
+
+The Command Center live active preview area was increased twice during this update cycle:
+
+- First increased by 20%.
+- Then increased another 25%.
+
+Current preview/details row sizes:
+
+- Normal: 225
+- Compact: 165
+- Short-screen: 189
+
+The preview still keeps a 16:9 shape to avoid stretched video.
+
+
+2. Description box behavior
+
+The description box beside the live preview now:
+
+- Matches the live preview height.
+- Narrows automatically to make room for the larger preview.
+- Does not shorten long descriptions.
+- Auto-scrolls only when the description is too large to fit.
+- Keeps text clipped inside the description box so it does not bleed outside.
+
+
+3. Settings redesign
+
+Settings now better matches the main Command Center look:
+
+- Black/gold color scheme
+- Dark panels
+- Gold borders
+- Stronger TV focus glow
+- ON/OFF pill styling for toggles
+
+
+4. Settings remote navigation fix
+
+Native switches were replaced with focusable selectable rows.
+
+Fixed issue:
+
+- Some Settings toggles were being skipped by the TV remote/D-pad and could not be turned on/off.
+
+Affected controls include:
+
+- Channel numbers
+- Channel logos
+- Auto retry streams
+- Pointer mode
+
+
+Stability Fixes
+---------------
+1. Fast guide scrolling crash mitigation
+
+Preview stream changes now wait until focus stops moving, instead of changing instantly during rapid D-pad scrolling.
+
+
+2. Guide focus stabilization
+
+Removed forced first-row/first-card focus behavior that could pull focus back upward or trap navigation.
+
+
+3. Favorites/category stability
+
+Hardened category and Favorites behavior to reduce random crashes when switching tabs or selecting favorite channels.
+
+
+4. Mobile safety improvements
+
+Added safer mobile behavior:
+
+- Mobile-safe card guide
+- Natural rotation handling
+- Avoids TV-style live preview browsing on phones unless forced by setting
+- Hides A-Z rail on mobile
+
+
+5. Player overlay warning cleanup
+
+Fixed React Hook warning around the player overlay hide timer.
+
+
+Removed or Reduced
+------------------
+1. Removed forced first-item focus
+
+Removed from:
+
+- Timeline guide
+- Box/card grid
+
+
+2. Reduced aggressive live preview switching
+
+The guide no longer hammers the preview player while users hold the remote button to scroll quickly.
+
+
+3. Optional logo loading reduction
+
+Users can now disable channel logos if they want a lighter/faster experience.
+
+
+Validation
+----------
+Local checks passed before saving the latest changes:
+
+- TypeScript passed.
+- Expo lint passed.
+
+
+Commits Included After the July 25, 2026 9:25 AM APK Build
+----------------------------------------------------------
+b78de5d - Fix mobile orientation resize after playback
+8074eca - Add mobile safe guide and natural rotation
+08bffe7 - Fix preview ratio and auto-scroll descriptions
+7c88b32 - Stabilize guide focus navigation
+ada7531 - Fix player overlay hook warning
+dc413dd - Harden guide tab and fast scroll stability
+f6f50f1 - Add safe preview and guide density settings
+e516ce1 - Add build versioning and channel numbers
+4e8817f - Add Phoenix tester release notes
+57d6dfb - Polish preview layout and settings controls
+0e633bc - Update Phoenix tester release notes
+e253260 - Restore future guide depth and reminders
+
+
+Recommended Tester Checklist
+----------------------------
+Ask testers to check:
+
+1. Later guide times show upcoming shows instead of blank slots.
+2. Holding Down on the remote scrolls quickly without crashing.
+3. Long-press OK/Enter in the guide toggles Favorites.
+4. Future shows open the popup.
+5. Reminder button appears for future shows.
+6. Reminder button changes to Cancel reminder after being set.
+7. Long descriptions scroll inside the popup.
+8. Settings toggles can be focused and changed with the remote.
+9. Channel logos can be turned off and back on.
+10. Channel numbers display correctly and update after guide refresh.
+11. Device Layout Mode works: Auto, TV, Mobile.
+12. Live preview is larger but not stretched.
+13. Safe Preview Mode reduces crashes during fast guide scrolling.
+
+
+Known Follow-Up Items
+---------------------
+1. Confirm the 48-hour guide window fixes all missing future-guide slots.
+2. Test reminder auto-switch behavior while Phoenix is open on Onn box and Fire Stick.
+3. Continue watching memory/performance with larger preview and 48-hour guide data.
+4. If guide performance drops on weaker devices, consider adding a Settings option for guide window size.
+5. Continue tester feedback on whether the larger preview leaves enough visible guide rows.
+
