@@ -5,6 +5,12 @@ on:
   schedule:
     - cron: "0 */6 * * *" # every 6 hours (UTC)
   workflow_dispatch: {} # lets you run it manually from the Actions tab
+  push:
+    branches:
+      - main
+    paths:
+      - "cloudflare-backend/**"
+      - ".github/workflows/charm-refresh.yml"
 
 concurrency:
   group: charm-refresh
