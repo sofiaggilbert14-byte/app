@@ -5,9 +5,12 @@ import { gunzip, strFromU8 } from "fflate";
 import type { Channel, Program, GuideResponse, SourceStatus } from "@/src/api";
 
 // Developer source — fetched & parsed on-device (no backend needed).
-export const API_BASE = (process.env.EXPO_PUBLIC_CHARM_API_URL || "").replace(/\/+$/, "");
-export const SOURCE_M3U = process.env.EXPO_PUBLIC_M3U_URL || "";
-export const SOURCE_EPG = process.env.EXPO_PUBLIC_EPG_URL || "";
+// Experimental is deliberately device-local: never select the Cloudflare JSON path.
+export const API_BASE = "";
+export const SOURCE_M3U =
+  process.env.EXPO_PUBLIC_M3U_URL || "http://m3u4u.com/m3u/jwmzn1grpmu99585n721";
+export const SOURCE_EPG =
+  process.env.EXPO_PUBLIC_EPG_URL || "http://m3u4u.com/epg/jwmzn1grpmu99585n721";
 
 const TTL_MS = 24 * 60 * 60 * 1000; // refresh at most once a day
 const EXTINF_ATTR = /([a-zA-Z0-9-]+)="([^"]*)"/g;
@@ -646,7 +649,7 @@ async function doFetchParse(): Promise<Parsed> {
     return remote;
   }
   if (!SOURCE_M3U) {
-    throw new Error("Set EXPO_PUBLIC_CHARM_API_URL before building Phoenix");
+    throw new Error("Local M3U URL is not configured");
   }
   // Stage 1 (fast): parse the small M3U so the guide paints immediately, even
   // on low-power Android TV / Firestick boxes.
