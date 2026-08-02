@@ -10,6 +10,7 @@ import {
   BackHandler,
   Animated,
   Easing,
+  useTVEventHandler,
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -32,6 +33,7 @@ import { getTvSafeInsets } from "@/src/utils/tvLayout";
 import dayjs from "dayjs";
 
 type MenuRoute = "/" | "/favorites" | "/search" | "/settings";
+type GuideDrawerMode = "groups" | "rail";
 
 const GOLD = "#F6B73C";
 const GOLD_SOFT = "#FFE3A3";
@@ -173,9 +175,11 @@ export default function GuideScreen() {
   const [category, setCategory] = useState<string>("All");
   const [focusedChannelId, setFocusedChannelId] = useState<string | null>(null);
   const [previewStatus, setPreviewStatus] = useState<StreamStatus>("loading");
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [drawerMode, setDrawerMode] = useState<GuideDrawerMode | null>("groups");
+  const [guideFocusRegion, setGuideFocusRegion] = useState<"channel" | "program">("program");
   const [guideResetToken, setGuideResetToken] = useState(0);
   const previewFocusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastDrawerNavAt = useRef(0);
 
   const categories = useMemo(() => {
     const known = new Set(BASE_CATEGORIES);
@@ -184,7 +188,7 @@ export default function GuideScreen() {
       .slice(0, 10);
     const allCategories = [...BASE_CATEGORIES, ...extras];
     return allCategories.filter((g) => {
-      if (g === "All") return channels.length > 0;
+      if (g === "All") return true;
       if (g === "Favorites") return favorites.length > 0;
       if (g === "Recently Watched") return recent.length > 0;
       return channels.some((c) => categoryMatches(c, g));
@@ -248,22 +252,49 @@ export default function GuideScreen() {
     setPreviewStatus("loading");
   }, [previewChannel?.id]);
 
+  useTVEventHandler(
+    React.useCallback(
+      (event) => {
+        const eventType = event?.eventType;
+        if (eventType !== "left" && eventType !== "right") return;
+
+        const nowMs = Date.now();
+        if (nowMs - lastDrawerNavAt.current < 320) return;
+
+        if (eventType === "left") {
+          if (drawerMode === null && guideFocusRegion === "channel") {
+            lastDrawerNavAt.current = nowMs;
+            setDrawerMode("groups");
+            void Haptics.selectionAsync().catch(() => {});
+          } else if (drawerMode === "groups") {
+            lastDrawerNavAt.current = nowMs;
+            setDrawerMode("rail");
+            void Haptics.selectionAsync().catch(() => {});
+          }
+        } else if (drawerMode === "rail") {
+          lastDrawerNavAt.current = nowMs;
+          setDrawerMode("groups");
+          void Haptics.selectionAsync().catch(() => {});
+        }
+      },
+      [drawerMode, guideFocusRegion],
+    ),
+  );
+
   useFocusEffect(
     React.useCallback(() => {
       if (Platform.OS === "web") return;
       const sub = BackHandler.addEventListener("hardwareBackPress", () => {
-        if (menuOpen) {
-          setMenuOpen(false);
-        }
-        setGuideResetToken((value) => value + 1);
-        if (filtered[0]) {
-          setFocusedChannelId(filtered[0].id);
+        if (drawerMode === null) {
+          setDrawerMode("groups");
+        } else if (drawerMode === "groups") {
+          setDrawerMode("rail");
         }
         void Haptics.selectionAsync().catch(() => {});
         return true;
       });
       return () => sub.remove();
-    }, [filtered, menuOpen]),
+    }, [drawerMode]),
   );
 
   const focusPreviewChannel = (c: Channel) => {
@@ -285,7 +316,7 @@ export default function GuideScreen() {
 
   const goMenu = (route: MenuRoute) => {
     void Haptics.selectionAsync().catch(() => {});
-    setMenuOpen(false);
+    setDrawerMode(null);
     if (route === "/") {
       setCategory("All");
       setFocusedChannelId(null);
@@ -296,7 +327,7 @@ export default function GuideScreen() {
 
   const exitApp = () => {
     void Haptics.selectionAsync().catch(() => {});
-    setMenuOpen(false);
+    setDrawerMode(null);
     if (Platform.OS !== "web") {
       BackHandler.exitApp();
     }
@@ -324,36 +355,24 @@ export default function GuideScreen() {
           <Pressable
             onPress={() => {
               void Haptics.selectionAsync().catch(() => {});
-              setMenuOpen((v) => !v);
+              setDrawerMode((current) => (current === null ? "groups" : null));
             }}
             style={({ focused }: any) => [styles.menuButton, focused && styles.goldFocus]}
             testID="home-menu-button"
           >
-            <Ionicons name={menuOpen ? "chevron-up" : "menu"} size={20} color={GOLD_SOFT} />
-            <Text numberOfLines={1} style={styles.menuButtonText}>{category}</Text>
+            <Ionicons name={drawerMode ? "chevron-up" : "menu"} size={20} color={GOLD_SOFT} />
+            <Text numberOfLines={1} style={styles.menuButtonText}>
+              {category === "All" ? "All Channels" : category}
+            </Text>
           </Pressable>
 
           <View pointerEvents="none" style={styles.brandRow}>
             <Ionicons name="flame" size={26} color={GOLD} />
             <Text style={styles.brandText}>
-              Charm<Text style={styles.brandGold}>IPTV</Text> Phoenix
+              Charm<Text style={styles.brandGold}>IPTV</Text> Experimental
             </Text>
           </View>
           <Text style={styles.clock}>{dayjs().format("ddd, MMM D, h:mm A")}</Text>
-          {menuOpen && (
-            <GuideGroupsDrawer
-              groups={categories}
-              selected={category}
-              onClose={() => setMenuOpen(false)}
-              onSelect={(nextCategory) => {
-                setCategory(nextCategory);
-                setFocusedChannelId(null);
-                setMenuOpen(false);
-              }}
-              onNavigate={goMenu}
-              onExit={exitApp}
-            />
-          )}
         </View>
 
         {mobileSafeGuide ? (
@@ -506,7 +525,9 @@ export default function GuideScreen() {
           />
         ) : (
           <FocusGuide style={styles.timelineArea} autoFocus trapFocusUp>
-            <Text style={styles.timelineTitle}>FULL GUIDE TIMELINE</Text>
+            <Text style={styles.timelineTitle}>
+              {category === "All" ? "ALL CHANNELS" : category.toUpperCase()}
+            </Text>
             <TimelineGrid
               channels={filtered}
               windowStart={windowStart}
@@ -515,6 +536,7 @@ export default function GuideScreen() {
               onChannelPress={openChannel}
               onProgramPress={openProgram}
               onChannelFocus={focusPreviewChannel}
+              onFocusRegion={setGuideFocusRegion}
               onChannelLongPress={(c) => {
                 void Haptics.selectionAsync().catch(() => {});
                 toggleFavorite(c.id);
@@ -530,6 +552,26 @@ export default function GuideScreen() {
           </FocusGuide>
         )}
       </View>
+
+      {drawerMode && !mobileSafeGuide && (
+        <GuideGroupsDrawer
+          mode={drawerMode}
+          groups={categories}
+          selected={category}
+          onClose={() => setDrawerMode(null)}
+          onShowGroups={() => setDrawerMode("groups")}
+          onShowRail={() => setDrawerMode("rail")}
+          onSelect={(nextCategory) => {
+            setCategory(nextCategory);
+            setFocusedChannelId(null);
+            setGuideFocusRegion("program");
+            setGuideResetToken((value) => value + 1);
+            setDrawerMode(null);
+          }}
+          onNavigate={goMenu}
+          onExit={exitApp}
+        />
+      )}
     </LinearGradient>
   );
 }
