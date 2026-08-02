@@ -132,7 +132,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [channelNumbers, setChannelNumbersState] = useState(false);
   const [channelLogos, setChannelLogosState] = useState(true);
   const [deviceLayoutMode, setDeviceLayoutModeState] = useState<DeviceLayoutMode>("auto");
-  const [playerControlsTimeoutMs, setPlayerControlsTimeoutMsState] = useState<PlayerControlsTimeoutMs>(60000);
+  const [playerControlsTimeoutMs, setPlayerControlsTimeoutMsState] = useState<PlayerControlsTimeoutMs>(8000);
   const [autoRetryStreams, setAutoRetryStreamsState] = useState(true);
   const [epgProgress, setEpgProgress] = useState<EpgProgress>({
     phase: "idle",
@@ -236,7 +236,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setChannelNumbersState((await storage.getItem<boolean>(CHANNEL_NUMBERS_KEY, false)) || false);
       setChannelLogosState((await storage.getItem<boolean>(CHANNEL_LOGOS_KEY, true)) ?? true);
       setDeviceLayoutModeState((await storage.getItem<DeviceLayoutMode>(DEVICE_LAYOUT_MODE_KEY, "auto")) || "auto");
-      setPlayerControlsTimeoutMsState((await storage.getItem<PlayerControlsTimeoutMs>(PLAYER_TIMEOUT_KEY, 60000)) || 60000);
+      setPlayerControlsTimeoutMsState((await storage.getItem<PlayerControlsTimeoutMs>(PLAYER_TIMEOUT_KEY, 8000)) || 8000);
       setAutoRetryStreamsState((await storage.getItem<boolean>(AUTO_RETRY_KEY, true)) ?? true);
       requestNotificationPermission();
       // Launch paints the last-good on-device guide first. The background
