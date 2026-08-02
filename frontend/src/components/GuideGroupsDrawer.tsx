@@ -16,7 +16,11 @@ type DrawerMode = "groups" | "rail";
 
 const GOLD = "#E1B04A";
 const GOLD_SOFT = "#F3E0AD";
-const RAIL_WIDTH = 92;
+export const GUIDE_RAIL_WIDTH = 92;
+
+export function guideGroupsWidth(screenWidth: number): number {
+  return Math.min(390, Math.max(300, screenWidth * 0.27));
+}
 
 function groupLabel(group: string): string {
   if (group === "All") return "All Channels";
@@ -41,8 +45,6 @@ export function GuideGroupsDrawer({
   selected,
   onSelect,
   onClose,
-  onShowGroups,
-  onShowRail,
   onNavigate,
   onExit,
 }: {
@@ -51,13 +53,11 @@ export function GuideGroupsDrawer({
   selected: string;
   onSelect: (group: string) => void;
   onClose: () => void;
-  onShowGroups: () => void;
-  onShowRail: () => void;
   onNavigate: (route: MenuRoute) => void;
   onExit: () => void;
 }) {
   const { width } = useWindowDimensions();
-  const groupsWidth = Math.min(390, Math.max(300, width * 0.27));
+  const groupsWidth = guideGroupsWidth(width);
   const groupsVisible = mode === "groups";
 
   return (
@@ -68,7 +68,7 @@ export function GuideGroupsDrawer({
       testID="guide-navigation-layer"
     >
       <Pressable
-        style={styles.scrim}
+        style={[styles.scrim, groupsVisible ? styles.groupsScrim : styles.railScrim]}
         focusable={false}
         accessible={false}
         onPress={onClose}
@@ -79,7 +79,7 @@ export function GuideGroupsDrawer({
         trapFocusUp
         trapFocusDown
         trapFocusRight
-        style={[styles.navigationShell, { width: RAIL_WIDTH + (groupsVisible ? groupsWidth : 0) }]}
+        style={[styles.navigationShell, { width: GUIDE_RAIL_WIDTH + (groupsVisible ? groupsWidth : 0) }]}
       >
         <View style={styles.rail}>
           <View style={styles.railBrand}>
@@ -148,14 +148,7 @@ export function GuideGroupsDrawer({
           </FocusGuide>
         )}
       </FocusGuide>
-
-      <View pointerEvents="none" style={styles.edgeHints}>
-        {groupsVisible ? (
-          <Pressable style={styles.hiddenControl} onPress={onShowRail} />
-        ) : (
-          <Pressable style={styles.hiddenControl} onPress={onShowGroups} />
-        )}
-      </View>
+>
     </View>
   );
 }
@@ -194,7 +187,12 @@ const styles = StyleSheet.create({
   },
   scrim: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.60)",
+  },
+  groupsScrim: {
+    backgroundColor: "rgba(0,0,0,0.08)",
+  },
+  railScrim: {
+    backgroundColor: "rgba(0,0,0,0.22)",
   },
   navigationShell: {
     bottom: 0,
@@ -211,7 +209,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingBottom: spacing.xl,
     paddingTop: spacing.xl,
-    width: RAIL_WIDTH,
+    width: GUIDE_RAIL_WIDTH,
   },
   railBrand: {
     alignItems: "center",
@@ -316,15 +314,5 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     height: 24,
     width: 3,
-  },
-  edgeHints: {
-    height: 1,
-    opacity: 0,
-    position: "absolute",
-    width: 1,
-  },
-  hiddenControl: {
-    height: 1,
-    width: 1,
   },
 });
