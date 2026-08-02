@@ -1,7 +1,7 @@
 import dayjs from "dayjs";
 import { Platform } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
-import { gunzip, strFromU8 } from "fflate";
+import { gunzipSync, strFromU8 } from "fflate";
 import type { Channel, Program, GuideResponse, SourceStatus } from "@/src/api";
 
 // Developer source — fetched & parsed on-device (no backend needed).
@@ -18,7 +18,7 @@ const EXTINF_ATTR = /([a-zA-Z0-9-]+)="([^"]*)"/g;
 // silently drops a 600+ channel guide, which forced a slow full re-parse on
 // every launch — the file cache makes relaunches instant.
 const CACHE_FILE = FileSystem.documentDirectory
-  ? FileSystem.documentDirectory + "guide_cache_v3.json"
+  ? FileSystem.documentDirectory + "guide_cache_v4.json"
   : "";
 const CACHE_TMP_FILE = CACHE_FILE ? `${CACHE_FILE}.tmp` : "";
 const MAX_CACHE_BYTES = 32 * 1024 * 1024;
@@ -76,12 +76,6 @@ async function fetchTextMaybeGzip(
   return inflateIfGzip(bytes);
 }
 
-function gunzipAsync(data: Uint8Array): Promise<Uint8Array> {
-  return new Promise((resolve, reject) => {
-    gunzip(data, (err, out) => (err ? reject(err) : resolve(out)));
-  });
-}
-
 const B64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 const B64_LOOKUP = (() => {
   const t = new Uint8Array(256);
@@ -121,8 +115,11 @@ async function fetchBytes(
     return new Uint8Array(await res.arrayBuffer());
   }
   const tmp = (FileSystem.cacheDirectory || FileSystem.documentDirectory || "") + "source_download.bin";
+  try {
+    await FileSystem.deleteAsync(tmp, { idempotent: true });
+  } catch {}
   const dl = FileSystem.createDownloadResumable(
-    url,
+    resolveUrl(url),
     tmp,
     { headers: { "User-Agent": "GridStream/1.0" } },
     (p) => {
@@ -131,7 +128,7 @@ async function fetchBytes(
     },
   );
   const res = await dl.downloadAsync();
-  if (!res) throw new Error("EPG download failed");
+  if (!res) throw new Error("Source download failed");
   const b64 = await FileSystem.readAsStringAsync(res.uri, {
     encoding: FileSystem.EncodingType.Base64,
   });
@@ -144,7 +141,7 @@ async function fetchBytes(
 async function inflateIfGzip(bytes: Uint8Array): Promise<string> {
   // gzip magic bytes 0x1f 0x8b
   if (bytes.length > 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) {
-    const out = await gunzipAsync(bytes);
+    const out = gunzipSync(bytes);
     return strFromU8(out);
   }
   return strFromU8(bytes);
@@ -215,15 +212,18 @@ function isWordChar(ch: string | undefined): boolean {
 // Fast, allocation-light attribute read — NO `new RegExp` (compiling a regex
 // per programme was the main reason parsing took minutes on weak TV boxes).
 function xmlAttr(head: string, name: string): string {
-  const needle = name + '="';
-  let i = head.indexOf(needle);
-  while (i > 0 && isWordChar(head[i - 1])) {
-    i = head.indexOf(needle, i + needle.length);
+  for (const quote of ['"', "'"]) {
+    const needle = name + "=" + quote;
+    let i = head.indexOf(needle);
+    while (i > 0 && isWordChar(head[i - 1])) {
+      i = head.indexOf(needle, i + needle.length);
+    }
+    if (i === -1) continue;
+    const s = i + needle.length;
+    const e = head.indexOf(quote, s);
+    if (e !== -1) return decodeEntities(head.slice(s, e));
   }
-  if (i === -1) return "";
-  const s = i + needle.length;
-  const e = head.indexOf('"', s);
-  return e === -1 ? "" : head.slice(s, e);
+  return "";
 }
 function xmlFirstTag(body: string, name: string): string {
   const open = "<" + name;
