@@ -5,7 +5,6 @@ import {
   StyleSheet,
   Pressable,
   ActivityIndicator,
-  ScrollView,
   useWindowDimensions,
   Platform,
   BackHandler,
@@ -24,6 +23,7 @@ import { TimelineGrid } from "@/src/components/TimelineGrid";
 import { BoxGrid } from "@/src/components/BoxGrid";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { EpgProgressBar } from "@/src/components/EpgProgressBar";
+import { GuideGroupsDrawer } from "@/src/components/GuideGroupsDrawer";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { StreamPlayer, StreamStatus } from "@/src/components/StreamPlayer";
@@ -211,19 +211,6 @@ export default function GuideScreen() {
     return map;
   }, [channels]);
 
-  const recentPreviewChannels = useMemo(() => {
-    const out: Channel[] = [];
-    const seen = new Set<string>();
-    for (const recentChannel of recent) {
-      const live = channelById(recentChannel.id) || recentChannel;
-      if (!live?.id || seen.has(live.id)) continue;
-      seen.add(live.id);
-      out.push(live);
-      if (out.length >= 10) break;
-    }
-    return out;
-  }, [channelById, recent]);
-
   const previewChannel = useMemo(() => {
     const focused = focusedChannelId ? filtered.find((c) => c.id === focusedChannelId) : null;
     if (focused) return focused;
@@ -343,7 +330,7 @@ export default function GuideScreen() {
             testID="home-menu-button"
           >
             <Ionicons name={menuOpen ? "chevron-up" : "menu"} size={20} color={GOLD_SOFT} />
-            <Text style={styles.menuButtonText}>Menu</Text>
+            <Text numberOfLines={1} style={styles.menuButtonText}>{category}</Text>
           </Pressable>
 
           <View pointerEvents="none" style={styles.brandRow}>
@@ -354,49 +341,22 @@ export default function GuideScreen() {
           </View>
           <Text style={styles.clock}>{dayjs().format("ddd, MMM D, h:mm A")}</Text>
           {menuOpen && (
-            <View style={styles.menuDropdown}>
-              <Pressable
-                onPress={() => goMenu("/")}
-                style={({ focused }: any) => [styles.menuItem, focused && styles.goldFocus]}
-                testID="home-menu-guide"
-              >
-                <Ionicons name="grid" size={18} color={GOLD_SOFT} />
-                <Text style={styles.menuItemText}>TV Guide</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => goMenu("/favorites")}
-                style={({ focused }: any) => [styles.menuItem, focused && styles.goldFocus]}
-                testID="home-menu-favorites"
-              >
-                <Ionicons name="star" size={18} color={GOLD_SOFT} />
-                <Text style={styles.menuItemText}>Favorites</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => goMenu("/search")}
-                style={({ focused }: any) => [styles.menuItem, focused && styles.goldFocus]}
-                testID="home-menu-search"
-              >
-                <Ionicons name="search" size={18} color={GOLD_SOFT} />
-                <Text style={styles.menuItemText}>Search</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => goMenu("/settings")}
-                style={({ focused }: any) => [styles.menuItem, focused && styles.goldFocus]}
-                testID="home-menu-settings"
-              >
-                <Ionicons name="settings" size={18} color={GOLD_SOFT} />
-                <Text style={styles.menuItemText}>Settings</Text>
-              </Pressable>
-              <Pressable
-                onPress={exitApp}
-                style={({ focused }: any) => [styles.menuItem, styles.menuItemExit, focused && styles.goldFocus]}
-                testID="home-menu-exit"
-              >
-                <Ionicons name="power" size={18} color={GOLD_SOFT} />
-                <Text style={styles.menuItemText}>Exit App</Text>
-              </Pressable>
-            </View>
+            <GuideGroupsDrawer
+              groups={categories}
+              selected={category}
+              onClose={() => setMenuOpen(false)}
+              onSelect={(nextCategory) => {
+                setCategory(nextCategory);
+                setFocusedChannelId(null);
+                setMenuOpen(false);
+              }}
+              onNavigate={goMenu}
+              onExit={exitApp}
+            />
           )}
+        </View>
+
+        {mobileSafeGuide          )}
         </View>
 
         {mobileSafeGuide ? (
@@ -475,43 +435,7 @@ export default function GuideScreen() {
             </View>
           </Pressable>
 
-          <View style={styles.recentPanel}>
-            <Text style={styles.recentPanelLabel}>LAST WATCHED</Text>
-            {recentPreviewChannels.length === 0 ? (
-              <View style={styles.recentEmpty}>
-                <Ionicons name="time-outline" size={22} color={GOLD_SOFT} />
-                <Text style={styles.recentEmptyText}>Channels you watch will appear here.</Text>
-              </View>
-            ) : (
-              <ScrollView
-                style={styles.recentScroll}
-                contentContainerStyle={styles.recentList}
-                showsVerticalScrollIndicator={false}
-                nestedScrollEnabled
-              >
-                {recentPreviewChannels.map((channel) => (
-                  <Pressable
-                    key={channel.id}
-                    focusable
-                    onFocus={() => focusPreviewChannel(channel)}
-                    onPress={() => openChannel(channel)}
-                    onLongPress={() => {
-                      void Haptics.selectionAsync().catch(() => {});
-                      toggleFavorite(channel.id);
-                    }}
-                    style={({ focused }: any) => [styles.recentItem, focused && styles.goldFocus]}
-                    testID={`recent-preview-${channel.id}`}
-                  >
-                    <ChannelLogo name={channel.name} logo={channel.logo} disabled={!channelLogos} size={compactGuide || shortScreen ? 22 : 26} />
-                    <Text numberOfLines={1} style={styles.recentItemText}>
-                      {channelNumbers ? `${channelNumberById[channel.id] || ""} · ` : ""}
-                      {channel.name}
-                    </Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            )}
-          </View>
+
 
           <View style={styles.detailsPanel}>
             <View style={styles.detailsHeader}>
@@ -548,24 +472,7 @@ export default function GuideScreen() {
         </View>
         )}
 
-        <View style={styles.categoryWrap}>
-          <Text style={styles.stripLabel}>CATEGORY TABS</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryRow}>
-            {categories.map((g) => (
-              <Pressable
-                key={g}
-                onPress={() => {
-                  setCategory(g);
-                  setFocusedChannelId(null);
-                }}
-                style={({ focused }: any) => [styles.categoryChip, category === g && styles.categoryChipActive, focused && styles.goldFocus]}
-                testID={`chip-${g}`}
-              >
-                <Text style={[styles.categoryText, category === g && styles.categoryTextActive]}>{g}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-        </View>
+
 
         <EpgProgressBar />
 
@@ -645,7 +552,7 @@ const styles = StyleSheet.create({
   menuButton: {
     position: "absolute",
     left: 0,
-    minWidth: 96,
+    minWidth: 176,
     height: 28,
     flexDirection: "row",
     alignItems: "center",
@@ -656,7 +563,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,227,163,0.22)",
     backgroundColor: "rgba(28,18,10,0.82)",
   },
-  menuButtonText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 11 },
+  menuButtonText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 11, maxWidth: 132 },
   menuDropdown: {
     position: "absolute",
     top: 34,
