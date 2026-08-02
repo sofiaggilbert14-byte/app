@@ -9,13 +9,13 @@ import {
   Animated,
   useWindowDimensions,
   LayoutChangeEvent,
+  useTVEventHandler,
 } from "react-native";
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import dayjs from "dayjs";
 import { colors, fonts, radius, spacing } from "@/src/theme";
 import { Channel, Program } from "@/src/api";
 import { ChannelLogo } from "./ChannelLogo";
-import { AZRail } from "./AZRail";
 
 const HEADER_H = 34;
 const GOLD = "#F6B73C";
@@ -33,7 +33,6 @@ export function TimelineGrid({
   onProgramPress,
   onChannelPress,
   onChannelFocus,
-  onFocusRegion,
   onChannelLongPress,
   refreshing,
   onRefresh,
@@ -42,6 +41,8 @@ export function TimelineGrid({
   channelNumberById,
   showChannelLogos = true,
   resetToken = 0,
+  active = true,
+  onLeftBoundary,
 }: {
   channels: Channel[];
   windowStart: string;
@@ -50,7 +51,6 @@ export function TimelineGrid({
   onProgramPress: (p: Program, c: Channel) => void;
   onChannelPress: (c: Channel) => void;
   onChannelFocus?: (c: Channel) => void;
-  onFocusRegion?: (region: "channel" | "program") => void;
   onChannelLongPress?: (c: Channel) => void;
   refreshing?: boolean;
   onRefresh?: () => void;
@@ -59,18 +59,22 @@ export function TimelineGrid({
   channelNumberById?: Record<string, number>;
   showChannelLogos?: boolean;
   resetToken?: number;
+  active?: boolean;
+  onLeftBoundary?: () => void;
 }) {
   const { width } = useWindowDimensions();
   // Scale up for tablets / TVs so it stays readable on large landscape screens.
   const big = width >= 900;
   const ROW_H = density === "large" ? (big ? 76 : 66) : density === "compact" ? (big ? 52 : 48) : big ? 62 : 56;
-  const LOGO_W = big ? 250 : 176;
+  const LOGO_W = big ? 175 : 123;
   const LOGO_SIZE = density === "large" ? (big ? 44 : 36) : density === "compact" ? (big ? 30 : 26) : big ? 34 : 30;
   const scrollX = useRef(new Animated.Value(0)).current;
   const negScrollX = useMemo(() => Animated.multiply(scrollX, -1), [scrollX]);
   const [bodyH, setBodyH] = useState(0);
   const listRef = useRef<FlashListRef<Channel>>(null);
   const horizontalRef = useRef<ScrollView>(null);
+  const focusRegionRef = useRef<"channel" | "program">("program");
+  const [preferFirstChannel, setPreferFirstChannel] = useState(false);
 
   const totalMin = mins(windowEnd, windowStart);
   const longGuideWindow = totalMin >= 20 * 60;
@@ -96,12 +100,24 @@ export function TimelineGrid({
 
   useEffect(() => {
     if (!resetToken) return;
+    setPreferFirstChannel(true);
     try {
       horizontalRef.current?.scrollTo({ x: 0, animated: true });
       scrollX.setValue(0);
       listRef.current?.scrollToIndex({ index: 0, animated: true, viewPosition: 0 });
     } catch {}
   }, [resetToken, scrollX]);
+
+  useTVEventHandler(
+    React.useCallback(
+      (event) => {
+        if (active && event?.eventType === "left" && focusRegionRef.current === "channel") {
+          onLeftBoundary?.();
+        }
+      },
+      [active, onLeftBoundary],
+    ),
+  );
 
   return (
     <View style={styles.wrap} testID="epg-timeline-grid">
@@ -153,8 +169,10 @@ export function TimelineGrid({
                       <Pressable
                         style={({ focused }: any) => [styles.logoCell, focused && styles.cellFocused]}
                         focusable
+                        hasTVPreferredFocus={index === 0 && preferFirstChannel}
                         onFocus={() => {
-                          onFocusRegion?.("channel");
+                          focusRegionRef.current = "channel";
+                          if (index === 0 && preferFirstChannel) setPreferFirstChannel(false);
                           onChannelFocus?.(item);
                         }}
                         onPress={() => onChannelPress(item)}
@@ -190,7 +208,7 @@ export function TimelineGrid({
                           <Pressable
                             key={`${item.id}:${p.start}:${p.stop || "open"}:${p.title}`}
                             onFocus={() => {
-                              onFocusRegion?.("program");
+                              focusRegionRef.current = "program";
                               onChannelFocus?.(item);
                             }}
                             onPress={() => onProgramPress(p, item)}
@@ -228,14 +246,6 @@ export function TimelineGrid({
             )}
           </View>
         </ScrollView>
-        <AZRail
-          channels={channels}
-          onSelect={(i) => {
-            try {
-              listRef.current?.scrollToIndex({ index: i, animated: true, viewPosition: 0 });
-            } catch {}
-          }}
-        />
       </View>
     </View>
   );
