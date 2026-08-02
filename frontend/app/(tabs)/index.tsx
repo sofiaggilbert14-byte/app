@@ -180,7 +180,6 @@ export default function GuideScreen() {
   const [focusedChannelId, setFocusedChannelId] = useState<string | null>(null);
   const [previewStatus, setPreviewStatus] = useState<StreamStatus>("loading");
   const [drawerMode, setDrawerMode] = useState<GuideDrawerMode | null>("groups");
-  const [guideFocusRegion, setGuideFocusRegion] = useState<"channel" | "program">("program");
   const [guideResetToken, setGuideResetToken] = useState(0);
   const previewFocusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastDrawerNavAt = useRef(0);
@@ -272,11 +271,7 @@ export default function GuideScreen() {
         if (nowMs - lastDrawerNavAt.current < 320) return;
 
         if (eventType === "left") {
-          if (drawerMode === null && guideFocusRegion === "channel") {
-            lastDrawerNavAt.current = nowMs;
-            setDrawerMode("groups");
-            void Haptics.selectionAsync().catch(() => {});
-          } else if (drawerMode === "groups") {
+          if (drawerMode === "groups") {
             lastDrawerNavAt.current = nowMs;
             setDrawerMode("rail");
             void Haptics.selectionAsync().catch(() => {});
@@ -287,7 +282,7 @@ export default function GuideScreen() {
           void Haptics.selectionAsync().catch(() => {});
         }
       },
-      [drawerMode, guideFocusRegion],
+      [drawerMode],
     ),
   );
 
@@ -522,7 +517,7 @@ export default function GuideScreen() {
             resetToken={guideResetToken}
           />
         ) : (
-          <FocusGuide style={styles.timelineArea} autoFocus trapFocusUp>
+          <FocusGuide style={styles.timelineArea} autoFocus>
             <Text style={styles.timelineTitle}>
               {category === "All" ? "ALL CHANNELS" : category.toUpperCase()}
             </Text>
@@ -534,7 +529,6 @@ export default function GuideScreen() {
               onChannelPress={openChannel}
               onProgramPress={openProgram}
               onChannelFocus={focusPreviewChannel}
-              onFocusRegion={setGuideFocusRegion}
               onChannelLongPress={(c) => {
                 void Haptics.selectionAsync().catch(() => {});
                 toggleFavorite(c.id);
@@ -546,6 +540,11 @@ export default function GuideScreen() {
               channelNumberById={channelNumberById}
               showChannelLogos={channelLogos}
               resetToken={guideResetToken}
+              active={drawerMode === null}
+              onLeftBoundary={() => {
+                setDrawerMode("groups");
+                void Haptics.selectionAsync().catch(() => {});
+              }}
             />
           </FocusGuide>
         )}
@@ -560,7 +559,6 @@ export default function GuideScreen() {
           onSelect={(nextCategory) => {
             setCategory(nextCategory);
             setFocusedChannelId(null);
-            setGuideFocusRegion("program");
             setGuideResetToken((value) => value + 1);
             setDrawerMode(null);
           }}
