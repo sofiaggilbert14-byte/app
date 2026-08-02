@@ -217,7 +217,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const hardRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await refreshSource();
+      await refreshSource(true);
       await refresh(true);
     } catch {}
     setRefreshing(false);
@@ -239,13 +239,12 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setPlayerControlsTimeoutMsState((await storage.getItem<PlayerControlsTimeoutMs>(PLAYER_TIMEOUT_KEY, 60000)) || 60000);
       setAutoRetryStreamsState((await storage.getItem<boolean>(AUTO_RETRY_KEY, true)) ?? true);
       requestNotificationPermission();
-      // Launch should paint the last-good guide first so weak TV boxes do not
-      // freeze waiting on a fresh EPG download. Once the screen is usable,
-      // refresh Cloudflare data quietly in the background and repaint.
+      // Launch paints the last-good on-device guide first. The background
+      // check respects the 24-hour cache and does not download on every open.
       await refresh();
       void (async () => {
         try {
-          await refreshSource();
+          await refreshSource(false);
         } catch {}
       })();
     })();
