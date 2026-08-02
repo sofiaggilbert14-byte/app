@@ -148,7 +148,6 @@ export function GuideGroupsDrawer({
           </FocusGuide>
         )}
       </FocusGuide>
->
     </View>
   );
 }
