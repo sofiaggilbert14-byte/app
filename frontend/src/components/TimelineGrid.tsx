@@ -33,6 +33,7 @@ export function TimelineGrid({
   onProgramPress,
   onChannelPress,
   onChannelFocus,
+  onFocusRegion,
   onChannelLongPress,
   refreshing,
   onRefresh,
@@ -49,6 +50,7 @@ export function TimelineGrid({
   onProgramPress: (p: Program, c: Channel) => void;
   onChannelPress: (c: Channel) => void;
   onChannelFocus?: (c: Channel) => void;
+  onFocusRegion?: (region: "channel" | "program") => void;
   onChannelLongPress?: (c: Channel) => void;
   refreshing?: boolean;
   onRefresh?: () => void;
@@ -151,7 +153,10 @@ export function TimelineGrid({
                       <Pressable
                         style={({ focused }: any) => [styles.logoCell, focused && styles.cellFocused]}
                         focusable
-                        onFocus={() => onChannelFocus?.(item)}
+                        onFocus={() => {
+                          onFocusRegion?.("channel");
+                          onChannelFocus?.(item);
+                        }}
                         onPress={() => onChannelPress(item)}
                         onLongPress={() => onChannelLongPress?.(item)}
                         testID={`epg-channel-${item.id}`}
@@ -184,7 +189,10 @@ export function TimelineGrid({
                         return (
                           <Pressable
                             key={`${item.id}:${p.start}:${p.stop || "open"}:${p.title}`}
-                            onFocus={() => onChannelFocus?.(item)}
+                            onFocus={() => {
+                              onFocusRegion?.("program");
+                              onChannelFocus?.(item);
+                            }}
                             onPress={() => onProgramPress(p, item)}
                             onLongPress={() => onChannelLongPress?.(item)}
                             focusable
