@@ -24,7 +24,11 @@ import { TimelineGrid } from "@/src/components/TimelineGrid";
 import { BoxGrid } from "@/src/components/BoxGrid";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { EpgProgressBar } from "@/src/components/EpgProgressBar";
-import { GuideGroupsDrawer } from "@/src/components/GuideGroupsDrawer";
+import {
+  GUIDE_RAIL_WIDTH,
+  GuideGroupsDrawer,
+  guideGroupsWidth,
+} from "@/src/components/GuideGroupsDrawer";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { StreamPlayer, StreamStatus } from "@/src/components/StreamPlayer";
@@ -180,6 +184,12 @@ export default function GuideScreen() {
   const [guideResetToken, setGuideResetToken] = useState(0);
   const previewFocusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastDrawerNavAt = useRef(0);
+  const drawerGuideInset =
+    drawerMode === "groups"
+      ? GUIDE_RAIL_WIDTH + guideGroupsWidth(width)
+      : drawerMode === "rail"
+        ? GUIDE_RAIL_WIDTH
+        : 0;
 
   const categories = useMemo(() => {
     const known = new Set(BASE_CATEGORIES);
@@ -345,37 +355,25 @@ export default function GuideScreen() {
           styles.screen,
           {
             paddingTop: insets.top + tvSafe.top + (shortScreen ? spacing.xs : spacing.sm),
-            paddingLeft: spacing.sm + tvSafe.left,
+            paddingLeft: spacing.sm + tvSafe.left + drawerGuideInset,
             paddingRight: spacing.sm + tvSafe.right,
             paddingBottom: spacing.xs + tvSafe.bottom,
           },
         ]}
       >
-        <View style={styles.topBrand}>
-          <Pressable
-            onPress={() => {
-              void Haptics.selectionAsync().catch(() => {});
-              setDrawerMode((current) => (current === null ? "groups" : null));
-            }}
-            style={({ focused }: any) => [styles.menuButton, focused && styles.goldFocus]}
-            testID="home-menu-button"
-          >
-            <Ionicons name={drawerMode ? "chevron-up" : "menu"} size={20} color={GOLD_SOFT} />
-            <Text numberOfLines={1} style={styles.menuButtonText}>
-              {category === "All" ? "All Channels" : category}
-            </Text>
-          </Pressable>
-
-          <View pointerEvents="none" style={styles.brandRow}>
-            <Ionicons name="flame" size={26} color={GOLD} />
-            <Text style={styles.brandText}>
-              Charm<Text style={styles.brandGold}>IPTV</Text> Experimental
-            </Text>
+        {drawerMode === null && (
+          <View style={styles.topBrand}>
+            <View pointerEvents="none" style={styles.brandRow}>
+              <Ionicons name="flame" size={26} color={GOLD} />
+              <Text style={styles.brandText}>
+                Charm<Text style={styles.brandGold}>IPTV</Text> Experimental
+              </Text>
+            </View>
+            <Text style={styles.clock}>{dayjs().format("ddd, MMM D, h:mm A")}</Text>
           </View>
-          <Text style={styles.clock}>{dayjs().format("ddd, MMM D, h:mm A")}</Text>
-        </View>
+        )}
 
-        {mobileSafeGuide ? (
+        {drawerMode !== null ? null : mobileSafeGuide ? (
           <View style={styles.mobileHero}>
             <View style={styles.mobileHeroText}>
               <Text style={styles.detailsLabel}>MOBILE SAFE GUIDE</Text>
@@ -559,8 +557,6 @@ export default function GuideScreen() {
           groups={categories}
           selected={category}
           onClose={() => setDrawerMode(null)}
-          onShowGroups={() => setDrawerMode("groups")}
-          onShowRail={() => setDrawerMode("rail")}
           onSelect={(nextCategory) => {
             setCategory(nextCategory);
             setFocusedChannelId(null);
