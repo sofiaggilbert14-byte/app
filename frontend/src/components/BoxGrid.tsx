@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from "react";
-import { View, Text, StyleSheet, Pressable, useWindowDimensions, RefreshControl, Platform } from "react-native";
+import { View, Text, StyleSheet, Pressable, useWindowDimensions, RefreshControl } from "react-native";
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, fonts, radius, spacing } from "@/src/theme";
@@ -7,7 +7,6 @@ import { Channel, Program } from "@/src/api";
 import { ChannelLogo } from "./ChannelLogo";
 import { nowNext, progressPct, fmtTime } from "@/src/utils/time";
 import { useStore } from "@/src/store";
-import { AZRail } from "./AZRail";
 
 const GOLD = "#F6B73C";
 const GOLD_SOFT = "#FFE3A3";
@@ -42,7 +41,6 @@ export function BoxGrid({
   const { width } = useWindowDimensions();
   // Adapt column count to the screen ratio — phones 2, tablets/TVs up to 5.
   const numColumns = width >= 1400 ? 6 : width >= 1150 ? 5 : width >= 900 ? 4 : width >= 600 ? 3 : 2;
-  const showAZRail = Platform.OS === "web" || Platform.isTV;
   const nowDate = new Date(now);
   const { isFavorite, toggleFavorite } = useStore();
   const listRef = useRef<FlashListRef<Channel>>(null);
@@ -124,16 +122,6 @@ export function BoxGrid({
         );
       }}
     />
-      {showAZRail && (
-        <AZRail
-          channels={channels}
-          onSelect={(i) => {
-            try {
-              listRef.current?.scrollToIndex({ index: i, animated: true, viewPosition: 0 });
-            } catch {}
-          }}
-        />
-      )}
     </View>
   );
 }
