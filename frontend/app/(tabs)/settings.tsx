@@ -82,7 +82,7 @@ const appVersion = Constants.expoConfig?.version || "2.0.0-beta";
     setBusy(true);
     Haptics.selectionAsync();
     try {
-      const s = await refreshSource();
+      const s = await refreshSource(true);
       setStatus(s);
       await refreshGuide(true);
       loadStatus();
@@ -96,7 +96,7 @@ const appVersion = Constants.expoConfig?.version || "2.0.0-beta";
     try {
       await clearGuideCache();
       loadStatus();
-      const s = await refreshSource();
+      const s = await refreshSource(true);
       setStatus(s);
       await refreshGuide(true);
       loadStatus();
@@ -112,7 +112,7 @@ const appVersion = Constants.expoConfig?.version || "2.0.0-beta";
   return (
     <View style={[styles.container, { paddingLeft: tvSafe.left, paddingRight: tvSafe.right, paddingBottom: tvSafe.bottom }]}>
       <View style={[styles.header, { paddingTop: spacing.md + tvSafe.top }]}>
-        <Text style={styles.brand}>CharmIPTV Phoenix</Text>
+        <Text style={styles.brand}>Charm IPTV Experimental</Text>
         <Text style={styles.title}>Settings</Text>
       </View>
       <ScrollView
@@ -144,24 +144,29 @@ const appVersion = Constants.expoConfig?.version || "2.0.0-beta";
             ) : (
               <>
                 <Ionicons name="refresh" size={16} color="#fff" />
-                <Text style={styles.primaryText}>Refresh Playlist Now</Text>
+                <Text style={styles.primaryText}>Force Refresh Now</Text>
               </>
             )}
           </Pressable>
           <Text style={styles.hint}>
-            Channels & guide are fetched and parsed directly on your device — no server required. Pull down to refresh
-            anywhere on this screen.
+            The parsed guide is cached on this device and reused for 24 hours. Force Refresh downloads M3U and EPG
+            immediately and restarts the automatic 24-hour timer.
           </Text>
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Phoenix Diagnostics</Text>
+          <Text style={styles.cardTitle}>Experimental Diagnostics</Text>
           <Stat label="Build" value={`v${appVersion}${androidVersionCode ? ` (${androidVersionCode})` : ""}`} />
           <Stat label="Platform" value={Platform.isTV ? "Android TV / Fire TV" : Platform.OS} />
           <Stat label="Data mode" value={diagnostics?.mode || "—"} />
           <Stat label="Channels" value={String(diagnostics?.channels || status?.channel_count || 0)} />
           <Stat label="Cached programs" value={String(diagnostics?.programs || 0)} />
           <Stat label="Refresh in progress" value={diagnostics?.refreshInFlight ? "Yes" : "No"} />
+          <Stat
+            label="Next automatic refresh"
+            value={diagnostics?.nextAutoRefresh ? dayjs(diagnostics.nextAutoRefresh).format("MMM D, h:mm A") : "—"}
+          />
+          {diagnostics?.epgError ? <Text style={styles.errText}>EPG: {diagnostics.epgError}</Text> : null}
           <Stat
             label="Guide cache"
             value={diagnostics ? `${(diagnostics.cacheBytes / 1024 / 1024).toFixed(1)} MB` : "—"}
