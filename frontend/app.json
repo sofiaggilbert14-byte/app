@@ -8,10 +8,6 @@
     "scheme": "charmiptv-experimental",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.charmiptv.app.experimental"
-    },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
@@ -72,6 +68,10 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "platforms": [
+      "android",
+      "web"
+    ]
   }
 }
