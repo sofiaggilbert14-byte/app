@@ -356,9 +356,6 @@ export default function GuideScreen() {
           )}
         </View>
 
-        {mobileSafeGuide          )}
-        </View>
-
         {mobileSafeGuide ? (
           <View style={styles.mobileHero}>
             <View style={styles.mobileHeroText}>
