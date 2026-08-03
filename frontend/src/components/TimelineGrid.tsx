@@ -18,8 +18,8 @@ import { Channel, Program } from "@/src/api";
 import { ChannelLogo } from "./ChannelLogo";
 
 const HEADER_H = 34;
-const GOLD = "#F6B73C";
-const GOLD_SOFT = "#FFE3A3";
+const GOLD = "#E3262E";
+const GOLD_SOFT = "#FFFFFF";
 
 function mins(a: string, b: string) {
   return dayjs(a).diff(dayjs(b), "minute");
@@ -154,7 +154,8 @@ export function TimelineGrid({
                 data={channels}
                 ref={listRef}
                 keyExtractor={(c) => c.id}
-                drawDistance={longGuideWindow ? (big ? 260 : 200) : big ? 520 : 360}
+                drawDistance={ROW_H * 10}
+                removeClippedSubviews={false}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingBottom: 120 }}
                 refreshControl={
@@ -257,15 +258,15 @@ const styles = StyleSheet.create({
   headerRow: {
     flexDirection: "row",
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(246,183,60,0.32)",
-    backgroundColor: "rgba(10,7,4,0.96)",
+    borderBottomColor: "rgba(227,38,46,0.32)",
+    backgroundColor: "rgba(9,12,16,0.96)",
   },
   corner: {
     height: HEADER_H,
     alignItems: "center",
     justifyContent: "center",
     borderRightWidth: 1,
-    borderRightColor: "rgba(246,183,60,0.38)",
+    borderRightColor: "rgba(227,38,46,0.38)",
     backgroundColor: "rgba(0,0,0,0.72)",
     zIndex: 5,
   },
@@ -279,12 +280,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     width: 100,
   },
-  row: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "rgba(246,183,60,0.15)" },
+  row: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "rgba(227,38,46,0.15)" },
   logoCol: {
     zIndex: 5,
-    backgroundColor: "rgba(8,5,3,0.97)",
+    backgroundColor: "rgba(11,14,18,0.97)",
     borderRightWidth: 1,
-    borderRightColor: "rgba(246,183,60,0.30)",
+    borderRightColor: "rgba(227,38,46,0.30)",
   },
   logoCell: {
     flex: 1,
@@ -306,18 +307,18 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 5,
     bottom: 5,
-    backgroundColor: "rgba(32,21,13,0.78)",
+    backgroundColor: "rgba(30,34,40,0.78)",
     borderRadius: radius.sm,
     borderWidth: 0.5,
-    borderColor: "rgba(255,227,163,0.16)",
+    borderColor: "rgba(255,255,255,0.16)",
     paddingHorizontal: spacing.sm,
     justifyContent: "center",
   },
-  progLive: { borderColor: GOLD, backgroundColor: "rgba(246,183,60,0.18)" },
+  progLive: { borderColor: GOLD, backgroundColor: "rgba(227,38,46,0.18)" },
   cellFocused: {
     borderColor: GOLD_SOFT,
     borderWidth: 2,
-    backgroundColor: "rgba(246,183,60,0.22)",
+    backgroundColor: "rgba(227,38,46,0.22)",
   },
   progTitle: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 11 },
   progTime: { color: GOLD_SOFT, fontFamily: fonts.regular, fontSize: 9, marginTop: 1 },
