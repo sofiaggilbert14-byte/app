@@ -1,0 +1,64 @@
+name: Experimental v3 APK
+
+on:
+  push:
+    branches:
+      - experimental/v3-native-performance
+  workflow_dispatch:
+
+concurrency:
+  group: experimental-v3-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-release-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build release APK
+        run: ./android/gradlew -p android assembleRelease --stacktrace
+        env:
+          CI: '1'
+
+      - name: Verify embedded React Native bundle
+        run: |
+          APK="android/app/build/outputs/apk/release/app-release.apk"
+          test -f "$APK"
+          unzip -l "$APK" | grep -E "(index\.android\.bundle|assets/.*\.bundle|resources\.arsc)" >/dev/null
+
+      - name: Rename APK
+        run: cp android/app/build/outputs/apk/release/app-release.apk android/app/build/outputs/apk/release/CharmIPTV-Experimental-v3.apk
+
+      - name: Upload Experimental v3 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: CharmIPTV-Experimental-v3-APK
+          path: frontend/android/app/build/outputs/apk/release/CharmIPTV-Experimental-v3.apk
+          if-no-files-found: error
+          retention-days: 14
