@@ -156,6 +156,7 @@ async function ensureLoaded(): Promise<NativeMeta> {
   const cached = await readChannelCache();
   if (cached) {
     MEM = cached;
+    if (cached.ts <= 0) void refreshInternal(false);
     return cached;
   }
   return refreshInternal(true);
@@ -165,7 +166,7 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
   if (refreshPromise) return refreshPromise;
   refreshPromise = (async () => {
     const cached = MEM || (await readChannelCache());
-    if (!force && cached && Date.now() - cached.ts < TTL_MS) {
+    if (!force && cached && cached.ts > 0 && Date.now() - cached.ts < TTL_MS) {
       MEM = cached;
       return cached;
     }
@@ -175,7 +176,9 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
     try {
       channels = await fetchPlaylist();
       MEM = {
-        ts: Date.now(),
+        // A playlist fetch is not a successful guide refresh. Preserve the
+        // last-good EPG timestamp until the native EPG stage also succeeds.
+        ts: cached?.ts || 0,
         channels,
         epgProgramCount: cached?.epgProgramCount || 0,
         epgChannelCount: cached?.epgChannelCount || 0,
@@ -266,7 +269,7 @@ export function sourceStatus(): SourceStatus {
     epg_url: SOURCE_EPG ? "configured" : "not configured",
     channel_count: channels.length,
     channels_with_epg: MEM?.epgChannelCount || 0,
-    last_refresh: MEM ? new Date(MEM.ts).toISOString() : null,
+    last_refresh: MEM && MEM.ts > 0 ? new Date(MEM.ts).toISOString() : null,
     refreshing: !!refreshPromise,
     error: MEM?.epgError || lastSourceError,
   };
@@ -291,17 +294,15 @@ export async function sourceDiagnostics(): Promise<SourceDiagnostics> {
       if (info.exists && typeof info.size === "number") cacheBytes += info.size;
     } catch {}
   }
-  // Android's SQLite file lives in the app database directory and is not copied
-  // into JS memory just to calculate a diagnostic byte count.
   return {
     mode: SOURCE_M3U ? "direct" : "unconfigured",
     cacheBytes,
-    cacheAgeMinutes: MEM ? Math.max(0, Math.round((Date.now() - MEM.ts) / 60000)) : null,
+    cacheAgeMinutes: MEM && MEM.ts > 0 ? Math.max(0, Math.round((Date.now() - MEM.ts) / 60000)) : null,
     channels: MEM?.channels.length || 0,
     programs: MEM?.epgProgramCount || 0,
     refreshInFlight: !!refreshPromise,
     epgError: MEM?.epgError || lastSourceError,
-    nextAutoRefresh: MEM ? new Date(MEM.ts + TTL_MS).toISOString() : null,
+    nextAutoRefresh: MEM && MEM.ts > 0 ? new Date(MEM.ts + TTL_MS).toISOString() : null,
   };
 }
 
