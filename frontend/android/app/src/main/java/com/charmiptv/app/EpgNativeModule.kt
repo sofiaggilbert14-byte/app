@@ -21,6 +21,8 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
 
   private val database = EpgDatabase(reactContext)
   private val executor = Executors.newSingleThreadExecutor()
+  private val currentCache = HashMap<String, NativeEpgProgram>()
+  @Volatile private var currentCacheValidUntilMs = 0L
 
   override fun getName(): String = "CharmEpg"
 
@@ -33,6 +35,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         val maxStart = now + GUIDE_WINDOW_MS
         val batches = streamProgramBatches(url, minStop, maxStart)
         database.replaceBatches(batches)
+        rebuildCurrentCache(now)
         val result = Arguments.createMap().apply {
           putDouble("count", database.count().toDouble())
           putDouble("windowStartMs", now.toDouble())
@@ -67,10 +70,11 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   fun getCurrent(promise: Promise) {
     executor.execute {
       try {
-        val programmes = database.queryCurrent(System.currentTimeMillis())
+        val now = System.currentTimeMillis()
+        if (now >= currentCacheValidUntilMs) rebuildCurrentCache(now)
         val result = Arguments.createMap()
-        for (program in programmes) {
-          result.putMap(program.channelId, programToMap(program))
+        for ((channelId, program) in currentCache) {
+          result.putMap(channelId, programToMap(program))
         }
         promise.resolve(result)
       } catch (t: Throwable) {
@@ -83,12 +87,27 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   fun clear(promise: Promise) {
     executor.execute {
       try {
-        database.writableDatabase.delete("epg_programmes", null, null)
+        database.clear()
+        currentCache.clear()
+        currentCacheValidUntilMs = 0L
         promise.resolve(true)
       } catch (t: Throwable) {
         promise.reject("EPG_CLEAR_FAILED", t.message ?: "Could not clear native EPG cache", t)
       }
     }
+  }
+
+  private fun rebuildCurrentCache(nowMs: Long) {
+    val programmes = database.queryCurrent(nowMs)
+    currentCache.clear()
+    var earliestEnd = Long.MAX_VALUE
+    for (program in programmes) {
+      currentCache[program.channelId] = program
+      if (program.endMs < earliestEnd) earliestEnd = program.endMs
+    }
+    val normalRefresh = nowMs + CURRENT_CACHE_REFRESH_MS
+    currentCacheValidUntilMs = if (earliestEnd == Long.MAX_VALUE) normalRefresh
+    else minOf(normalRefresh, maxOf(nowMs + 1_000L, earliestEnd))
   }
 
   private fun programToMap(program: NativeEpgProgram) = Arguments.createMap().apply {
@@ -216,8 +235,17 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     }
   }
 
+  override fun invalidate() {
+    currentCache.clear()
+    currentCacheValidUntilMs = 0L
+    executor.shutdownNow()
+    database.close()
+    super.invalidate()
+  }
+
   companion object {
     private const val BATCH_SIZE = 1000
     private const val GUIDE_WINDOW_MS = 24L * 60L * 60L * 1000L
+    private const val CURRENT_CACHE_REFRESH_MS = 30_000L
   }
 }
