@@ -6,12 +6,11 @@
     "preinstall": "node ./scripts/cmd-guard.js --preinstall",
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
-    "android": "expo run:android",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "typecheck": "tsc --noEmit",
-    "android:prebuild": "expo prebuild --platform android --clean",
-    "android:release": "cd android && gradlew.bat assembleRelease"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@expo/metro-runtime": "6.1.2",
@@ -35,7 +34,7 @@
     "expo-notifications": "~0.32.17",
     "expo-router": "6.0.24",
     "expo-screen-orientation": "~9.0.9",
-    "expo-secure-store": "15.0.8",
+    "expo-sqlite": "~16.0.10",
     "expo-splash-screen": "31.0.13",
     "expo-status-bar": "3.0.9",
     "expo-symbols": "1.0.8",
@@ -78,5 +77,6 @@
     }
   },
   "private": true,
-  "packageManager": "npm@11.16.0"
+  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }
+
