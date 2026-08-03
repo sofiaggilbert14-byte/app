@@ -23,12 +23,12 @@ const CHANNEL_LOGOS_KEY = "gs_channel_logos";
 const DEVICE_LAYOUT_MODE_KEY = "gs_device_layout_mode";
 const PLAYER_TIMEOUT_KEY = "gs_player_timeout_ms";
 const AUTO_RETRY_KEY = "gs_auto_retry_streams";
-const GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 12);
+const GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 8);
 
 function readGuideWindowHours(value: string | undefined, fallback: number): number {
   const n = Number(value || fallback);
   if (!Number.isFinite(n)) return fallback;
-  return Math.min(72, Math.max(12, Math.round(n)));
+  return Math.min(48, Math.max(6, Math.round(n)));
 }
 
 export type GuideLayout = "cinematic" | "compact";
@@ -252,7 +252,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // Re-paint when the source finishes its staged load (channels first, then EPG)
-  // or after a background refresh â€” reads from the in-memory cache, no network.
+  // or after a background refresh — reads from the in-memory cache, no network.
   useEffect(() => subscribeSource(() => refresh(true)), [refresh]);
 
   const channelById = useCallback((id: string) => channels.find((c) => c.id === id), [channels]);
@@ -390,4 +390,3 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
-

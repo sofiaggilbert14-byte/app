@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   BackHandler,
   Animated,
   Easing,
+  ScrollView,
   useTVEventHandler,
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -178,16 +179,18 @@ export default function GuideScreen() {
   const [focusedChannelId, setFocusedChannelId] = useState<string | null>(null);
   const [previewStreamChannelId, setPreviewStreamChannelId] = useState<string | null>(null);
   const [previewStatus, setPreviewStatus] = useState<StreamStatus>("loading");
-  const [drawerMode, setDrawerMode] = useState<GuideDrawerMode | null>("groups");
+  const [drawerMode, setDrawerMode] = useState<GuideDrawerMode | null>(() => mobileSafeGuide ? null : "groups");
   const [guideResetToken, setGuideResetToken] = useState(0);
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date().toISOString()), 60_000);
     return () => clearInterval(timer);
   }, []);
   const previewFocusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewMetadataTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastDrawerNavAt = useRef(0);
-  const drawerGuideInset =
-    drawerMode === "groups"
+  const drawerGuideInset = mobileSafeGuide
+    ? 0
+    : drawerMode === "groups"
       ? guideGroupsWidth(width)
       : drawerMode === "rail"
         ? GUIDE_RAIL_WIDTH
@@ -260,9 +263,14 @@ export default function GuideScreen() {
   useEffect(
     () => () => {
       if (previewFocusTimer.current) clearTimeout(previewFocusTimer.current);
+      if (previewMetadataTimer.current) clearTimeout(previewMetadataTimer.current);
     },
     [],
   );
+
+  useEffect(() => {
+    if (mobileSafeGuide && drawerMode !== null) setDrawerMode(null);
+  }, [drawerMode, mobileSafeGuide]);
 
   useEffect(() => {
     setPreviewStatus("loading");
@@ -272,7 +280,7 @@ export default function GuideScreen() {
     React.useCallback(
       (event) => {
         const eventType = event?.eventType;
-        if (eventType !== "left" && eventType !== "right") return;
+        if (mobileSafeGuide || (eventType !== "left" && eventType !== "right")) return;
 
         const nowMs = Date.now();
         if (nowMs - lastDrawerNavAt.current < 320) return;
@@ -289,7 +297,7 @@ export default function GuideScreen() {
           void Haptics.selectionAsync().catch(() => {});
         }
       },
-      [drawerMode],
+      [drawerMode, mobileSafeGuide],
     ),
   );
 
@@ -297,6 +305,7 @@ export default function GuideScreen() {
     React.useCallback(() => {
       if (Platform.OS === "web") return;
       const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+        if (mobileSafeGuide) return false;
         if (drawerMode === null) {
           setDrawerMode("groups");
         } else if (drawerMode === "groups") {
@@ -306,29 +315,43 @@ export default function GuideScreen() {
         return true;
       });
       return () => sub.remove();
-    }, [drawerMode]),
+    }, [drawerMode, mobileSafeGuide]),
   );
 
-  const focusPreviewChannel = (c: Channel) => {
-    // Metadata follows focus immediately; only live playback is delayed. This
-    // keeps rapid D-pad surfing responsive and prevents stream connection churn.
-    setFocusedChannelId(c.id);
-    setPreviewStatus("loading");
+  const focusPreviewChannel = useCallback((c: Channel) => {
+    // Held D-pad navigation can emit dozens of focus events per second. Keep
+    // those events inside the recycled grid and only repaint metadata/playback
+    // after focus settles, avoiding a full-screen render for every channel.
+    if (previewMetadataTimer.current) clearTimeout(previewMetadataTimer.current);
     if (previewFocusTimer.current) clearTimeout(previewFocusTimer.current);
-    if (safePreviewMode === "off") {
-      setPreviewStreamChannelId(null);
-      return;
-    }
-    previewFocusTimer.current = setTimeout(() => {
-      setPreviewStreamChannelId(c.id);
-    }, previewDelayMs);
-  };
+    previewMetadataTimer.current = setTimeout(() => {
+      setFocusedChannelId(c.id);
+      setPreviewStatus("loading");
+      if (safePreviewMode === "off") {
+        setPreviewStreamChannelId(null);
+        return;
+      }
+      previewFocusTimer.current = setTimeout(() => {
+        setPreviewStreamChannelId(c.id);
+      }, previewDelayMs);
+    }, 90);
+  }, [previewDelayMs, safePreviewMode]);
 
-  const openChannel = (c: Channel) => {
+  const openChannel = useCallback((c: Channel) => {
     void Haptics.selectionAsync().catch(() => {});
     addRecent(c);
     router.push({ pathname: "/player", params: { channelId: c.id } });
-  };
+  }, [addRecent, router]);
+
+  const favoriteChannel = useCallback((c: Channel) => {
+    void Haptics.selectionAsync().catch(() => {});
+    toggleFavorite(c.id);
+  }, [toggleFavorite]);
+
+  const returnToGroups = useCallback(() => {
+    setDrawerMode("groups");
+    void Haptics.selectionAsync().catch(() => {});
+  }, []);
 
   const goMenu = (route: MenuRoute) => {
     void Haptics.selectionAsync().catch(() => {});
@@ -361,10 +384,10 @@ export default function GuideScreen() {
         style={[
           styles.screen,
           {
-            paddingTop: insets.top + tvSafe.top + (shortScreen ? spacing.xs : spacing.sm),
-            paddingLeft: spacing.sm + tvSafe.left + drawerGuideInset,
-            paddingRight: spacing.sm + tvSafe.right,
-            paddingBottom: spacing.xs + tvSafe.bottom,
+            paddingTop: insets.top + tvSafe.top,
+            paddingLeft: tvSafe.left + drawerGuideInset,
+            paddingRight: tvSafe.right,
+            paddingBottom: tvSafe.bottom,
           },
         ]}
       >
@@ -390,6 +413,49 @@ export default function GuideScreen() {
               <Ionicons name="grid" size={19} color="#fff" />
             </View>
           </View>
+        )}
+
+        {mobileSafeGuide && drawerMode === null && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.mobileGroupTabs}
+            style={styles.mobileGroupTabsWrap}
+            testID="mobile-group-tabs"
+          >
+            {categories.map((group) => {
+              const activeGroup = group === category;
+              return (
+                <Pressable
+                  key={group}
+                  onPress={() => {
+                    setCategory(group);
+                    setFocusedChannelId(null);
+                    setPreviewStreamChannelId(null);
+                    setGuideResetToken((value) => value + 1);
+                  }}
+                  style={({ pressed }) => [
+                    styles.mobileGroupTab,
+                    activeGroup && styles.mobileGroupTabActive,
+                    pressed && styles.mobileGroupTabPressed,
+                  ]}
+                >
+                  <Text numberOfLines={1} style={[styles.mobileGroupTabText, activeGroup && styles.mobileGroupTabTextActive]}>
+                    {group === "Recently Watched" ? "Recent" : group}
+                  </Text>
+                </Pressable>
+              );
+            })}
+            <Pressable
+              onPress={() => router.push("/settings")}
+              accessibilityLabel="Settings"
+              style={({ pressed }) => [styles.mobileSettingsTab, pressed && styles.mobileGroupTabPressed]}
+              testID="mobile-settings-tab"
+            >
+              <Ionicons name="settings-outline" size={16} color="#fff" />
+              <Text style={styles.mobileGroupTabTextActive}>Settings</Text>
+            </Pressable>
+          </ScrollView>
         )}
 
         {drawerMode !== null ? null : mobileSafeGuide ? (
@@ -460,7 +526,7 @@ export default function GuideScreen() {
               )}
               <Text numberOfLines={1} style={styles.previewChannelName}>
                 {previewChannel
-                  ? `${channelNumbers ? `${channelNumberById[previewChannel.id] || ""} Â· ` : ""}${previewChannel.name}`
+                  ? `${channelNumbers ? `${channelNumberById[previewChannel.id] || ""} · ` : ""}${previewChannel.name}`
                   : "Select a channel"}
               </Text>
             </View>
@@ -541,10 +607,7 @@ export default function GuideScreen() {
               onChannelPress={openChannel}
               onProgramPress={openProgram}
               onChannelFocus={focusPreviewChannel}
-              onChannelLongPress={(c) => {
-                void Haptics.selectionAsync().catch(() => {});
-                toggleFavorite(c.id);
-              }}
+              onChannelLongPress={favoriteChannel}
               refreshing={refreshing}
               onRefresh={hardRefresh}
               density={guideDensity}
@@ -553,10 +616,7 @@ export default function GuideScreen() {
               showChannelLogos={channelLogos}
               resetToken={guideResetToken}
               active={drawerMode === null}
-              onLeftBoundary={() => {
-                setDrawerMode("groups");
-                void Haptics.selectionAsync().catch(() => {});
-              }}
+              onLeftBoundary={returnToGroups}
             />
           </FocusGuide>
         )}
@@ -591,17 +651,7 @@ export default function GuideScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  screen: { flex: 1, gap: 4 },
-  topBrand: {
-    minHeight: 52,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.12)",
-    paddingHorizontal: spacing.sm,
-    zIndex: 30,
-  },
+  screen: { flex: 1, gap: 2 },
   headerIconButton: {
     alignItems: "center",
     borderColor: "transparent",
@@ -625,92 +675,47 @@ const styles = StyleSheet.create({
     borderBottomColor: "rgba(255,255,255,0.12)",
     borderBottomWidth: 1,
     flexDirection: "row",
-    minHeight: 52,
-    paddingHorizontal: 10,
+    minHeight: 44,
+    paddingHorizontal: 8,
   },
   drawerHeaderLabel: { color: "rgba(255,255,255,0.68)", fontFamily: fonts.medium, fontSize: 10, letterSpacing: 0.8 },
-  drawerHeaderValue: { color: "#fff", fontFamily: fonts.bold, fontSize: 16, marginTop: 2 },
-  drawerVersion: { color: GOLD, fontFamily: fonts.semibold, fontSize: 11, letterSpacing: 0.6, marginRight: 10 },
+  drawerHeaderValue: { color: "#fff", fontFamily: fonts.bold, fontSize: 14, marginTop: 1 },
+  drawerVersion: { color: GOLD, fontFamily: fonts.semibold, fontSize: 10, letterSpacing: 0.5, marginRight: 7 },
   viewToggle: {
     alignItems: "center",
     backgroundColor: "#20242A",
     borderRadius: radius.sm,
-    height: 34,
+    height: 30,
     justifyContent: "center",
     marginLeft: 2,
-    width: 38,
+    width: 34,
   },
   viewToggleActive: { backgroundColor: GOLD },
   drawerGuideFooter: {
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "center",
-    minHeight: 48,
-    gap: 8,
-  },
-  drawerGuideFooterCharm: { color: GOLD, fontFamily: fonts.bold, fontSize: 20 },
-  drawerGuideFooterText: { color: "#fff", fontFamily: fonts.medium, fontSize: 20 },
-  menuButton: {
-    position: "absolute",
-    left: 0,
-    minWidth: 176,
-    height: 28,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.xs,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.22)",
-    backgroundColor: "rgba(24,28,34,0.82)",
-  },
-  menuButtonText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 11, maxWidth: 132 },
-  menuDropdown: {
-    position: "absolute",
-    top: 34,
-    left: 0,
-    width: 178,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: BORDER_GOLD,
-    backgroundColor: "rgba(8,11,15,0.98)",
-    padding: spacing.xs,
-    gap: spacing.xs,
-    zIndex: 40,
-    shadowColor: GOLD,
-    shadowOpacity: 0.28,
-    shadowRadius: 14,
-  },
-  menuItem: {
     minHeight: 36,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.sm,
+    gap: 6,
   },
-  menuItemExit: { borderTopWidth: 1, borderTopColor: "rgba(227,38,46,0.18)" },
-  menuItemText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 13 },
-  brandRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  brandText: { color: "#fff", fontFamily: fonts.bold, fontSize: 18 },
-  brandGold: { color: GOLD },
-  clock: { color: "rgba(255,255,255,0.90)", fontFamily: fonts.medium, fontSize: 14 },
+  drawerGuideFooterCharm: { color: GOLD, fontFamily: fonts.bold, fontSize: 16 },
+  drawerGuideFooterText: { color: "#fff", fontFamily: fonts.medium, fontSize: 16 },
   mobileHero: {
-    minHeight: 104,
+    minHeight: 84,
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: BORDER_GOLD,
+    borderRadius: 0,
+    borderWidth: 0,
     backgroundColor: PANEL,
-    padding: spacing.sm,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
   },
   mobileHeroText: { flex: 1, gap: 3 },
-  mobileHeroTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 18 },
-  mobileHeroActions: { gap: spacing.xs, width: 92 },
+  mobileHeroTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 15 },
+  mobileHeroActions: { gap: 4, width: 82 },
   mobileHeroButton: {
-    minHeight: 36,
+    minHeight: 31,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -720,19 +725,43 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: BORDER_GOLD,
   },
-  mobileHeroButtonText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 12 },
-  previewDetailsRow: { flexDirection: "row", gap: 6, height: 166, alignItems: "stretch" },
-  previewDetailsRowCompact: { height: 126 },
-  previewDetailsRowShort: { height: 142 },
+  mobileHeroButtonText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 10.5 },
+  mobileGroupTabsWrap: { flexGrow: 0, maxHeight: 39, backgroundColor: "rgba(4,6,8,0.96)" },
+  mobileGroupTabs: { alignItems: "center", gap: 5, paddingHorizontal: 6, paddingVertical: 4 },
+  mobileGroupTab: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.055)",
+    borderRadius: radius.pill,
+    justifyContent: "center",
+    minHeight: 29,
+    minWidth: 66,
+    paddingHorizontal: 12,
+  },
+  mobileGroupTabActive: { backgroundColor: GOLD_DEEP },
+  mobileGroupTabPressed: { opacity: 0.72 },
+  mobileGroupTabText: { color: "rgba(255,255,255,0.72)", fontFamily: fonts.medium, fontSize: 11 },
+  mobileGroupTabTextActive: { color: "#fff", fontFamily: fonts.bold },
+  mobileSettingsTab: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.09)",
+    borderRadius: radius.pill,
+    flexDirection: "row",
+    gap: 5,
+    justifyContent: "center",
+    minHeight: 29,
+    paddingHorizontal: 12,
+  },
+  previewDetailsRow: { flexDirection: "row", gap: 8, height: 184, alignItems: "stretch" },
+  previewDetailsRowCompact: { height: 138 },
+  previewDetailsRowShort: { height: 154 },
   livePreviewPanel: {
     width: "43%",
     height: "100%",
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: BORDER_GOLD,
+    borderRadius: 0,
+    borderWidth: 0,
     backgroundColor: PANEL,
     overflow: "hidden",
-    padding: 6,
+    padding: 4,
   },
   previewLabel: {
     alignSelf: "center",
@@ -748,38 +777,10 @@ const styles = StyleSheet.create({
   liveBadge: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
   liveDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: colors.error },
   liveBadgeText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 12 },
-  recentPanel: {
-    width: 220,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: BORDER_GOLD,
-    backgroundColor: "rgba(12,8,4,0.88)",
-    padding: spacing.sm,
-    gap: 5,
-    overflow: "hidden",
-  },
-  recentPanelLabel: { color: GOLD, fontFamily: fonts.bold, fontSize: 11 },
-  recentScroll: { flex: 1, overflow: "hidden" },
-  recentList: { gap: 4, paddingBottom: 2 },
-  recentItem: {
-    minHeight: 30,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: "rgba(255,255,255,0.045)",
-    paddingHorizontal: spacing.xs,
-  },
-  recentItemText: { flex: 1, color: "#fff", fontFamily: fonts.medium, fontSize: 11 },
-  recentEmpty: { flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.xs },
-  recentEmptyText: { color: "rgba(255,255,255,0.62)", fontFamily: fonts.medium, fontSize: 10, textAlign: "center" },
   detailsPanel: {
     flex: 1,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: BORDER_GOLD,
+    borderRadius: 0,
+    borderWidth: 0,
     backgroundColor: PANEL,
     padding: spacing.sm,
     gap: 3,
@@ -787,18 +788,6 @@ const styles = StyleSheet.create({
   },
   detailsHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   detailsLabel: { color: GOLD, fontFamily: fonts.bold, fontSize: 11 },
-  favoriteButton: {
-    minHeight: 28,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.20)",
-    paddingHorizontal: spacing.sm,
-    backgroundColor: "rgba(0,0,0,0.22)",
-  },
-  favoriteButtonText: { color: GOLD_SOFT, fontFamily: fonts.semibold, fontSize: 11 },
   programTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 18 },
   programTitleCompact: { fontSize: 15 },
   programMetaRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
@@ -820,38 +809,12 @@ const styles = StyleSheet.create({
   },
   descriptionViewportCompact: { minHeight: 18 },
   description: { color: "rgba(255,255,255,0.84)", fontFamily: fonts.regular, fontSize: 11, lineHeight: 15 },
-  stripLabel: { color: GOLD, fontFamily: fonts.semibold, fontSize: 10, textAlign: "center", marginBottom: 1 },
-  categoryWrap: { minHeight: 44 },
-  categoryRow: { gap: spacing.sm, alignItems: "center", paddingRight: spacing.lg },
-  categoryChip: {
-    minWidth: 96,
-    height: 30,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.md,
-    backgroundColor: "rgba(255,255,255,0.05)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  categoryChipActive: { backgroundColor: "rgba(227,38,46,0.24)", borderColor: GOLD },
-  categoryText: { color: "rgba(255,255,255,0.68)", fontFamily: fonts.medium, fontSize: 11 },
-  categoryTextActive: { color: GOLD_SOFT, fontFamily: fonts.bold },
   timelineArea: {
     flex: 1,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: "rgba(227,38,46,0.22)",
+    borderRadius: 0,
+    borderWidth: 0,
     overflow: "hidden",
     backgroundColor: "rgba(0,0,0,0.32)",
-  },
-  timelineTitle: {
-    color: GOLD,
-    fontFamily: fonts.bold,
-    fontSize: 12,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    backgroundColor: "rgba(0,0,0,0.34)",
   },
   goldFocus: {
     borderColor: GOLD_SOFT,
@@ -872,4 +835,3 @@ const styles = StyleSheet.create({
   },
   retryText: { color: "#fff", fontFamily: fonts.semibold },
 });
-

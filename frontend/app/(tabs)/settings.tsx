@@ -75,6 +75,7 @@ export default function SettingsScreen() {
   } = useStore();
   const { width, height } = useWindowDimensions();
   const tvSafe = getTvSafeInsets(width, height);
+  const compactSettings = width < 720 || (deviceLayoutMode === "mobile" && !Platform.isTV);
   const [status, setStatus] = useState<SourceStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [diagnostics, setDiagnostics] = useState<SourceDiagnostics | null>(null);
@@ -129,6 +130,7 @@ const appVersion = Constants.expoConfig?.version || "2.0.0-beta";
     <View
       style={[
         styles.container,
+        compactSettings && styles.containerMobile,
         {
           paddingLeft: tvSafe.left,
           paddingRight: tvSafe.right,
@@ -137,16 +139,17 @@ const appVersion = Constants.expoConfig?.version || "2.0.0-beta";
         },
       ]}
     >
-      <View style={styles.settingsSidebar}>
-        <View style={styles.settingsBrand}>
+      <View style={[styles.settingsSidebar, compactSettings && styles.settingsSidebarMobile]}>
+        <View style={[styles.settingsBrand, compactSettings && styles.settingsBrandMobile]}>
           <View style={styles.settingsBrandLine}>
             <Text style={styles.settingsBrandCharm}>CHARM</Text>
             <Text style={styles.settingsBrandIptv}> IPTV</Text>
           </View>
-          <Text style={styles.settingsVersion}>â€” EXPERIMENTAL v3 â€”</Text>
+          <Text style={styles.settingsVersionClean}>EXPERIMENTAL v3</Text>
+          <Text style={styles.settingsVersion}>— EXPERIMENTAL v3 —</Text>
         </View>
-        <Text style={styles.settingsHeading}>Settings</Text>
-        <View style={styles.settingsNav}>
+        <Text style={[styles.settingsHeading, compactSettings && styles.settingsHeadingMobile]}>Settings</Text>
+        <View style={[styles.settingsNav, compactSettings && styles.settingsNavMobile]}>
           {SETTINGS_SECTIONS.map((item, index) => (
             <Pressable
               key={item.id}
@@ -157,19 +160,20 @@ const appVersion = Constants.expoConfig?.version || "2.0.0-beta";
               }}
               style={({ focused }: any) => [
                 styles.settingsNavRow,
+                compactSettings && styles.settingsNavRowMobile,
                 section === item.id && styles.settingsNavActive,
                 focused && styles.settingsNavFocused,
               ]}
               testID={`settings-section-${item.id}`}
             >
-              <Ionicons name={item.icon} color="#fff" size={24} />
+              <Ionicons name={item.icon} color="#fff" size={19} />
               <Text style={styles.settingsNavText}>{item.label}</Text>
             </Pressable>
           ))}
         </View>
       </View>
 
-      <View style={styles.settingsContent}>
+      <View style={[styles.settingsContent, compactSettings && styles.settingsContentMobile]}>
         <Text style={styles.settingsContentTitle}>
           {SETTINGS_SECTIONS.find((item) => item.id === section)?.label} settings
         </Text>
@@ -188,7 +192,7 @@ const appVersion = Constants.expoConfig?.version || "2.0.0-beta";
           {section === "guide" && (
             <>
               <View style={styles.card}>
-                <ChoiceRow<GuideLayout>
+                <CycleRow<GuideLayout>
                   label="Guide layout"
                   value={guideLayout}
                   options={[
@@ -197,7 +201,11 @@ const appVersion = Constants.expoConfig?.version || "2.0.0-beta";
                   ]}
                   onChange={setGuideLayout}
                 />
-                <ChoiceRow<GuideDensity>
+                <View style={styles.cycleRowStatic}>
+                  <Text style={styles.cycleLabel}>Visible hours</Text>
+                  <Text style={styles.cycleValue}>8 hours</Text>
+                </View>
+                <CycleRow<GuideDensity>
                   label="Channel row density"
                   value={guideDensity}
                   options={[
@@ -207,7 +215,7 @@ const appVersion = Constants.expoConfig?.version || "2.0.0-beta";
                   ]}
                   onChange={setGuideDensity}
                 />
-                <ChoiceRow<SafePreviewMode>
+                <CycleRow<SafePreviewMode>
                   label="Live preview"
                   value={safePreviewMode}
                   options={[
@@ -239,7 +247,7 @@ const appVersion = Constants.expoConfig?.version || "2.0.0-beta";
                 disabled={busy}
                 testID="settings-refresh-btn"
               >
-                {busy ? <ActivityIndicator color="#fff" /> : <Ionicons name="refresh" size={24} color="#fff" />}
+                {busy ? <ActivityIndicator color="#fff" /> : <Ionicons name="refresh" size={19} color="#fff" />}
                 <Text style={styles.refreshRowText}>Refresh playlist & EPG</Text>
               </Pressable>
 
@@ -270,11 +278,11 @@ const appVersion = Constants.expoConfig?.version || "2.0.0-beta";
                   <Stat label="Refresh active" value={diagnostics?.refreshInFlight ? "Yes" : "No"} />
                   <Stat
                     label="Next automatic refresh"
-                    value={diagnostics?.nextAutoRefresh ? dayjs(diagnostics.nextAutoRefresh).format("MMM D, h:mm A") : "â€”"}
+                    value={diagnostics?.nextAutoRefresh ? dayjs(diagnostics.nextAutoRefresh).format("MMM D, h:mm A") : "—"}
                   />
                   <Stat
                     label="Cache size"
-                    value={diagnostics ? `${(diagnostics.cacheBytes / 1024 / 1024).toFixed(1)} MB` : "â€”"}
+                    value={diagnostics ? `${(diagnostics.cacheBytes / 1024 / 1024).toFixed(1)} MB` : "—"}
                   />
                   {diagnostics?.epgError ? <Text style={styles.errText}>EPG: {diagnostics.epgError}</Text> : null}
                 </View>
@@ -375,7 +383,7 @@ const appVersion = Constants.expoConfig?.version || "2.0.0-beta";
                 <Text style={styles.cardTitle}>Charm IPTV Experimental v3</Text>
                 <Stat label="Build" value={`v${appVersion}${androidVersionCode ? ` (${androidVersionCode})` : ""}`} />
                 <Stat label="Platform" value={Platform.isTV ? "Android TV / Fire TV" : Platform.OS} />
-                <Stat label="Data mode" value={diagnostics?.mode || "â€”"} />
+                <Stat label="Data mode" value={diagnostics?.mode || "—"} />
                 <ChecklistItem label="Separate install from stable CharmIPTV" />
                 <ChecklistItem label="Device-local M3U and XMLTV guide" />
                 <ChecklistItem label="24-hour automatic refresh cache" />
@@ -426,6 +434,36 @@ function ChecklistItem({ label }: { label: string }) {
       <Ionicons name="checkmark-circle" size={17} color={colors.success} />
       <Text style={styles.checkText}>{label}</Text>
     </View>
+  );
+}
+
+function CycleRow<T extends string | number>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: { label: string; value: T }[];
+  onChange: (v: T) => void;
+}) {
+  const currentIndex = Math.max(0, options.findIndex((option) => option.value === value));
+  const current = options[currentIndex] || options[0];
+  return (
+    <Pressable
+      style={({ focused }: any) => [styles.cycleRow, focused && styles.focusRing]}
+      onPress={() => {
+        void Haptics.selectionAsync().catch(() => {});
+        onChange(options[(currentIndex + 1) % options.length].value);
+      }}
+    >
+      <Text style={styles.cycleLabel}>{label}</Text>
+      <View style={styles.cycleSelection}>
+        <Text style={styles.cycleValue}>{current?.label}</Text>
+        <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.72)" />
+      </View>
+    </Pressable>
   );
 }
 
@@ -507,51 +545,68 @@ function TogglePill({ value }: { value: boolean }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#05070A", flexDirection: "row" },
+  containerMobile: { flexDirection: "column" },
   settingsSidebar: {
     backgroundColor: "#090C10",
     borderRightColor: "rgba(255,255,255,0.14)",
     borderRightWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 14,
-    width: "19%",
-    minWidth: 280,
+    paddingHorizontal: 7,
+    paddingVertical: 9,
+    width: "16.5%",
+    minWidth: 196,
+    maxWidth: 224,
   },
-  settingsBrand: { gap: 2, marginBottom: 12, paddingHorizontal: 6 },
+  settingsSidebarMobile: {
+    borderBottomColor: "rgba(255,255,255,0.12)",
+    borderBottomWidth: 1,
+    borderRightWidth: 0,
+    maxWidth: undefined,
+    minWidth: 0,
+    paddingBottom: 6,
+    width: "100%",
+  },
+  settingsBrand: { gap: 1, marginBottom: 8, paddingHorizontal: 5 },
+  settingsBrandMobile: { marginBottom: 3 },
   settingsBrandLine: { flexDirection: "row", alignItems: "baseline" },
-  settingsBrandCharm: { color: GOLD, fontFamily: fonts.bold, fontSize: 22 },
-  settingsBrandIptv: { color: "#fff", fontFamily: fonts.medium, fontSize: 18 },
-  settingsVersion: { color: GOLD, fontFamily: fonts.medium, fontSize: 8, letterSpacing: 0.8 },
-  settingsHeading: { color: "#fff", fontFamily: fonts.bold, fontSize: 21, marginBottom: 10, paddingHorizontal: 6 },
-  settingsNav: { gap: 2 },
+  settingsBrandCharm: { color: GOLD, fontFamily: fonts.bold, fontSize: 18 },
+  settingsBrandIptv: { color: "#fff", fontFamily: fonts.medium, fontSize: 14 },
+  settingsVersion: { display: "none" },
+  settingsVersionClean: { color: GOLD, fontFamily: fonts.medium, fontSize: 7, letterSpacing: 0.6 },
+  settingsHeading: { color: "#fff", fontFamily: fonts.bold, fontSize: 17, marginBottom: 7, paddingHorizontal: 5 },
+  settingsHeadingMobile: { display: "none" },
+  settingsNav: { gap: 1 },
+  settingsNavMobile: { flexDirection: "row", flexWrap: "wrap", gap: 3 },
   settingsNavRow: {
     alignItems: "center",
     borderColor: "transparent",
-    borderRadius: radius.md,
-    borderWidth: 3,
+    borderRadius: radius.sm,
+    borderWidth: 2,
     flexDirection: "row",
-    gap: 10,
-    minHeight: 44,
-    paddingHorizontal: 10,
+    gap: 7,
+    minHeight: 36,
+    paddingHorizontal: 7,
   },
   settingsNavActive: { backgroundColor: GOLD_DEEP },
+  settingsNavRowMobile: { flexBasis: "32%", flexGrow: 1, minHeight: 32 },
   settingsNavFocused: { backgroundColor: GOLD_DEEP, borderColor: "#fff" },
-  settingsNavText: { color: "#fff", fontFamily: fonts.medium, fontSize: 14 },
-  settingsContent: { flex: 1, paddingHorizontal: 22, paddingTop: 14 },
-  settingsContentTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 25, marginBottom: 10 },
-  settingsScrollContent: { gap: 7, paddingBottom: 72 },
+  settingsNavText: { color: "#fff", fontFamily: fonts.medium, fontSize: 11.5 },
+  settingsContent: { flex: 1, paddingHorizontal: 14, paddingTop: 9 },
+  settingsContentMobile: { paddingHorizontal: 8, paddingTop: 6 },
+  settingsContentTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 21, marginBottom: 6 },
+  settingsScrollContent: { gap: 5, paddingBottom: 48 },
   refreshRow: {
     alignItems: "center",
     backgroundColor: "#1B2026",
     borderColor: "rgba(255,255,255,0.10)",
-    borderRadius: radius.md,
-    borderWidth: 2,
+    borderRadius: radius.sm,
+    borderWidth: 0,
     flexDirection: "row",
-    gap: spacing.md,
-    minHeight: 50,
-    paddingHorizontal: 12,
+    gap: 8,
+    minHeight: 40,
+    paddingHorizontal: 9,
   },
-  refreshRowText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 14 },
-  healthRow: { flexDirection: "row", gap: 10, marginTop: 6 },
+  refreshRowText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 11.5 },
+  healthRow: { flexDirection: "row", gap: 7, marginTop: 4 },
   healthCard: {
     backgroundColor: PANEL,
     borderColor: "rgba(255,255,255,0.12)",
@@ -559,24 +614,24 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flex: 1,
     gap: spacing.md,
-    minHeight: 160,
-    padding: 12,
+    minHeight: 120,
+    padding: 9,
   },
-  healthEyebrow: { color: GOLD, fontFamily: fonts.semibold, fontSize: 12, letterSpacing: 0.8 },
+  healthEyebrow: { color: GOLD, fontFamily: fonts.semibold, fontSize: 10, letterSpacing: 0.7 },
   healthStats: { alignItems: "stretch", flex: 1, flexDirection: "row" },
   healthStat: { alignItems: "center", flex: 1, gap: spacing.xs, justifyContent: "center" },
   healthDivider: { backgroundColor: "rgba(255,255,255,0.14)", width: 1 },
-  healthLabel: { color: "rgba(255,255,255,0.78)", fontFamily: fonts.medium, fontSize: 12, textAlign: "center" },
-  healthValue: { color: "#fff", fontFamily: fonts.bold, fontSize: 28 },
+  healthLabel: { color: "rgba(255,255,255,0.78)", fontFamily: fonts.medium, fontSize: 10, textAlign: "center" },
+  healthValue: { color: "#fff", fontFamily: fonts.bold, fontSize: 22 },
   healthDetails: {
     backgroundColor: PANEL,
-    borderColor: BORDER_GOLD,
+    borderColor: "rgba(255,255,255,0.12)",
     borderRadius: radius.md,
     borderWidth: 1,
     flex: 1.45,
     gap: spacing.xs,
-    minHeight: 160,
-    padding: 12,
+    minHeight: 120,
+    padding: 9,
   },
   header: {
     paddingHorizontal: spacing.lg,
@@ -589,21 +644,40 @@ const styles = StyleSheet.create({
   title: { color: "#fff", fontFamily: fonts.display, fontSize: 28 },
   card: {
     backgroundColor: PANEL,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: BORDER_GOLD,
+    borderRadius: radius.sm,
+    borderWidth: 0,
     marginHorizontal: 0,
-    marginTop: spacing.sm,
-    padding: spacing.lg,
-    gap: spacing.sm,
-    shadowColor: GOLD,
-    shadowOpacity: 0.16,
-    shadowRadius: 12,
+    marginTop: 2,
+    padding: 5,
+    gap: 3,
   },
-  cardTitle: { color: "#fff", fontFamily: fonts.semibold, fontSize: 16 },
-  settingLabel: { color: "#fff", fontFamily: fonts.semibold, fontSize: 14 },
+  cardTitle: { color: "#fff", fontFamily: fonts.semibold, fontSize: 13 },
+  settingLabel: { color: "#fff", fontFamily: fonts.semibold, fontSize: 11.5 },
   rowBetween: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  sub: { color: "rgba(255,255,255,0.68)", fontFamily: fonts.regular, fontSize: 13, lineHeight: 19 },
+  sub: { color: "rgba(255,255,255,0.68)", fontFamily: fonts.regular, fontSize: 10, lineHeight: 13 },
+  cycleRow: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.035)",
+    borderColor: "transparent",
+    borderRadius: radius.sm,
+    borderWidth: 2,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    minHeight: 39,
+    paddingHorizontal: 9,
+  },
+  cycleRowStatic: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.035)",
+    borderRadius: radius.sm,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    minHeight: 39,
+    paddingHorizontal: 11,
+  },
+  cycleLabel: { color: "#fff", fontFamily: fonts.medium, fontSize: 11.5 },
+  cycleSelection: { alignItems: "center", flexDirection: "row", gap: 5 },
+  cycleValue: { color: "rgba(255,255,255,0.90)", fontFamily: fonts.medium, fontSize: 11.5 },
   choiceBlock: { gap: spacing.xs, marginTop: spacing.xs },
   choiceRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   choiceBtn: {
@@ -653,7 +727,7 @@ const styles = StyleSheet.create({
   },
   secondaryText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 14 },
   toggleRow: {
-    minHeight: 58,
+    minHeight: 43,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -661,8 +735,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.16)",
     backgroundColor: "rgba(255,255,255,0.04)",
-    padding: spacing.md,
-    gap: spacing.md,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    gap: 8,
   },
   togglePressRow: {
     minHeight: 42,
@@ -675,8 +750,8 @@ const styles = StyleSheet.create({
   },
   toggleActionText: { color: GOLD_SOFT, fontFamily: fonts.semibold, fontSize: 13 },
   togglePill: {
-    width: 76,
-    height: 32,
+    width: 60,
+    height: 26,
     borderRadius: radius.pill,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.18)",
@@ -689,14 +764,13 @@ const styles = StyleSheet.create({
   togglePillActive: { borderColor: GOLD, backgroundColor: "rgba(227,38,46,0.22)" },
   toggleDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "rgba(255,255,255,0.36)" },
   toggleDotActive: { backgroundColor: GOLD },
-  toggleText: { color: "rgba(255,255,255,0.56)", fontFamily: fonts.bold, fontSize: 11 },
+  toggleText: { color: "rgba(255,255,255,0.56)", fontFamily: fonts.bold, fontSize: 9.5 },
   toggleTextActive: { color: GOLD_SOFT },
   focusRing: {
     borderWidth: 2,
     borderColor: GOLD_SOFT,
     shadowColor: GOLD,
-    shadowOpacity: 0.65,
-    shadowRadius: 12,
+    shadowOpacity: 0.38,
+    shadowRadius: 7,
   },
 });
-

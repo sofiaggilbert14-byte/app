@@ -1,7 +1,7 @@
 import { NativeModules, NativeEventEmitter, DeviceEventEmitter, Platform } from "react-native";
 
 // Native module injected by ./plugins/withTvRemote (Android only). Absent on web
-// / iOS / Expo Go, in which case everything below is a safe no-op.
+// or Expo Go, in which case everything below is a safe no-op.
 const TvRemote: any = Platform.OS === "android" ? NativeModules.TvRemote : null;
 
 export const tvRemoteAvailable = !!TvRemote;

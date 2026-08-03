@@ -45,7 +45,10 @@ async function openDatabase(): Promise<Database | null> {
         PRAGMA journal_mode = WAL;
         PRAGMA synchronous = NORMAL;
         PRAGMA temp_store = MEMORY;
-        PRAGMA cache_size = -4096;
+        PRAGMA cache_size = -16384;
+        PRAGMA mmap_size = 67108864;
+        PRAGMA busy_timeout = 5000;
+        PRAGMA wal_autocheckpoint = 1000;
         CREATE TABLE IF NOT EXISTS programs (
           channel_id TEXT NOT NULL,
           start_ms INTEGER NOT NULL,
@@ -57,6 +60,15 @@ async function openDatabase(): Promise<Database | null> {
         ) WITHOUT ROWID;
         CREATE INDEX IF NOT EXISTS programs_channel_time
           ON programs(channel_id, start_ms, stop_ms);
+        CREATE TABLE IF NOT EXISTS programs_staging (
+          channel_id TEXT NOT NULL,
+          start_ms INTEGER NOT NULL,
+          stop_ms INTEGER NOT NULL,
+          title TEXT NOT NULL,
+          description TEXT,
+          category TEXT,
+          PRIMARY KEY (channel_id, start_ms, title)
+        ) WITHOUT ROWID;
       `);
       return db;
     })().catch(() => null);
@@ -81,10 +93,12 @@ export async function replaceIndexedPrograms(
   let written = 0;
   const batch: unknown[] = [];
   const valueSql: string[] = [];
-  const flush = async (txn: Database) => {
+  const flush = async () => {
     if (!valueSql.length) return;
-    await txn.runAsync(
-      `INSERT OR REPLACE INTO programs
+    // Each staging batch is a short write. The live programs table stays fully
+    // queryable while a new guide is being prepared in the second layer.
+    await db.runAsync(
+      `INSERT OR REPLACE INTO programs_staging
        (channel_id, start_ms, stop_ms, title, description, category)
        VALUES ${valueSql.join(",")}`,
       batch,
@@ -95,27 +109,38 @@ export async function replaceIndexedPrograms(
     await nextTick();
   };
 
-  await db.withExclusiveTransactionAsync(async (txn) => {
-    await txn.execAsync("DELETE FROM programs;");
-    for (const [channelId, list] of entries) {
-      for (const program of list) {
-        const startMs = Date.parse(program.start);
-        const stopMs = program.stop ? Date.parse(program.stop) : startMs + 30 * 60 * 1000;
-        if (!Number.isFinite(startMs) || !Number.isFinite(stopMs) || stopMs <= startMs) continue;
-        valueSql.push("(?, ?, ?, ?, ?, ?)");
-        batch.push(
-          channelId,
-          startMs,
-          stopMs,
-          program.title || "No Title",
-          program.desc || null,
-          program.category || null,
-        );
-        written++;
-        if (valueSql.length >= 60) await flush(txn);
-      }
+  await db.execAsync("DELETE FROM programs_staging;");
+  for (const [channelId, list] of entries) {
+    for (const program of list) {
+      const startMs = Date.parse(program.start);
+      const stopMs = program.stop ? Date.parse(program.stop) : startMs + 30 * 60 * 1000;
+      if (!Number.isFinite(startMs) || !Number.isFinite(stopMs) || stopMs <= startMs) continue;
+      valueSql.push("(?, ?, ?, ?, ?, ?)");
+      batch.push(
+        channelId,
+        startMs,
+        stopMs,
+        program.title || "No Title",
+        program.desc || null,
+        program.category || null,
+      );
+      written++;
+      if (valueSql.length >= 80) await flush();
     }
-    await flush(txn);
+  }
+  await flush();
+
+  // Only the final swap blocks readers, and it is a short local copy inside one
+  // transaction. A failed refresh therefore never destroys the last good EPG.
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    await txn.execAsync(`
+      DELETE FROM programs;
+      INSERT INTO programs
+        (channel_id, start_ms, stop_ms, title, description, category)
+      SELECT channel_id, start_ms, stop_ms, title, description, category
+      FROM programs_staging;
+      DELETE FROM programs_staging;
+    `);
   });
 
   onProgress?.(1);
@@ -173,8 +198,15 @@ export async function getIndexedEpgStats(): Promise<EpgDbStats> {
   };
 }
 
-export async function clearIndexedEpg(): Promise<void> {
+export async function getIndexedEpgStorageBytes(): Promise<number> {
   const db = await openDatabase();
-  if (db) await db.execAsync("DELETE FROM programs; PRAGMA wal_checkpoint(TRUNCATE);");
+  if (!db) return 0;
+  const pageCount = await db.getFirstAsync<{ page_count: number }>("PRAGMA page_count");
+  const pageSize = await db.getFirstAsync<{ page_size: number }>("PRAGMA page_size");
+  return Number(pageCount?.page_count || 0) * Number(pageSize?.page_size || 0);
 }
 
+export async function clearIndexedEpg(): Promise<void> {
+  const db = await openDatabase();
+  if (db) await db.execAsync("DELETE FROM programs; DELETE FROM programs_staging; PRAGMA wal_checkpoint(TRUNCATE);");
+}

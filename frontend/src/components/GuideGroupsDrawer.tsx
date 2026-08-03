@@ -8,7 +8,7 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { fonts, radius, spacing } from "@/src/theme";
+import { fonts, radius } from "@/src/theme";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 
 type MenuRoute = "/" | "/favorites" | "/search" | "/settings";
@@ -17,10 +17,10 @@ type DrawerMode = "groups" | "rail";
 const RED = "#E3262E";
 const RED_DARK = "#8E1118";
 const WHITE = "#F8F8F8";
-export const GUIDE_RAIL_WIDTH = 70;
+export const GUIDE_RAIL_WIDTH = 52;
 
 export function guideGroupsWidth(screenWidth: number): number {
-  return Math.min(286, Math.max(240, screenWidth * 0.173));
+  return Math.min(232, Math.max(196, screenWidth * 0.158));
 }
 
 function groupLabel(group: string): string {
@@ -118,7 +118,7 @@ export function GuideGroupsDrawer({
                   <Ionicons
                     name={groupIcon(group)}
                     color={active ? WHITE : "rgba(255,255,255,0.86)"}
-                    size={24}
+                    size={19}
                   />
                   <Text numberOfLines={1} style={[styles.rowText, active && styles.activeText]}>
                     {groupLabel(group)}
@@ -171,7 +171,7 @@ function DrawerAction({
       onPress={onPress}
       style={({ focused }: any) => [styles.footerRow, focused && styles.focusedRow]}
     >
-      <Ionicons name={icon} color={WHITE} size={23} />
+      <Ionicons name={icon} color={WHITE} size={19} />
       <Text style={styles.footerText}>{label}</Text>
     </Pressable>
   );
@@ -194,7 +194,7 @@ function RailAction({
       onPress={onPress}
       style={({ focused }: any) => [styles.railAction, focused && styles.railActionFocused]}
     >
-      <Ionicons name={icon} color={WHITE} size={27} />
+      <Ionicons name={icon} color={WHITE} size={21} />
       <Text style={styles.railActionText}>{label}</Text>
     </Pressable>
   );
@@ -207,7 +207,7 @@ const styles = StyleSheet.create({
   },
   scrim: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.12)",
+    backgroundColor: "rgba(0,0,0,0.04)",
   },
   drawer: {
     backgroundColor: "#14181D",
@@ -215,43 +215,43 @@ const styles = StyleSheet.create({
     borderRightWidth: 1,
     bottom: 0,
     left: 0,
-    paddingBottom: 8,
-    paddingHorizontal: 8,
-    paddingTop: 12,
+    paddingBottom: 5,
+    paddingHorizontal: 6,
+    paddingTop: 8,
     position: "absolute",
     top: 0,
   },
   brandBlock: {
     borderBottomColor: "rgba(255,255,255,0.10)",
     borderBottomWidth: 1,
-    gap: 3,
-    marginBottom: 8,
-    paddingHorizontal: 8,
-    paddingBottom: 10,
+    gap: 2,
+    marginBottom: 5,
+    paddingHorizontal: 6,
+    paddingBottom: 7,
   },
   brandLine: { flexDirection: "row", alignItems: "baseline" },
-  brandCharm: { color: RED, fontFamily: fonts.bold, fontSize: 22, letterSpacing: 0.4 },
-  brandIptv: { color: WHITE, fontFamily: fonts.medium, fontSize: 18 },
-  versionLine: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  versionRule: { width: 18, height: 2, backgroundColor: RED },
-  versionText: { color: RED, fontFamily: fonts.medium, fontSize: 9, letterSpacing: 0.8 },
+  brandCharm: { color: RED, fontFamily: fonts.bold, fontSize: 18, letterSpacing: 0.3 },
+  brandIptv: { color: WHITE, fontFamily: fonts.medium, fontSize: 14 },
+  versionLine: { flexDirection: "row", alignItems: "center", gap: 5 },
+  versionRule: { width: 13, height: 1, backgroundColor: RED },
+  versionText: { color: RED, fontFamily: fonts.medium, fontSize: 7, letterSpacing: 0.6 },
   sectionTitle: {
     color: RED,
     fontFamily: fonts.semibold,
-    fontSize: 13,
-    paddingHorizontal: 8,
-    paddingBottom: 5,
+    fontSize: 10,
+    paddingHorizontal: 6,
+    paddingBottom: 3,
   },
-  groupList: { gap: 2, paddingBottom: 5 },
+  groupList: { gap: 1, paddingBottom: 3 },
   row: {
     alignItems: "center",
     borderColor: "transparent",
     borderRadius: radius.sm,
-    borderWidth: 3,
+    borderWidth: 2,
     flexDirection: "row",
-    gap: 10,
-    minHeight: 42,
-    paddingHorizontal: 10,
+    gap: 7,
+    minHeight: 34,
+    paddingHorizontal: 7,
   },
   activeRow: {
     backgroundColor: RED_DARK,
@@ -264,14 +264,14 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.88)",
     flex: 1,
     fontFamily: fonts.medium,
-    fontSize: 14,
+    fontSize: 11,
   },
   activeText: { color: WHITE, fontFamily: fonts.bold },
   footer: {
     borderTopColor: "rgba(255,255,255,0.16)",
     borderTopWidth: 1,
-    gap: 1,
-    paddingTop: 5,
+    gap: 0,
+    paddingTop: 3,
   },
   footerRow: {
     alignItems: "center",
@@ -279,11 +279,11 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
     borderWidth: 2,
     flexDirection: "row",
-    gap: 10,
-    minHeight: 37,
-    paddingHorizontal: 10,
+    gap: 7,
+    minHeight: 31,
+    paddingHorizontal: 7,
   },
-  footerText: { color: "rgba(255,255,255,0.88)", fontFamily: fonts.medium, fontSize: 13 },
+  footerText: { color: "rgba(255,255,255,0.88)", fontFamily: fonts.medium, fontSize: 10.5 },
   rail: {
     alignItems: "center",
     backgroundColor: "#11151A",
@@ -292,8 +292,8 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: "space-between",
     left: 0,
-    paddingBottom: 10,
-    paddingTop: 12,
+    paddingBottom: 7,
+    paddingTop: 8,
     position: "absolute",
     top: 0,
     width: GUIDE_RAIL_WIDTH,
@@ -301,21 +301,20 @@ const styles = StyleSheet.create({
   railLogo: {
     color: RED,
     fontFamily: fonts.bold,
-    fontSize: 27,
+    fontSize: 22,
   },
-  railActions: { gap: 5 },
+  railActions: { gap: 3 },
   railAction: {
     alignItems: "center",
     borderColor: "transparent",
     borderRadius: radius.sm,
-    borderWidth: 3,
-    gap: 3,
+    borderWidth: 2,
+    gap: 2,
     justifyContent: "center",
-    minHeight: 50,
-    width: 58,
+    minHeight: 42,
+    width: 44,
   },
   railActionFocused: { backgroundColor: RED_DARK, borderColor: WHITE },
-  railActionText: { color: WHITE, fontFamily: fonts.semibold, fontSize: 8 },
-  railHint: { color: "rgba(255,255,255,0.44)", fontFamily: fonts.bold, fontSize: 9 },
+  railActionText: { color: WHITE, fontFamily: fonts.semibold, fontSize: 7 },
+  railHint: { color: "rgba(255,255,255,0.44)", fontFamily: fonts.bold, fontSize: 7 },
 });
-
