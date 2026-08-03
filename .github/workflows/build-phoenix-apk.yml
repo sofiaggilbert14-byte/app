@@ -64,7 +64,7 @@ jobs:
           sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006" "cmake;3.22.1"
 
       - name: Install JavaScript dependencies
-        run: npm ci
+        run: npm install --legacy-peer-deps
 
       - name: Validate Experimental
         run: |
