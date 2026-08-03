@@ -13,6 +13,7 @@ import { GuideProvider, useStore } from "@/src/store";
 import { ProgramModal } from "@/src/components/ProgramModal";
 import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { PointerOverlay } from "@/src/components/PointerOverlay";
+import { TvCalibrationFrame, TvCalibrationProvider } from "@/src/tvCalibration";
 
 LogBox.ignoreAllLogs(true);
 SplashScreen.preventAutoHideAsync();
@@ -74,21 +75,25 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1, width, height }}>
       <SafeAreaProvider>
-        <GuideProvider>
-          <StatusBar style="light" />
-          <NotificationRouter />
-          <ReminderAutoSwitcher />
-          <ErrorBoundary>
-            <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#0F0F13" } }}>
-              <Stack.Screen name="(tabs)" />
-              <Stack.Screen name="player" options={{ animation: "fade" }} />
-            </Stack>
-          </ErrorBoundary>
-          <ErrorBoundary>
-            <ProgramModal />
-          </ErrorBoundary>
-          <PointerOverlay />
-        </GuideProvider>
+        <TvCalibrationProvider>
+          <TvCalibrationFrame>
+            <GuideProvider>
+              <StatusBar style="light" />
+              <NotificationRouter />
+              <ReminderAutoSwitcher />
+              <ErrorBoundary>
+                <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#0F0F13" } }}>
+                  <Stack.Screen name="(tabs)" />
+                  <Stack.Screen name="player" options={{ animation: "fade" }} />
+                </Stack>
+              </ErrorBoundary>
+              <ErrorBoundary>
+                <ProgramModal />
+              </ErrorBoundary>
+              <PointerOverlay />
+            </GuideProvider>
+          </TvCalibrationFrame>
+        </TvCalibrationProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
