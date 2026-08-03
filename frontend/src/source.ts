@@ -1,7 +1,7 @@
 import dayjs from "dayjs";
 import { Platform } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
-import { gunzipSync, strFromU8 } from "fflate";
+import { Gunzip, strFromU8 } from "fflate";
 import type { Channel, Program, GuideResponse, SourceStatus } from "@/src/api";
 
 // Developer source — fetched & parsed on-device (no backend needed).
@@ -14,14 +14,20 @@ export const SOURCE_EPG =
 
 const TTL_MS = 24 * 60 * 60 * 1000; // refresh at most once a day
 const EXTINF_ATTR = /([a-zA-Z0-9-]+)="([^"]*)"/g;
-// Persist the parsed guide to a file. AsyncStorage's ~2 MB per-value limit
-// silently drops a 600+ channel guide, which forced a slow full re-parse on
-// every launch — the file cache makes relaunches instant.
-const CACHE_FILE = FileSystem.documentDirectory
-  ? FileSystem.documentDirectory + "guide_cache_v4.json"
-  : "";
+// The v5 cache is split into small program chunks. This prevents one giant
+// JSON.stringify/JSON.parse from blocking low-power TV devices near the end of
+// an EPG refresh while still keeping the whole guide local for 24 hours.
+const CACHE_ROOT = FileSystem.documentDirectory || "";
+const CACHE_FILE = CACHE_ROOT ? CACHE_ROOT + "guide_cache_v5_meta.json" : "";
 const CACHE_TMP_FILE = CACHE_FILE ? `${CACHE_FILE}.tmp` : "";
-const MAX_CACHE_BYTES = 32 * 1024 * 1024;
+const CACHE_CHUNK_PREFIX = "guide_cache_v5_programs_";
+const CACHE_CHUNK_SIZE = 32;
+const MAX_CACHE_BYTES = 64 * 1024 * 1024;
+
+function cacheChunkFile(index: number, temporary = false): string {
+  const path = CACHE_ROOT + CACHE_CHUNK_PREFIX + index + ".json";
+  return temporary ? path + ".tmp" : path;
+}
 
 type Parsed = {
   ts: number;
@@ -138,13 +144,39 @@ async function fetchBytes(
   return base64ToBytes(b64);
 }
 
-async function inflateIfGzip(bytes: Uint8Array): Promise<string> {
-  // gzip magic bytes 0x1f 0x8b
-  if (bytes.length > 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) {
-    const out = gunzipSync(bytes);
-    return strFromU8(out);
+async function inflateIfGzip(
+  bytes: Uint8Array,
+  onProgress?: (ratio: number) => void,
+): Promise<string> {
+  // fflate's asynchronous helper creates a Web Worker, which Hermes does not
+  // provide. Feed the streaming inflater small chunks and yield between them so
+  // remote focus/navigation stays responsive during decompression.
+  if (bytes.length <= 2 || bytes[0] !== 0x1f || bytes[1] !== 0x8b) {
+    onProgress?.(1);
+    return strFromU8(bytes);
   }
-  return strFromU8(bytes);
+
+  const chunks: Uint8Array[] = [];
+  let outputBytes = 0;
+  const inflater = new Gunzip((chunk) => {
+    chunks.push(chunk);
+    outputBytes += chunk.length;
+  });
+  const inputChunkBytes = 128 * 1024;
+  for (let offset = 0; offset < bytes.length; offset += inputChunkBytes) {
+    const end = Math.min(bytes.length, offset + inputChunkBytes);
+    inflater.push(bytes.subarray(offset, end), end === bytes.length);
+    onProgress?.(end / bytes.length);
+    if (end < bytes.length) await nextTick();
+  }
+
+  const output = new Uint8Array(outputBytes);
+  let outputOffset = 0;
+  for (const chunk of chunks) {
+    output.set(chunk, outputOffset);
+    outputOffset += chunk.length;
+  }
+  return strFromU8(output);
 }
 
 function parseM3U(text: string): Channel[] {
@@ -390,7 +422,7 @@ function emit() {
 }
 
 // ---- EPG load progress (for the on-screen status bar + ETA) ----------------
-export type LoadPhase = "idle" | "channels" | "downloading" | "parsing" | "ready" | "error";
+export type LoadPhase = "idle" | "channels" | "downloading" | "decompressing" | "parsing" | "indexing" | "caching" | "ready" | "error";
 export type EpgProgress = {
   phase: LoadPhase;
   ratio: number; // 0..1 across the whole EPG step (download + parse)
@@ -419,15 +451,61 @@ function setProgress(p: Partial<EpgProgress>, force = false) {
   });
 }
 
-async function persist() {
-  if (Platform.OS === "web" || !MEM || !CACHE_FILE) return;
+type CacheMeta = Omit<Parsed, "programs"> & { programChunkCount: number };
+
+let persistQueue: Promise<void> = Promise.resolve();
+
+async function persistSnapshot(snapshot: Parsed, onProgress?: (ratio: number) => void) {
+  const programEntries = Object.entries(snapshot.programs);
+  const chunkCount = Math.ceil(programEntries.length / CACHE_CHUNK_SIZE);
+  let totalBytes = 0;
+
+  for (let index = 0; index < chunkCount; index++) {
+    const entries = programEntries.slice(index * CACHE_CHUNK_SIZE, (index + 1) * CACHE_CHUNK_SIZE);
+    const payload = JSON.stringify(Object.fromEntries(entries));
+    totalBytes += payload.length;
+    if (totalBytes > MAX_CACHE_BYTES) throw new Error("Guide cache is too large");
+    const tmp = cacheChunkFile(index, true);
+    const target = cacheChunkFile(index);
+    await FileSystem.writeAsStringAsync(tmp, payload);
+    await FileSystem.deleteAsync(target, { idempotent: true });
+    await FileSystem.moveAsync({ from: tmp, to: target });
+    onProgress?.((index + 1) / Math.max(1, chunkCount + 1));
+    await nextTick();
+  }
+
+  const { programs: _programs, ...rest } = snapshot;
+  const meta: CacheMeta = { ...rest, programChunkCount: chunkCount };
+  const metaPayload = JSON.stringify(meta);
+  totalBytes += metaPayload.length;
+  if (totalBytes > MAX_CACHE_BYTES) throw new Error("Guide cache is too large");
+  await FileSystem.writeAsStringAsync(CACHE_TMP_FILE, metaPayload);
+  await FileSystem.deleteAsync(CACHE_FILE, { idempotent: true });
+  await FileSystem.moveAsync({ from: CACHE_TMP_FILE, to: CACHE_FILE });
+
   try {
-    const payload = JSON.stringify(MEM);
-    if (payload.length > MAX_CACHE_BYTES) return;
-    await FileSystem.writeAsStringAsync(CACHE_TMP_FILE, payload);
-    await FileSystem.deleteAsync(CACHE_FILE, { idempotent: true });
-    await FileSystem.moveAsync({ from: CACHE_TMP_FILE, to: CACHE_FILE });
+    const files = await FileSystem.readDirectoryAsync(CACHE_ROOT);
+    await Promise.all(
+      files
+        .filter((name) => name.startsWith(CACHE_CHUNK_PREFIX))
+        .filter((name) => {
+          const index = Number(name.slice(CACHE_CHUNK_PREFIX.length).split(".")[0]);
+          return !Number.isFinite(index) || index >= chunkCount || name.endsWith(".tmp");
+        })
+        .map((name) => FileSystem.deleteAsync(CACHE_ROOT + name, { idempotent: true })),
+    );
   } catch {}
+  onProgress?.(1);
+}
+
+async function persist(onProgress?: (ratio: number) => void) {
+  if (Platform.OS === "web" || !MEM || !CACHE_FILE) return;
+  const snapshot = MEM;
+  persistQueue = persistQueue
+    .catch(() => {})
+    .then(() => persistSnapshot(snapshot, onProgress))
+    .catch(() => {});
+  await persistQueue;
 }
 
 async function readCache(): Promise<Parsed | null> {
@@ -435,21 +513,35 @@ async function readCache(): Promise<Parsed | null> {
   try {
     const info = await FileSystem.getInfoAsync(CACHE_FILE);
     if (!info.exists) return null;
-    if (typeof info.size === "number" && info.size > MAX_CACHE_BYTES) {
-      await FileSystem.deleteAsync(CACHE_FILE, { idempotent: true });
-      return null;
-    }
     const txt = await FileSystem.readAsStringAsync(CACHE_FILE);
-    const data = JSON.parse(txt) as Parsed;
-    if (!data || !Number.isFinite(data.ts) || !Array.isArray(data.channels) || !data.channels.length || !data.programs) {
+    const meta = JSON.parse(txt) as CacheMeta;
+    if (
+      !meta ||
+      !Number.isFinite(meta.ts) ||
+      !Array.isArray(meta.channels) ||
+      !meta.channels.length ||
+      !Number.isFinite(meta.programChunkCount)
+    ) {
       await FileSystem.deleteAsync(CACHE_FILE, { idempotent: true });
       return null;
     }
-    return data;
+
+    const programs: Record<string, Program[]> = {};
+    let totalBytes = typeof info.size === "number" ? info.size : txt.length;
+    for (let index = 0; index < meta.programChunkCount; index++) {
+      const file = cacheChunkFile(index);
+      const chunkInfo = await FileSystem.getInfoAsync(file);
+      if (!chunkInfo.exists) throw new Error("Guide cache chunk is missing");
+      totalBytes += typeof chunkInfo.size === "number" ? chunkInfo.size : 0;
+      if (totalBytes > MAX_CACHE_BYTES) throw new Error("Guide cache is too large");
+      const chunk = JSON.parse(await FileSystem.readAsStringAsync(file)) as Record<string, Program[]>;
+      Object.assign(programs, chunk);
+      await nextTick();
+    }
+    const { programChunkCount: _programChunkCount, ...parsed } = meta;
+    return { ...parsed, programs };
   } catch {
-    try {
-      await FileSystem.deleteAsync(CACHE_FILE, { idempotent: true });
-    } catch {}
+    await clearCacheFiles();
     return null;
   }
 }
@@ -614,8 +706,9 @@ function loadEpg(channels: Channel[], force = false): Promise<void> {
     const dlStart = attemptTs;
     lastSourceError = null;
     if (MEM) {
+      // Keep the last good guide instantly available while the replacement is
+      // downloading and parsing. Cache work happens after usable data is ready.
       MEM = { ...MEM, epgAttemptTs: attemptTs, epgError: undefined };
-      await persist();
     }
     try {
       setProgress({ phase: "downloading", ratio: 0, etaSeconds: null }, true);
@@ -626,11 +719,14 @@ function loadEpg(channels: Channel[], force = false): Promise<void> {
         }
         const elapsed = (Date.now() - dlStart) / 1000;
         const eta = ratio > 0.02 && elapsed > 0.5 ? (elapsed / ratio) * (1 - ratio) : null;
-        setProgress({ phase: "downloading", ratio: ratio * 0.3, etaSeconds: eta });
+        setProgress({ phase: "downloading", ratio: ratio * 0.2, etaSeconds: eta });
       });
       if (bytes.length < 16) throw new Error("EPG download returned no usable data");
+      setProgress({ phase: "decompressing", ratio: 0.2, etaSeconds: null }, true);
+      let epgText = await inflateIfGzip(bytes, (ratio) => {
+        setProgress({ phase: "decompressing", ratio: 0.2 + ratio * 0.1, etaSeconds: null });
+      });
       setProgress({ phase: "parsing", ratio: 0.3, etaSeconds: null }, true);
-      let epgText = await inflateIfGzip(bytes);
       if (epgText.charCodeAt(0) === 0xfeff) epgText = epgText.slice(1);
       const header = epgText.slice(0, 8192).toLowerCase();
       if (!header.includes("<tv") || !epgText.includes("<programme")) {
@@ -648,10 +744,12 @@ function loadEpg(channels: Channel[], force = false): Promise<void> {
         onProgress: (ratio) => {
           const elapsed = (Date.now() - parseStart) / 1000;
           const eta = ratio > 0.02 && elapsed > 0.3 ? (elapsed / ratio) * (1 - ratio) : null;
-          setProgress({ phase: "parsing", ratio: 0.3 + ratio * 0.7, etaSeconds: eta });
+          setProgress({ phase: "parsing", ratio: 0.3 + ratio * 0.6, etaSeconds: eta });
         },
       });
 
+      setProgress({ phase: "indexing", ratio: 0.9, etaSeconds: null }, true);
+      await nextTick();
       const programIdByKey = new Map<string, string>();
       for (const id of Object.keys(programs)) {
         const key = normalizeGuideKey(id);
@@ -683,10 +781,13 @@ function loadEpg(channels: Channel[], force = false): Promise<void> {
         channels: sortChannelsAlphabetically(channels),
         programs,
       };
-      await persist();
       lastSourceError = null;
-      setProgress({ phase: "ready", ratio: 1, etaSeconds: 0 }, true);
       emit();
+      setProgress({ phase: "caching", ratio: 0.92, etaSeconds: null }, true);
+      await persist((ratio) => {
+        setProgress({ phase: "caching", ratio: 0.92 + ratio * 0.08, etaSeconds: null });
+      });
+      setProgress({ phase: "ready", ratio: 1, etaSeconds: 0 }, true);
     } catch (error) {
       lastSourceError = error instanceof Error ? error.message : "EPG refresh failed";
       if (MEM) {
@@ -727,7 +828,8 @@ async function doFetchParse(): Promise<Parsed> {
   const m3uText = await fetchTextMaybeGzip(SOURCE_M3U);
   const channels = parseM3U(m3uText);
   MEM = { ts: Date.now(), channels: sortChannelsAlphabetically(channels), programs: MEM?.programs || {} };
-  await persist();
+  // Do not rewrite a large existing EPG before starting a refresh.
+  if (Object.keys(MEM.programs).length === 0) await persist();
   emit();
   setProgress({ phase: "channels", ratio: 0, etaSeconds: null }, true);
   // Stage 2 (slower): parse the large EPG in the background, then notify.
@@ -833,8 +935,13 @@ export async function sourceDiagnostics(): Promise<SourceDiagnostics> {
   let cacheBytes = 0;
   if (Platform.OS !== "web" && CACHE_FILE) {
     try {
-      const info = await FileSystem.getInfoAsync(CACHE_FILE);
-      if (info.exists && typeof info.size === "number") cacheBytes = info.size;
+      const files = await FileSystem.readDirectoryAsync(CACHE_ROOT);
+      for (const name of files) {
+        if (name === "guide_cache_v5_meta.json" || name.startsWith(CACHE_CHUNK_PREFIX)) {
+          const info = await FileSystem.getInfoAsync(CACHE_ROOT + name);
+          if (info.exists && typeof info.size === "number") cacheBytes += info.size;
+        }
+      }
     } catch {}
   }
   const programCount = MEM
@@ -852,13 +959,23 @@ export async function sourceDiagnostics(): Promise<SourceDiagnostics> {
   };
 }
 
+async function clearCacheFiles(): Promise<void> {
+  if (Platform.OS === "web" || !CACHE_ROOT) return;
+  try {
+    const files = await FileSystem.readDirectoryAsync(CACHE_ROOT);
+    await Promise.all(
+      files
+        .filter((name) => name === "guide_cache_v5_meta.json" || name.startsWith(CACHE_CHUNK_PREFIX))
+        .map((name) => FileSystem.deleteAsync(CACHE_ROOT + name, { idempotent: true })),
+    );
+  } catch {}
+  await FileSystem.deleteAsync(CACHE_TMP_FILE, { idempotent: true });
+}
+
 export async function clearGuideCache(): Promise<void> {
   MEM = null;
   lastSourceError = null;
-  if (Platform.OS !== "web" && CACHE_FILE) {
-    await FileSystem.deleteAsync(CACHE_FILE, { idempotent: true });
-    await FileSystem.deleteAsync(CACHE_TMP_FILE, { idempotent: true });
-  }
+  await clearCacheFiles();
   setProgress({ phase: "idle", ratio: 0, etaSeconds: null }, true);
   emit();
 }
