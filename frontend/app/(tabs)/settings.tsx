@@ -28,11 +28,26 @@ import {
 import { useTvBackToGuide } from "@/src/hooks/use-tv-back-to-guide";
 import { getTvSafeInsets } from "@/src/utils/tvLayout";
 
-const GOLD = "#F6B73C";
-const GOLD_SOFT = "#FFE3A3";
-const GOLD_DEEP = "#7C4A11";
-const PANEL = "rgba(18, 13, 8, 0.92)";
-const BORDER_GOLD = "rgba(246, 183, 60, 0.34)";
+const GOLD = "#E3262E";
+const GOLD_SOFT = "#FFFFFF";
+const GOLD_DEEP = "#A80F17";
+const PANEL = "rgba(24, 28, 34, 0.94)";
+const BORDER_GOLD = "rgba(227, 38, 46, 0.38)";
+
+type SettingsSection = "guide" | "playback" | "remote" | "appearance" | "accessibility" | "about";
+
+const SETTINGS_SECTIONS: {
+  id: SettingsSection;
+  label: string;
+  icon: React.ComponentProps<typeof Ionicons>["name"];
+}[] = [
+  { id: "guide", label: "Guide", icon: "list" },
+  { id: "playback", label: "Playback", icon: "play-circle-outline" },
+  { id: "remote", label: "Remote Control", icon: "game-controller-outline" },
+  { id: "appearance", label: "Appearance", icon: "color-palette-outline" },
+  { id: "accessibility", label: "Accessibility", icon: "accessibility-outline" },
+  { id: "about", label: "About", icon: "information-circle-outline" },
+];
 
 export default function SettingsScreen() {
   const {
@@ -63,6 +78,7 @@ export default function SettingsScreen() {
   const [status, setStatus] = useState<SourceStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [diagnostics, setDiagnostics] = useState<SourceDiagnostics | null>(null);
+  const [section, setSection] = useState<SettingsSection>("guide");
   useTvBackToGuide();
 const appVersion = Constants.expoConfig?.version || "2.0.0-beta";
   const androidVersionCode = (Constants.expoConfig as any)?.android?.versionCode;
@@ -110,222 +126,287 @@ const appVersion = Constants.expoConfig?.version || "2.0.0-beta";
   };
 
   return (
-    <View style={[styles.container, { paddingLeft: tvSafe.left, paddingRight: tvSafe.right, paddingBottom: tvSafe.bottom }]}>
-      <View style={[styles.header, { paddingTop: spacing.md + tvSafe.top }]}>
-        <Text style={styles.brand}>Charm IPTV Experimental</Text>
-        <Text style={styles.title}>Settings</Text>
+    <View
+      style={[
+        styles.container,
+        {
+          paddingLeft: tvSafe.left,
+          paddingRight: tvSafe.right,
+          paddingBottom: tvSafe.bottom,
+          paddingTop: tvSafe.top,
+        },
+      ]}
+    >
+      <View style={styles.settingsSidebar}>
+        <View style={styles.settingsBrand}>
+          <View style={styles.settingsBrandLine}>
+            <Text style={styles.settingsBrandCharm}>CHARM</Text>
+            <Text style={styles.settingsBrandIptv}> IPTV</Text>
+          </View>
+          <Text style={styles.settingsVersion}>— EXPERIMENTAL v3 —</Text>
+        </View>
+        <Text style={styles.settingsHeading}>Settings</Text>
+        <View style={styles.settingsNav}>
+          {SETTINGS_SECTIONS.map((item, index) => (
+            <Pressable
+              key={item.id}
+              hasTVPreferredFocus={index === 0}
+              onPress={() => {
+                void Haptics.selectionAsync().catch(() => {});
+                setSection(item.id);
+              }}
+              style={({ focused }: any) => [
+                styles.settingsNavRow,
+                section === item.id && styles.settingsNavActive,
+                focused && styles.settingsNavFocused,
+              ]}
+              testID={`settings-section-${item.id}`}
+            >
+              <Ionicons name={item.icon} color="#fff" size={24} />
+              <Text style={styles.settingsNavText}>{item.label}</Text>
+            </Pressable>
+          ))}
+        </View>
       </View>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 140 + tvSafe.bottom }}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onPullRefresh} tintColor={colors.brand} colors={[colors.brand]} />
-        }
-      >
-        {/* Playlist refresher */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Playlist & EPG</Text>
-          {!status ? (
-            <ActivityIndicator color={colors.brand} style={{ marginVertical: spacing.lg }} />
-          ) : (
+
+      <View style={styles.settingsContent}>
+        <Text style={styles.settingsContentTitle}>
+          {SETTINGS_SECTIONS.find((item) => item.id === section)?.label} settings
+        </Text>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.settingsScrollContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onPullRefresh}
+              tintColor={GOLD}
+              colors={[GOLD]}
+            />
+          }
+        >
+          {section === "guide" && (
             <>
-              <Stat label="Channels loaded" value={String(status.channel_count)} />
-              <Stat label="Channels with EPG" value={String(status.channels_with_epg)} />
-              <Stat
-                label="Last refreshed"
-                value={status.last_refresh ? dayjs(status.last_refresh).format("MMM D, h:mm A") : "—"}
-              />
-              {status.error ? <Text style={styles.errText}>Error: {status.error}</Text> : null}
+              <View style={styles.card}>
+                <ChoiceRow<GuideLayout>
+                  label="Guide layout"
+                  value={guideLayout}
+                  options={[
+                    { label: "Timeline", value: "cinematic" },
+                    { label: "Grid", value: "compact" },
+                  ]}
+                  onChange={setGuideLayout}
+                />
+                <ChoiceRow<GuideDensity>
+                  label="Channel row density"
+                  value={guideDensity}
+                  options={[
+                    { label: "Comfortable", value: "large" },
+                    { label: "Normal", value: "normal" },
+                    { label: "Compact", value: "compact" },
+                  ]}
+                  onChange={setGuideDensity}
+                />
+                <ChoiceRow<SafePreviewMode>
+                  label="Live preview"
+                  value={safePreviewMode}
+                  options={[
+                    { label: "After focus settles", value: "on" },
+                    { label: "Extra delay", value: "delayed" },
+                    { label: "Off", value: "off" },
+                  ]}
+                  onChange={setSafePreviewMode}
+                />
+                <ToggleRow
+                  label="Channel numbers"
+                  sub="Show lineup numbers beside channel logos."
+                  value={channelNumbers}
+                  onChange={setChannelNumbers}
+                  testID="settings-channel-numbers-toggle"
+                />
+                <ToggleRow
+                  label="Channel logos"
+                  sub="Cached logos are used when available; initials remain the fallback."
+                  value={channelLogos}
+                  onChange={setChannelLogos}
+                  testID="settings-channel-logos-toggle"
+                />
+              </View>
+
+              <Pressable
+                style={({ focused }: any) => [styles.refreshRow, focused && styles.focusRing]}
+                onPress={doRefresh}
+                disabled={busy}
+                testID="settings-refresh-btn"
+              >
+                {busy ? <ActivityIndicator color="#fff" /> : <Ionicons name="refresh" size={24} color="#fff" />}
+                <Text style={styles.refreshRowText}>Refresh playlist & EPG</Text>
+              </Pressable>
+
+              <View style={styles.healthRow}>
+                <View style={styles.healthCard}>
+                  <Text style={styles.healthEyebrow}>SOURCE HEALTH</Text>
+                  {!status ? (
+                    <ActivityIndicator color={GOLD} />
+                  ) : (
+                    <View style={styles.healthStats}>
+                      <View style={styles.healthStat}>
+                        <Ionicons name="server-outline" size={28} color={GOLD} />
+                        <Text style={styles.healthLabel}>Channels loaded</Text>
+                        <Text style={styles.healthValue}>{status.channel_count}</Text>
+                      </View>
+                      <View style={styles.healthDivider} />
+                      <View style={styles.healthStat}>
+                        <Ionicons name="book-outline" size={28} color={GOLD} />
+                        <Text style={styles.healthLabel}>Channels with EPG</Text>
+                        <Text style={styles.healthValue}>{status.channels_with_epg}</Text>
+                      </View>
+                    </View>
+                  )}
+                </View>
+                <View style={styles.healthDetails}>
+                  <Text style={styles.cardTitle}>Local guide cache</Text>
+                  <Stat label="Cached programs" value={String(diagnostics?.programs || 0)} />
+                  <Stat label="Refresh active" value={diagnostics?.refreshInFlight ? "Yes" : "No"} />
+                  <Stat
+                    label="Next automatic refresh"
+                    value={diagnostics?.nextAutoRefresh ? dayjs(diagnostics.nextAutoRefresh).format("MMM D, h:mm A") : "—"}
+                  />
+                  <Stat
+                    label="Cache size"
+                    value={diagnostics ? `${(diagnostics.cacheBytes / 1024 / 1024).toFixed(1)} MB` : "—"}
+                  />
+                  {diagnostics?.epgError ? <Text style={styles.errText}>EPG: {diagnostics.epgError}</Text> : null}
+                </View>
+              </View>
             </>
           )}
-          <Pressable style={({ focused }: any) => [styles.primaryBtn, focused && styles.focusRing]} onPress={doRefresh} disabled={busy} testID="settings-refresh-btn">
-            {busy ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <>
-                <Ionicons name="refresh" size={16} color="#fff" />
-                <Text style={styles.primaryText}>Force Refresh Now</Text>
-              </>
-            )}
-          </Pressable>
-          <Text style={styles.hint}>
-            The parsed guide is cached on this device and reused for 24 hours. Force Refresh downloads M3U and EPG
-            immediately and restarts the automatic 24-hour timer.
-          </Text>
-        </View>
 
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Experimental Diagnostics</Text>
-          <Stat label="Build" value={`v${appVersion}${androidVersionCode ? ` (${androidVersionCode})` : ""}`} />
-          <Stat label="Platform" value={Platform.isTV ? "Android TV / Fire TV" : Platform.OS} />
-          <Stat label="Data mode" value={diagnostics?.mode || "—"} />
-          <Stat label="Channels" value={String(diagnostics?.channels || status?.channel_count || 0)} />
-          <Stat label="Cached programs" value={String(diagnostics?.programs || 0)} />
-          <Stat label="Refresh in progress" value={diagnostics?.refreshInFlight ? "Yes" : "No"} />
-          <Stat
-            label="Next automatic refresh"
-            value={diagnostics?.nextAutoRefresh ? dayjs(diagnostics.nextAutoRefresh).format("MMM D, h:mm A") : "—"}
-          />
-          {diagnostics?.epgError ? <Text style={styles.errText}>EPG: {diagnostics.epgError}</Text> : null}
-          <Stat
-            label="Guide cache"
-            value={diagnostics ? `${(diagnostics.cacheBytes / 1024 / 1024).toFixed(1)} MB` : "—"}
-          />
-          <Stat
-            label="Cache age"
-            value={diagnostics?.cacheAgeMinutes == null ? "—" : `${diagnostics.cacheAgeMinutes} min`}
-          />
-          <Pressable
-            style={({ focused }: any) => [styles.secondaryBtn, focused && styles.focusRing]}
-            onPress={async () => {
-              await clearGuideCache();
-              loadStatus();
-            }}
-            focusable
-            testID="settings-clear-guide-cache-btn"
-          >
-            <Ionicons name="trash-outline" size={16} color={colors.onSurface} />
-            <Text style={styles.secondaryText}>Clear Guide Cache</Text>
-          </Pressable>
-          <Pressable
-            style={({ focused }: any) => [styles.primaryBtn, focused && styles.focusRing]}
-            onPress={resetGuideData}
-            disabled={busy}
-            focusable
-            testID="settings-reset-guide-data-btn"
-          >
-            {busy ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <>
-                <Ionicons name="cloud-download-outline" size={16} color="#fff" />
-                <Text style={styles.primaryText}>Reset & Reload Guide</Text>
-              </>
-            )}
-          </Pressable>
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Guide & Player Preferences</Text>
-          <Text style={styles.sub}>
-            Tune the layout for real TVs. Compact options show more guide rows; larger options are easier to read from
-            across the room.
-          </Text>
-          <ChoiceRow<GuideLayout>
-            label="Guide layout"
-            value={guideLayout}
-            options={[
-              { label: "Cinematic", value: "cinematic" },
-              { label: "Compact", value: "compact" },
-            ]}
-            onChange={setGuideLayout}
-          />
-          <ChoiceRow<GuideDensity>
-            label="Guide density"
-            value={guideDensity}
-            options={[
-              { label: "Comfortable", value: "large" },
-              { label: "Normal", value: "normal" },
-              { label: "Compact", value: "compact" },
-            ]}
-            onChange={setGuideDensity}
-          />
-          <ChoiceRow<SafePreviewMode>
-            label="Safe preview mode"
-            value={safePreviewMode}
-            options={[
-              { label: "Preview after focus stops", value: "on" },
-              { label: "Extra safe delay", value: "delayed" },
-              { label: "Live preview OFF", value: "off" },
-            ]}
-            onChange={setSafePreviewMode}
-          />
-          <ChoiceRow<DeviceLayoutMode>
-            label="Device layout mode"
-            value={deviceLayoutMode}
-            options={[
-              { label: "Auto", value: "auto" },
-              { label: "TV", value: "tv" },
-              { label: "Mobile", value: "mobile" },
-            ]}
-            onChange={setDeviceLayoutMode}
-          />
-          <ToggleRow
-            label="Channel numbers"
-            sub="Automatically numbers the current lineup. If channels are added or removed, Phoenix rebuilds the numbering from the latest channel list."
-            value={channelNumbers}
-            onChange={setChannelNumbers}
-            testID="settings-channel-numbers-toggle"
-          />
-          <ToggleRow
-            label="Channel logos"
-            sub="Turn this off to use initials instead of loading channel logo images. This can make weaker boxes feel smoother."
-            value={channelLogos}
-            onChange={setChannelLogos}
-            testID="settings-channel-logos-toggle"
-          />
-          <ChoiceRow<PlayerControlsTimeoutMs>
-            label="Player controls timeout"
-            value={playerControlsTimeoutMs}
-            options={[
-              { label: "8 sec", value: 8000 },
-              { label: "15 sec", value: 15000 },
-              { label: "30 sec", value: 30000 },
-              { label: "60 sec", value: 60000 },
-            ]}
-            onChange={setPlayerControlsTimeoutMs}
-          />
-          <ToggleRow
-            label="Auto retry streams"
-            sub="When a stream drops, Phoenix keeps trying until you leave the player."
-            value={autoRetryStreams}
-            onChange={setAutoRetryStreams}
-            testID="settings-auto-retry-toggle"
-          />
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Beta Tester Checklist</Text>
-          <ChecklistItem label="Guide loads and scrolls without crashing" />
-          <ChecklistItem label="Player controls fade away after playback starts" />
-          <ChecklistItem label="Previous / Last / Next channel buttons work" />
-          <ChecklistItem label="Search finds channels and programs" />
-          <ChecklistItem label="Favorites and Continue Watching show the right channels" />
-        </View>
-
-        <View style={styles.card}>
-          <View style={styles.rowBetween}>
-            <View style={{ flex: 1, paddingRight: spacing.md }}>
-              <Text style={styles.cardTitle}>Pointer (mouse) mode</Text>
-              <Text style={styles.sub}>
-                For Android TV / Fire TV boxes where the D-pad focus isn’t reliable. Turns the remote’s
-                arrow keys into an on-screen mouse pointer — move with the D-pad and press OK/Select to
-                click whatever the pointer is on. Only works on an installed Android TV build.
-              </Text>
+          {section === "playback" && (
+            <View style={styles.card}>
+              <ChoiceRow<PlayerControlsTimeoutMs>
+                label="Player controls timeout"
+                value={playerControlsTimeoutMs}
+                options={[
+                  { label: "8 sec", value: 8000 },
+                  { label: "15 sec", value: 15000 },
+                  { label: "30 sec", value: 30000 },
+                  { label: "60 sec", value: 60000 },
+                ]}
+                onChange={setPlayerControlsTimeoutMs}
+              />
+              <ToggleRow
+                label="Auto retry streams"
+                sub="Reconnect automatically when a live stream drops."
+                value={autoRetryStreams}
+                onChange={setAutoRetryStreams}
+                testID="settings-auto-retry-toggle"
+              />
             </View>
-            <TogglePill value={pointerMode} />
-          </View>
-          <Pressable
-            style={({ focused }: any) => [styles.togglePressRow, focused && styles.focusRing]}
-            onPress={() => {
-              Haptics.selectionAsync();
-              setPointerMode(!pointerMode);
-            }}
-            focusable
-            testID="settings-pointer-toggle"
-          >
-            <Text style={styles.toggleActionText}>{pointerMode ? "Turn pointer mode off" : "Turn pointer mode on"}</Text>
-          </Pressable>
-        </View>
+          )}
 
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>About Reminders</Text>
-          <Text style={styles.sub}>
-            Set reminders from the guide to get a local notification before a program starts, with a tap-to-switch
-            action. Scheduled notifications only fire on an installed Android/iOS build — not in the Expo Go preview.
-          </Text>
-        </View>
-      </ScrollView>
+          {section === "remote" && (
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Remote Control</Text>
+              <Text style={styles.sub}>
+                The D-pad moves focus between groups, the timeline, and player controls. Pointer mode is available for boxes with unreliable native focus.
+              </Text>
+              <Pressable
+                style={({ focused }: any) => [styles.toggleRow, focused && styles.focusRing]}
+                onPress={() => setPointerMode(!pointerMode)}
+                testID="settings-pointer-toggle"
+              >
+                <Text style={styles.settingLabel}>Pointer mode</Text>
+                <TogglePill value={pointerMode} />
+              </Pressable>
+            </View>
+          )}
+
+          {section === "appearance" && (
+            <View style={styles.card}>
+              <ChoiceRow<DeviceLayoutMode>
+                label="Device layout"
+                value={deviceLayoutMode}
+                options={[
+                  { label: "Auto", value: "auto" },
+                  { label: "TV", value: "tv" },
+                  { label: "Mobile", value: "mobile" },
+                ]}
+                onChange={setDeviceLayoutMode}
+              />
+              <ChoiceRow<GuideDensity>
+                label="Guide density"
+                value={guideDensity}
+                options={[
+                  { label: "Comfortable", value: "large" },
+                  { label: "Normal", value: "normal" },
+                  { label: "Compact", value: "compact" },
+                ]}
+                onChange={setGuideDensity}
+              />
+            </View>
+          )}
+
+          {section === "accessibility" && (
+            <View style={styles.card}>
+              <ToggleRow
+                label="Always show channel numbers"
+                sub="Adds a consistent numeric landmark to each guide row."
+                value={channelNumbers}
+                onChange={setChannelNumbers}
+                testID="settings-accessibility-channel-numbers"
+              />
+              <ChoiceRow<SafePreviewMode>
+                label="Preview motion"
+                value={safePreviewMode}
+                options={[
+                  { label: "Normal", value: "on" },
+                  { label: "Reduced", value: "delayed" },
+                  { label: "Off", value: "off" },
+                ]}
+                onChange={setSafePreviewMode}
+              />
+            </View>
+          )}
+
+          {section === "about" && (
+            <>
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>Charm IPTV Experimental v3</Text>
+                <Stat label="Build" value={`v${appVersion}${androidVersionCode ? ` (${androidVersionCode})` : ""}`} />
+                <Stat label="Platform" value={Platform.isTV ? "Android TV / Fire TV" : Platform.OS} />
+                <Stat label="Data mode" value={diagnostics?.mode || "—"} />
+                <ChecklistItem label="Separate install from stable CharmIPTV" />
+                <ChecklistItem label="Device-local M3U and XMLTV guide" />
+                <ChecklistItem label="24-hour automatic refresh cache" />
+              </View>
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>Guide maintenance</Text>
+                <Pressable
+                  style={({ focused }: any) => [styles.secondaryBtn, focused && styles.focusRing]}
+                  onPress={async () => {
+                    await clearGuideCache();
+                    loadStatus();
+                  }}
+                  testID="settings-clear-guide-cache-btn"
+                >
+                  <Ionicons name="trash-outline" size={18} color="#fff" />
+                  <Text style={styles.secondaryText}>Clear Guide Cache</Text>
+                </Pressable>
+                <Pressable
+                  style={({ focused }: any) => [styles.primaryBtn, focused && styles.focusRing]}
+                  onPress={resetGuideData}
+                  disabled={busy}
+                  testID="settings-reset-guide-data-btn"
+                >
+                  <Ionicons name="cloud-download-outline" size={18} color="#fff" />
+                  <Text style={styles.primaryText}>Reset & Reload Guide</Text>
+                </Pressable>
+              </View>
+            </>
+          )}
+        </ScrollView>
+      </View>
     </View>
   );
 }
@@ -425,13 +506,84 @@ function TogglePill({ value }: { value: boolean }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#050403" },
+  container: { flex: 1, backgroundColor: "#05070A", flexDirection: "row" },
+  settingsSidebar: {
+    backgroundColor: "#090C10",
+    borderRightColor: "rgba(255,255,255,0.14)",
+    borderRightWidth: 1,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.xl,
+    width: "25%",
+    minWidth: 280,
+  },
+  settingsBrand: { gap: 4, marginBottom: spacing.xl, paddingHorizontal: spacing.sm },
+  settingsBrandLine: { flexDirection: "row", alignItems: "baseline" },
+  settingsBrandCharm: { color: GOLD, fontFamily: fonts.bold, fontSize: 30 },
+  settingsBrandIptv: { color: "#fff", fontFamily: fonts.medium, fontSize: 25 },
+  settingsVersion: { color: GOLD, fontFamily: fonts.medium, fontSize: 11, letterSpacing: 1.1 },
+  settingsHeading: { color: "#fff", fontFamily: fonts.bold, fontSize: 27, marginBottom: spacing.lg, paddingHorizontal: spacing.sm },
+  settingsNav: { gap: 5 },
+  settingsNavRow: {
+    alignItems: "center",
+    borderColor: "transparent",
+    borderRadius: radius.md,
+    borderWidth: 3,
+    flexDirection: "row",
+    gap: spacing.lg,
+    minHeight: 58,
+    paddingHorizontal: spacing.lg,
+  },
+  settingsNavActive: { backgroundColor: GOLD_DEEP },
+  settingsNavFocused: { backgroundColor: GOLD_DEEP, borderColor: "#fff" },
+  settingsNavText: { color: "#fff", fontFamily: fonts.medium, fontSize: 17 },
+  settingsContent: { flex: 1, paddingHorizontal: spacing.xxl, paddingTop: spacing.xl },
+  settingsContentTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 30, marginBottom: spacing.md },
+  settingsScrollContent: { gap: spacing.sm, paddingBottom: 100 },
+  refreshRow: {
+    alignItems: "center",
+    backgroundColor: "#1B2026",
+    borderColor: "rgba(255,255,255,0.10)",
+    borderRadius: radius.md,
+    borderWidth: 2,
+    flexDirection: "row",
+    gap: spacing.md,
+    minHeight: 64,
+    paddingHorizontal: spacing.lg,
+  },
+  refreshRowText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 17 },
+  healthRow: { flexDirection: "row", gap: spacing.lg, marginTop: spacing.sm },
+  healthCard: {
+    backgroundColor: PANEL,
+    borderColor: "rgba(255,255,255,0.12)",
+    borderRadius: radius.md,
+    borderWidth: 1,
+    flex: 1,
+    gap: spacing.md,
+    minHeight: 210,
+    padding: spacing.lg,
+  },
+  healthEyebrow: { color: GOLD, fontFamily: fonts.semibold, fontSize: 12, letterSpacing: 0.8 },
+  healthStats: { alignItems: "stretch", flex: 1, flexDirection: "row" },
+  healthStat: { alignItems: "center", flex: 1, gap: spacing.xs, justifyContent: "center" },
+  healthDivider: { backgroundColor: "rgba(255,255,255,0.14)", width: 1 },
+  healthLabel: { color: "rgba(255,255,255,0.78)", fontFamily: fonts.medium, fontSize: 12, textAlign: "center" },
+  healthValue: { color: "#fff", fontFamily: fonts.bold, fontSize: 34 },
+  healthDetails: {
+    backgroundColor: PANEL,
+    borderColor: BORDER_GOLD,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    flex: 1.45,
+    gap: spacing.xs,
+    minHeight: 210,
+    padding: spacing.lg,
+  },
   header: {
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.sm,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(246,183,60,0.24)",
-    backgroundColor: "rgba(8,5,3,0.96)",
+    borderBottomColor: "rgba(227,38,46,0.24)",
+    backgroundColor: "rgba(9,12,16,0.96)",
   },
   brand: { color: GOLD, fontFamily: fonts.semibold, fontSize: 12 },
   title: { color: "#fff", fontFamily: fonts.display, fontSize: 28 },
@@ -440,8 +592,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: BORDER_GOLD,
-    marginHorizontal: spacing.lg,
-    marginTop: spacing.md,
+    marginHorizontal: 0,
+    marginTop: spacing.sm,
     padding: spacing.lg,
     gap: spacing.sm,
     shadowColor: GOLD,
@@ -461,10 +613,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: "rgba(255,227,163,0.18)",
+    borderColor: "rgba(255,255,255,0.18)",
     backgroundColor: "rgba(255,255,255,0.05)",
   },
-  choiceBtnActive: { backgroundColor: "rgba(246,183,60,0.26)", borderColor: GOLD },
+  choiceBtnActive: { backgroundColor: "rgba(227,38,46,0.26)", borderColor: GOLD },
   choiceText: { color: "rgba(255,255,255,0.72)", fontFamily: fonts.semibold, fontSize: 12 },
   choiceTextActive: { color: "#fff" },
   hint: { color: "rgba(255,255,255,0.58)", fontFamily: fonts.regular, fontSize: 11, textAlign: "center" },
@@ -497,7 +649,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     marginTop: spacing.sm,
     borderWidth: 1,
-    borderColor: "rgba(255,227,163,0.18)",
+    borderColor: "rgba(255,255,255,0.18)",
   },
   secondaryText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 14 },
   toggleRow: {
@@ -507,7 +659,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: "rgba(255,227,163,0.16)",
+    borderColor: "rgba(255,255,255,0.16)",
     backgroundColor: "rgba(255,255,255,0.04)",
     padding: spacing.md,
     gap: spacing.md,
@@ -518,7 +670,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: "rgba(255,227,163,0.16)",
+    borderColor: "rgba(255,255,255,0.16)",
     backgroundColor: "rgba(255,255,255,0.04)",
   },
   toggleActionText: { color: GOLD_SOFT, fontFamily: fonts.semibold, fontSize: 13 },
@@ -534,7 +686,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: spacing.xs,
   },
-  togglePillActive: { borderColor: GOLD, backgroundColor: "rgba(246,183,60,0.22)" },
+  togglePillActive: { borderColor: GOLD, backgroundColor: "rgba(227,38,46,0.22)" },
   toggleDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "rgba(255,255,255,0.36)" },
   toggleDotActive: { backgroundColor: GOLD },
   toggleText: { color: "rgba(255,255,255,0.56)", fontFamily: fonts.bold, fontSize: 11 },
