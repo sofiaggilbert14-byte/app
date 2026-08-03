@@ -143,7 +143,7 @@ const appVersion = Constants.expoConfig?.version || "2.0.0-beta";
             <Text style={styles.settingsBrandCharm}>CHARM</Text>
             <Text style={styles.settingsBrandIptv}> IPTV</Text>
           </View>
-          <Text style={styles.settingsVersion}>— EXPERIMENTAL v3 —</Text>
+          <Text style={styles.settingsVersion}>â€” EXPERIMENTAL v3 â€”</Text>
         </View>
         <Text style={styles.settingsHeading}>Settings</Text>
         <View style={styles.settingsNav}>
@@ -270,11 +270,11 @@ const appVersion = Constants.expoConfig?.version || "2.0.0-beta";
                   <Stat label="Refresh active" value={diagnostics?.refreshInFlight ? "Yes" : "No"} />
                   <Stat
                     label="Next automatic refresh"
-                    value={diagnostics?.nextAutoRefresh ? dayjs(diagnostics.nextAutoRefresh).format("MMM D, h:mm A") : "—"}
+                    value={diagnostics?.nextAutoRefresh ? dayjs(diagnostics.nextAutoRefresh).format("MMM D, h:mm A") : "â€”"}
                   />
                   <Stat
                     label="Cache size"
-                    value={diagnostics ? `${(diagnostics.cacheBytes / 1024 / 1024).toFixed(1)} MB` : "—"}
+                    value={diagnostics ? `${(diagnostics.cacheBytes / 1024 / 1024).toFixed(1)} MB` : "â€”"}
                   />
                   {diagnostics?.epgError ? <Text style={styles.errText}>EPG: {diagnostics.epgError}</Text> : null}
                 </View>
@@ -375,7 +375,7 @@ const appVersion = Constants.expoConfig?.version || "2.0.0-beta";
                 <Text style={styles.cardTitle}>Charm IPTV Experimental v3</Text>
                 <Stat label="Build" value={`v${appVersion}${androidVersionCode ? ` (${androidVersionCode})` : ""}`} />
                 <Stat label="Platform" value={Platform.isTV ? "Android TV / Fire TV" : Platform.OS} />
-                <Stat label="Data mode" value={diagnostics?.mode || "—"} />
+                <Stat label="Data mode" value={diagnostics?.mode || "â€”"} />
                 <ChecklistItem label="Separate install from stable CharmIPTV" />
                 <ChecklistItem label="Device-local M3U and XMLTV guide" />
                 <ChecklistItem label="24-hour automatic refresh cache" />
@@ -511,34 +511,34 @@ const styles = StyleSheet.create({
     backgroundColor: "#090C10",
     borderRightColor: "rgba(255,255,255,0.14)",
     borderRightWidth: 1,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.xl,
-    width: "25%",
+    paddingHorizontal: 10,
+    paddingVertical: 14,
+    width: "19%",
     minWidth: 280,
   },
-  settingsBrand: { gap: 4, marginBottom: spacing.xl, paddingHorizontal: spacing.sm },
+  settingsBrand: { gap: 2, marginBottom: 12, paddingHorizontal: 6 },
   settingsBrandLine: { flexDirection: "row", alignItems: "baseline" },
-  settingsBrandCharm: { color: GOLD, fontFamily: fonts.bold, fontSize: 30 },
-  settingsBrandIptv: { color: "#fff", fontFamily: fonts.medium, fontSize: 25 },
-  settingsVersion: { color: GOLD, fontFamily: fonts.medium, fontSize: 11, letterSpacing: 1.1 },
-  settingsHeading: { color: "#fff", fontFamily: fonts.bold, fontSize: 27, marginBottom: spacing.lg, paddingHorizontal: spacing.sm },
-  settingsNav: { gap: 5 },
+  settingsBrandCharm: { color: GOLD, fontFamily: fonts.bold, fontSize: 22 },
+  settingsBrandIptv: { color: "#fff", fontFamily: fonts.medium, fontSize: 18 },
+  settingsVersion: { color: GOLD, fontFamily: fonts.medium, fontSize: 8, letterSpacing: 0.8 },
+  settingsHeading: { color: "#fff", fontFamily: fonts.bold, fontSize: 21, marginBottom: 10, paddingHorizontal: 6 },
+  settingsNav: { gap: 2 },
   settingsNavRow: {
     alignItems: "center",
     borderColor: "transparent",
     borderRadius: radius.md,
     borderWidth: 3,
     flexDirection: "row",
-    gap: spacing.lg,
-    minHeight: 58,
-    paddingHorizontal: spacing.lg,
+    gap: 10,
+    minHeight: 44,
+    paddingHorizontal: 10,
   },
   settingsNavActive: { backgroundColor: GOLD_DEEP },
   settingsNavFocused: { backgroundColor: GOLD_DEEP, borderColor: "#fff" },
-  settingsNavText: { color: "#fff", fontFamily: fonts.medium, fontSize: 17 },
-  settingsContent: { flex: 1, paddingHorizontal: spacing.xxl, paddingTop: spacing.xl },
-  settingsContentTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 30, marginBottom: spacing.md },
-  settingsScrollContent: { gap: spacing.sm, paddingBottom: 100 },
+  settingsNavText: { color: "#fff", fontFamily: fonts.medium, fontSize: 14 },
+  settingsContent: { flex: 1, paddingHorizontal: 22, paddingTop: 14 },
+  settingsContentTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 25, marginBottom: 10 },
+  settingsScrollContent: { gap: 7, paddingBottom: 72 },
   refreshRow: {
     alignItems: "center",
     backgroundColor: "#1B2026",
@@ -547,11 +547,11 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     flexDirection: "row",
     gap: spacing.md,
-    minHeight: 64,
-    paddingHorizontal: spacing.lg,
+    minHeight: 50,
+    paddingHorizontal: 12,
   },
-  refreshRowText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 17 },
-  healthRow: { flexDirection: "row", gap: spacing.lg, marginTop: spacing.sm },
+  refreshRowText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 14 },
+  healthRow: { flexDirection: "row", gap: 10, marginTop: 6 },
   healthCard: {
     backgroundColor: PANEL,
     borderColor: "rgba(255,255,255,0.12)",
@@ -559,15 +559,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flex: 1,
     gap: spacing.md,
-    minHeight: 210,
-    padding: spacing.lg,
+    minHeight: 160,
+    padding: 12,
   },
   healthEyebrow: { color: GOLD, fontFamily: fonts.semibold, fontSize: 12, letterSpacing: 0.8 },
   healthStats: { alignItems: "stretch", flex: 1, flexDirection: "row" },
   healthStat: { alignItems: "center", flex: 1, gap: spacing.xs, justifyContent: "center" },
   healthDivider: { backgroundColor: "rgba(255,255,255,0.14)", width: 1 },
   healthLabel: { color: "rgba(255,255,255,0.78)", fontFamily: fonts.medium, fontSize: 12, textAlign: "center" },
-  healthValue: { color: "#fff", fontFamily: fonts.bold, fontSize: 34 },
+  healthValue: { color: "#fff", fontFamily: fonts.bold, fontSize: 28 },
   healthDetails: {
     backgroundColor: PANEL,
     borderColor: BORDER_GOLD,
@@ -575,8 +575,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flex: 1.45,
     gap: spacing.xs,
-    minHeight: 210,
-    padding: spacing.lg,
+    minHeight: 160,
+    padding: 12,
   },
   header: {
     paddingHorizontal: spacing.lg,
@@ -699,3 +699,4 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
   },
 });
+
