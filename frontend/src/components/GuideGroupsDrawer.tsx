@@ -17,10 +17,10 @@ type DrawerMode = "groups" | "rail";
 const RED = "#E3262E";
 const RED_DARK = "#8E1118";
 const WHITE = "#F8F8F8";
-export const GUIDE_RAIL_WIDTH = 92;
+export const GUIDE_RAIL_WIDTH = 70;
 
 export function guideGroupsWidth(screenWidth: number): number {
-  return Math.min(382, Math.max(320, screenWidth * 0.23));
+  return Math.min(286, Math.max(240, screenWidth * 0.173));
 }
 
 function groupLabel(group: string): string {
@@ -133,7 +133,6 @@ export function GuideGroupsDrawer({
             <DrawerAction icon="search" label="Search" onPress={() => onNavigate("/search")} />
             <DrawerAction icon="settings" label="Settings" onPress={() => onNavigate("/settings")} />
             <DrawerAction icon="power" label="Power" onPress={onExit} />
-            <Text style={styles.navigationHint}>LEFT: compact rail   •   OK: open group</Text>
           </View>
         </FocusGuide>
       ) : (
@@ -216,43 +215,43 @@ const styles = StyleSheet.create({
     borderRightWidth: 1,
     bottom: 0,
     left: 0,
-    paddingBottom: spacing.md,
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.xl,
+    paddingBottom: 8,
+    paddingHorizontal: 8,
+    paddingTop: 12,
     position: "absolute",
     top: 0,
   },
   brandBlock: {
     borderBottomColor: "rgba(255,255,255,0.10)",
     borderBottomWidth: 1,
-    gap: 5,
-    marginBottom: spacing.md,
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.lg,
+    gap: 3,
+    marginBottom: 8,
+    paddingHorizontal: 8,
+    paddingBottom: 10,
   },
   brandLine: { flexDirection: "row", alignItems: "baseline" },
-  brandCharm: { color: RED, fontFamily: fonts.bold, fontSize: 30, letterSpacing: 0.5 },
-  brandIptv: { color: WHITE, fontFamily: fonts.medium, fontSize: 24 },
+  brandCharm: { color: RED, fontFamily: fonts.bold, fontSize: 22, letterSpacing: 0.4 },
+  brandIptv: { color: WHITE, fontFamily: fonts.medium, fontSize: 18 },
   versionLine: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  versionRule: { width: 28, height: 2, backgroundColor: RED },
-  versionText: { color: RED, fontFamily: fonts.medium, fontSize: 12, letterSpacing: 1.2 },
+  versionRule: { width: 18, height: 2, backgroundColor: RED },
+  versionText: { color: RED, fontFamily: fonts.medium, fontSize: 9, letterSpacing: 0.8 },
   sectionTitle: {
     color: RED,
     fontFamily: fonts.semibold,
-    fontSize: 16,
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.sm,
+    fontSize: 13,
+    paddingHorizontal: 8,
+    paddingBottom: 5,
   },
-  groupList: { gap: 4, paddingBottom: spacing.sm },
+  groupList: { gap: 2, paddingBottom: 5 },
   row: {
     alignItems: "center",
     borderColor: "transparent",
     borderRadius: radius.sm,
     borderWidth: 3,
     flexDirection: "row",
-    gap: spacing.lg,
-    minHeight: 55,
-    paddingHorizontal: spacing.lg,
+    gap: 10,
+    minHeight: 42,
+    paddingHorizontal: 10,
   },
   activeRow: {
     backgroundColor: RED_DARK,
@@ -265,14 +264,14 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.88)",
     flex: 1,
     fontFamily: fonts.medium,
-    fontSize: 17,
+    fontSize: 14,
   },
   activeText: { color: WHITE, fontFamily: fonts.bold },
   footer: {
     borderTopColor: "rgba(255,255,255,0.16)",
     borderTopWidth: 1,
-    gap: 2,
-    paddingTop: spacing.sm,
+    gap: 1,
+    paddingTop: 5,
   },
   footerRow: {
     alignItems: "center",
@@ -280,18 +279,11 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
     borderWidth: 2,
     flexDirection: "row",
-    gap: spacing.lg,
-    minHeight: 46,
-    paddingHorizontal: spacing.lg,
+    gap: 10,
+    minHeight: 37,
+    paddingHorizontal: 10,
   },
-  footerText: { color: "rgba(255,255,255,0.88)", fontFamily: fonts.medium, fontSize: 16 },
-  navigationHint: {
-    color: "rgba(255,255,255,0.42)",
-    fontFamily: fonts.regular,
-    fontSize: 9,
-    paddingHorizontal: spacing.lg,
-    paddingTop: 5,
-  },
+  footerText: { color: "rgba(255,255,255,0.88)", fontFamily: fonts.medium, fontSize: 13 },
   rail: {
     alignItems: "center",
     backgroundColor: "#11151A",
@@ -300,8 +292,8 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: "space-between",
     left: 0,
-    paddingBottom: spacing.lg,
-    paddingTop: spacing.xl,
+    paddingBottom: 10,
+    paddingTop: 12,
     position: "absolute",
     top: 0,
     width: GUIDE_RAIL_WIDTH,
@@ -309,9 +301,9 @@ const styles = StyleSheet.create({
   railLogo: {
     color: RED,
     fontFamily: fonts.bold,
-    fontSize: 34,
+    fontSize: 27,
   },
-  railActions: { gap: spacing.sm },
+  railActions: { gap: 5 },
   railAction: {
     alignItems: "center",
     borderColor: "transparent",
@@ -319,10 +311,11 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     gap: 3,
     justifyContent: "center",
-    minHeight: 64,
-    width: 72,
+    minHeight: 50,
+    width: 58,
   },
   railActionFocused: { backgroundColor: RED_DARK, borderColor: WHITE },
-  railActionText: { color: WHITE, fontFamily: fonts.semibold, fontSize: 9 },
+  railActionText: { color: WHITE, fontFamily: fonts.semibold, fontSize: 8 },
   railHint: { color: "rgba(255,255,255,0.44)", fontFamily: fonts.bold, fontSize: 9 },
 });
+
