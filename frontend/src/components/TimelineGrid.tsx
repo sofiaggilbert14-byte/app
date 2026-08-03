@@ -10,8 +10,8 @@ import {
   useWindowDimensions,
   LayoutChangeEvent,
   useTVEventHandler,
+  FlatList,
 } from "react-native";
-import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import dayjs from "dayjs";
 import { colors, fonts, radius, spacing } from "@/src/theme";
 import { Channel, Program } from "@/src/api";
@@ -66,12 +66,12 @@ export function TimelineGrid({
   // Scale up for tablets / TVs so it stays readable on large landscape screens.
   const big = width >= 900;
   const ROW_H = density === "large" ? (big ? 76 : 66) : density === "compact" ? (big ? 52 : 48) : big ? 62 : 56;
-  const LOGO_W = big ? 175 : 123;
+  const LOGO_W = big ? 140 : 98;
   const LOGO_SIZE = density === "large" ? (big ? 44 : 36) : density === "compact" ? (big ? 30 : 26) : big ? 34 : 30;
   const scrollX = useRef(new Animated.Value(0)).current;
   const negScrollX = useMemo(() => Animated.multiply(scrollX, -1), [scrollX]);
   const [bodyH, setBodyH] = useState(0);
-  const listRef = useRef<FlashListRef<Channel>>(null);
+  const listRef = useRef<FlatList<Channel>>(null);
   const horizontalRef = useRef<ScrollView>(null);
   const focusRegionRef = useRef<"channel" | "program">("program");
   const [preferFirstChannel, setPreferFirstChannel] = useState(false);
@@ -150,12 +150,19 @@ export function TimelineGrid({
         >
           <View style={{ width: LOGO_W + timelineWidth, height: bodyH }}>
             {bodyH > 0 && (
-              <FlashList
+              <FlatList
                 data={channels}
                 ref={listRef}
                 keyExtractor={(c) => c.id}
-                drawDistance={ROW_H * 10}
+                initialNumToRender={18}
+                maxToRenderPerBatch={16}
+                updateCellsBatchingPeriod={12}
+                windowSize={17}
                 removeClippedSubviews={false}
+                getItemLayout={(_data, index) => ({ length: ROW_H, offset: ROW_H * index, index })}
+                onScrollToIndexFailed={({ index }) => {
+                  listRef.current?.scrollToOffset({ offset: Math.max(0, index * ROW_H), animated: false });
+                }}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingBottom: 120 }}
                 refreshControl={
@@ -165,7 +172,7 @@ export function TimelineGrid({
                 }
                 renderItem={({ item, index }) => (
                   <View style={[styles.row, { height: ROW_H }]}>
-                    {/* sticky logo — translated with horizontal scroll to stay pinned left */}
+                    {/* sticky logo â€” translated with horizontal scroll to stay pinned left */}
                     <Animated.View style={[styles.logoCol, { width: LOGO_W, height: ROW_H, transform: [{ translateX: scrollX }] }]}>
                       <Pressable
                         style={({ focused }: any) => [styles.logoCell, focused && styles.cellFocused]}
@@ -325,3 +332,4 @@ const styles = StyleSheet.create({
   noData: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 10 },
   nowLine: { position: "absolute", top: 0, bottom: 0, width: 2, backgroundColor: GOLD, zIndex: 3, pointerEvents: "none" },
 });
+
