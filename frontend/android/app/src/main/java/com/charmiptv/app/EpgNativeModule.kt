@@ -8,6 +8,7 @@ import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import org.xmlpull.v1.XmlPullParser
 import java.io.BufferedInputStream
+import java.io.FilterInputStream
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
@@ -193,16 +194,30 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
       throw IllegalStateException("EPG HTTP ${connection.responseCode}")
     }
 
-    val buffered = BufferedInputStream(connection.inputStream, 64 * 1024)
-    buffered.mark(2)
-    val b1 = buffered.read()
-    val b2 = buffered.read()
-    buffered.reset()
+    try {
+      val networkStream = object : FilterInputStream(connection.inputStream) {
+        override fun close() {
+          try {
+            super.close()
+          } finally {
+            connection.disconnect()
+          }
+        }
+      }
+      val buffered = BufferedInputStream(networkStream, 64 * 1024)
+      buffered.mark(2)
+      val b1 = buffered.read()
+      val b2 = buffered.read()
+      buffered.reset()
 
-    return if (b1 == 0x1f && b2 == 0x8b) {
-      GZIPInputStream(buffered, 64 * 1024)
-    } else {
-      buffered
+      return if (b1 == 0x1f && b2 == 0x8b) {
+        GZIPInputStream(buffered, 64 * 1024)
+      } else {
+        buffered
+      }
+    } catch (t: Throwable) {
+      connection.disconnect()
+      throw t
     }
   }
 
