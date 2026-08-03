@@ -14,29 +14,31 @@ import { FocusGuide } from "@/src/components/TVFocusGuideView";
 type MenuRoute = "/" | "/favorites" | "/search" | "/settings";
 type DrawerMode = "groups" | "rail";
 
-const GOLD = "#E1B04A";
-const GOLD_SOFT = "#F3E0AD";
+const RED = "#E3262E";
+const RED_DARK = "#8E1118";
+const WHITE = "#F8F8F8";
 export const GUIDE_RAIL_WIDTH = 92;
 
 export function guideGroupsWidth(screenWidth: number): number {
-  return Math.min(390, Math.max(300, screenWidth * 0.27));
+  return Math.min(382, Math.max(320, screenWidth * 0.23));
 }
 
 function groupLabel(group: string): string {
-  if (group === "All") return "All Channels";
-  if (group === "Recently Watched") return "Recent Channels";
+  if (group === "All") return "All";
+  if (group === "Recently Watched") return "Recent";
   return group;
 }
 
 function groupIcon(group: string): React.ComponentProps<typeof Ionicons>["name"] {
-  if (group === "All") return "tv-outline";
+  if (group === "All") return "grid";
   if (group === "Favorites") return "star";
   if (group === "Recently Watched") return "time";
-  if (group === "Movies") return "film-outline";
-  if (group === "Sports") return "football-outline";
-  if (group === "News") return "newspaper-outline";
-  if (group === "Kids") return "happy-outline";
-  return "folder-outline";
+  if (group === "Movies") return "film";
+  if (group === "Sports") return "football";
+  if (group === "News") return "newspaper";
+  if (group === "Kids") return "happy";
+  if (group === "Music") return "musical-notes";
+  return "folder";
 }
 
 export function GuideGroupsDrawer({
@@ -57,7 +59,7 @@ export function GuideGroupsDrawer({
   onExit: () => void;
 }) {
   const { width } = useWindowDimensions();
-  const groupsWidth = guideGroupsWidth(width);
+  const drawerWidth = guideGroupsWidth(width);
   const groupsVisible = mode === "groups";
 
   return (
@@ -68,112 +70,132 @@ export function GuideGroupsDrawer({
       testID="guide-navigation-layer"
     >
       <Pressable
-        style={[styles.scrim, groupsVisible ? styles.groupsScrim : styles.railScrim]}
+        style={styles.scrim}
         focusable={false}
         accessible={false}
         onPress={onClose}
       />
 
-      <FocusGuide
-        autoFocus
-        trapFocusUp
-        trapFocusDown
-        trapFocusRight
-        style={[styles.navigationShell, { width: GUIDE_RAIL_WIDTH + (groupsVisible ? groupsWidth : 0) }]}
-      >
-        <View style={styles.rail}>
-          <View style={styles.railBrand}>
-            <Ionicons name="flame" color={GOLD} size={28} />
-          </View>
-
-          <View style={styles.railActions}>
-            <RailAction
-              icon="settings-outline"
-              label="Settings"
-              enabled={!groupsVisible}
-              preferred={!groupsVisible}
-              onPress={() => onNavigate("/settings")}
-            />
-            <RailAction
-              icon="power"
-              label="Power"
-              enabled={!groupsVisible}
-              onPress={onExit}
-            />
-          </View>
-        </View>
-
-        {groupsVisible && (
-          <FocusGuide autoFocus trapFocusRight style={[styles.groupsDrawer, { width: groupsWidth }]}>
-            <View style={styles.heading}>
-              <Text style={styles.eyebrow}>CHARM IPTV EXPERIMENTAL</Text>
-              <Text style={styles.headingText}>Channel Groups</Text>
-              <Text style={styles.navigationHint}>LEFT: rail   •   OK: open guide</Text>
+      {groupsVisible ? (
+        <FocusGuide
+          autoFocus
+          trapFocusUp
+          trapFocusDown
+          trapFocusRight
+          style={[styles.drawer, { width: drawerWidth }]}
+        >
+          <View style={styles.brandBlock}>
+            <View style={styles.brandLine}>
+              <Text style={styles.brandCharm}>CHARM</Text>
+              <Text style={styles.brandIptv}> IPTV</Text>
             </View>
+            <View style={styles.versionLine}>
+              <View style={styles.versionRule} />
+              <Text style={styles.versionText}>EXPERIMENTAL v3</Text>
+              <View style={styles.versionRule} />
+            </View>
+          </View>
 
-            <ScrollView
-              contentContainerStyle={styles.groupList}
-              showsVerticalScrollIndicator={false}
-            >
-              {groups.map((group, index) => {
-                const active = group === selected;
-                return (
-                  <Pressable
-                    key={group}
-                    hasTVPreferredFocus={active || (index === 0 && !groups.includes(selected))}
-                    onPress={() => onSelect(group)}
-                    style={({ focused }: any) => [
-                      styles.groupRow,
-                      active && styles.activeGroupRow,
-                      focused && styles.focused,
-                    ]}
-                    testID={`drawer-group-${group}`}
-                  >
-                    <Ionicons
-                      name={groupIcon(group)}
-                      color={active ? GOLD_SOFT : "rgba(255,255,255,0.72)"}
-                      size={21}
-                    />
-                    <Text
-                      numberOfLines={1}
-                      style={[styles.groupText, active && styles.activeGroupText]}
-                    >
-                      {groupLabel(group)}
-                    </Text>
-                    {active && <View style={styles.activeMarker} />}
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          </FocusGuide>
-        )}
-      </FocusGuide>
+          <Text style={styles.sectionTitle}>Groups</Text>
+          <ScrollView
+            contentContainerStyle={styles.groupList}
+            showsVerticalScrollIndicator={false}
+          >
+            {groups.map((group, index) => {
+              const active = group === selected;
+              return (
+                <Pressable
+                  key={group}
+                  hasTVPreferredFocus={active || (index === 0 && !groups.includes(selected))}
+                  onPress={() => onSelect(group)}
+                  style={({ focused }: any) => [
+                    styles.row,
+                    active && styles.activeRow,
+                    focused && styles.focusedRow,
+                  ]}
+                  testID={`drawer-group-${group}`}
+                >
+                  <Ionicons
+                    name={groupIcon(group)}
+                    color={active ? WHITE : "rgba(255,255,255,0.86)"}
+                    size={24}
+                  />
+                  <Text numberOfLines={1} style={[styles.rowText, active && styles.activeText]}>
+                    {groupLabel(group)}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+
+          <View style={styles.footer}>
+            <DrawerAction icon="heart" label="Favorites" onPress={() => onNavigate("/favorites")} />
+            <DrawerAction icon="search" label="Search" onPress={() => onNavigate("/search")} />
+            <DrawerAction icon="settings" label="Settings" onPress={() => onNavigate("/settings")} />
+            <DrawerAction icon="power" label="Power" onPress={onExit} />
+            <Text style={styles.navigationHint}>LEFT: compact rail   •   OK: open group</Text>
+          </View>
+        </FocusGuide>
+      ) : (
+        <FocusGuide
+          autoFocus
+          trapFocusUp
+          trapFocusDown
+          trapFocusRight
+          style={styles.rail}
+        >
+          <Text style={styles.railLogo}>C</Text>
+          <View style={styles.railActions}>
+            <RailAction icon="heart" label="Favorites" onPress={() => onNavigate("/favorites")} />
+            <RailAction icon="search" label="Search" onPress={() => onNavigate("/search")} />
+            <RailAction icon="settings" label="Settings" preferred onPress={() => onNavigate("/settings")} />
+            <RailAction icon="power" label="Power" onPress={onExit} />
+          </View>
+          <Text style={styles.railHint}>RIGHT</Text>
+        </FocusGuide>
+      )}
     </View>
+  );
+}
+
+function DrawerAction({
+  icon,
+  label,
+  onPress,
+}: {
+  icon: React.ComponentProps<typeof Ionicons>["name"];
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ focused }: any) => [styles.footerRow, focused && styles.focusedRow]}
+    >
+      <Ionicons name={icon} color={WHITE} size={23} />
+      <Text style={styles.footerText}>{label}</Text>
+    </Pressable>
   );
 }
 
 function RailAction({
   icon,
   label,
-  enabled,
   preferred = false,
   onPress,
 }: {
   icon: React.ComponentProps<typeof Ionicons>["name"];
   label: string;
-  enabled: boolean;
   preferred?: boolean;
   onPress: () => void;
 }) {
   return (
     <Pressable
-      focusable={enabled}
-      accessible={enabled}
       hasTVPreferredFocus={preferred}
       onPress={onPress}
       style={({ focused }: any) => [styles.railAction, focused && styles.railActionFocused]}
     >
-      <Ionicons name={icon} color={GOLD_SOFT} size={27} />
+      <Ionicons name={icon} color={WHITE} size={27} />
       <Text style={styles.railActionText}>{label}</Text>
     </Pressable>
   );
@@ -186,132 +208,121 @@ const styles = StyleSheet.create({
   },
   scrim: {
     ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.12)",
   },
-  groupsScrim: {
-    backgroundColor: "rgba(0,0,0,0.08)",
-  },
-  railScrim: {
-    backgroundColor: "rgba(0,0,0,0.22)",
-  },
-  navigationShell: {
+  drawer: {
+    backgroundColor: "#14181D",
+    borderRightColor: "rgba(255,255,255,0.12)",
+    borderRightWidth: 1,
     bottom: 0,
-    flexDirection: "row",
     left: 0,
+    paddingBottom: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.xl,
     position: "absolute",
     top: 0,
   },
-  rail: {
-    alignItems: "center",
-    backgroundColor: "#08090B",
-    borderRightColor: "rgba(225,176,74,0.30)",
-    borderRightWidth: 1,
-    justifyContent: "space-between",
-    paddingBottom: spacing.xl,
-    paddingTop: spacing.xl,
-    width: GUIDE_RAIL_WIDTH,
+  brandBlock: {
+    borderBottomColor: "rgba(255,255,255,0.10)",
+    borderBottomWidth: 1,
+    gap: 5,
+    marginBottom: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.lg,
   },
-  railBrand: {
-    alignItems: "center",
-    borderColor: "rgba(225,176,74,0.30)",
-    borderRadius: radius.md,
-    borderWidth: 1,
-    height: 48,
-    justifyContent: "center",
-    width: 52,
+  brandLine: { flexDirection: "row", alignItems: "baseline" },
+  brandCharm: { color: RED, fontFamily: fonts.bold, fontSize: 30, letterSpacing: 0.5 },
+  brandIptv: { color: WHITE, fontFamily: fonts.medium, fontSize: 24 },
+  versionLine: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  versionRule: { width: 28, height: 2, backgroundColor: RED },
+  versionText: { color: RED, fontFamily: fonts.medium, fontSize: 12, letterSpacing: 1.2 },
+  sectionTitle: {
+    color: RED,
+    fontFamily: fonts.semibold,
+    fontSize: 16,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.sm,
   },
-  railActions: {
-    gap: spacing.md,
-  },
-  railAction: {
+  groupList: { gap: 4, paddingBottom: spacing.sm },
+  row: {
     alignItems: "center",
     borderColor: "transparent",
-    borderRadius: radius.md,
-    borderWidth: 2,
-    gap: 4,
-    justifyContent: "center",
-    minHeight: 68,
-    width: 72,
-  },
-  railActionFocused: {
-    backgroundColor: "rgba(225,176,74,0.18)",
-    borderColor: GOLD_SOFT,
-  },
-  railActionText: {
-    color: GOLD_SOFT,
-    fontFamily: fonts.semibold,
-    fontSize: 10,
-  },
-  groupsDrawer: {
-    backgroundColor: "#15171B",
-    borderRightColor: "rgba(225,176,74,0.36)",
-    borderRightWidth: 1,
-    paddingBottom: spacing.lg,
-    paddingTop: spacing.xl,
-    shadowColor: "#000",
-    shadowOffset: { width: 12, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 28,
-  },
-  heading: {
-    borderBottomColor: "rgba(225,176,74,0.22)",
-    borderBottomWidth: 1,
-    gap: 4,
-    marginBottom: spacing.sm,
-    paddingBottom: spacing.lg,
+    borderRadius: radius.sm,
+    borderWidth: 3,
+    flexDirection: "row",
+    gap: spacing.lg,
+    minHeight: 55,
     paddingHorizontal: spacing.lg,
   },
-  eyebrow: {
-    color: GOLD,
-    fontFamily: fonts.semibold,
-    fontSize: 10,
-    letterSpacing: 1.1,
+  activeRow: {
+    backgroundColor: RED_DARK,
   },
-  headingText: {
-    color: "#fff",
-    fontFamily: fonts.bold,
-    fontSize: 25,
+  focusedRow: {
+    backgroundColor: RED_DARK,
+    borderColor: WHITE,
   },
-  navigationHint: {
-    color: "rgba(255,255,255,0.52)",
+  rowText: {
+    color: "rgba(255,255,255,0.88)",
+    flex: 1,
     fontFamily: fonts.medium,
-    fontSize: 10,
+    fontSize: 17,
   },
-  groupList: {
-    gap: 3,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
+  activeText: { color: WHITE, fontFamily: fonts.bold },
+  footer: {
+    borderTopColor: "rgba(255,255,255,0.16)",
+    borderTopWidth: 1,
+    gap: 2,
+    paddingTop: spacing.sm,
   },
-  groupRow: {
+  footerRow: {
     alignItems: "center",
     borderColor: "transparent",
     borderRadius: radius.sm,
     borderWidth: 2,
     flexDirection: "row",
-    gap: spacing.md,
-    minHeight: 48,
-    paddingHorizontal: spacing.md,
+    gap: spacing.lg,
+    minHeight: 46,
+    paddingHorizontal: spacing.lg,
   },
-  activeGroupRow: {
-    backgroundColor: "rgba(124,74,17,0.72)",
+  footerText: { color: "rgba(255,255,255,0.88)", fontFamily: fonts.medium, fontSize: 16 },
+  navigationHint: {
+    color: "rgba(255,255,255,0.42)",
+    fontFamily: fonts.regular,
+    fontSize: 9,
+    paddingHorizontal: spacing.lg,
+    paddingTop: 5,
   },
-  focused: {
-    backgroundColor: "rgba(225,176,74,0.20)",
-    borderColor: GOLD_SOFT,
+  rail: {
+    alignItems: "center",
+    backgroundColor: "#11151A",
+    borderRightColor: "rgba(255,255,255,0.12)",
+    borderRightWidth: 1,
+    bottom: 0,
+    justifyContent: "space-between",
+    left: 0,
+    paddingBottom: spacing.lg,
+    paddingTop: spacing.xl,
+    position: "absolute",
+    top: 0,
+    width: GUIDE_RAIL_WIDTH,
   },
-  groupText: {
-    color: "rgba(255,255,255,0.84)",
-    flex: 1,
-    fontFamily: fonts.medium,
-    fontSize: 15,
+  railLogo: {
+    color: RED,
+    fontFamily: fonts.bold,
+    fontSize: 34,
   },
-  activeGroupText: {
-    color: GOLD_SOFT,
-    fontFamily: fonts.semibold,
+  railActions: { gap: spacing.sm },
+  railAction: {
+    alignItems: "center",
+    borderColor: "transparent",
+    borderRadius: radius.sm,
+    borderWidth: 3,
+    gap: 3,
+    justifyContent: "center",
+    minHeight: 64,
+    width: 72,
   },
-  activeMarker: {
-    backgroundColor: GOLD,
-    borderRadius: 2,
-    height: 24,
-    width: 3,
-  },
+  railActionFocused: { backgroundColor: RED_DARK, borderColor: WHITE },
+  railActionText: { color: WHITE, fontFamily: fonts.semibold, fontSize: 9 },
+  railHint: { color: "rgba(255,255,255,0.44)", fontFamily: fonts.bold, fontSize: 9 },
 });
