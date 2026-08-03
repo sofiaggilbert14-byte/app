@@ -158,7 +158,6 @@ export default function GuideScreen() {
     favorites,
     recent,
     lastChannelId,
-    isFavorite,
     toggleFavorite,
     guideLayout,
     guideDensity,
@@ -369,33 +368,7 @@ export default function GuideScreen() {
           },
         ]}
       >
-        {drawerMode === null ? (
-          <View style={styles.topBrand}>
-            <Pressable
-              onPress={() => setDrawerMode("groups")}
-              style={({ focused }: any) => [styles.headerIconButton, focused && styles.goldFocus]}
-              testID="guide-back-to-groups"
-            >
-              <Ionicons name="arrow-back" size={25} color="#fff" />
-            </Pressable>
-            <Text numberOfLines={1} style={styles.screenTitle}>{category}</Text>
-            <View style={styles.versionBadge}>
-              <Text style={styles.versionBadgeText}>EXPERIMENTAL v3</Text>
-            </View>
-            <View style={styles.headerSpacer} />
-            <Text style={styles.clock}>{dayjs(now).format("h:mm A")}</Text>
-            <Pressable
-              onPress={hardRefresh}
-              style={({ focused }: any) => [styles.headerIconButton, focused && styles.goldFocus]}
-              testID="guide-header-refresh"
-            >
-              <Ionicons name="refresh" size={23} color="#fff" />
-            </Pressable>
-            <View style={styles.headerIconButton}>
-              <Ionicons name="list" size={24} color="#fff" />
-            </View>
-          </View>
-        ) : (
+        {drawerMode !== null && (
           <View style={styles.drawerGuideHeader}>
             <View>
               <Text style={styles.drawerHeaderLabel}>CHANNEL GROUP</Text>
@@ -451,9 +424,11 @@ export default function GuideScreen() {
           </View>
         ) : (
         <View style={[styles.previewDetailsRow, compactGuide && styles.previewDetailsRowCompact, shortScreen && styles.previewDetailsRowShort]}>
-          <Pressable
-            style={({ focused }: any) => [styles.livePreviewPanel, focused && styles.goldFocus]}
-            onPress={() => previewChannel && openChannel(previewChannel)}
+          <View
+            style={styles.livePreviewPanel}
+            focusable={false}
+            accessible={false}
+            pointerEvents="none"
             testID="guide-preview-card"
           >
             <LinearGradient
@@ -485,7 +460,7 @@ export default function GuideScreen() {
               )}
               <Text numberOfLines={1} style={styles.previewChannelName}>
                 {previewChannel
-                  ? `${channelNumbers ? `${channelNumberById[previewChannel.id] || ""} · ` : ""}${previewChannel.name}`
+                  ? `${channelNumbers ? `${channelNumberById[previewChannel.id] || ""} Â· ` : ""}${previewChannel.name}`
                   : "Select a channel"}
               </Text>
             </View>
@@ -493,26 +468,15 @@ export default function GuideScreen() {
               <View style={styles.liveDot} />
               <Text style={styles.liveBadgeText}>LIVE</Text>
             </View>
-          </Pressable>
+          </View>
 
 
 
           <View style={styles.detailsPanel}>
             <View style={styles.detailsHeader}>
-              <Text style={styles.detailsLabel}>NOW PLAYING DETAILS</Text>
-              {previewChannel && (
-                <Pressable
-                  onPress={() => {
-                    void Haptics.selectionAsync().catch(() => {});
-                    toggleFavorite(previewChannel.id);
-                  }}
-                  style={({ focused }: any) => [styles.favoriteButton, focused && styles.goldFocus]}
-                  testID="guide-preview-favorite-btn"
-                >
-                  <Ionicons name={isFavorite(previewChannel.id) ? "star" : "star-outline"} size={20} color={GOLD} />
-                  <Text style={styles.favoriteButtonText}>{isFavorite(previewChannel.id) ? "Favorite" : "Add Favorite"}</Text>
-                </Pressable>
-              )}
+              <Text numberOfLines={1} style={styles.detailsLabel}>
+                {previewChannel?.name || "LIVE TV"}
+              </Text>
             </View>
             <Text numberOfLines={1} style={[styles.programTitle, compactGuide && styles.programTitleCompact]}>
               {preview.current?.title || "No program information"}
@@ -568,12 +532,7 @@ export default function GuideScreen() {
             resetToken={guideResetToken}
           />
         ) : (
-          <FocusGuide style={styles.timelineArea} autoFocus>
-            {drawerMode === null && (
-              <Text style={styles.timelineTitle}>
-                {category === "All" ? "ALL CHANNELS" : category.toUpperCase()}
-              </Text>
-            )}
+          <FocusGuide style={styles.timelineArea} autoFocus trapFocusUp trapFocusDown>
             <TimelineGrid
               channels={filtered}
               windowStart={windowStart}
@@ -666,31 +625,31 @@ const styles = StyleSheet.create({
     borderBottomColor: "rgba(255,255,255,0.12)",
     borderBottomWidth: 1,
     flexDirection: "row",
-    minHeight: 74,
-    paddingHorizontal: spacing.lg,
+    minHeight: 52,
+    paddingHorizontal: 10,
   },
   drawerHeaderLabel: { color: "rgba(255,255,255,0.68)", fontFamily: fonts.medium, fontSize: 10, letterSpacing: 0.8 },
-  drawerHeaderValue: { color: "#fff", fontFamily: fonts.bold, fontSize: 20, marginTop: 3 },
-  drawerVersion: { color: GOLD, fontFamily: fonts.semibold, fontSize: 14, letterSpacing: 0.8, marginRight: spacing.lg },
+  drawerHeaderValue: { color: "#fff", fontFamily: fonts.bold, fontSize: 16, marginTop: 2 },
+  drawerVersion: { color: GOLD, fontFamily: fonts.semibold, fontSize: 11, letterSpacing: 0.6, marginRight: 10 },
   viewToggle: {
     alignItems: "center",
     backgroundColor: "#20242A",
     borderRadius: radius.sm,
-    height: 40,
+    height: 34,
     justifyContent: "center",
     marginLeft: 2,
-    width: 46,
+    width: 38,
   },
   viewToggleActive: { backgroundColor: GOLD },
   drawerGuideFooter: {
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "center",
-    minHeight: 66,
-    gap: spacing.md,
+    minHeight: 48,
+    gap: 8,
   },
-  drawerGuideFooterCharm: { color: GOLD, fontFamily: fonts.bold, fontSize: 25 },
-  drawerGuideFooterText: { color: "#fff", fontFamily: fonts.medium, fontSize: 25 },
+  drawerGuideFooterCharm: { color: GOLD, fontFamily: fonts.bold, fontSize: 20 },
+  drawerGuideFooterText: { color: "#fff", fontFamily: fonts.medium, fontSize: 20 },
   menuButton: {
     position: "absolute",
     left: 0,
@@ -762,18 +721,18 @@ const styles = StyleSheet.create({
     borderColor: BORDER_GOLD,
   },
   mobileHeroButtonText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 12 },
-  previewDetailsRow: { flexDirection: "row", gap: spacing.sm, height: 180, alignItems: "stretch" },
-  previewDetailsRowCompact: { height: 132 },
-  previewDetailsRowShort: { height: 151 },
+  previewDetailsRow: { flexDirection: "row", gap: 6, height: 166, alignItems: "stretch" },
+  previewDetailsRowCompact: { height: 126 },
+  previewDetailsRowShort: { height: 142 },
   livePreviewPanel: {
+    width: "43%",
     height: "100%",
-    aspectRatio: 16 / 9,
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: BORDER_GOLD,
     backgroundColor: PANEL,
     overflow: "hidden",
-    padding: spacing.sm,
+    padding: 6,
   },
   previewLabel: {
     alignSelf: "center",
@@ -827,7 +786,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   detailsHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  detailsLabel: { color: GOLD, fontFamily: fonts.bold, fontSize: 12 },
+  detailsLabel: { color: GOLD, fontFamily: fonts.bold, fontSize: 11 },
   favoriteButton: {
     minHeight: 28,
     flexDirection: "row",
@@ -840,8 +799,8 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.22)",
   },
   favoriteButtonText: { color: GOLD_SOFT, fontFamily: fonts.semibold, fontSize: 11 },
-  programTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 20 },
-  programTitleCompact: { fontSize: 16 },
+  programTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 18 },
+  programTitleCompact: { fontSize: 15 },
   programMetaRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   programMeta: { color: GOLD_SOFT, fontFamily: fonts.medium, fontSize: 11 },
   progressTrack: {
@@ -860,7 +819,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
   },
   descriptionViewportCompact: { minHeight: 18 },
-  description: { color: "rgba(255,255,255,0.84)", fontFamily: fonts.regular, fontSize: 12, lineHeight: 16 },
+  description: { color: "rgba(255,255,255,0.84)", fontFamily: fonts.regular, fontSize: 11, lineHeight: 15 },
   stripLabel: { color: GOLD, fontFamily: fonts.semibold, fontSize: 10, textAlign: "center", marginBottom: 1 },
   categoryWrap: { minHeight: 44 },
   categoryRow: { gap: spacing.sm, alignItems: "center", paddingRight: spacing.lg },
@@ -913,3 +872,4 @@ const styles = StyleSheet.create({
   },
   retryText: { color: "#fff", fontFamily: fonts.semibold },
 });
+
