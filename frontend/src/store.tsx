@@ -118,6 +118,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [selectedDate, setSelectedDateState] = useState(dayjs().format("YYYY-MM-DD"));
   const dateRef = useRef(selectedDate);
+  const refreshRequestRef = useRef(0);
 
   const [favorites, setFavorites] = useState<string[]>([]);
   const [recent, setRecent] = useState<Channel[]>([]);
@@ -180,6 +181,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refresh = useCallback(async (silent = false) => {
+    const requestId = ++refreshRequestRef.current;
     if (!silent) setLoading(true);
     setError(null);
     try {
@@ -189,13 +191,17 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       // Keep only a moving guide window in rendered channel objects. The
       // source cache can retain more guide data without creating a huge TV UI.
       const data = await loadGuide(start, GUIDE_WINDOW_HOURS);
+      // Source notifications can arrive close together (playlist first, then
+      // EPG). Never let an older, slower SQLite query replace newer rows.
+      if (requestId !== refreshRequestRef.current) return;
       setChannels(data.channels);
       setWindowStart(data.start);
       setWindowEnd(data.end);
     } catch (e: any) {
+      if (requestId !== refreshRequestRef.current) return;
       setError(e?.message || "Failed to load guide");
     } finally {
-      if (!silent) setLoading(false);
+      if (!silent && requestId === refreshRequestRef.current) setLoading(false);
     }
   }, []);
 
@@ -246,7 +252,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // Re-paint when the source finishes its staged load (channels first, then EPG)
-  // or after a background refresh — reads from the in-memory cache, no network.
+  // or after a background refresh â€” reads from the in-memory cache, no network.
   useEffect(() => subscribeSource(() => refresh(true)), [refresh]);
 
   const channelById = useCallback((id: string) => channels.find((c) => c.id === id), [channels]);
@@ -384,3 +390,4 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
+
