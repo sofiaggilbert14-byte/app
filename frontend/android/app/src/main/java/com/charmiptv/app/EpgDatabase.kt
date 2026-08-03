@@ -15,10 +15,25 @@ internal data class NativeEpgProgram(
 internal class EpgDatabase(context: Context) :
   SQLiteOpenHelper(context, "charm_epg_v3.db", null, DATABASE_VERSION) {
 
+  override fun onConfigure(db: SQLiteDatabase) {
+    super.onConfigure(db)
+    db.setForeignKeyConstraintsEnabled(false)
+    db.rawQuery("PRAGMA journal_mode=WAL", null).close()
+    db.execSQL("PRAGMA synchronous=NORMAL")
+    db.execSQL("PRAGMA temp_store=MEMORY")
+  }
+
   override fun onCreate(db: SQLiteDatabase) {
+    createProgrammeTable(db, LIVE_TABLE)
+    createProgrammeTable(db, STAGING_TABLE)
+    db.execSQL("CREATE INDEX idx_epg_lookup ON $LIVE_TABLE(channel_id, start_time, end_time)")
+    db.execSQL("CREATE INDEX idx_epg_window ON $LIVE_TABLE(start_time, end_time)")
+  }
+
+  private fun createProgrammeTable(db: SQLiteDatabase, table: String) {
     db.execSQL(
       """
-      CREATE TABLE epg_programmes (
+      CREATE TABLE $table (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         channel_id TEXT NOT NULL,
         title TEXT NOT NULL,
@@ -28,56 +43,25 @@ internal class EpgDatabase(context: Context) :
       )
       """.trimIndent()
     )
-    db.execSQL(
-      "CREATE INDEX idx_epg_lookup ON epg_programmes(channel_id, start_time, end_time)"
-    )
-    db.execSQL("CREATE INDEX idx_epg_window ON epg_programmes(start_time, end_time)")
   }
 
   override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-    db.execSQL("DROP TABLE IF EXISTS epg_programmes")
+    db.execSQL("DROP TABLE IF EXISTS $LIVE_TABLE")
+    db.execSQL("DROP TABLE IF EXISTS $STAGING_TABLE")
     onCreate(db)
   }
 
-  fun replaceAll(programmes: Sequence<NativeEpgProgram>) {
-    val db = writableDatabase
+  private fun insertBatch(db: SQLiteDatabase, table: String, batch: List<NativeEpgProgram>) {
+    if (batch.isEmpty()) return
     db.beginTransaction()
     try {
-      db.delete("epg_programmes", null, null)
       val statement = db.compileStatement(
         """
-        INSERT INTO epg_programmes(channel_id, title, description, start_time, end_time)
+        INSERT INTO $table(channel_id, title, description, start_time, end_time)
         VALUES (?, ?, ?, ?, ?)
         """.trimIndent()
       )
-      for (program in programmes) {
-        statement.clearBindings()
-        statement.bindString(1, program.channelId)
-        statement.bindString(2, program.title)
-        if (program.description == null) statement.bindNull(3)
-        else statement.bindString(3, program.description)
-        statement.bindLong(4, program.startMs)
-        statement.bindLong(5, program.endMs)
-        statement.executeInsert()
-      }
-      db.setTransactionSuccessful()
-    } finally {
-      db.endTransaction()
-    }
-  }
-
-  fun replaceBatches(batches: Sequence<List<NativeEpgProgram>>) {
-    val db = writableDatabase
-    db.beginTransaction()
-    try {
-      db.delete("epg_programmes", null, null)
-      val statement = db.compileStatement(
-        """
-        INSERT INTO epg_programmes(channel_id, title, description, start_time, end_time)
-        VALUES (?, ?, ?, ?, ?)
-        """.trimIndent()
-      )
-      for (batch in batches) {
+      try {
         for (program in batch) {
           statement.clearBindings()
           statement.bindString(1, program.channelId)
@@ -88,7 +72,46 @@ internal class EpgDatabase(context: Context) :
           statement.bindLong(5, program.endMs)
           statement.executeInsert()
         }
+      } finally {
+        statement.close()
       }
+      db.setTransactionSuccessful()
+    } finally {
+      db.endTransaction()
+    }
+  }
+
+  /**
+   * Parse/network iteration happens outside a long SQLite transaction. Each
+   * 1,000-row batch is committed to staging, then the final live-table swap is
+   * deliberately tiny. Readers therefore keep the last-good guide throughout
+   * a slow XMLTV refresh and a failed refresh never destroys it.
+   */
+  fun replaceBatches(batches: Sequence<List<NativeEpgProgram>>) {
+    val db = writableDatabase
+    db.beginTransaction()
+    try {
+      db.delete(STAGING_TABLE, null, null)
+      db.setTransactionSuccessful()
+    } finally {
+      db.endTransaction()
+    }
+
+    for (batch in batches) {
+      insertBatch(db, STAGING_TABLE, batch)
+    }
+
+    db.beginTransaction()
+    try {
+      db.delete(LIVE_TABLE, null, null)
+      db.execSQL(
+        """
+        INSERT INTO $LIVE_TABLE(channel_id, title, description, start_time, end_time)
+        SELECT channel_id, title, description, start_time, end_time
+        FROM $STAGING_TABLE
+        """.trimIndent()
+      )
+      db.delete(STAGING_TABLE, null, null)
       db.setTransactionSuccessful()
     } finally {
       db.endTransaction()
@@ -98,7 +121,7 @@ internal class EpgDatabase(context: Context) :
   fun queryWindow(startMs: Long, endMs: Long): List<NativeEpgProgram> {
     val result = ArrayList<NativeEpgProgram>()
     readableDatabase.query(
-      "epg_programmes",
+      LIVE_TABLE,
       arrayOf("channel_id", "title", "description", "start_time", "end_time"),
       "end_time > ? AND start_time < ?",
       arrayOf(startMs.toString(), endMs.toString()),
@@ -131,7 +154,7 @@ internal class EpgDatabase(context: Context) :
     readableDatabase.rawQuery(
       """
       SELECT channel_id, title, description, start_time, end_time
-      FROM epg_programmes
+      FROM $LIVE_TABLE
       WHERE start_time <= ? AND end_time > ?
       ORDER BY channel_id ASC, start_time DESC
       """.trimIndent(),
@@ -156,16 +179,30 @@ internal class EpgDatabase(context: Context) :
   }
 
   fun deleteExpired(beforeMs: Long) {
-    writableDatabase.delete("epg_programmes", "end_time < ?", arrayOf(beforeMs.toString()))
+    writableDatabase.delete(LIVE_TABLE, "end_time < ?", arrayOf(beforeMs.toString()))
+  }
+
+  fun clear() {
+    val db = writableDatabase
+    db.beginTransaction()
+    try {
+      db.delete(LIVE_TABLE, null, null)
+      db.delete(STAGING_TABLE, null, null)
+      db.setTransactionSuccessful()
+    } finally {
+      db.endTransaction()
+    }
   }
 
   fun count(): Long {
-    readableDatabase.rawQuery("SELECT COUNT(*) FROM epg_programmes", null).use { cursor ->
+    readableDatabase.rawQuery("SELECT COUNT(*) FROM $LIVE_TABLE", null).use { cursor ->
       return if (cursor.moveToFirst()) cursor.getLong(0) else 0L
     }
   }
 
   companion object {
-    private const val DATABASE_VERSION = 1
+    private const val DATABASE_VERSION = 2
+    private const val LIVE_TABLE = "epg_programmes"
+    private const val STAGING_TABLE = "epg_programmes_staging"
   }
 }
