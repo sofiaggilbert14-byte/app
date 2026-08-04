@@ -6,6 +6,7 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.bridge.WritableArray
 import org.xmlpull.v1.XmlPullParser
 import java.io.BufferedInputStream
 import java.io.FilterInputStream
@@ -55,10 +56,13 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
       try {
         val programmes = database.queryWindow(startMs.toLong(), endMs.toLong())
         val grouped = Arguments.createMap()
+        val channelArrays = HashMap<String, WritableArray>()
         for (program in programmes) {
-          val array = grouped.getArray(program.channelId) ?: Arguments.createArray()
+          val array = channelArrays.getOrPut(program.channelId) { Arguments.createArray() }
           array.pushMap(programToMap(program))
-          grouped.putArray(program.channelId, array)
+        }
+        for ((channelId, array) in channelArrays) {
+          grouped.putArray(channelId, array)
         }
         promise.resolve(grouped)
       } catch (t: Throwable) {
