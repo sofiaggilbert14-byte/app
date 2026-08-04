@@ -9,15 +9,16 @@ type Props = {
   onReset?: () => void;
 };
 
-type State = { hasError: boolean };
+type State = { hasError: boolean; message: string | null };
 
 // Catches JS render/lifecycle errors anywhere in its subtree so a single screen
 // (e.g. the player) can never white-screen / take down the whole app.
 export class ErrorBoundary extends React.Component<Props, State> {
-  state: State = { hasError: false };
+  state: State = { hasError: false, message: null };
 
-  static getDerivedStateFromError(): State {
-    return { hasError: true };
+  static getDerivedStateFromError(error: unknown): State {
+    const message = error instanceof Error ? error.message : String(error || "Unknown error");
+    return { hasError: true, message };
   }
 
   componentDidCatch(error: unknown) {
@@ -26,7 +27,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
 
   reset = () => {
     this.props.onReset?.();
-    this.setState({ hasError: false });
+    this.setState({ hasError: false, message: null });
   };
 
   render() {
@@ -36,6 +37,11 @@ export class ErrorBoundary extends React.Component<Props, State> {
       <View style={styles.wrap}>
         <Text style={styles.title}>Something went wrong</Text>
         <Text style={styles.sub}>The screen hit an unexpected error. Try again.</Text>
+        {this.state.message ? (
+          <Text selectable style={styles.detail} testID="error-boundary-detail">
+            {this.state.message}
+          </Text>
+        ) : null}
         <Pressable
           style={({ focused }: any) => [styles.btn, focused && styles.btnFocused]}
           onPress={this.reset}
@@ -53,6 +59,7 @@ const styles = StyleSheet.create({
   wrap: { flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.md, padding: spacing.xl, backgroundColor: colors.surface },
   title: { color: colors.onSurface, fontFamily: fonts.bold, fontSize: 18 },
   sub: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 14, textAlign: "center" },
+  detail: { maxWidth: 760, color: "#ffb4b4", fontFamily: fonts.regular, fontSize: 12, textAlign: "center" },
   btn: { backgroundColor: colors.brand, paddingHorizontal: spacing.xl, paddingVertical: spacing.md, borderRadius: radius.md, borderWidth: 2, borderColor: "transparent" },
   btnFocused: { borderColor: "#fff" },
   btnText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 15 },
