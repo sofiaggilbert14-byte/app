@@ -6,6 +6,7 @@ import * as Haptics from "expo-haptics";
 import dayjs from "dayjs";
 import { PurpleTvShell } from "@/src/components/PurpleTvShell";
 import { TimelineGrid } from "@/src/components/TimelineGrid";
+import { BoxGrid } from "@/src/components/BoxGrid";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { ErrorBoundary } from "@/src/components/ErrorBoundary";
@@ -48,6 +49,7 @@ export default function PurpleGuideScreen() {
     recent,
     lastChannelId,
     toggleFavorite,
+    guideLayout,
     guideDensity,
     safePreviewMode,
     channelNumbers,
@@ -219,24 +221,40 @@ export default function PurpleGuideScreen() {
         ) : (
           <View style={styles.body}>
             <FocusGuide style={styles.gridPanel} autoFocus trapFocusUp trapFocusDown>
-              <TimelineGrid
-                channels={filtered}
-                windowStart={windowStart}
-                windowEnd={windowEnd}
-                now={now}
-                onChannelPress={play}
-                onProgramPress={openProgram}
-                onChannelFocus={onFocusChannel}
-                onChannelLongPress={(channel) => toggleFavorite(channel.id)}
-                refreshing={refreshing}
-                onRefresh={hardRefresh}
-                density={guideDensity}
-                showChannelNumbers={channelNumbers}
-                channelNumberById={channelNumberById}
-                showChannelLogos={channelLogos}
-                resetToken={resetToken}
-                active
-              />
+              {guideLayout === "compact" ? (
+                <BoxGrid
+                  channels={filtered}
+                  now={now}
+                  onChannelPress={play}
+                  onProgramPress={openProgram}
+                  onChannelFocus={onFocusChannel}
+                  refreshing={refreshing}
+                  onRefresh={hardRefresh}
+                  showChannelNumbers={channelNumbers}
+                  channelNumberById={channelNumberById}
+                  showChannelLogos={channelLogos}
+                  resetToken={resetToken}
+                />
+              ) : (
+                <TimelineGrid
+                  channels={filtered}
+                  windowStart={windowStart}
+                  windowEnd={windowEnd}
+                  now={now}
+                  onChannelPress={play}
+                  onProgramPress={openProgram}
+                  onChannelFocus={onFocusChannel}
+                  onChannelLongPress={(channel) => toggleFavorite(channel.id)}
+                  refreshing={refreshing}
+                  onRefresh={hardRefresh}
+                  density={guideDensity}
+                  showChannelNumbers={channelNumbers}
+                  channelNumberById={channelNumberById}
+                  showChannelLogos={channelLogos}
+                  resetToken={resetToken}
+                  active
+                />
+              )}
             </FocusGuide>
 
             <View style={styles.detailsPanel}>
