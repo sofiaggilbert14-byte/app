@@ -10,7 +10,7 @@ function initials(name: string): string {
   return (parts[0][0] + parts[1][0]).toUpperCase();
 }
 
-export function ChannelLogo({
+function ChannelLogoComponent({
   name,
   logo,
   size = 48,
@@ -32,7 +32,7 @@ export function ChannelLogo({
         contentFit="contain"
         cachePolicy="memory-disk"
         recyclingKey={logo}
-        transition={150}
+        transition={0}
         onError={() => setFailed(true)}
       />
     );
@@ -43,6 +43,8 @@ export function ChannelLogo({
     </View>
   );
 }
+
+export const ChannelLogo = React.memo(ChannelLogoComponent);
 
 const styles = StyleSheet.create({
   fallback: {

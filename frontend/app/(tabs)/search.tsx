@@ -7,8 +7,6 @@ import {
   TextInput,
   ScrollView,
   KeyboardAvoidingView,
-  Platform,
-  useWindowDimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -18,71 +16,30 @@ import { colors, fonts, radius, spacing } from "@/src/theme";
 import { useStore } from "@/src/store";
 import { Channel, Program } from "@/src/api";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
-import { useTvBackToGuide } from "@/src/hooks/use-tv-back-to-guide";
-import { getTvSafeInsets } from "@/src/utils/tvLayout";
-
-function byChannelName(a: Channel, b: Channel): number {
-  return (a.name || "").localeCompare(b.name || "", undefined, {
-    numeric: true,
-    sensitivity: "base",
-  });
-}
 
 export default function SearchScreen() {
   const router = useRouter();
-  const { width, height } = useWindowDimensions();
-  const tvSafe = getTvSafeInsets(width, height);
-  const { channels, addRecent, openProgram, favorites, recent, lastChannelId, channelById, channelNumbers, channelLogos } = useStore();
+  const { channels, addRecent, openProgram } = useStore();
   const [q, setQ] = useState("");
-  useTvBackToGuide();
-  const channelNumberById = useMemo(() => {
-    const map: Record<string, number> = {};
-    [...channels].sort(byChannelName).forEach((channel, index) => {
-      map[channel.id] = index + 1;
-    });
-    return map;
-  }, [channels]);
 
   const { chResults, progResults } = useMemo(() => {
     const ql = q.toLowerCase().trim();
     if (!ql) return { chResults: [], progResults: [] as { p: Program; c: Channel }[] };
-    const chResults = channels
-      .filter((c) => {
-        const haystack = `${c.name} ${c.group} ${c.tvg_id}`.toLowerCase();
-        return haystack.includes(ql);
-      })
-      .sort(byChannelName)
-      .slice(0, 50);
+    const chResults = channels.filter((c) => c.name.toLowerCase().includes(ql)).slice(0, 40);
     const now = Date.now();
     const progResults: { p: Program; c: Channel }[] = [];
     for (const c of channels) {
       for (const p of c.programs || []) {
         const end = p.stop ? new Date(p.stop).getTime() : new Date(p.start).getTime();
         if (end < now) continue;
-        const haystack = `${p.title} ${p.desc || ""} ${p.category || ""} ${c.name}`.toLowerCase();
-        if (haystack.includes(ql)) progResults.push({ p, c });
-        if (progResults.length >= 80) break;
+        if (p.title.toLowerCase().includes(ql)) progResults.push({ p, c });
+        if (progResults.length >= 60) break;
       }
-      if (progResults.length >= 80) break;
+      if (progResults.length >= 60) break;
     }
     progResults.sort((a, b) => a.p.start.localeCompare(b.p.start));
     return { chResults, progResults };
   }, [q, channels]);
-
-  const quickChannels = useMemo(() => {
-    const seen = new Set<string>();
-    const out: Channel[] = [];
-    const add = (c?: Channel | null) => {
-      if (!c || seen.has(c.id)) return;
-      seen.add(c.id);
-      out.push(c);
-    };
-    add(lastChannelId ? channelById(lastChannelId) : null);
-    recent.forEach((c) => add(channelById(c.id) || c));
-    channels.filter((c) => favorites.includes(c.id)).sort(byChannelName).forEach(add);
-    channels.slice(0, 12).forEach(add);
-    return out.slice(0, 12);
-  }, [channels, channelById, favorites, lastChannelId, recent]);
 
   const play = (c: Channel) => {
     Haptics.selectionAsync();
@@ -91,11 +48,8 @@ export default function SearchScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={[styles.container, { paddingLeft: tvSafe.left, paddingRight: tvSafe.right, paddingBottom: tvSafe.bottom }]}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
-      <View style={{ paddingTop: spacing.md + tvSafe.top }}>
+    <KeyboardAvoidingView style={styles.container}>
+      <View style={{ paddingTop: spacing.md }}>
         <View style={styles.header}>
           <Text style={styles.brand}>Find anything</Text>
           <Text style={styles.title}>Search</Text>
@@ -122,36 +76,13 @@ export default function SearchScreen() {
       <ScrollView
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 130 + tvSafe.bottom }}
+        contentContainerStyle={{ paddingBottom: 130 }}
       >
         {q.trim().length === 0 ? (
-          <>
-            <View style={styles.empty}>
-              <Ionicons name="search" size={36} color={colors.onSurfaceTertiary} />
-              <Text style={styles.emptyText}>Search channels, categories, and upcoming programs</Text>
-            </View>
-            {quickChannels.length > 0 && (
-              <>
-                <Text style={styles.section}>Quick Picks</Text>
-                {quickChannels.map((c) => (
-                  <Pressable
-                    key={c.id}
-                    style={({ focused }: any) => [styles.row, focused && styles.rowFocused]}
-                    onPress={() => play(c)}
-                    testID={`search-quick-${c.id}`}
-                  >
-                    {channelNumbers && <Text style={styles.channelNumber}>{channelNumberById[c.id] || ""}</Text>}
-                    <ChannelLogo name={c.name} logo={c.logo} disabled={!channelLogos} size={40} />
-                    <View style={{ flex: 1 }}>
-                      <Text numberOfLines={1} style={styles.rowName}>{c.name}</Text>
-                      <Text numberOfLines={1} style={styles.rowSub}>{c.group || "Channel"}</Text>
-                    </View>
-                    <Ionicons name="play-circle" size={22} color={colors.brand} />
-                  </Pressable>
-                ))}
-              </>
-            )}
-          </>
+          <View style={styles.empty}>
+            <Ionicons name="search" size={36} color={colors.onSurfaceTertiary} />
+            <Text style={styles.emptyText}>Search channels and upcoming programs</Text>
+          </View>
         ) : chResults.length === 0 && progResults.length === 0 ? (
           <View style={styles.empty}>
             <Text style={styles.emptyText}>No results for “{q}”</Text>
@@ -161,8 +92,7 @@ export default function SearchScreen() {
             {chResults.length > 0 && <Text style={styles.section}>Channels</Text>}
             {chResults.map((c) => (
               <Pressable key={c.id} style={({ focused }: any) => [styles.row, focused && styles.rowFocused]} onPress={() => play(c)} testID={`search-ch-${c.id}`}>
-                {channelNumbers && <Text style={styles.channelNumber}>{channelNumberById[c.id] || ""}</Text>}
-                <ChannelLogo name={c.name} logo={c.logo} disabled={!channelLogos} size={40} />
+                <ChannelLogo name={c.name} logo={c.logo} size={40} />
                 <Text numberOfLines={1} style={styles.rowName}>{c.name}</Text>
                 <Ionicons name="play-circle" size={22} color={colors.brand} />
               </Pressable>
@@ -176,8 +106,7 @@ export default function SearchScreen() {
                 onPress={() => openProgram(p, c)}
                 testID={`search-prog-${c.id}-${i}`}
               >
-                {channelNumbers && <Text style={styles.channelNumber}>{channelNumberById[c.id] || ""}</Text>}
-                <ChannelLogo name={c.name} logo={c.logo} disabled={!channelLogos} size={40} />
+                <ChannelLogo name={c.name} logo={c.logo} size={40} />
                 <View style={{ flex: 1 }}>
                   <Text numberOfLines={1} style={styles.rowName}>{p.title}</Text>
                   <Text numberOfLines={1} style={styles.rowSub}>
@@ -233,9 +162,8 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   rowName: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 14, flex: 1 },
-  channelNumber: { color: colors.brandSecondary, fontFamily: fonts.bold, fontSize: 13, minWidth: 34, textAlign: "right" },
   rowSub: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 12, marginTop: 2 },
-  rowFocused: { borderColor: "#fff", borderWidth: 2, backgroundColor: "#2a121b" },
+  rowFocused: { borderColor: colors.brand, borderWidth: 2, backgroundColor: "#2a121b" },
   empty: { alignItems: "center", gap: spacing.md, paddingVertical: spacing.xxxl, paddingHorizontal: spacing.xl },
   emptyText: { color: colors.onSurfaceTertiary, fontFamily: fonts.medium, fontSize: 14, textAlign: "center" },
 });

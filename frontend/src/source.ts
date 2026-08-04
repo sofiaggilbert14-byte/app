@@ -1,27 +1,41 @@
 import dayjs from "dayjs";
 import { Platform } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
-import { gunzip, strFromU8 } from "fflate";
+import { DecodeUTF8, Gunzip } from "fflate";
 import type { Channel, Program, GuideResponse, SourceStatus } from "@/src/api";
+import {
+  clearIndexedEpg,
+  getIndexedEpgStats,
+  getIndexedEpgStorageBytes,
+  loadIndexedPrograms,
+  replaceIndexedPrograms,
+} from "@/src/epgDb";
 
 // Developer source — fetched & parsed on-device (no backend needed).
-export const API_BASE = (process.env.EXPO_PUBLIC_CHARM_API_URL || "").replace(/\/+$/, "");
-export const SOURCE_M3U = process.env.EXPO_PUBLIC_M3U_URL || "";
-export const SOURCE_EPG = process.env.EXPO_PUBLIC_EPG_URL || "";
+// Experimental is deliberately device-local: never select the Cloudflare JSON path.
+export const API_BASE = "";
+export const SOURCE_M3U =
+  process.env.EXPO_PUBLIC_M3U_URL || "http://m3u4u.com/m3u/jwmzn1grpmu99585n721";
+export const SOURCE_EPG =
+  process.env.EXPO_PUBLIC_EPG_URL || "http://m3u4u.com/epg/jwmzn1grpmu99585n721";
 
 const TTL_MS = 24 * 60 * 60 * 1000; // refresh at most once a day
 const EXTINF_ATTR = /([a-zA-Z0-9-]+)="([^"]*)"/g;
-// Persist the parsed guide to a file. AsyncStorage's ~2 MB per-value limit
-// silently drops a 600+ channel guide, which forced a slow full re-parse on
-// every launch — the file cache makes relaunches instant.
-const CACHE_FILE = FileSystem.documentDirectory
-  ? FileSystem.documentDirectory + "guide_cache_v3.json"
-  : "";
+// Channel metadata stays in one tiny atomic file. Programme rows live in the
+// indexed SQLite database so startup and guide-window reads never parse a
+// multi-megabyte JSON cache.
+const CACHE_ROOT = FileSystem.documentDirectory || "";
+const CACHE_FILE = CACHE_ROOT ? CACHE_ROOT + "guide_cache_v6_meta.json" : "";
 const CACHE_TMP_FILE = CACHE_FILE ? `${CACHE_FILE}.tmp` : "";
-const MAX_CACHE_BYTES = 32 * 1024 * 1024;
+const CACHE_CHUNK_PREFIX = "guide_cache_v5_programs_";
+const MAX_CACHE_BYTES = 64 * 1024 * 1024;
 
 type Parsed = {
   ts: number;
+  epgAttemptTs?: number;
+  epgError?: string;
+  epgProgramCount?: number;
+  epgChannelCount?: number;
   channels: Channel[];
   programs: Record<string, Program[]>;
 };
@@ -71,19 +85,13 @@ async function fetchTextMaybeGzip(
   return inflateIfGzip(bytes);
 }
 
-function gunzipAsync(data: Uint8Array): Promise<Uint8Array> {
-  return new Promise((resolve, reject) => {
-    gunzip(data, (err, out) => (err ? reject(err) : resolve(out)));
-  });
-}
-
 const B64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 const B64_LOOKUP = (() => {
   const t = new Uint8Array(256);
   for (let i = 0; i < B64_CHARS.length; i++) t[B64_CHARS.charCodeAt(i)] = i;
   return t;
 })();
-function base64ToBytes(b64: string): Uint8Array {
+async function base64ToBytes(b64: string): Promise<Uint8Array> {
   const len = b64.length;
   let pad = 0;
   if (len && b64[len - 1] === "=") pad++;
@@ -99,6 +107,7 @@ function base64ToBytes(b64: string): Uint8Array {
     if (p < outLen) out[p++] = (a << 2) | (b >> 4);
     if (p < outLen) out[p++] = ((b & 15) << 4) | (c >> 2);
     if (p < outLen) out[p++] = ((c & 3) << 6) | d;
+    if (i > 0 && i % (64 * 1024) === 0) await nextTick();
   }
   return out;
 }
@@ -116,8 +125,11 @@ async function fetchBytes(
     return new Uint8Array(await res.arrayBuffer());
   }
   const tmp = (FileSystem.cacheDirectory || FileSystem.documentDirectory || "") + "source_download.bin";
+  try {
+    await FileSystem.deleteAsync(tmp, { idempotent: true });
+  } catch {}
   const dl = FileSystem.createDownloadResumable(
-    https(url),
+    resolveUrl(url),
     tmp,
     { headers: { "User-Agent": "GridStream/1.0" } },
     (p) => {
@@ -126,23 +138,60 @@ async function fetchBytes(
     },
   );
   const res = await dl.downloadAsync();
-  if (!res) throw new Error("EPG download failed");
-  const b64 = await FileSystem.readAsStringAsync(res.uri, {
+  if (!res) throw new Error("Source download failed");
+  let b64 = await FileSystem.readAsStringAsync(res.uri, {
     encoding: FileSystem.EncodingType.Base64,
   });
   try {
     await FileSystem.deleteAsync(res.uri, { idempotent: true });
   } catch {}
-  return base64ToBytes(b64);
+  const bytes = await base64ToBytes(b64);
+  b64 = "";
+  return bytes;
 }
 
-async function inflateIfGzip(bytes: Uint8Array): Promise<string> {
-  // gzip magic bytes 0x1f 0x8b
-  if (bytes.length > 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) {
-    const out = await gunzipAsync(bytes);
-    return strFromU8(out);
+async function inflateToTextChunks(
+  bytes: Uint8Array,
+  onProgress?: (ratio: number) => void,
+): Promise<string[]> {
+  // fflate's asynchronous helper creates a Web Worker, which Hermes does not
+  // provide. Feed the streaming inflater small chunks and yield between them so
+  // remote focus/navigation stays responsive during decompression.
+  if (bytes.length <= 2 || bytes[0] !== 0x1f || bytes[1] !== 0x8b) {
+    const textChunks: string[] = [];
+    const decoder = new DecodeUTF8((text) => textChunks.push(text));
+    const decodeChunkBytes = 64 * 1024;
+    for (let offset = 0; offset < bytes.length; offset += decodeChunkBytes) {
+      const end = Math.min(bytes.length, offset + decodeChunkBytes);
+      decoder.push(bytes.subarray(offset, end), end === bytes.length);
+      onProgress?.(end / Math.max(1, bytes.length));
+      if (end < bytes.length) await nextTick();
+    }
+    return textChunks;
   }
-  return strFromU8(bytes);
+
+  const textChunks: string[] = [];
+  const decoder = new DecodeUTF8((text) => textChunks.push(text));
+  const inflater = new Gunzip((chunk, final) => {
+    decoder.push(chunk, final);
+  });
+  const inputChunkBytes = 32 * 1024;
+  for (let offset = 0; offset < bytes.length; offset += inputChunkBytes) {
+    const end = Math.min(bytes.length, offset + inputChunkBytes);
+    inflater.push(bytes.subarray(offset, end), end === bytes.length);
+    onProgress?.(end / bytes.length);
+    if (end < bytes.length) await nextTick();
+  }
+
+  return textChunks;
+}
+
+async function inflateIfGzip(
+  bytes: Uint8Array,
+  onProgress?: (ratio: number) => void,
+): Promise<string> {
+  const chunks = await inflateToTextChunks(bytes, onProgress);
+  return chunks.join("");
 }
 
 function parseM3U(text: string): Channel[] {
@@ -210,15 +259,18 @@ function isWordChar(ch: string | undefined): boolean {
 // Fast, allocation-light attribute read — NO `new RegExp` (compiling a regex
 // per programme was the main reason parsing took minutes on weak TV boxes).
 function xmlAttr(head: string, name: string): string {
-  const needle = name + '="';
-  let i = head.indexOf(needle);
-  while (i > 0 && isWordChar(head[i - 1])) {
-    i = head.indexOf(needle, i + needle.length);
+  for (const quote of ['"', "'"]) {
+    const needle = name + "=" + quote;
+    let i = head.indexOf(needle);
+    while (i > 0 && isWordChar(head[i - 1])) {
+      i = head.indexOf(needle, i + needle.length);
+    }
+    if (i === -1) continue;
+    const s = i + needle.length;
+    const e = head.indexOf(quote, s);
+    if (e !== -1) return decodeEntities(head.slice(s, e));
   }
-  if (i === -1) return "";
-  const s = i + needle.length;
-  const e = head.indexOf('"', s);
-  return e === -1 ? "" : head.slice(s, e);
+  return "";
 }
 function xmlFirstTag(body: string, name: string): string {
   const open = "<" + name;
@@ -238,6 +290,10 @@ function xmlFirstTag(body: string, name: string): string {
 }
 function nextTick(): Promise<void> {
   return new Promise((r) => setTimeout(r, 0));
+}
+
+function normalizeGuideKey(value: string | undefined): string {
+  return (value || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
 function parseXmltvTime(s: string): string | null {
@@ -270,6 +326,7 @@ function parseXmltvTime(s: string): string | null {
 
 type Sink = {
   icons?: Record<string, string>;
+  channelNames?: Record<string, string>;
   programs?: Record<string, Program[]>;
   onProgress?: (ratio: number) => void;
 };
@@ -280,8 +337,13 @@ type Sink = {
 async function parseXMLTV(
   xml: string,
   sink: Sink = {},
-): Promise<{ icons: Record<string, string>; programs: Record<string, Program[]> }> {
+): Promise<{
+  icons: Record<string, string>;
+  channelNames: Record<string, string>;
+  programs: Record<string, Program[]>;
+}> {
   const icons = sink.icons ?? {};
+  const channelNames = sink.channelNames ?? {};
   const programs = sink.programs ?? {};
   const onProgress = sink.onProgress;
 
@@ -299,6 +361,8 @@ async function parseXMLTV(
     cpos = e + 10;
     const id = xmlAttr(head, "id");
     if (id) {
+      const displayName = xmlFirstTag(body, "display-name");
+      if (displayName) channelNames[id] = displayName;
       const ii = body.indexOf("<icon");
       if (ii !== -1) {
         const ie = body.indexOf(">", ii);
@@ -346,13 +410,124 @@ async function parseXMLTV(
       }
     }
     // Yield to the UI thread + push a progressive update so it never freezes.
-    if (++seen % 500 === 0) {
+    if (++seen % 120 === 0) {
       onProgress?.(pos / xml.length);
       await nextTick();
     }
   }
   for (const cid in programs) programs[cid].sort((a, b) => a.start.localeCompare(b.start));
-  return { icons, programs };
+  return { icons, channelNames, programs };
+}
+
+// Rolling XMLTV parser for large native EPG files. It accepts decoder chunks,
+// discards each consumed XML block immediately, and yields frequently so held
+// remote input and playback stay responsive throughout an update.
+async function parseXMLTVChunks(
+  chunks: string[],
+  sink: Sink = {},
+): Promise<{
+  icons: Record<string, string>;
+  channelNames: Record<string, string>;
+  programs: Record<string, Program[]>;
+}> {
+  const icons = sink.icons ?? {};
+  const channelNames = sink.channelNames ?? {};
+  const programs = sink.programs ?? {};
+  const totalChars = Math.max(1, chunks.reduce((total, chunk) => total + chunk.length, 0));
+  const minStop = Date.now() - 6 * 3600 * 1000;
+  const maxStart = Date.now() + 2 * 24 * 3600 * 1000;
+  let buffer = "";
+  let consumedChars = 0;
+  let seen = 0;
+
+  for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+    buffer += chunks[chunkIndex];
+    chunks[chunkIndex] = "";
+    if (chunkIndex === 0 && buffer.charCodeAt(0) === 0xfeff) buffer = buffer.slice(1);
+
+    while (buffer.length) {
+      const channelStart = buffer.indexOf("<channel");
+      const programmeStart = buffer.indexOf("<programme");
+      const starts = [channelStart, programmeStart].filter((value) => value >= 0);
+      if (!starts.length) {
+        if (buffer.length > 32) {
+          consumedChars += buffer.length - 32;
+          buffer = buffer.slice(-32);
+        }
+        break;
+      }
+
+      const start = Math.min(...starts);
+      if (start > 0) {
+        consumedChars += start;
+        buffer = buffer.slice(start);
+      }
+      const isProgramme = buffer.startsWith("<programme");
+      const openLength = isProgramme ? 10 : 8;
+      const closeTag = isProgramme ? "</programme>" : "</channel>";
+      const gt = buffer.indexOf(">");
+      if (gt === -1) break;
+      const end = buffer.indexOf(closeTag, gt + 1);
+      if (end === -1) break;
+
+      const head = buffer.slice(openLength, gt);
+      const body = buffer.slice(gt + 1, end);
+      const blockLength = end + closeTag.length;
+      if (isProgramme) {
+        const channelId = xmlAttr(head, "channel");
+        const startIso = parseXmltvTime(xmlAttr(head, "start"));
+        if (channelId && startIso && Date.parse(startIso) <= maxStart) {
+          const parsedStop = parseXmltvTime(xmlAttr(head, "stop"));
+          if (!(parsedStop && Date.parse(parsedStop) < minStop)) {
+            const startMs = Date.parse(startIso);
+            const parsedStopMs = parsedStop ? Date.parse(parsedStop) : NaN;
+            const stop = Number.isFinite(parsedStopMs) && parsedStopMs > startMs && parsedStopMs - startMs <= 24 * 3600 * 1000
+              ? parsedStop
+              : new Date(startMs + 30 * 60000).toISOString();
+            (programs[channelId] ||= []).push({
+              title: xmlFirstTag(body, "title") || "No Title",
+              desc: xmlFirstTag(body, "desc"),
+              category: xmlFirstTag(body, "category"),
+              start: startIso,
+              stop,
+            });
+          }
+        }
+        seen++;
+      } else {
+        const channelId = xmlAttr(head, "id");
+        if (channelId) {
+          const displayName = xmlFirstTag(body, "display-name");
+          if (displayName) channelNames[channelId] = displayName;
+          const iconStart = body.indexOf("<icon");
+          if (iconStart !== -1) {
+            const iconEnd = body.indexOf(">", iconStart);
+            if (iconEnd !== -1) {
+              const src = xmlAttr(body.slice(iconStart + 5, iconEnd), "src");
+              if (src) icons[channelId] = https(src);
+            }
+          }
+        }
+      }
+
+      consumedChars += blockLength;
+      buffer = buffer.slice(blockLength);
+      if (seen > 0 && seen % 80 === 0) {
+        sink.onProgress?.(Math.min(0.995, consumedChars / totalChars));
+        await nextTick();
+      }
+    }
+    sink.onProgress?.(Math.min(0.995, consumedChars / totalChars));
+    await nextTick();
+  }
+
+  const channelIds = Object.keys(programs);
+  for (let index = 0; index < channelIds.length; index++) {
+    programs[channelIds[index]].sort((a, b) => a.start.localeCompare(b.start));
+    if (index > 0 && index % 32 === 0) await nextTick();
+  }
+  sink.onProgress?.(1);
+  return { icons, channelNames, programs };
 }
 
 // UI subscribers (the store) get notified when channels first appear and again
@@ -373,7 +548,7 @@ function emit() {
 }
 
 // ---- EPG load progress (for the on-screen status bar + ETA) ----------------
-export type LoadPhase = "idle" | "channels" | "downloading" | "parsing" | "ready" | "error";
+export type LoadPhase = "idle" | "channels" | "downloading" | "decompressing" | "parsing" | "indexing" | "caching" | "ready" | "error";
 export type EpgProgress = {
   phase: LoadPhase;
   ratio: number; // 0..1 across the whole EPG step (download + parse)
@@ -402,15 +577,57 @@ function setProgress(p: Partial<EpgProgress>, force = false) {
   });
 }
 
-async function persist() {
-  if (Platform.OS === "web" || !MEM || !CACHE_FILE) return;
+type CacheMeta = Omit<Parsed, "programs"> & { indexed: true };
+
+let persistQueue: Promise<{ programCount: number; channelCount: number }> = Promise.resolve({
+  programCount: 0,
+  channelCount: 0,
+});
+
+async function persistSnapshot(snapshot: Parsed, onProgress?: (ratio: number) => void) {
+  const incomingCount = Object.values(snapshot.programs).reduce((total, list) => total + list.length, 0);
+  const stats = incomingCount > 0
+    ? await replaceIndexedPrograms(snapshot.programs, onProgress)
+    : await getIndexedEpgStats();
+
+  const { programs: _programs, ...rest } = snapshot;
+  const meta: CacheMeta = {
+    ...rest,
+    epgProgramCount: stats.programCount,
+    epgChannelCount: stats.channelCount,
+    indexed: true,
+  };
+  const metaPayload = JSON.stringify(meta);
+  if (metaPayload.length > MAX_CACHE_BYTES) throw new Error("Guide metadata cache is too large");
+  await FileSystem.writeAsStringAsync(CACHE_TMP_FILE, metaPayload);
+  await FileSystem.deleteAsync(CACHE_FILE, { idempotent: true });
+  await FileSystem.moveAsync({ from: CACHE_TMP_FILE, to: CACHE_FILE });
+
+  // Remove the superseded v5 JSON chunks after the SQLite commit succeeds.
   try {
-    const payload = JSON.stringify(MEM);
-    if (payload.length > MAX_CACHE_BYTES) return;
-    await FileSystem.writeAsStringAsync(CACHE_TMP_FILE, payload);
-    await FileSystem.deleteAsync(CACHE_FILE, { idempotent: true });
-    await FileSystem.moveAsync({ from: CACHE_TMP_FILE, to: CACHE_FILE });
+    const files = await FileSystem.readDirectoryAsync(CACHE_ROOT);
+    await Promise.all(
+      files
+        .filter((name) => name === "guide_cache_v5_meta.json" || name.startsWith(CACHE_CHUNK_PREFIX))
+        .map((name) => FileSystem.deleteAsync(CACHE_ROOT + name, { idempotent: true })),
+    );
   } catch {}
+  onProgress?.(1);
+  return stats;
+}
+
+async function persist(onProgress?: (ratio: number) => void) {
+  if (Platform.OS === "web" || !MEM || !CACHE_FILE) {
+    return {
+      programCount: Object.values(MEM?.programs || {}).reduce((total, list) => total + list.length, 0),
+      channelCount: Object.values(MEM?.programs || {}).filter((list) => list.length > 0).length,
+    };
+  }
+  const snapshot = MEM;
+  persistQueue = persistQueue
+    .catch(() => ({ programCount: snapshot.epgProgramCount || 0, channelCount: snapshot.epgChannelCount || 0 }))
+    .then(() => persistSnapshot(snapshot, onProgress));
+  return persistQueue;
 }
 
 async function readCache(): Promise<Parsed | null> {
@@ -418,21 +635,27 @@ async function readCache(): Promise<Parsed | null> {
   try {
     const info = await FileSystem.getInfoAsync(CACHE_FILE);
     if (!info.exists) return null;
-    if (typeof info.size === "number" && info.size > MAX_CACHE_BYTES) {
-      await FileSystem.deleteAsync(CACHE_FILE, { idempotent: true });
-      return null;
-    }
     const txt = await FileSystem.readAsStringAsync(CACHE_FILE);
-    const data = JSON.parse(txt) as Parsed;
-    if (!data || !Number.isFinite(data.ts) || !Array.isArray(data.channels) || !data.channels.length || !data.programs) {
+    const meta = JSON.parse(txt) as CacheMeta;
+    if (
+      !meta ||
+      meta.indexed !== true ||
+      !Number.isFinite(meta.ts) ||
+      !Array.isArray(meta.channels) ||
+      !meta.channels.length
+    ) {
       await FileSystem.deleteAsync(CACHE_FILE, { idempotent: true });
       return null;
     }
-    return data;
+    const stats = await getIndexedEpgStats();
+    return {
+      ...meta,
+      epgProgramCount: stats.programCount,
+      epgChannelCount: stats.channelCount,
+      programs: {},
+    };
   } catch {
-    try {
-      await FileSystem.deleteAsync(CACHE_FILE, { idempotent: true });
-    } catch {}
+    await clearCacheFiles();
     return null;
   }
 }
@@ -537,7 +760,14 @@ async function fetchRemoteJson(): Promise<Parsed> {
     }));
   if (!channels.length) throw new Error("Guide service returned no channels");
 
-  MEM = { ts: Date.now(), channels: sortChannelsAlphabetically(channels), programs: MEM?.programs || {} };
+  const previous = MEM;
+  MEM = {
+    ts: Date.now(),
+    channels: sortChannelsAlphabetically(channels),
+    programs: previous?.programs || {},
+    epgProgramCount: previous?.epgProgramCount,
+    epgChannelCount: previous?.epgChannelCount,
+  };
   await persist();
   emit();
   setProgress({ phase: "channels", ratio: 0.25, etaSeconds: null }, true);
@@ -577,62 +807,156 @@ async function fetchRemoteJson(): Promise<Parsed> {
 }
 
 let epgLoading = false;
-async function loadEpg(channels: Channel[]) {
-  if (!SOURCE_EPG) return;
-  if (epgLoading) return;
-  epgLoading = true;
-  const dlStart = Date.now();
-  try {
-    setProgress({ phase: "downloading", ratio: 0, etaSeconds: null }, true);
-    const bytes = await fetchBytes(SOURCE_EPG, (ratio) => {
-      if (ratio == null) {
-        setProgress({ phase: "downloading", ratio: 0, etaSeconds: null });
-        return;
-      }
-      const elapsed = (Date.now() - dlStart) / 1000;
-      const eta = ratio > 0.02 && elapsed > 0.5 ? (elapsed / ratio) * (1 - ratio) : null;
-      // Download is the first 30% of the overall EPG step.
-      setProgress({ phase: "downloading", ratio: ratio * 0.3, etaSeconds: eta });
-    });
+let epgPromise: Promise<void> | null = null;
+let lastSourceError: string | null = null;
 
-    setProgress({ phase: "parsing", ratio: 0.3, etaSeconds: null }, true);
-    const epgText = await inflateIfGzip(bytes);
+function loadEpg(channels: Channel[], force = false): Promise<void> {
+  if (!SOURCE_EPG) return Promise.resolve();
+  if (epgPromise) return epgPromise;
 
-    const icons: Record<string, string> = {};
-    const programs: Record<string, Program[]> = {};
-    // Keep the live object internal until parsing completes so progress updates
-    // do not force full-guide React rebuilds.
-    MEM = { ts: Date.now(), channels, programs };
-    const parseStart = Date.now();
-    await parseXMLTV(epgText, {
-      icons,
-      programs,
-      onProgress: (r) => {
-        const elapsed = (Date.now() - parseStart) / 1000;
-        const eta = r > 0.02 && elapsed > 0.3 ? (elapsed / r) * (1 - r) : null;
-        // Parsing is the remaining 70% (0.3 → 1.0).
-        setProgress({ phase: "parsing", ratio: 0.3 + r * 0.7, etaSeconds: eta });
-      },
-    });
-    for (const c of channels) {
-      if (!c.logo && c.tvg_id && icons[c.tvg_id]) c.logo = icons[c.tvg_id];
-    }
-    MEM = { ts: Date.now(), channels, programs };
-    await persist();
-    setProgress({ phase: "ready", ratio: 1, etaSeconds: 0 }, true);
-    emit();
-  } catch {
-    setProgress({ phase: "error", ratio: 0, etaSeconds: null }, true);
-    // EPG optional — channels remain usable without it
-  } finally {
-    epgLoading = false;
+  const lastAttempt = MEM?.epgAttemptTs || 0;
+  const hasPrograms = !!MEM && (
+    Object.keys(MEM.programs).length > 0 ||
+    (MEM.epgProgramCount || 0) > 0
+  );
+  if (!force && !hasPrograms && lastAttempt > 0 && Date.now() - lastAttempt < TTL_MS) {
+    if (MEM?.epgError) setProgress({ phase: "error", ratio: 0, etaSeconds: null }, true);
+    return Promise.resolve();
   }
+
+  epgPromise = (async () => {
+    epgLoading = true;
+    const attemptTs = Date.now();
+    const dlStart = attemptTs;
+    lastSourceError = null;
+    if (MEM) {
+      // Keep the last good guide instantly available while the replacement is
+      // downloading and parsing. Cache work happens after usable data is ready.
+      MEM = { ...MEM, epgAttemptTs: attemptTs, epgError: undefined };
+    }
+    try {
+      setProgress({ phase: "downloading", ratio: 0, etaSeconds: null }, true);
+      let bytes = await fetchBytes(SOURCE_EPG, (ratio) => {
+        if (ratio == null) {
+          setProgress({ phase: "downloading", ratio: 0, etaSeconds: null });
+          return;
+        }
+        const elapsed = (Date.now() - dlStart) / 1000;
+        const eta = ratio > 0.02 && elapsed > 0.5 ? (elapsed / ratio) * (1 - ratio) : null;
+        setProgress({ phase: "downloading", ratio: ratio * 0.2, etaSeconds: eta });
+      });
+      if (bytes.length < 16) throw new Error("EPG download returned no usable data");
+      setProgress({ phase: "decompressing", ratio: 0.2, etaSeconds: null }, true);
+      const epgChunks = await inflateToTextChunks(bytes, (ratio) => {
+        setProgress({ phase: "decompressing", ratio: 0.2 + ratio * 0.1, etaSeconds: null });
+      });
+      bytes = new Uint8Array(0);
+      setProgress({ phase: "parsing", ratio: 0.3, etaSeconds: null }, true);
+      let header = "";
+      let tagTail = "";
+      let hasProgramme = false;
+      for (const chunk of epgChunks) {
+        if (header.length < 8192) header += chunk;
+        const scan = tagTail + chunk;
+        if (scan.includes("<programme")) hasProgramme = true;
+        tagTail = scan.slice(-16);
+      }
+      header = header.slice(0, 8192).toLowerCase();
+      if (!header.includes("<tv") || !hasProgramme) {
+        throw new Error("EPG URL did not return XMLTV data");
+      }
+
+      const icons: Record<string, string> = {};
+      const channelNames: Record<string, string> = {};
+      const programs: Record<string, Program[]> = {};
+      const parseStart = Date.now();
+      const epgSink: Sink = {
+        icons,
+        channelNames,
+        programs,
+        onProgress: (ratio) => {
+          const elapsed = (Date.now() - parseStart) / 1000;
+          const eta = ratio > 0.02 && elapsed > 0.3 ? (elapsed / ratio) * (1 - ratio) : null;
+          setProgress({ phase: "parsing", ratio: 0.3 + ratio * 0.6, etaSeconds: eta });
+        },
+      };
+      if (Platform.OS === "web") {
+        await parseXMLTV(epgChunks.join(""), epgSink);
+      } else {
+        await parseXMLTVChunks(epgChunks, epgSink);
+      }
+
+      setProgress({ phase: "indexing", ratio: 0.9, etaSeconds: null }, true);
+      await nextTick();
+      const programIdByKey = new Map<string, string>();
+      for (const id of Object.keys(programs)) {
+        const key = normalizeGuideKey(id);
+        if (key && !programIdByKey.has(key)) programIdByKey.set(key, id);
+      }
+      const programIdByName = new Map<string, string>();
+      for (const [id, name] of Object.entries(channelNames)) {
+        const key = normalizeGuideKey(name);
+        if (key && programs[id]?.length && !programIdByName.has(key)) programIdByName.set(key, id);
+      }
+
+      let matchedChannels = 0;
+      for (const channel of channels) {
+        const sourceId =
+          (channel.tvg_id && programs[channel.tvg_id]?.length ? channel.tvg_id : "") ||
+          programIdByKey.get(normalizeGuideKey(channel.tvg_id)) ||
+          programIdByName.get(normalizeGuideKey(channel.name)) ||
+          "";
+        if (!sourceId || !programs[sourceId]?.length) continue;
+        channel.tvg_id = sourceId;
+        matchedChannels++;
+        if (!channel.logo && icons[sourceId]) channel.logo = icons[sourceId];
+      }
+      if (!matchedChannels) throw new Error("EPG loaded, but its channel IDs did not match the playlist");
+
+      epgChunks.length = 0;
+      MEM = {
+        ts: attemptTs,
+        epgAttemptTs: attemptTs,
+        channels: sortChannelsAlphabetically(channels),
+        programs,
+        epgProgramCount: Object.values(programs).reduce((total, list) => total + list.length, 0),
+        epgChannelCount: matchedChannels,
+      };
+      lastSourceError = null;
+      setProgress({ phase: "caching", ratio: 0.92, etaSeconds: null }, true);
+      const indexed = await persist((ratio) => {
+        setProgress({ phase: "caching", ratio: 0.92 + ratio * 0.08, etaSeconds: null });
+      });
+      // SQLite is now the source of truth. Drop the full in-memory programme
+      // map and repaint from the indexed visible-window query.
+      MEM = {
+        ...MEM,
+        programs: {},
+        epgProgramCount: indexed.programCount,
+        epgChannelCount: indexed.channelCount,
+      };
+      emit();
+      setProgress({ phase: "ready", ratio: 1, etaSeconds: 0 }, true);
+    } catch (error) {
+      lastSourceError = error instanceof Error ? error.message : "EPG refresh failed";
+      if (MEM) {
+        MEM = { ...MEM, epgAttemptTs: attemptTs, epgError: lastSourceError };
+        await persist().catch(() => undefined);
+      }
+      setProgress({ phase: "error", ratio: 0, etaSeconds: null }, true);
+      emit();
+    } finally {
+      epgLoading = false;
+      epgPromise = null;
+    }
+  })();
+  return epgPromise;
 }
 
 function maybeLoadEpg() {
-  if (MEM && MEM.channels.length && Object.keys(MEM.programs).length === 0) {
+  if (MEM && MEM.channels.length && Object.keys(MEM.programs).length === 0 && !(MEM.epgProgramCount || 0)) {
     loadEpg(MEM.channels);
-  } else if (MEM && Object.keys(MEM.programs).length > 0) {
+  } else if (MEM && (Object.keys(MEM.programs).length > 0 || (MEM.epgProgramCount || 0) > 0)) {
     setProgress({ phase: "ready", ratio: 1, etaSeconds: 0 }, true);
   }
 }
@@ -646,14 +970,22 @@ async function doFetchParse(): Promise<Parsed> {
     return remote;
   }
   if (!SOURCE_M3U) {
-    throw new Error("Set EXPO_PUBLIC_CHARM_API_URL before building Phoenix");
+    throw new Error("Local M3U URL is not configured");
   }
   // Stage 1 (fast): parse the small M3U so the guide paints immediately, even
   // on low-power Android TV / Firestick boxes.
   const m3uText = await fetchTextMaybeGzip(SOURCE_M3U);
   const channels = parseM3U(m3uText);
-  MEM = { ts: Date.now(), channels: sortChannelsAlphabetically(channels), programs: MEM?.programs || {} };
-  await persist();
+  const previous = MEM;
+  MEM = {
+    ts: Date.now(),
+    channels: sortChannelsAlphabetically(channels),
+    programs: previous?.programs || {},
+    epgProgramCount: previous?.epgProgramCount,
+    epgChannelCount: previous?.epgChannelCount,
+  };
+  // Do not rewrite a large existing EPG before starting a refresh.
+  if (Object.keys(MEM.programs).length === 0 && !(MEM.epgProgramCount || 0)) await persist();
   emit();
   setProgress({ phase: "channels", ratio: 0, etaSeconds: null }, true);
   // Stage 2 (slower): parse the large EPG in the background, then notify.
@@ -712,9 +1044,18 @@ export async function loadGuide(startISO?: string, hours = 12, force = false): P
   const winEnd = winStart.add(hours, "hour");
   const winStartMs = winStart.valueOf();
   const winEndMs = winEnd.valueOf();
+  const indexedPrograms = (parsed.epgProgramCount || 0) > 0
+    ? await loadIndexedPrograms(
+        parsed.channels.map((channel) => channel.tvg_id).filter(Boolean),
+        winStartMs,
+        winEndMs,
+      )
+    : null;
   const channels = parsed.channels.map((c) => ({
     ...c,
-    programs: windowPrograms(parsed.programs[c.tvg_id], winStartMs, winEndMs),
+    programs: indexedPrograms
+      ? indexedPrograms[c.tvg_id] || []
+      : windowPrograms(parsed.programs[c.tvg_id], winStartMs, winEndMs),
   }));
   return {
     start: winStart.toISOString(),
@@ -724,14 +1065,16 @@ export async function loadGuide(startISO?: string, hours = 12, force = false): P
   };
 }
 
-export async function refreshSource(): Promise<SourceStatus> {
-  await fetchParseOnce();
+export async function refreshSource(force = false): Promise<SourceStatus> {
+  const parsed = await ensureParsed(force);
+  if (force && !API_BASE && SOURCE_EPG) await loadEpg(parsed.channels, true);
   return sourceStatus();
 }
 
 export function sourceStatus(): SourceStatus {
   const channels = MEM?.channels || [];
-  const withEpg = channels.filter((c) => c.tvg_id && MEM?.programs[c.tvg_id]?.length).length;
+  const withEpg = MEM?.epgChannelCount ||
+    channels.filter((c) => c.tvg_id && MEM?.programs[c.tvg_id]?.length).length;
   return {
     m3u_url: API_BASE ? `${API_BASE}/channels.json` : SOURCE_M3U ? "configured" : "not configured",
     epg_url: API_BASE ? `${API_BASE}/guide.json` : SOURCE_EPG ? "configured" : "not configured",
@@ -739,7 +1082,7 @@ export function sourceStatus(): SourceStatus {
     channels_with_epg: withEpg,
     last_refresh: MEM ? new Date(MEM.ts).toISOString() : null,
     refreshing: false,
-    error: null,
+    error: MEM?.epgError || lastSourceError,
   };
 }
 
@@ -750,19 +1093,28 @@ export type SourceDiagnostics = {
   channels: number;
   programs: number;
   refreshInFlight: boolean;
+  epgError: string | null;
+  nextAutoRefresh: string | null;
 };
 
 export async function sourceDiagnostics(): Promise<SourceDiagnostics> {
   let cacheBytes = 0;
   if (Platform.OS !== "web" && CACHE_FILE) {
     try {
-      const info = await FileSystem.getInfoAsync(CACHE_FILE);
-      if (info.exists && typeof info.size === "number") cacheBytes = info.size;
+      const files = await FileSystem.readDirectoryAsync(CACHE_ROOT);
+      for (const name of files) {
+        if (name === "guide_cache_v6_meta.json" || name === "guide_cache_v5_meta.json" || name.startsWith(CACHE_CHUNK_PREFIX)) {
+          const info = await FileSystem.getInfoAsync(CACHE_ROOT + name);
+          if (info.exists && typeof info.size === "number") cacheBytes += info.size;
+        }
+      }
     } catch {}
   }
-  const programCount = MEM
-    ? Object.values(MEM.programs).reduce((total, list) => total + list.length, 0)
-    : 0;
+  cacheBytes += await getIndexedEpgStorageBytes().catch(() => 0);
+  const indexedStats = await getIndexedEpgStats();
+  const programCount = MEM?.epgProgramCount ||
+    indexedStats.programCount ||
+    (MEM ? Object.values(MEM.programs).reduce((total, list) => total + list.length, 0) : 0);
   return {
     mode: API_BASE ? "cloudflare" : SOURCE_M3U ? "direct" : "unconfigured",
     cacheBytes,
@@ -770,15 +1122,33 @@ export async function sourceDiagnostics(): Promise<SourceDiagnostics> {
     channels: MEM?.channels.length || 0,
     programs: programCount,
     refreshInFlight: !!fetchPromise || epgLoading,
+    epgError: MEM?.epgError || lastSourceError,
+    nextAutoRefresh: MEM ? new Date(MEM.ts + TTL_MS).toISOString() : null,
   };
+}
+
+async function clearCacheFiles(): Promise<void> {
+  if (Platform.OS === "web" || !CACHE_ROOT) return;
+  try {
+    const files = await FileSystem.readDirectoryAsync(CACHE_ROOT);
+    await Promise.all(
+      files
+        .filter((name) =>
+          name === "guide_cache_v6_meta.json" ||
+          name === "guide_cache_v5_meta.json" ||
+          name.startsWith(CACHE_CHUNK_PREFIX)
+        )
+        .map((name) => FileSystem.deleteAsync(CACHE_ROOT + name, { idempotent: true })),
+    );
+  } catch {}
+  await FileSystem.deleteAsync(CACHE_TMP_FILE, { idempotent: true });
 }
 
 export async function clearGuideCache(): Promise<void> {
   MEM = null;
-  if (Platform.OS !== "web" && CACHE_FILE) {
-    await FileSystem.deleteAsync(CACHE_FILE, { idempotent: true });
-    await FileSystem.deleteAsync(CACHE_TMP_FILE, { idempotent: true });
-  }
+  lastSourceError = null;
+  await clearIndexedEpg();
+  await clearCacheFiles();
   setProgress({ phase: "idle", ratio: 0, etaSeconds: null }, true);
   emit();
 }

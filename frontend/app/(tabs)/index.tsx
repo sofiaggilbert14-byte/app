@@ -1,16 +1,17 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
   Pressable,
   ActivityIndicator,
-  ScrollView,
   useWindowDimensions,
   Platform,
   BackHandler,
   Animated,
   Easing,
+  ScrollView,
+  useTVEventHandler,
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -24,6 +25,11 @@ import { TimelineGrid } from "@/src/components/TimelineGrid";
 import { BoxGrid } from "@/src/components/BoxGrid";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { EpgProgressBar } from "@/src/components/EpgProgressBar";
+import {
+  GUIDE_RAIL_WIDTH,
+  GuideGroupsDrawer,
+  guideGroupsWidth,
+} from "@/src/components/GuideGroupsDrawer";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { StreamPlayer, StreamStatus } from "@/src/components/StreamPlayer";
@@ -32,12 +38,13 @@ import { getTvSafeInsets } from "@/src/utils/tvLayout";
 import dayjs from "dayjs";
 
 type MenuRoute = "/" | "/favorites" | "/search" | "/settings";
+type GuideDrawerMode = "groups" | "rail";
 
-const GOLD = "#F6B73C";
-const GOLD_SOFT = "#FFE3A3";
-const GOLD_DEEP = "#7C4A11";
-const PANEL = "rgba(18, 13, 8, 0.92)";
-const BORDER_GOLD = "rgba(246, 183, 60, 0.34)";
+const GOLD = "#E3262E";
+const GOLD_SOFT = "#FFFFFF";
+const GOLD_DEEP = "#8E1118";
+const PANEL = "rgba(18, 22, 27, 0.94)";
+const BORDER_GOLD = "rgba(227, 38, 46, 0.42)";
 const BASE_CATEGORIES = ["All", "Favorites", "Recently Watched", "Movies", "TV", "Sports", "News", "Kids", "Music", "24/7"];
 const GUIDE_PREVIEW_FOCUS_DELAY_MS = 900;
 
@@ -148,12 +155,10 @@ export default function GuideScreen() {
     refresh,
     hardRefresh,
     addRecent,
-    channelById,
     openProgram,
     favorites,
     recent,
     lastChannelId,
-    isFavorite,
     toggleFavorite,
     guideLayout,
     guideDensity,
@@ -162,7 +167,7 @@ export default function GuideScreen() {
     channelLogos,
     deviceLayoutMode,
   } = useStore();
-  const now = new Date().toISOString();
+  const [now, setNow] = useState(() => new Date().toISOString());
   const shortScreen = height < 760;
   const mobileSafeGuide =
     deviceLayoutMode === "mobile" || (deviceLayoutMode === "auto" && Platform.OS !== "web" && !Platform.isTV);
@@ -172,10 +177,24 @@ export default function GuideScreen() {
 
   const [category, setCategory] = useState<string>("All");
   const [focusedChannelId, setFocusedChannelId] = useState<string | null>(null);
+  const [previewStreamChannelId, setPreviewStreamChannelId] = useState<string | null>(null);
   const [previewStatus, setPreviewStatus] = useState<StreamStatus>("loading");
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [drawerMode, setDrawerMode] = useState<GuideDrawerMode | null>(() => mobileSafeGuide ? null : "groups");
   const [guideResetToken, setGuideResetToken] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date().toISOString()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
   const previewFocusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewMetadataTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastDrawerNavAt = useRef(0);
+  const drawerGuideInset = mobileSafeGuide
+    ? 0
+    : drawerMode === "groups"
+      ? guideGroupsWidth(width)
+      : drawerMode === "rail"
+        ? GUIDE_RAIL_WIDTH
+        : 0;
 
   const categories = useMemo(() => {
     const known = new Set(BASE_CATEGORIES);
@@ -184,7 +203,7 @@ export default function GuideScreen() {
       .slice(0, 10);
     const allCategories = [...BASE_CATEGORIES, ...extras];
     return allCategories.filter((g) => {
-      if (g === "All") return channels.length > 0;
+      if (g === "All") return true;
       if (g === "Favorites") return favorites.length > 0;
       if (g === "Recently Watched") return recent.length > 0;
       return channels.some((c) => categoryMatches(c, g));
@@ -211,19 +230,6 @@ export default function GuideScreen() {
     return map;
   }, [channels]);
 
-  const recentPreviewChannels = useMemo(() => {
-    const out: Channel[] = [];
-    const seen = new Set<string>();
-    for (const recentChannel of recent) {
-      const live = channelById(recentChannel.id) || recentChannel;
-      if (!live?.id || seen.has(live.id)) continue;
-      seen.add(live.id);
-      out.push(live);
-      if (out.length >= 10) break;
-    }
-    return out;
-  }, [channelById, recent]);
-
   const previewChannel = useMemo(() => {
     const focused = focusedChannelId ? filtered.find((c) => c.id === focusedChannelId) : null;
     if (focused) return focused;
@@ -241,67 +247,119 @@ export default function GuideScreen() {
     "Highlight a program in the guide to see its title, time, and description here. Press OK to watch the highlighted channel.";
   const descriptionKey = `${previewChannel?.id || "none"}:${preview.current?.start || ""}:${preview.current?.title || ""}`;
   const previewPlayerVisible =
-    livePreviewEnabled && !!focusedChannelId && !!previewChannel?.url && previewStatus !== "error";
+    livePreviewEnabled &&
+    !!previewChannel?.url &&
+    previewStreamChannelId === previewChannel.id &&
+    previewStatus !== "error";
 
   useEffect(() => {
     if (categories.length > 0 && !categories.includes(category)) {
       setCategory("All");
       setFocusedChannelId(null);
+      setPreviewStreamChannelId(null);
     }
   }, [categories, category]);
 
   useEffect(
     () => () => {
       if (previewFocusTimer.current) clearTimeout(previewFocusTimer.current);
+      if (previewMetadataTimer.current) clearTimeout(previewMetadataTimer.current);
     },
     [],
   );
 
   useEffect(() => {
+    if (mobileSafeGuide && drawerMode !== null) setDrawerMode(null);
+  }, [drawerMode, mobileSafeGuide]);
+
+  useEffect(() => {
     setPreviewStatus("loading");
   }, [previewChannel?.id]);
+
+  useTVEventHandler(
+    React.useCallback(
+      (event) => {
+        const eventType = event?.eventType;
+        if (mobileSafeGuide || (eventType !== "left" && eventType !== "right")) return;
+
+        const nowMs = Date.now();
+        if (nowMs - lastDrawerNavAt.current < 320) return;
+
+        if (eventType === "left") {
+          if (drawerMode === "groups") {
+            lastDrawerNavAt.current = nowMs;
+            setDrawerMode("rail");
+            void Haptics.selectionAsync().catch(() => {});
+          }
+        } else if (drawerMode === "rail") {
+          lastDrawerNavAt.current = nowMs;
+          setDrawerMode("groups");
+          void Haptics.selectionAsync().catch(() => {});
+        }
+      },
+      [drawerMode, mobileSafeGuide],
+    ),
+  );
 
   useFocusEffect(
     React.useCallback(() => {
       if (Platform.OS === "web") return;
       const sub = BackHandler.addEventListener("hardwareBackPress", () => {
-        if (menuOpen) {
-          setMenuOpen(false);
-        }
-        setGuideResetToken((value) => value + 1);
-        if (filtered[0]) {
-          setFocusedChannelId(filtered[0].id);
+        if (mobileSafeGuide) return false;
+        if (drawerMode === null) {
+          setDrawerMode("groups");
+        } else if (drawerMode === "groups") {
+          setDrawerMode("rail");
         }
         void Haptics.selectionAsync().catch(() => {});
         return true;
       });
       return () => sub.remove();
-    }, [filtered, menuOpen]),
+    }, [drawerMode, mobileSafeGuide]),
   );
 
-  const focusPreviewChannel = (c: Channel) => {
+  const focusPreviewChannel = useCallback((c: Channel) => {
+    // Held D-pad navigation can emit dozens of focus events per second. Keep
+    // those events inside the recycled grid and only repaint metadata/playback
+    // after focus settles, avoiding a full-screen render for every channel.
+    if (previewMetadataTimer.current) clearTimeout(previewMetadataTimer.current);
     if (previewFocusTimer.current) clearTimeout(previewFocusTimer.current);
-    if (safePreviewMode === "off") {
+    previewMetadataTimer.current = setTimeout(() => {
       setFocusedChannelId(c.id);
-      return;
-    }
-    previewFocusTimer.current = setTimeout(() => {
-      setFocusedChannelId(c.id);
-    }, previewDelayMs);
-  };
+      setPreviewStatus("loading");
+      if (safePreviewMode === "off") {
+        setPreviewStreamChannelId(null);
+        return;
+      }
+      previewFocusTimer.current = setTimeout(() => {
+        setPreviewStreamChannelId(c.id);
+      }, previewDelayMs);
+    }, 90);
+  }, [previewDelayMs, safePreviewMode]);
 
-  const openChannel = (c: Channel) => {
+  const openChannel = useCallback((c: Channel) => {
     void Haptics.selectionAsync().catch(() => {});
     addRecent(c);
     router.push({ pathname: "/player", params: { channelId: c.id } });
-  };
+  }, [addRecent, router]);
+
+  const favoriteChannel = useCallback((c: Channel) => {
+    void Haptics.selectionAsync().catch(() => {});
+    toggleFavorite(c.id);
+  }, [toggleFavorite]);
+
+  const returnToGroups = useCallback(() => {
+    setDrawerMode("groups");
+    void Haptics.selectionAsync().catch(() => {});
+  }, []);
 
   const goMenu = (route: MenuRoute) => {
     void Haptics.selectionAsync().catch(() => {});
-    setMenuOpen(false);
+    setDrawerMode(null);
     if (route === "/") {
       setCategory("All");
       setFocusedChannelId(null);
+      setPreviewStreamChannelId(null);
       return;
     }
     router.push(route as any);
@@ -309,7 +367,7 @@ export default function GuideScreen() {
 
   const exitApp = () => {
     void Haptics.selectionAsync().catch(() => {});
-    setMenuOpen(false);
+    setDrawerMode(null);
     if (Platform.OS !== "web") {
       BackHandler.exitApp();
     }
@@ -317,7 +375,7 @@ export default function GuideScreen() {
 
   return (
     <LinearGradient
-      colors={["#050403", "#120B05", "#050403"]}
+      colors={["#05070A", "#0B1015", "#05070A"]}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
       style={styles.container}
@@ -326,80 +384,81 @@ export default function GuideScreen() {
         style={[
           styles.screen,
           {
-            paddingTop: insets.top + tvSafe.top + (shortScreen ? spacing.xs : spacing.sm),
-            paddingLeft: spacing.sm + tvSafe.left,
-            paddingRight: spacing.sm + tvSafe.right,
-            paddingBottom: spacing.xs + tvSafe.bottom,
+            paddingTop: insets.top + tvSafe.top,
+            paddingLeft: tvSafe.left + drawerGuideInset,
+            paddingRight: tvSafe.right,
+            paddingBottom: tvSafe.bottom,
           },
         ]}
       >
-        <View style={styles.topBrand}>
-          <Pressable
-            onPress={() => {
-              void Haptics.selectionAsync().catch(() => {});
-              setMenuOpen((v) => !v);
-            }}
-            style={({ focused }: any) => [styles.menuButton, focused && styles.goldFocus]}
-            testID="home-menu-button"
-          >
-            <Ionicons name={menuOpen ? "chevron-up" : "menu"} size={20} color={GOLD_SOFT} />
-            <Text style={styles.menuButtonText}>Menu</Text>
-          </Pressable>
-
-          <View pointerEvents="none" style={styles.brandRow}>
-            <Ionicons name="flame" size={26} color={GOLD} />
-            <Text style={styles.brandText}>
-              Charm<Text style={styles.brandGold}>IPTV</Text> Phoenix
-            </Text>
-          </View>
-          <Text style={styles.clock}>{dayjs().format("ddd, MMM D, h:mm A")}</Text>
-          {menuOpen && (
-            <View style={styles.menuDropdown}>
-              <Pressable
-                onPress={() => goMenu("/")}
-                style={({ focused }: any) => [styles.menuItem, focused && styles.goldFocus]}
-                testID="home-menu-guide"
-              >
-                <Ionicons name="grid" size={18} color={GOLD_SOFT} />
-                <Text style={styles.menuItemText}>TV Guide</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => goMenu("/favorites")}
-                style={({ focused }: any) => [styles.menuItem, focused && styles.goldFocus]}
-                testID="home-menu-favorites"
-              >
-                <Ionicons name="star" size={18} color={GOLD_SOFT} />
-                <Text style={styles.menuItemText}>Favorites</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => goMenu("/search")}
-                style={({ focused }: any) => [styles.menuItem, focused && styles.goldFocus]}
-                testID="home-menu-search"
-              >
-                <Ionicons name="search" size={18} color={GOLD_SOFT} />
-                <Text style={styles.menuItemText}>Search</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => goMenu("/settings")}
-                style={({ focused }: any) => [styles.menuItem, focused && styles.goldFocus]}
-                testID="home-menu-settings"
-              >
-                <Ionicons name="settings" size={18} color={GOLD_SOFT} />
-                <Text style={styles.menuItemText}>Settings</Text>
-              </Pressable>
-              <Pressable
-                onPress={exitApp}
-                style={({ focused }: any) => [styles.menuItem, styles.menuItemExit, focused && styles.goldFocus]}
-                testID="home-menu-exit"
-              >
-                <Ionicons name="power" size={18} color={GOLD_SOFT} />
-                <Text style={styles.menuItemText}>Exit App</Text>
-              </Pressable>
+        {drawerMode !== null && (
+          <View style={styles.drawerGuideHeader}>
+            <View>
+              <Text style={styles.drawerHeaderLabel}>CHANNEL GROUP</Text>
+              <Text style={styles.drawerHeaderValue}>{category}</Text>
             </View>
-          )}
-        </View>
+            <View style={styles.headerSpacer} />
+            <Text style={styles.drawerVersion}>EXPERIMENTAL v3</Text>
+            <Pressable
+              onPress={hardRefresh}
+              style={({ focused }: any) => [styles.headerIconButton, focused && styles.goldFocus]}
+              testID="drawer-guide-refresh"
+            >
+              <Ionicons name="refresh" size={23} color="#fff" />
+            </Pressable>
+            <View style={[styles.viewToggle, styles.viewToggleActive]}>
+              <Ionicons name="list" size={22} color="#fff" />
+            </View>
+            <View style={styles.viewToggle}>
+              <Ionicons name="grid" size={19} color="#fff" />
+            </View>
+          </View>
+        )}
 
-        {mobileSafeGuide ? (
+        {mobileSafeGuide && drawerMode === null && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.mobileGroupTabs}
+            style={styles.mobileGroupTabsWrap}
+            testID="mobile-group-tabs"
+          >
+            {categories.map((group) => {
+              const activeGroup = group === category;
+              return (
+                <Pressable
+                  key={group}
+                  onPress={() => {
+                    setCategory(group);
+                    setFocusedChannelId(null);
+                    setPreviewStreamChannelId(null);
+                    setGuideResetToken((value) => value + 1);
+                  }}
+                  style={({ pressed }) => [
+                    styles.mobileGroupTab,
+                    activeGroup && styles.mobileGroupTabActive,
+                    pressed && styles.mobileGroupTabPressed,
+                  ]}
+                >
+                  <Text numberOfLines={1} style={[styles.mobileGroupTabText, activeGroup && styles.mobileGroupTabTextActive]}>
+                    {group === "Recently Watched" ? "Recent" : group}
+                  </Text>
+                </Pressable>
+              );
+            })}
+            <Pressable
+              onPress={() => router.push("/settings")}
+              accessibilityLabel="Settings"
+              style={({ pressed }) => [styles.mobileSettingsTab, pressed && styles.mobileGroupTabPressed]}
+              testID="mobile-settings-tab"
+            >
+              <Ionicons name="settings-outline" size={16} color="#fff" />
+              <Text style={styles.mobileGroupTabTextActive}>Settings</Text>
+            </Pressable>
+          </ScrollView>
+        )}
+
+        {drawerMode !== null ? null : mobileSafeGuide ? (
           <View style={styles.mobileHero}>
             <View style={styles.mobileHeroText}>
               <Text style={styles.detailsLabel}>MOBILE SAFE GUIDE</Text>
@@ -431,13 +490,15 @@ export default function GuideScreen() {
           </View>
         ) : (
         <View style={[styles.previewDetailsRow, compactGuide && styles.previewDetailsRowCompact, shortScreen && styles.previewDetailsRowShort]}>
-          <Pressable
-            style={({ focused }: any) => [styles.livePreviewPanel, focused && styles.goldFocus]}
-            onPress={() => previewChannel && openChannel(previewChannel)}
+          <View
+            style={styles.livePreviewPanel}
+            focusable={false}
+            accessible={false}
+            pointerEvents="none"
             testID="guide-preview-card"
           >
             <LinearGradient
-              colors={["rgba(246,183,60,0.22)", "rgba(68,39,12,0.78)", "rgba(0,0,0,0.94)"]}
+              colors={["rgba(227,38,46,0.22)", "rgba(68,39,12,0.78)", "rgba(0,0,0,0.94)"]}
               style={StyleSheet.absoluteFill}
             />
             {previewPlayerVisible && (
@@ -473,62 +534,15 @@ export default function GuideScreen() {
               <View style={styles.liveDot} />
               <Text style={styles.liveBadgeText}>LIVE</Text>
             </View>
-          </Pressable>
-
-          <View style={styles.recentPanel}>
-            <Text style={styles.recentPanelLabel}>LAST WATCHED</Text>
-            {recentPreviewChannels.length === 0 ? (
-              <View style={styles.recentEmpty}>
-                <Ionicons name="time-outline" size={22} color={GOLD_SOFT} />
-                <Text style={styles.recentEmptyText}>Channels you watch will appear here.</Text>
-              </View>
-            ) : (
-              <ScrollView
-                style={styles.recentScroll}
-                contentContainerStyle={styles.recentList}
-                showsVerticalScrollIndicator={false}
-                nestedScrollEnabled
-              >
-                {recentPreviewChannels.map((channel) => (
-                  <Pressable
-                    key={channel.id}
-                    focusable
-                    onFocus={() => focusPreviewChannel(channel)}
-                    onPress={() => openChannel(channel)}
-                    onLongPress={() => {
-                      void Haptics.selectionAsync().catch(() => {});
-                      toggleFavorite(channel.id);
-                    }}
-                    style={({ focused }: any) => [styles.recentItem, focused && styles.goldFocus]}
-                    testID={`recent-preview-${channel.id}`}
-                  >
-                    <ChannelLogo name={channel.name} logo={channel.logo} disabled={!channelLogos} size={compactGuide || shortScreen ? 22 : 26} />
-                    <Text numberOfLines={1} style={styles.recentItemText}>
-                      {channelNumbers ? `${channelNumberById[channel.id] || ""} · ` : ""}
-                      {channel.name}
-                    </Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            )}
           </View>
+
+
 
           <View style={styles.detailsPanel}>
             <View style={styles.detailsHeader}>
-              <Text style={styles.detailsLabel}>NOW PLAYING DETAILS</Text>
-              {previewChannel && (
-                <Pressable
-                  onPress={() => {
-                    void Haptics.selectionAsync().catch(() => {});
-                    toggleFavorite(previewChannel.id);
-                  }}
-                  style={({ focused }: any) => [styles.favoriteButton, focused && styles.goldFocus]}
-                  testID="guide-preview-favorite-btn"
-                >
-                  <Ionicons name={isFavorite(previewChannel.id) ? "star" : "star-outline"} size={20} color={GOLD} />
-                  <Text style={styles.favoriteButtonText}>{isFavorite(previewChannel.id) ? "Favorite" : "Add Favorite"}</Text>
-                </Pressable>
-              )}
+              <Text numberOfLines={1} style={styles.detailsLabel}>
+                {previewChannel?.name || "LIVE TV"}
+              </Text>
             </View>
             <Text numberOfLines={1} style={[styles.programTitle, compactGuide && styles.programTitleCompact]}>
               {preview.current?.title || "No program information"}
@@ -548,24 +562,7 @@ export default function GuideScreen() {
         </View>
         )}
 
-        <View style={styles.categoryWrap}>
-          <Text style={styles.stripLabel}>CATEGORY TABS</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryRow}>
-            {categories.map((g) => (
-              <Pressable
-                key={g}
-                onPress={() => {
-                  setCategory(g);
-                  setFocusedChannelId(null);
-                }}
-                style={({ focused }: any) => [styles.categoryChip, category === g && styles.categoryChipActive, focused && styles.goldFocus]}
-                testID={`chip-${g}`}
-              >
-                <Text style={[styles.categoryText, category === g && styles.categoryTextActive]}>{g}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-        </View>
+
 
         <EpgProgressBar />
 
@@ -601,8 +598,7 @@ export default function GuideScreen() {
             resetToken={guideResetToken}
           />
         ) : (
-          <FocusGuide style={styles.timelineArea} autoFocus trapFocusUp>
-            <Text style={styles.timelineTitle}>FULL GUIDE TIMELINE</Text>
+          <FocusGuide style={styles.timelineArea} autoFocus trapFocusUp trapFocusDown>
             <TimelineGrid
               channels={filtered}
               windowStart={windowStart}
@@ -611,10 +607,7 @@ export default function GuideScreen() {
               onChannelPress={openChannel}
               onProgramPress={openProgram}
               onChannelFocus={focusPreviewChannel}
-              onChannelLongPress={(c) => {
-                void Haptics.selectionAsync().catch(() => {});
-                toggleFavorite(c.id);
-              }}
+              onChannelLongPress={favoriteChannel}
               refreshing={refreshing}
               onRefresh={hardRefresh}
               density={guideDensity}
@@ -622,87 +615,107 @@ export default function GuideScreen() {
               channelNumberById={channelNumberById}
               showChannelLogos={channelLogos}
               resetToken={guideResetToken}
+              active={drawerMode === null}
+              onLeftBoundary={returnToGroups}
             />
           </FocusGuide>
         )}
+        {drawerMode !== null && (
+          <View pointerEvents="none" style={styles.drawerGuideFooter}>
+            <Text style={styles.drawerGuideFooterCharm}>Charm IPTV</Text>
+            <Text style={styles.drawerGuideFooterText}>TV Guide</Text>
+          </View>
+        )}
       </View>
+
+      {drawerMode && !mobileSafeGuide && (
+        <GuideGroupsDrawer
+          mode={drawerMode}
+          groups={categories}
+          selected={category}
+          onClose={() => setDrawerMode(null)}
+          onSelect={(nextCategory) => {
+            setCategory(nextCategory);
+            setFocusedChannelId(null);
+            setPreviewStreamChannelId(null);
+            setGuideResetToken((value) => value + 1);
+            setDrawerMode(null);
+          }}
+          onNavigate={goMenu}
+          onExit={exitApp}
+        />
+      )}
     </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  screen: { flex: 1, gap: 4 },
-  topBrand: {
-    minHeight: 30,
-    flexDirection: "row",
+  screen: { flex: 1, gap: 2 },
+  headerIconButton: {
     alignItems: "center",
-    justifyContent: "center",
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(246,183,60,0.25)",
-    zIndex: 30,
-  },
-  menuButton: {
-    position: "absolute",
-    left: 0,
-    minWidth: 96,
-    height: 28,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.xs,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: "rgba(255,227,163,0.22)",
-    backgroundColor: "rgba(28,18,10,0.82)",
-  },
-  menuButtonText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 11 },
-  menuDropdown: {
-    position: "absolute",
-    top: 34,
-    left: 0,
-    width: 178,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: BORDER_GOLD,
-    backgroundColor: "rgba(10,7,4,0.98)",
-    padding: spacing.xs,
-    gap: spacing.xs,
-    zIndex: 40,
-    shadowColor: GOLD,
-    shadowOpacity: 0.28,
-    shadowRadius: 14,
-  },
-  menuItem: {
-    minHeight: 36,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
+    borderColor: "transparent",
     borderRadius: radius.sm,
-    paddingHorizontal: spacing.sm,
+    borderWidth: 2,
+    height: 40,
+    justifyContent: "center",
+    width: 44,
   },
-  menuItemExit: { borderTopWidth: 1, borderTopColor: "rgba(246,183,60,0.18)" },
-  menuItemText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 13 },
-  brandRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  brandText: { color: "#fff", fontFamily: fonts.bold, fontSize: 18 },
-  brandGold: { color: GOLD },
-  clock: { position: "absolute", right: 0, color: "rgba(255,255,255,0.72)", fontFamily: fonts.medium, fontSize: 12 },
+  screenTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 22 },
+  versionBadge: {
+    backgroundColor: "#A80F17",
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 7,
+  },
+  versionBadgeText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 11, letterSpacing: 0.6 },
+  headerSpacer: { flex: 1 },
+  drawerGuideHeader: {
+    alignItems: "center",
+    borderBottomColor: "rgba(255,255,255,0.12)",
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    minHeight: 44,
+    paddingHorizontal: 8,
+  },
+  drawerHeaderLabel: { color: "rgba(255,255,255,0.68)", fontFamily: fonts.medium, fontSize: 10, letterSpacing: 0.8 },
+  drawerHeaderValue: { color: "#fff", fontFamily: fonts.bold, fontSize: 14, marginTop: 1 },
+  drawerVersion: { color: GOLD, fontFamily: fonts.semibold, fontSize: 10, letterSpacing: 0.5, marginRight: 7 },
+  viewToggle: {
+    alignItems: "center",
+    backgroundColor: "#20242A",
+    borderRadius: radius.sm,
+    height: 30,
+    justifyContent: "center",
+    marginLeft: 2,
+    width: 34,
+  },
+  viewToggleActive: { backgroundColor: GOLD },
+  drawerGuideFooter: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "center",
+    minHeight: 36,
+    gap: 6,
+  },
+  drawerGuideFooterCharm: { color: GOLD, fontFamily: fonts.bold, fontSize: 16 },
+  drawerGuideFooterText: { color: "#fff", fontFamily: fonts.medium, fontSize: 16 },
   mobileHero: {
-    minHeight: 104,
+    minHeight: 84,
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: BORDER_GOLD,
+    borderRadius: 0,
+    borderWidth: 0,
     backgroundColor: PANEL,
-    padding: spacing.sm,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
   },
   mobileHeroText: { flex: 1, gap: 3 },
-  mobileHeroTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 18 },
-  mobileHeroActions: { gap: spacing.xs, width: 92 },
+  mobileHeroTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 15 },
+  mobileHeroActions: { gap: 4, width: 82 },
   mobileHeroButton: {
-    minHeight: 36,
+    minHeight: 31,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -712,23 +725,47 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: BORDER_GOLD,
   },
-  mobileHeroButtonText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 12 },
-  previewDetailsRow: { flexDirection: "row", gap: spacing.sm, height: 180, alignItems: "stretch" },
-  previewDetailsRowCompact: { height: 132 },
-  previewDetailsRowShort: { height: 151 },
+  mobileHeroButtonText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 10.5 },
+  mobileGroupTabsWrap: { flexGrow: 0, maxHeight: 39, backgroundColor: "rgba(4,6,8,0.96)" },
+  mobileGroupTabs: { alignItems: "center", gap: 5, paddingHorizontal: 6, paddingVertical: 4 },
+  mobileGroupTab: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.055)",
+    borderRadius: radius.pill,
+    justifyContent: "center",
+    minHeight: 29,
+    minWidth: 66,
+    paddingHorizontal: 12,
+  },
+  mobileGroupTabActive: { backgroundColor: GOLD_DEEP },
+  mobileGroupTabPressed: { opacity: 0.72 },
+  mobileGroupTabText: { color: "rgba(255,255,255,0.72)", fontFamily: fonts.medium, fontSize: 11 },
+  mobileGroupTabTextActive: { color: "#fff", fontFamily: fonts.bold },
+  mobileSettingsTab: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.09)",
+    borderRadius: radius.pill,
+    flexDirection: "row",
+    gap: 5,
+    justifyContent: "center",
+    minHeight: 29,
+    paddingHorizontal: 12,
+  },
+  previewDetailsRow: { flexDirection: "row", gap: 8, height: 184, alignItems: "stretch" },
+  previewDetailsRowCompact: { height: 138 },
+  previewDetailsRowShort: { height: 154 },
   livePreviewPanel: {
+    width: "43%",
     height: "100%",
-    aspectRatio: 16 / 9,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: BORDER_GOLD,
+    borderRadius: 0,
+    borderWidth: 0,
     backgroundColor: PANEL,
     overflow: "hidden",
-    padding: spacing.sm,
+    padding: 4,
   },
   previewLabel: {
     alignSelf: "center",
-    backgroundColor: "rgba(246,183,60,0.16)",
+    backgroundColor: "rgba(227,38,46,0.16)",
     borderRadius: radius.sm,
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
@@ -740,59 +777,19 @@ const styles = StyleSheet.create({
   liveBadge: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
   liveDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: colors.error },
   liveBadgeText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 12 },
-  recentPanel: {
-    width: 220,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: BORDER_GOLD,
-    backgroundColor: "rgba(12,8,4,0.88)",
-    padding: spacing.sm,
-    gap: 5,
-    overflow: "hidden",
-  },
-  recentPanelLabel: { color: GOLD, fontFamily: fonts.bold, fontSize: 11 },
-  recentScroll: { flex: 1, overflow: "hidden" },
-  recentList: { gap: 4, paddingBottom: 2 },
-  recentItem: {
-    minHeight: 30,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: "rgba(255,227,163,0.14)",
-    backgroundColor: "rgba(255,255,255,0.045)",
-    paddingHorizontal: spacing.xs,
-  },
-  recentItemText: { flex: 1, color: "#fff", fontFamily: fonts.medium, fontSize: 11 },
-  recentEmpty: { flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.xs },
-  recentEmptyText: { color: "rgba(255,255,255,0.62)", fontFamily: fonts.medium, fontSize: 10, textAlign: "center" },
   detailsPanel: {
     flex: 1,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: BORDER_GOLD,
+    borderRadius: 0,
+    borderWidth: 0,
     backgroundColor: PANEL,
     padding: spacing.sm,
     gap: 3,
     overflow: "hidden",
   },
   detailsHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  detailsLabel: { color: GOLD, fontFamily: fonts.bold, fontSize: 12 },
-  favoriteButton: {
-    minHeight: 28,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: "rgba(255,227,163,0.20)",
-    paddingHorizontal: spacing.sm,
-    backgroundColor: "rgba(0,0,0,0.22)",
-  },
-  favoriteButtonText: { color: GOLD_SOFT, fontFamily: fonts.semibold, fontSize: 11 },
-  programTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 20 },
-  programTitleCompact: { fontSize: 16 },
+  detailsLabel: { color: GOLD, fontFamily: fonts.bold, fontSize: 11 },
+  programTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 18 },
+  programTitleCompact: { fontSize: 15 },
   programMetaRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   programMeta: { color: GOLD_SOFT, fontFamily: fonts.medium, fontSize: 11 },
   progressTrack: {
@@ -811,39 +808,13 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
   },
   descriptionViewportCompact: { minHeight: 18 },
-  description: { color: "rgba(255,255,255,0.84)", fontFamily: fonts.regular, fontSize: 12, lineHeight: 16 },
-  stripLabel: { color: GOLD, fontFamily: fonts.semibold, fontSize: 10, textAlign: "center", marginBottom: 1 },
-  categoryWrap: { minHeight: 44 },
-  categoryRow: { gap: spacing.sm, alignItems: "center", paddingRight: spacing.lg },
-  categoryChip: {
-    minWidth: 96,
-    height: 30,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.md,
-    backgroundColor: "rgba(255,255,255,0.05)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  categoryChipActive: { backgroundColor: "rgba(246,183,60,0.24)", borderColor: GOLD },
-  categoryText: { color: "rgba(255,255,255,0.68)", fontFamily: fonts.medium, fontSize: 11 },
-  categoryTextActive: { color: GOLD_SOFT, fontFamily: fonts.bold },
+  description: { color: "rgba(255,255,255,0.84)", fontFamily: fonts.regular, fontSize: 11, lineHeight: 15 },
   timelineArea: {
     flex: 1,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: "rgba(246,183,60,0.22)",
+    borderRadius: 0,
+    borderWidth: 0,
     overflow: "hidden",
     backgroundColor: "rgba(0,0,0,0.32)",
-  },
-  timelineTitle: {
-    color: GOLD,
-    fontFamily: fonts.bold,
-    fontSize: 12,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    backgroundColor: "rgba(0,0,0,0.34)",
   },
   goldFocus: {
     borderColor: GOLD_SOFT,

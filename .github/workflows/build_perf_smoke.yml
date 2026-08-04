@@ -1,0 +1,33 @@
+name: Build and smoke test (perf)
+
+on:
+  push:
+    branches:
+      - perf/opt-full
+  pull_request:
+    branches:
+      - perf/opt-full
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '11'
+      - name: Build Android (assembleRelease)
+        working-directory: frontend/android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleRelease --no-daemon
+      - name: Upload build artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release-apks
+          path: frontend/android/app/build/outputs/

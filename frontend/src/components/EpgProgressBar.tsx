@@ -1,7 +1,7 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, Animated } from "react-native";
 import { colors, fonts, radius, spacing } from "@/src/theme";
-import { useStore } from "@/src/store";
+import { subscribeProgress, type EpgProgress } from "@/src/source";
 
 function fmtEta(s: number | null): string {
   if (s == null || !isFinite(s) || s <= 0) return "";
@@ -16,13 +16,23 @@ function fmtEta(s: number | null): string {
  * Thin status bar under the guide header showing live EPG download → parse
  * progress with an ETA. Auto-hides once the guide is ready.
  */
+const INITIAL_PROGRESS: EpgProgress = { phase: "idle", ratio: 0, etaSeconds: null };
+
 export function EpgProgressBar() {
-  const { epgProgress } = useStore();
+  // Keep high-frequency progress updates out of the shared guide context.
+  const [epgProgress, setEpgProgress] = useState<EpgProgress>(INITIAL_PROGRESS);
+  useEffect(() => subscribeProgress(setEpgProgress), []);
   const { phase, ratio, etaSeconds } = epgProgress;
   const w = useRef(new Animated.Value(0)).current;
 
   const visible =
-    phase === "channels" || phase === "downloading" || phase === "parsing" || phase === "error";
+    phase === "channels" ||
+    phase === "downloading" ||
+    phase === "decompressing" ||
+    phase === "parsing" ||
+    phase === "indexing" ||
+    phase === "caching" ||
+    phase === "error";
 
   useEffect(() => {
     Animated.timing(w, {
@@ -37,9 +47,17 @@ export function EpgProgressBar() {
   const isErr = phase === "error";
   const label = isErr
     ? "Guide unavailable — showing channels only"
-    : phase === "parsing"
-      ? "Building TV guide…"
-      : "Downloading TV guide…";
+    : phase === "channels"
+      ? "Channels ready — loading guide"
+      : phase === "downloading"
+        ? "Downloading TV guide…"
+        : phase === "decompressing"
+          ? "Opening compressed guide…"
+          : phase === "parsing"
+            ? "Building programme guide…"
+            : phase === "indexing"
+              ? "Matching guide channels…"
+              : "Saving guide for fast launch…";
   const pct = isErr ? "" : `${Math.round(Math.min(1, ratio) * 100)}%`;
   const eta = isErr ? "" : fmtEta(etaSeconds);
 

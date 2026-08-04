@@ -1,25 +1,21 @@
 {
   "expo": {
-    "name": "Charm IPTV Phoenix",
-    "slug": "frontend",
-    "version": "2.0.0-beta.2",
+    "name": "Charm IPTV Experimental",
+    "slug": "charm-iptv-experimental",
+    "version": "2.0.0-experimental.1",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
-    "scheme": "frontend",
+    "scheme": "charmiptv-experimental",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.charmiptv.app"
-    },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.charmiptv.phoenixbeta",
-      "versionCode": 2,
+      "package": "com.charmiptv.app.experimental",
+      "versionCode": 3,
       "permissions": [
         "INTERNET",
         "ACCESS_NETWORK_STATE",
@@ -72,6 +68,10 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "platforms": [
+      "android",
+      "web"
+    ]
   }
 }

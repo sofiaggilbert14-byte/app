@@ -2,7 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import dayjs from "dayjs";
 import { storage } from "@/src/utils/storage";
 import { Channel, Program } from "@/src/api";
-import { loadGuide, refreshSource, subscribeSource, subscribeProgress, EpgProgress } from "@/src/source";
+import { loadGuide, refreshSource, subscribeSource } from "@/src/source";
 import { reminderKey } from "@/src/utils/time";
 import {
   cancelReminder,
@@ -23,12 +23,12 @@ const CHANNEL_LOGOS_KEY = "gs_channel_logos";
 const DEVICE_LAYOUT_MODE_KEY = "gs_device_layout_mode";
 const PLAYER_TIMEOUT_KEY = "gs_player_timeout_ms";
 const AUTO_RETRY_KEY = "gs_auto_retry_streams";
-const GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 12);
+const GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 8);
 
 function readGuideWindowHours(value: string | undefined, fallback: number): number {
   const n = Number(value || fallback);
   if (!Number.isFinite(n)) return fallback;
-  return Math.min(72, Math.max(12, Math.round(n)));
+  return Math.min(48, Math.max(6, Math.round(n)));
 }
 
 export type GuideLayout = "cinematic" | "compact";
@@ -99,7 +99,6 @@ type Store = {
   autoRetryStreams: boolean;
   setAutoRetryStreams: (v: boolean) => void;
 
-  epgProgress: EpgProgress;
 };
 
 const Ctx = createContext<Store | null>(null);
@@ -119,6 +118,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [selectedDate, setSelectedDateState] = useState(dayjs().format("YYYY-MM-DD"));
   const dateRef = useRef(selectedDate);
+  const refreshRequestRef = useRef(0);
 
   const [favorites, setFavorites] = useState<string[]>([]);
   const [recent, setRecent] = useState<Channel[]>([]);
@@ -132,13 +132,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [channelNumbers, setChannelNumbersState] = useState(false);
   const [channelLogos, setChannelLogosState] = useState(true);
   const [deviceLayoutMode, setDeviceLayoutModeState] = useState<DeviceLayoutMode>("auto");
-  const [playerControlsTimeoutMs, setPlayerControlsTimeoutMsState] = useState<PlayerControlsTimeoutMs>(60000);
+  const [playerControlsTimeoutMs, setPlayerControlsTimeoutMsState] = useState<PlayerControlsTimeoutMs>(8000);
   const [autoRetryStreams, setAutoRetryStreamsState] = useState(true);
-  const [epgProgress, setEpgProgress] = useState<EpgProgress>({
-    phase: "idle",
-    ratio: 0,
-    etaSeconds: null,
-  });
 
   const setPointerMode = useCallback((v: boolean) => {
     setPointerModeState(v);
@@ -186,6 +181,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refresh = useCallback(async (silent = false) => {
+    const requestId = ++refreshRequestRef.current;
     if (!silent) setLoading(true);
     setError(null);
     try {
@@ -195,13 +191,17 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       // Keep only a moving guide window in rendered channel objects. The
       // source cache can retain more guide data without creating a huge TV UI.
       const data = await loadGuide(start, GUIDE_WINDOW_HOURS);
+      // Source notifications can arrive close together (playlist first, then
+      // EPG). Never let an older, slower SQLite query replace newer rows.
+      if (requestId !== refreshRequestRef.current) return;
       setChannels(data.channels);
       setWindowStart(data.start);
       setWindowEnd(data.end);
     } catch (e: any) {
+      if (requestId !== refreshRequestRef.current) return;
       setError(e?.message || "Failed to load guide");
     } finally {
-      if (!silent) setLoading(false);
+      if (!silent && requestId === refreshRequestRef.current) setLoading(false);
     }
   }, []);
 
@@ -217,7 +217,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const hardRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await refreshSource();
+      await refreshSource(true);
       await refresh(true);
     } catch {}
     setRefreshing(false);
@@ -236,16 +236,15 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setChannelNumbersState((await storage.getItem<boolean>(CHANNEL_NUMBERS_KEY, false)) || false);
       setChannelLogosState((await storage.getItem<boolean>(CHANNEL_LOGOS_KEY, true)) ?? true);
       setDeviceLayoutModeState((await storage.getItem<DeviceLayoutMode>(DEVICE_LAYOUT_MODE_KEY, "auto")) || "auto");
-      setPlayerControlsTimeoutMsState((await storage.getItem<PlayerControlsTimeoutMs>(PLAYER_TIMEOUT_KEY, 60000)) || 60000);
+      setPlayerControlsTimeoutMsState((await storage.getItem<PlayerControlsTimeoutMs>(PLAYER_TIMEOUT_KEY, 8000)) || 8000);
       setAutoRetryStreamsState((await storage.getItem<boolean>(AUTO_RETRY_KEY, true)) ?? true);
       requestNotificationPermission();
-      // Launch should paint the last-good guide first so weak TV boxes do not
-      // freeze waiting on a fresh EPG download. Once the screen is usable,
-      // refresh Cloudflare data quietly in the background and repaint.
+      // Launch paints the last-good on-device guide first. The background
+      // check respects the 24-hour cache and does not download on every open.
       await refresh();
       void (async () => {
         try {
-          await refreshSource();
+          await refreshSource(false);
         } catch {}
       })();
     })();
@@ -255,9 +254,6 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   // Re-paint when the source finishes its staged load (channels first, then EPG)
   // or after a background refresh — reads from the in-memory cache, no network.
   useEffect(() => subscribeSource(() => refresh(true)), [refresh]);
-
-  // Live EPG download/parse progress for the on-screen status bar + ETA.
-  useEffect(() => subscribeProgress(setEpgProgress), []);
 
   const channelById = useCallback((id: string) => channels.find((c) => c.id === id), [channels]);
 
@@ -390,7 +386,6 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     setPlayerControlsTimeoutMs,
     autoRetryStreams,
     setAutoRetryStreams,
-    epgProgress,
   };
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

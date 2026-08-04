@@ -1,4 +1,4 @@
-name: Build Phoenix APK
+name: Build Charm IPTV Experimental APK
 
 on:
   workflow_dispatch:
@@ -17,24 +17,25 @@ permissions:
   contents: read
 
 concurrency:
-  group: phoenix-apk-${{ github.ref }}
+  group: experimental-apk-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
-    name: Standalone Android TV release
+    name: Experimental Android TV release
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     defaults:
       run:
         working-directory: frontend
     env:
-      EXPO_PUBLIC_CHARM_API_URL: ${{ vars.EXPO_PUBLIC_CHARM_API_URL }}
-      EXPO_PUBLIC_GUIDE_WINDOW_HOURS: ${{ vars.EXPO_PUBLIC_GUIDE_WINDOW_HOURS || '12' }}
-      CMAKE_BUILD_PARALLEL_LEVEL: "2"
+      EXPO_PUBLIC_M3U_URL: ${{ vars.EXPO_PUBLIC_M3U_URL }}
+      EXPO_PUBLIC_EPG_URL: ${{ vars.EXPO_PUBLIC_EPG_URL }}
+      EXPO_PUBLIC_GUIDE_WINDOW_HOURS: ${{ vars.EXPO_PUBLIC_GUIDE_WINDOW_HOURS || '8' }}
+      CMAKE_BUILD_PARALLEL_LEVEL: "1"
 
     steps:
-      - name: Checkout Phoenix
+      - name: Checkout Experimental
         uses: actions/checkout@v4
 
       - name: Setup Node
@@ -63,32 +64,32 @@ jobs:
           sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006" "cmake;3.22.1"
 
       - name: Install JavaScript dependencies
-        run: npm ci
+        run: npm install --legacy-peer-deps
 
-      - name: Validate Phoenix
+      - name: Validate Experimental
         run: |
           npm run typecheck
           npm run lint
 
-      - name: Stamp Phoenix build version
+      - name: Stamp Experimental build version
         shell: bash
         run: |
-          PHOENIX_VERSION="2.0.${GITHUB_RUN_NUMBER}-beta"
-          PHOENIX_VERSION_CODE=$((2000 + GITHUB_RUN_NUMBER))
-          PHOENIX_APK_NAME="CharmIPTV Phoenix Universal BETA v${PHOENIX_VERSION}.apk"
-          export PHOENIX_VERSION PHOENIX_VERSION_CODE
+          EXPERIMENTAL_VERSION="2.0.${GITHUB_RUN_NUMBER}-beta"
+          EXPERIMENTAL_VERSION_CODE=$((2000 + GITHUB_RUN_NUMBER))
+          EXPERIMENTAL_APK_NAME="CharmIPTV Experimental Universal v${EXPERIMENTAL_VERSION}.apk"
+          export EXPERIMENTAL_VERSION EXPERIMENTAL_VERSION_CODE
           node - <<'NODE'
           const fs = require("fs");
           const app = JSON.parse(fs.readFileSync("app.json", "utf8"));
-          app.expo.version = process.env.PHOENIX_VERSION;
+          app.expo.version = process.env.EXPERIMENTAL_VERSION;
           app.expo.android = app.expo.android || {};
-          app.expo.android.versionCode = Number(process.env.PHOENIX_VERSION_CODE);
+          app.expo.android.versionCode = Number(process.env.EXPERIMENTAL_VERSION_CODE);
           fs.writeFileSync("app.json", `${JSON.stringify(app, null, 2)}\n`);
           NODE
-          echo "PHOENIX_VERSION=${PHOENIX_VERSION}" >> "$GITHUB_ENV"
-          echo "PHOENIX_VERSION_CODE=${PHOENIX_VERSION_CODE}" >> "$GITHUB_ENV"
-          echo "PHOENIX_APK_NAME=${PHOENIX_APK_NAME}" >> "$GITHUB_ENV"
-          echo "Stamped Phoenix ${PHOENIX_VERSION} (${PHOENIX_VERSION_CODE})"
+          echo "EXPERIMENTAL_VERSION=${EXPERIMENTAL_VERSION}" >> "$GITHUB_ENV"
+          echo "EXPERIMENTAL_VERSION_CODE=${EXPERIMENTAL_VERSION_CODE}" >> "$GITHUB_ENV"
+          echo "EXPERIMENTAL_APK_NAME=${EXPERIMENTAL_APK_NAME}" >> "$GITHUB_ENV"
+          echo "Stamped Experimental ${EXPERIMENTAL_VERSION} (${EXPERIMENTAL_VERSION_CODE})"
 
       - name: Regenerate Android project
         run: npx expo prebuild --platform android --no-install
@@ -96,24 +97,26 @@ jobs:
       - name: Configure cloud build resources
         run: |
           cat >> android/gradle.properties <<'EOF'
-          org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8
+          org.gradle.jvmargs=-Xmx5g -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8
           org.gradle.parallel=false
-          org.gradle.workers.max=2
+          org.gradle.workers.max=1
+          org.gradle.vfs.watch=false
           kotlin.compiler.execution.strategy=in-process
+          kotlin.daemon.enabled=false
           reactNativeArchitectures=armeabi-v7a,arm64-v8a
           EOF
 
-      - name: Check backend configuration
-        shell: bash
+      - name: Precompile Kotlin UI module
         run: |
-          if [ -z "$EXPO_PUBLIC_CHARM_API_URL" ]; then
-            echo "::warning::EXPO_PUBLIC_CHARM_API_URL is not configured. The APK will build, but live channel data will be unavailable until the Cloudflare Worker URL is added as a repository variable."
-          fi
+          chmod +x android/gradlew
+          # Compile the largest Kotlin module in an isolated JVM before the
+          # native C++ tasks fill Gradle's heap. Its output is reused below.
+          ./android/gradlew -p android :react-native-screens:compileReleaseKotlin --no-daemon --max-workers=1
 
       - name: Build standalone universal release APK
         run: |
           chmod +x android/gradlew
-          ./android/gradlew -p android :app:assembleRelease --no-daemon --max-workers=2
+          ./android/gradlew -p android :app:assembleRelease --no-daemon --max-workers=1
 
       - name: Verify packaged APK
         shell: bash
@@ -124,13 +127,13 @@ jobs:
           unzip -l "$APK" | grep -q "lib/armeabi-v7a/"
           unzip -l "$APK" | grep -q "lib/arm64-v8a/"
           mkdir -p artifacts
-          cp "$APK" "artifacts/${PHOENIX_APK_NAME}"
+          cp "$APK" "artifacts/${EXPERIMENTAL_APK_NAME}"
 
-      - name: Upload Phoenix APK
+      - name: Upload Experimental APK
         uses: actions/upload-artifact@v4
         with:
-          name: CharmIPTV Phoenix Universal BETA v${{ env.PHOENIX_VERSION }}
-          path: frontend/artifacts/${{ env.PHOENIX_APK_NAME }}
+          name: CharmIPTV Experimental Universal v${{ env.EXPERIMENTAL_VERSION }}
+          path: frontend/artifacts/${{ env.EXPERIMENTAL_APK_NAME }}
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
