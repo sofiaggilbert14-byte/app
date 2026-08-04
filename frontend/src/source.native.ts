@@ -1,6 +1,4 @@
-Exit code: 0
-Wall time: 1.1 seconds
-Output:
+
 import dayjs from "dayjs";
 import * as FileSystem from "expo-file-system/legacy";
 import type { Channel, GuideResponse, SourceStatus } from "@/src/api";

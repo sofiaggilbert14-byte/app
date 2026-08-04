@@ -1,6 +1,4 @@
-Exit code: 0
-Wall time: 1 seconds
-Output:
+
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
