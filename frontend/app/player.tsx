@@ -226,7 +226,15 @@ export default function PlayerScreen() {
       <Pressable
         style={StyleSheet.absoluteFill}
         focusable={!isTV}
-        onPress={() => (controls ? setControls(false) : revealControls())}
+        onPress={() => {
+          if (controls) {
+            controlsRef.current = false;
+            setControls(false);
+            setChannelsOpen(false);
+          } else {
+            revealControls();
+          }
+        }}
         testID="player-surface"
       />
 
@@ -298,7 +306,9 @@ export default function PlayerScreen() {
                   </Text>
                 </View>
                 <Text numberOfLines={1} style={styles.programTitle}>{current?.title || channel?.name || "Live TV"}</Text>
-                <Text numberOfLines={2} style={styles.description}>{current?.desc || next ? `Next: ${next?.title || ""}` : "Live television"}</Text>
+                <Text numberOfLines={2} style={styles.description}>
+                  {current?.desc || (next ? `Next: ${next.title}` : "Live television")}
+                </Text>
               </View>
             </View>
 
@@ -321,8 +331,16 @@ export default function PlayerScreen() {
               <Pressable onPress={() => stepChannel(-1)} style={({ focused }: any) => [styles.iconControl, focused && styles.focused]}>
                 <Ionicons name="play-skip-back" size={18} color="#fff" />
               </Pressable>
-              <Pressable onPress={() => setControls(false)} style={({ focused }: any) => [styles.pauseControl, focused && styles.focused]}>
-                <Ionicons name="pause" size={19} color="#fff" />
+              <Pressable
+                accessibilityLabel="Hide player controls"
+                onPress={() => {
+                  controlsRef.current = false;
+                  setControls(false);
+                  setChannelsOpen(false);
+                }}
+                style={({ focused }: any) => [styles.pauseControl, focused && styles.focused]}
+              >
+                <Ionicons name="eye-off-outline" size={18} color="#fff" />
               </Pressable>
               <Pressable onPress={() => stepChannel(1)} style={({ focused }: any) => [styles.iconControl, focused && styles.focused]}>
                 <Ionicons name="play-skip-forward" size={18} color="#fff" />
