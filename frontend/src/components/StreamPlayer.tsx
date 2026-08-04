@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, UIManager, StyleProp, ViewStyle } from "react-native";
 import { VideoView, useVideoPlayer } from "expo-video";
 
@@ -57,6 +57,24 @@ function recordStablePlayback(engine: Engine, uri: string): void {
   failureStateByKey.set(key, state);
 }
 
+function useStatusTracker(onStatus: (status: StreamStatus) => void, resetKey: string) {
+  const lastRef = useRef<StreamStatus | null>(null);
+
+  useEffect(() => {
+    lastRef.current = null;
+  }, [resetKey]);
+
+  return useCallback((status: StreamStatus) => {
+    if (lastRef.current === status) return;
+    lastRef.current = status;
+    try {
+      onStatus(status);
+    } catch (error) {
+      console.warn("CharmIPTV stream status listener failed", error);
+    }
+  }, [onStatus]);
+}
+
 function detectStreamKind(uri: string): StreamKind {
   const lower = uri.toLowerCase();
   const protocol = lower.split(":", 1)[0];
@@ -87,8 +105,6 @@ function parsePipeHeaders(rawUri: string): { uri: string; headers: Record<string
 }
 
 function preferredEngine(kind: StreamKind): Engine {
-  // Media3 is highly efficient for standard adaptive/progressive HTTP playback.
-  // VLC remains first choice for transport streams and non-HTTP protocols.
   if (kind === "hls" || kind === "dash" || kind === "progressive") return "media3";
   return "vlc";
 }
@@ -108,7 +124,7 @@ type Props = {
 
 type EngineProps = Props & { engine: Engine };
 
-function useCircuitCooldown(engine: Engine, uri: string, onStatus: (s: StreamStatus) => void) {
+function useCircuitCooldown(engine: Engine, uri: string, setStatus: (s: StreamStatus) => void) {
   const [blocked, setBlocked] = useState(() => isCircuitOpen(engine, uri));
 
   useEffect(() => {
@@ -124,25 +140,43 @@ function useCircuitCooldown(engine: Engine, uri: string, onStatus: (s: StreamSta
 
     if (remaining <= 0) {
       setBlocked(false);
-      onStatus("error");
+      setStatus("error");
       return;
     }
 
-    onStatus("loading");
+    setStatus("loading");
     const timer = setTimeout(() => {
       setBlocked(false);
-      onStatus("error");
+      setStatus("error");
     }, remaining + 25);
     return () => clearTimeout(timer);
-  }, [blocked, engine, onStatus, uri]);
+  }, [blocked, engine, setStatus, uri]);
 
   return { blocked, setBlocked };
 }
 
-function VlcStream({ uri: rawUri, onStatus, style, engine }: EngineProps) {
+function VlcStream({ uri: rawUri, onStatus: setStatus, style, engine }: EngineProps) {
   const activeRef = useRef(true);
   const { uri, headers } = useMemo(() => parsePipeHeaders(rawUri), [rawUri]);
-  const { blocked, setBlocked } = useCircuitCooldown(engine, uri, onStatus);
+  const { blocked, setBlocked } = useCircuitCooldown(engine, uri, setStatus);
+  const referer = headers.Referer || headers.referer;
+  const origin = headers.Origin || headers.origin;
+  const userAgent = headers["User-Agent"] || headers["user-agent"] || USER_AGENT;
+  const initOptions = useMemo(() => {
+    const options = [
+      "--network-caching=1400",
+      "--live-caching=1400",
+      "--file-caching=900",
+      "--clock-jitter=0",
+      "--clock-synchro=0",
+      "--http-reconnect",
+      "--adaptive-logic=rate",
+      `--http-user-agent=${userAgent}`,
+    ];
+    if (referer) options.push(`--http-referrer=${referer}`);
+    if (origin) options.push(`--http-origin=${origin}`);
+    return options;
+  }, [origin, referer, userAgent]);
 
   useEffect(() => {
     activeRef.current = true;
@@ -151,34 +185,18 @@ function VlcStream({ uri: rawUri, onStatus, style, engine }: EngineProps) {
     };
   }, []);
 
-  if (blocked || !VLCPlayer) return null;
-
-  const fail = () => {
+  const fail = useCallback(() => {
     if (!activeRef.current) return;
     recordFailure(engine, uri);
     if (isCircuitOpen(engine, uri)) {
       setBlocked(true);
-      onStatus("loading");
+      setStatus("loading");
     } else {
-      onStatus("error");
+      setStatus("error");
     }
-  };
+  }, [engine, setBlocked, setStatus, uri]);
 
-  const referer = headers.Referer || headers.referer;
-  const origin = headers.Origin || headers.origin;
-  const userAgent = headers["User-Agent"] || headers["user-agent"] || USER_AGENT;
-  const initOptions = [
-    "--network-caching=1400",
-    "--live-caching=1400",
-    "--file-caching=900",
-    "--clock-jitter=0",
-    "--clock-synchro=0",
-    "--http-reconnect",
-    "--adaptive-logic=rate",
-    `--http-user-agent=${userAgent}`,
-  ];
-  if (referer) initOptions.push(`--http-referrer=${referer}`);
-  if (origin) initOptions.push(`--http-origin=${origin}`);
+  if (blocked || !VLCPlayer) return null;
 
   return (
     <VLCPlayer
@@ -188,12 +206,12 @@ function VlcStream({ uri: rawUri, onStatus, style, engine }: EngineProps) {
       autoAspectRatio
       resizeMode="contain"
       acceptInvalidCertificates
-      onOpen={() => activeRef.current && onStatus("loading")}
-      onBuffering={() => activeRef.current && onStatus("loading")}
+      onOpen={() => activeRef.current && setStatus("loading")}
+      onBuffering={() => activeRef.current && setStatus("loading")}
       onPlaying={() => {
         if (!activeRef.current) return;
         recordStablePlayback(engine, uri);
-        onStatus("playing");
+        setStatus("playing");
       }}
       onError={fail}
       onStopped={fail}
@@ -201,11 +219,11 @@ function VlcStream({ uri: rawUri, onStatus, style, engine }: EngineProps) {
   );
 }
 
-function ExpoStream({ uri: rawUri, onStatus, style, engine }: EngineProps) {
+function ExpoStream({ uri: rawUri, onStatus: setStatus, style, engine }: EngineProps) {
   const mountedRef = useRef(true);
   const { uri, headers } = useMemo(() => parsePipeHeaders(rawUri), [rawUri]);
   const kind = useMemo(() => detectStreamKind(uri), [uri]);
-  const { blocked, setBlocked } = useCircuitCooldown(engine, uri, onStatus);
+  const { blocked, setBlocked } = useCircuitCooldown(engine, uri, setStatus);
   const player = useVideoPlayer(null, (p) => {
     p.loop = false;
   });
@@ -224,7 +242,7 @@ function ExpoStream({ uri: rawUri, onStatus, style, engine }: EngineProps) {
     if (!uri || blocked) return;
 
     let cancelled = false;
-    onStatus("loading");
+    setStatus("loading");
     (async () => {
       try {
         const contentType = kind === "hls" ? "hls" : kind === "dash" ? "dash" : "progressive";
@@ -235,9 +253,9 @@ function ExpoStream({ uri: rawUri, onStatus, style, engine }: EngineProps) {
           recordFailure(engine, uri);
           if (isCircuitOpen(engine, uri)) {
             setBlocked(true);
-            onStatus("loading");
+            setStatus("loading");
           } else {
-            onStatus("error");
+            setStatus("error");
           }
         }
       }
@@ -249,28 +267,28 @@ function ExpoStream({ uri: rawUri, onStatus, style, engine }: EngineProps) {
         player.pause();
       } catch {}
     };
-  }, [blocked, engine, headers, kind, onStatus, player, setBlocked, uri]);
+  }, [blocked, engine, headers, kind, player, setBlocked, setStatus, uri]);
 
   useEffect(() => {
     const sub = player.addListener("statusChange", ({ status, error }) => {
       if (!mountedRef.current || blocked) return;
       if (status === "readyToPlay") {
         recordStablePlayback(engine, uri);
-        onStatus("playing");
+        setStatus("playing");
       } else if (status === "loading") {
-        onStatus("loading");
+        setStatus("loading");
       } else if (error || status === "error") {
         recordFailure(engine, uri);
         if (isCircuitOpen(engine, uri)) {
           setBlocked(true);
-          onStatus("loading");
+          setStatus("loading");
         } else {
-          onStatus("error");
+          setStatus("error");
         }
       }
     });
     return () => sub.remove();
-  }, [blocked, engine, onStatus, player, setBlocked, uri]);
+  }, [blocked, engine, player, setBlocked, setStatus, uri]);
 
   if (blocked) return null;
 
@@ -286,6 +304,7 @@ function ExpoStream({ uri: rawUri, onStatus, style, engine }: EngineProps) {
 }
 
 export function StreamPlayer({ uri, onStatus, style }: Props) {
+  const setStatus = useStatusTracker(onStatus, uri);
   const cleanUri = useMemo(() => parsePipeHeaders(uri).uri, [uri]);
   const kind = useMemo(() => detectStreamKind(cleanUri), [cleanUri]);
   const initialEngine = useMemo(() => {
@@ -300,8 +319,8 @@ export function StreamPlayer({ uri, onStatus, style }: Props) {
     stableRef.current = false;
     setFallbackUsed(false);
     setEngine(initialEngine);
-    onStatus("loading");
-  }, [initialEngine, onStatus, uri]);
+    setStatus("loading");
+  }, [initialEngine, setStatus, uri]);
 
   useEffect(() => {
     if (stableRef.current) return;
@@ -309,20 +328,20 @@ export function StreamPlayer({ uri, onStatus, style }: Props) {
       if (stableRef.current || fallbackUsed) return;
       const alternate: Engine = engine === "vlc" ? "media3" : "vlc";
       if (alternate === "vlc" && !vlcAvailable) {
-        onStatus("error");
+        setStatus("error");
         return;
       }
       setFallbackUsed(true);
       setEngine(alternate);
-      onStatus("loading");
+      setStatus("loading");
     }, ENGINE_START_TIMEOUT_MS);
     return () => clearTimeout(timer);
-  }, [engine, fallbackUsed, onStatus, uri]);
+  }, [engine, fallbackUsed, setStatus, uri]);
 
-  const handleStatus = (status: StreamStatus) => {
+  const handleStatus = useCallback((status: StreamStatus) => {
     if (status === "playing") {
       stableRef.current = true;
-      onStatus("playing");
+      setStatus("playing");
       return;
     }
     if (status === "error" && !fallbackUsed) {
@@ -330,12 +349,12 @@ export function StreamPlayer({ uri, onStatus, style }: Props) {
       if (alternate !== "vlc" || vlcAvailable) {
         setFallbackUsed(true);
         setEngine(alternate);
-        onStatus("loading");
+        setStatus("loading");
         return;
       }
     }
-    onStatus(status);
-  };
+    setStatus(status);
+  }, [engine, fallbackUsed, setStatus]);
 
   if (engine === "vlc") {
     return <VlcStream key={`vlc:${uri}`} uri={uri} onStatus={handleStatus} style={style} engine="vlc" />;
