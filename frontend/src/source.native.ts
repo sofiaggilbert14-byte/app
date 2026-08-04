@@ -1,4 +1,3 @@
-
 import dayjs from "dayjs";
 import * as FileSystem from "expo-file-system/legacy";
 import type { Channel, GuideResponse, SourceStatus } from "@/src/api";
@@ -16,6 +15,7 @@ export const SOURCE_EPG =
   process.env.EXPO_PUBLIC_EPG_URL || "http://m3u4u.com/epg/jwmzn1grpmu99585n721";
 
 const TTL_MS = 24 * 60 * 60 * 1000;
+const PROGRESS_THROTTLE_MS = 150;
 const CACHE_ROOT = FileSystem.documentDirectory || "";
 const CHANNEL_CACHE = CACHE_ROOT ? `${CACHE_ROOT}charm_native_channels_v1.json` : "";
 const CHANNEL_CACHE_TMP = CHANNEL_CACHE ? `${CHANNEL_CACHE}.tmp` : "";
@@ -33,6 +33,7 @@ let MEM: NativeMeta | null = null;
 let refreshPromise: Promise<NativeMeta> | null = null;
 let lastSourceError: string | null = null;
 const listeners = new Set<() => void>();
+let sourceEmitScheduled = false;
 
 export type LoadPhase = "idle" | "channels" | "downloading" | "decompressing" | "parsing" | "indexing" | "caching" | "ready" | "error";
 export type EpgProgress = {
@@ -43,30 +44,71 @@ export type EpgProgress = {
 
 let progress: EpgProgress = { phase: "idle", ratio: 0, etaSeconds: null };
 const progressListeners = new Set<(value: EpgProgress) => void>();
+let lastProgressEmit = 0;
+let progressTimer: ReturnType<typeof setTimeout> | null = null;
+
+function notifyProgress(snapshot: EpgProgress): void {
+  lastProgressEmit = Date.now();
+  for (const listener of Array.from(progressListeners)) {
+    if (!progressListeners.has(listener)) continue;
+    try {
+      listener(snapshot);
+    } catch (error) {
+      console.warn("CharmIPTV progress listener failed", error);
+    }
+  }
+}
 
 export function subscribeProgress(listener: (value: EpgProgress) => void): () => void {
   progressListeners.add(listener);
-  listener(progress);
+  try {
+    listener(progress);
+  } catch (error) {
+    console.warn("CharmIPTV initial progress listener failed", error);
+  }
   return () => {
     progressListeners.delete(listener);
   };
 }
 
-function setProgress(next: EpgProgress): void {
-  progress = next;
-  for (const listener of progressListeners) {
-    try {
-      listener(progress);
-    } catch {}
+function setProgress(next: Partial<EpgProgress>, force = false): void {
+  const previousPhase = progress.phase;
+  progress = { ...progress, ...next };
+  const phaseChanged = progress.phase !== previousPhase;
+  const terminal = progress.phase === "ready" || progress.phase === "error" || progress.ratio >= 1;
+  const elapsed = Date.now() - lastProgressEmit;
+
+  if (progressTimer) {
+    clearTimeout(progressTimer);
+    progressTimer = null;
   }
+
+  if (force || phaseChanged || terminal || elapsed >= PROGRESS_THROTTLE_MS) {
+    notifyProgress(progress);
+    return;
+  }
+
+  // Keep one trailing update so progress never appears stuck when a burst ends.
+  progressTimer = setTimeout(() => {
+    progressTimer = null;
+    notifyProgress(progress);
+  }, Math.max(1, PROGRESS_THROTTLE_MS - elapsed));
 }
 
-function emit() {
-  for (const listener of listeners) {
-    try {
-      listener();
-    } catch {}
-  }
+function emit(): void {
+  if (sourceEmitScheduled) return;
+  sourceEmitScheduled = true;
+  queueMicrotask(() => {
+    sourceEmitScheduled = false;
+    for (const listener of Array.from(listeners)) {
+      if (!listeners.has(listener)) continue;
+      try {
+        listener();
+      } catch (error) {
+        console.warn("CharmIPTV source listener failed", error);
+      }
+    }
+  });
 }
 
 export function subscribeSource(listener: () => void): () => void {
@@ -202,11 +244,9 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
     lastSourceError = null;
     let channels = cached?.channels || [];
     try {
-      setProgress({ phase: "channels", ratio: 0.05, etaSeconds: null });
+      setProgress({ phase: "channels", ratio: 0.05, etaSeconds: null }, true);
       channels = await fetchPlaylist();
       MEM = {
-        // A playlist fetch is not a successful guide refresh. Preserve the
-        // last-good EPG timestamp until the native EPG stage also succeeds.
         ts: cached?.ts || 0,
         channels,
         epgProgramCount: cached?.epgProgramCount || 0,
@@ -216,9 +256,9 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
       emit();
 
       if (!nativeEpgAvailable) throw new Error("Native EPG engine is unavailable in this Android build");
-      setProgress({ phase: "downloading", ratio: 0.2, etaSeconds: null });
+      setProgress({ phase: "downloading", ratio: 0.2, etaSeconds: null }, true);
       const epg = await refreshNativeEpg(https(SOURCE_EPG));
-      setProgress({ phase: "caching", ratio: 0.9, etaSeconds: null });
+      setProgress({ phase: "caching", ratio: 0.9, etaSeconds: null }, true);
       MEM = {
         ...MEM,
         ts: Date.now(),
@@ -227,12 +267,12 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
       };
       await persistMeta(MEM);
       emit();
-      setProgress({ phase: "ready", ratio: 1, etaSeconds: 0 });
+      setProgress({ phase: "ready", ratio: 1, etaSeconds: 0 }, true);
       return MEM;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Source refresh failed";
       lastSourceError = message;
-      setProgress({ phase: "error", ratio: 0, etaSeconds: null });
+      setProgress({ phase: "error", ratio: 0, etaSeconds: null }, true);
       if (MEM) {
         MEM = { ...MEM, epgError: message };
         await persistMeta(MEM).catch(() => undefined);
@@ -342,9 +382,12 @@ export async function sourceDiagnostics(): Promise<SourceDiagnostics> {
 export async function clearGuideCache(): Promise<void> {
   MEM = null;
   lastSourceError = null;
+  if (progressTimer) {
+    clearTimeout(progressTimer);
+    progressTimer = null;
+  }
   await clearNativeEpg();
   if (CHANNEL_CACHE) await FileSystem.deleteAsync(CHANNEL_CACHE, { idempotent: true }).catch(() => undefined);
   if (CHANNEL_CACHE_TMP) await FileSystem.deleteAsync(CHANNEL_CACHE_TMP, { idempotent: true }).catch(() => undefined);
   emit();
 }
-
