@@ -276,6 +276,28 @@ export default function GuideScreen() {
     setPreviewStatus("loading");
   }, [previewChannel?.id]);
 
+  // Arm the initial preview as soon as the guide has a usable channel. Previously
+  // preview playback only started after a focus event, which is why opening and
+  // backing out of the full player appeared to "fix" it. This effect also re-arms
+  // preview after returning to the guide while preserving delayed/off modes.
+  useEffect(() => {
+    if (previewFocusTimer.current) clearTimeout(previewFocusTimer.current);
+    if (!livePreviewEnabled || !previewChannel?.id || !previewChannel.url) {
+      setPreviewStreamChannelId(null);
+      return;
+    }
+
+    const channelId = previewChannel.id;
+    setPreviewStatus("loading");
+    previewFocusTimer.current = setTimeout(() => {
+      setPreviewStreamChannelId(channelId);
+    }, previewDelayMs);
+
+    return () => {
+      if (previewFocusTimer.current) clearTimeout(previewFocusTimer.current);
+    };
+  }, [livePreviewEnabled, previewChannel?.id, previewChannel?.url, previewDelayMs]);
+
   useTVEventHandler(
     React.useCallback(
       (event) => {

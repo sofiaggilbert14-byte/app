@@ -217,7 +217,8 @@ export function TimelineGrid({
                 data={preparedRows}
                 ref={listRef}
                 keyExtractor={(row) => row.channel.id}
-                drawDistance={Math.max(1200, ROW_H * 28)}
+                drawDistance={Math.max(720, ROW_H * 16)}
+                removeClippedSubviews
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingBottom: 120 }}
                 refreshControl={

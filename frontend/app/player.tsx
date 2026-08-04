@@ -10,6 +10,8 @@ import {
   StatusBar as RNStatusBar,
   BackHandler,
   useWindowDimensions,
+  Animated,
+  Easing,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -31,6 +33,53 @@ const STREAM_RETRY_MS = 3_000;
 const TV_OVERLAY_HIDE_MS = 8_000;
 const RED = "#E3222A";
 const RED_SOFT = "#FF5258";
+
+function AutoScrollProgramDescription({ text, activeKey }: { text: string; activeKey: string }) {
+  const translateY = useRef(new Animated.Value(0)).current;
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const [contentHeight, setContentHeight] = useState(0);
+
+  useEffect(() => {
+    translateY.stopAnimation();
+    translateY.setValue(0);
+    if (!text || !viewportHeight || contentHeight <= viewportHeight + 2) return;
+
+    const overflow = contentHeight - viewportHeight;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.delay(1100),
+        Animated.timing(translateY, {
+          toValue: -overflow,
+          duration: Math.max(4200, overflow * 95),
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }),
+        Animated.delay(900),
+        Animated.timing(translateY, { toValue: 0, duration: 0, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => {
+      loop.stop();
+      translateY.stopAnimation();
+    };
+  }, [activeKey, contentHeight, text, translateY, viewportHeight]);
+
+  if (!text) return null;
+  return (
+    <View
+      style={styles.programDescViewport}
+      onLayout={(event) => setViewportHeight(event.nativeEvent.layout.height)}
+    >
+      <Animated.Text
+        onLayout={(event) => setContentHeight(event.nativeEvent.layout.height)}
+        style={[styles.programDesc, { transform: [{ translateY }] }]}
+      >
+        {text}
+      </Animated.Text>
+    </View>
+  );
+}
 
 export default function PlayerScreen() {
   const insets = useSafeAreaInsets();
@@ -71,6 +120,7 @@ export default function PlayerScreen() {
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const switchNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const controlsRef = useRef(controls);
+  const tuneGenerationRef = useRef(0);
   // TVs use remote key events; phones rotate naturally without Phoenix forcing orientation.
   const isTV = Platform.OS !== "web" && Platform.isTV;
   const overlayHideMs = isTV ? Math.min(playerControlsTimeoutMs, TV_OVERLAY_HIDE_MS) : playerControlsTimeoutMs;
@@ -88,10 +138,13 @@ export default function PlayerScreen() {
 
   const retryStreamNow = useCallback(() => {
     if (retryTimer.current) clearTimeout(retryTimer.current);
+    const generation = tuneGenerationRef.current;
     setStatus("loading");
     setReconnectAttempt((n) => n + 1);
     showSwitchNotice(`Reconnecting ${channel?.name || "stream"}`);
-    setRetryToken((t) => t + 1);
+    requestAnimationFrame(() => {
+      if (generation === tuneGenerationRef.current) setRetryToken((t) => t + 1);
+    });
   }, [channel?.name, showSwitchNotice]);
 
   const changeChannel = useCallback((id: string, { haptic = false } = {}) => {
@@ -101,6 +154,7 @@ export default function PlayerScreen() {
     const c = channelById(id);
     if (!c) return;
     if (haptic) void Haptics.selectionAsync().catch(() => {});
+    tuneGenerationRef.current += 1;
     showSwitchNotice(`Switching to ${c.name}`);
     setStatus("loading");
     setReconnectAttempt(0);
@@ -220,6 +274,7 @@ export default function PlayerScreen() {
   const playerNow = new Date();
   const { current, next } = nowNext(channel?.programs, playerNow);
   const programProgress = current ? progressPct(current, playerNow) : 0;
+  const programDescriptionKey = `${channelId}:${current?.start || ""}:${current?.title || ""}`;
 
   return (
     <View style={styles.container}>
@@ -334,7 +389,7 @@ export default function PlayerScreen() {
                     {current ? `${fmtTime(current.start)} – ${current.stop ? fmtTime(current.stop) : "Live"}` : "Streaming now"}
                   </Text>
                 </View>
-                {!!current?.desc && <Text numberOfLines={2} style={styles.programDesc}>{current.desc}</Text>}
+                <AutoScrollProgramDescription text={current?.desc || ""} activeKey={programDescriptionKey} />
                 {!!current?.category && <Text numberOfLines={1} style={styles.programCategory}>{current.category}</Text>}
               </View>
               <View style={styles.panelChannelMark}>
@@ -462,27 +517,28 @@ const styles = StyleSheet.create({
   buildPillText: { color: RED_SOFT, fontFamily: fonts.bold, fontSize: 12, letterSpacing: 0.4 },
   bottomScrim: { position: "absolute", bottom: 0, left: 0, right: 0, paddingTop: 70, gap: spacing.sm },
   programPanel: {
-    minHeight: 168, borderRadius: 15, backgroundColor: "rgba(3,3,3,0.88)", borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.30)", flexDirection: "row", alignItems: "center", padding: spacing.md,
-    paddingBottom: spacing.lg, gap: spacing.md, overflow: "hidden",
+    minHeight: 88, maxHeight: 96, borderRadius: 12, backgroundColor: "rgba(3,3,3,0.88)", borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.30)", flexDirection: "row", alignItems: "center", paddingHorizontal: spacing.sm,
+    paddingTop: 6, paddingBottom: 13, gap: spacing.sm, overflow: "hidden",
   },
   programArt: {
-    width: 180, alignSelf: "stretch", minHeight: 118, borderRadius: radius.md, backgroundColor: "rgba(255,255,255,0.08)",
+    width: 92, alignSelf: "stretch", minHeight: 58, borderRadius: radius.sm, backgroundColor: "rgba(255,255,255,0.08)",
     alignItems: "center", justifyContent: "center",
   },
   programCopy: { flex: 1, minWidth: 0, alignSelf: "stretch", justifyContent: "center" },
-  programTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 28 },
-  programTimeRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: 7 },
+  programTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 17 },
+  programTimeRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 },
   livePill: { backgroundColor: RED, borderRadius: 4, paddingHorizontal: 8, paddingVertical: 3 },
   livePillText: { color: "#fff", fontFamily: fonts.bold, fontSize: 11 },
-  programTime: { color: "rgba(255,255,255,0.85)", fontFamily: fonts.medium, fontSize: 15 },
-  programDesc: { color: "rgba(255,255,255,0.92)", fontFamily: fonts.regular, fontSize: 15, lineHeight: 20, marginTop: 8 },
-  programCategory: { color: "rgba(255,255,255,0.58)", fontFamily: fonts.medium, fontSize: 13, marginTop: 7 },
+  programTime: { color: "rgba(255,255,255,0.85)", fontFamily: fonts.medium, fontSize: 11 },
+  programDescViewport: { height: 28, overflow: "hidden", marginTop: 3 },
+  programDesc: { color: "rgba(255,255,255,0.92)", fontFamily: fonts.regular, fontSize: 10.5, lineHeight: 14 },
+  programCategory: { color: "rgba(255,255,255,0.58)", fontFamily: fonts.medium, fontSize: 9.5, marginTop: 2 },
   panelChannelMark: {
-    width: 190, alignSelf: "stretch", borderLeftWidth: 1, borderLeftColor: "rgba(255,255,255,0.25)",
-    alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.md,
+    width: 116, alignSelf: "stretch", borderLeftWidth: 1, borderLeftColor: "rgba(255,255,255,0.25)",
+    alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.sm,
   },
-  panelChannelName: { color: "#fff", fontFamily: fonts.bold, fontSize: 23, textAlign: "center" },
+  panelChannelName: { color: "#fff", fontFamily: fonts.bold, fontSize: 13, textAlign: "center" },
   progressTrack: { position: "absolute", left: spacing.md, right: 78, bottom: 10, height: 5, borderRadius: 3, backgroundColor: "rgba(255,255,255,0.18)", overflow: "hidden" },
   progressFill: { height: "100%", backgroundColor: RED, borderRadius: 3 },
   liveEdge: { position: "absolute", right: spacing.md, bottom: 5, color: RED_SOFT, fontFamily: fonts.bold, fontSize: 12 },
