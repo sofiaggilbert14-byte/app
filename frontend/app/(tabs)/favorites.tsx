@@ -1,272 +1,132 @@
-import React from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView, useWindowDimensions } from "react-native";
+import React, { memo, useCallback, useMemo } from "react";
+import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import dayjs from "dayjs";
-import { colors, fonts, radius, spacing } from "@/src/theme";
-import { useStore } from "@/src/store";
-import { Channel } from "@/src/api";
+import { PurpleTvShell } from "@/src/components/PurpleTvShell";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
-import { nowNext } from "@/src/utils/time";
-import { useTvBackToGuide } from "@/src/hooks/use-tv-back-to-guide";
-import { getTvSafeInsets } from "@/src/utils/tvLayout";
+import { Channel } from "@/src/api";
+import { useStore } from "@/src/store";
+import { fonts, radius, tvColors } from "@/src/theme";
+import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
 
-function byChannelName(a: Channel, b: Channel): number {
-  return (a.name || "").localeCompare(b.name || "", undefined, {
-    numeric: true,
-    sensitivity: "base",
-  });
+function byName(a: Channel, b: Channel) {
+  return (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" });
 }
 
-function ChannelRow({
+const FavoriteRow = memo(function FavoriteRow({
   channel,
-  onPress,
-  right,
-  channelNumber,
-  showChannelLogos = true,
+  number,
+  logos,
+  onPlay,
+  onRemove,
 }: {
   channel: Channel;
-  onPress: () => void;
-  right?: React.ReactNode;
-  channelNumber?: number;
-  showChannelLogos?: boolean;
+  number: number;
+  logos: boolean;
+  onPlay: (channel: Channel) => void;
+  onRemove: (id: string) => void;
 }) {
-  const { current } = nowNext(channel.programs, new Date());
+  const now = new Date();
+  const current = nowNext(channel.programs, now).current;
+  const progress = current ? progressPct(current, now) : 0;
   return (
-    <Pressable
-      style={({ focused }: any) => [styles.row, focused && styles.rowFocused]}
-      onPress={onPress}
-      testID={`fav-row-${channel.id}`}
-    >
-      {channelNumber ? <Text style={styles.channelNumber}>{channelNumber}</Text> : null}
-      <ChannelLogo name={channel.name} logo={channel.logo} disabled={!showChannelLogos} size={44} />
-      <View style={{ flex: 1 }}>
-        <Text numberOfLines={1} style={styles.rowName}>{channel.name}</Text>
-        <Text numberOfLines={1} style={styles.rowSub}>
-          {current ? current.title : "No program info"}
-        </Text>
+    <Pressable onPress={() => onPlay(channel)} style={({ focused }: any) => [styles.row, focused && styles.focused]}>
+      <Text style={styles.number}>{number}</Text>
+      <ChannelLogo name={channel.name} logo={channel.logo} disabled={!logos} size={30} />
+      <Text numberOfLines={1} style={styles.name}>{channel.name}</Text>
+      <View style={styles.programBlock}>
+        <Text numberOfLines={1} style={styles.program}>{current?.title || "Live channel"}</Text>
+        <View style={styles.track}><View style={[styles.fill, { width: `${progress}%` }]} /></View>
       </View>
-      {right}
+      <Text style={styles.time}>{current ? `${fmtTime(current.start)}${current.stop ? ` - ${fmtTime(current.stop)}` : ""}` : "LIVE"}</Text>
+      <Pressable focusable={false} hitSlop={8} onPress={() => onRemove(channel.id)} style={styles.heart}>
+        <Ionicons name="heart" size={17} color={tvColors.purpleBright} />
+      </Pressable>
     </Pressable>
   );
-}
+});
 
 export default function FavoritesScreen() {
   const router = useRouter();
-  const { width, height } = useWindowDimensions();
-  const tvSafe = getTvSafeInsets(width, height);
-  const { channels, favorites, toggleFavorite, recent, reminders, removeReminder, addRecent, channelById, lastChannelId, channelNumbers, channelLogos } = useStore();
-  useTvBackToGuide();
+  const { channels, favorites, toggleFavorite, addRecent, channelLogos } = useStore();
+  const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
+  const items = useMemo(() => [...channels].filter((c) => favoriteSet.has(c.id)).sort(byName), [channels, favoriteSet]);
 
-  const favChannels = channels.filter((c) => favorites.includes(c.id)).sort(byChannelName);
-  const channelNumberById: Record<string, number> = {};
-  [...channels].sort(byChannelName).forEach((channel, index) => {
-    channelNumberById[channel.id] = index + 1;
-  });
-  const lastChannel = lastChannelId ? channelById(lastChannelId) : null;
-  const play = (c: Channel) => {
-    Haptics.selectionAsync();
-    addRecent(c);
-    router.push({ pathname: "/player", params: { channelId: c.id } });
-  };
-  const upcoming = [...reminders].sort((a, b) => a.start.localeCompare(b.start));
+  const play = useCallback((channel: Channel) => {
+    void Haptics.selectionAsync().catch(() => undefined);
+    addRecent(channel);
+    router.push({ pathname: "/player", params: { channelId: channel.id } });
+  }, [addRecent, router]);
+
+  const remove = useCallback((id: string) => {
+    void Haptics.selectionAsync().catch(() => undefined);
+    toggleFavorite(id);
+  }, [toggleFavorite]);
 
   return (
-    <View
-      style={[
-        styles.container,
-        {
-          paddingTop: spacing.md + tvSafe.top,
-          paddingLeft: tvSafe.left,
-          paddingRight: tvSafe.right,
-          paddingBottom: tvSafe.bottom,
-        },
-      ]}
-    >
-      <View style={styles.header}>
-        <Text style={styles.brand}>My Stuff</Text>
-        <Text style={styles.title}>Favorites</Text>
-      </View>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 130 }}>
-        {lastChannel && (
-          <>
-            <Text style={styles.section}>Continue Watching</Text>
-            <Pressable
-              style={({ focused }: any) => [styles.continueCard, focused && styles.rowFocused]}
-              onPress={() => play(lastChannel)}
-              testID="favorites-continue-watching"
-            >
-              <ChannelLogo name={lastChannel.name} logo={lastChannel.logo} disabled={!channelLogos} size={58} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.continueLabel}>Last channel</Text>
-                <Text numberOfLines={1} style={styles.continueName}>
-                  {channelNumbers ? `${channelNumberById[lastChannel.id] || ""} · ` : ""}{lastChannel.name}
-                </Text>
-                <Text numberOfLines={1} style={styles.rowSub}>
-                  {nowNext(lastChannel.programs, new Date()).current?.title || "Tap to resume playback"}
-                </Text>
-              </View>
-              <Ionicons name="play-circle" size={34} color={colors.brandSecondary} />
+    <PurpleTvShell active="/favorites">
+      <View style={styles.page}>
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.kicker}>MY CHANNELS</Text>
+            <Text style={styles.title}>All Favorites</Text>
+          </View>
+          <View style={styles.headerRight}>
+            <Text style={styles.count}>{items.length} favorites</Text>
+            <Ionicons name="search-outline" size={15} color={tvColors.textMuted} />
+          </View>
+        </View>
+
+        {items.length ? (
+          <FlatList
+            data={items}
+            keyExtractor={(item) => item.id}
+            initialNumToRender={12}
+            maxToRenderPerBatch={10}
+            windowSize={7}
+            contentContainerStyle={styles.list}
+            renderItem={({ item, index }) => (
+              <FavoriteRow channel={item} number={index + 1} logos={channelLogos} onPlay={play} onRemove={remove} />
+            )}
+          />
+        ) : (
+          <View style={styles.empty}>
+            <View style={styles.emptyIcon}><Ionicons name="heart-outline" size={28} color={tvColors.purpleSoft} /></View>
+            <Text style={styles.emptyTitle}>No favorites yet</Text>
+            <Text style={styles.emptyText}>Long-press a guide channel or use the heart button to add one.</Text>
+            <Pressable onPress={() => router.replace("/guide" as any)} style={({ focused }: any) => [styles.guideButton, focused && styles.focused]}>
+              <Text style={styles.guideText}>Open TV Guide</Text>
             </Pressable>
-          </>
-        )}
-
-        <Text style={styles.section}>Favorite Channels</Text>
-        {favChannels.length === 0 ? (
-          <View style={styles.empty}>
-            <Ionicons name="star-outline" size={34} color={colors.onSurfaceTertiary} />
-            <Text style={styles.emptyText}>Pin your favorite channels here</Text>
           </View>
-        ) : (
-          favChannels.map((c) => (
-            <ChannelRow
-              key={c.id}
-              channel={c}
-              onPress={() => play(c)}
-              channelNumber={channelNumbers ? channelNumberById[c.id] : undefined}
-              showChannelLogos={channelLogos}
-              right={
-                <Pressable hitSlop={8} onPress={() => toggleFavorite(c.id)} testID={`unfav-${c.id}`}>
-                  <Ionicons name="star" size={20} color={colors.warning} />
-                </Pressable>
-              }
-            />
-          ))
         )}
-
-        <Text style={styles.section}>Reminders</Text>
-        {upcoming.length === 0 ? (
-          <View style={styles.empty}>
-            <Ionicons name="notifications-outline" size={34} color={colors.onSurfaceTertiary} />
-            <Text style={styles.emptyText}>Set reminders from the guide to get alerts</Text>
-          </View>
-        ) : (
-          upcoming.map((r) => (
-            <View key={r.key} style={styles.reminderRow} testID={`reminder-${r.key}`}>
-              <View style={styles.bell}>
-                <Ionicons name="notifications" size={18} color={colors.brand} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text numberOfLines={1} style={styles.rowName}>{r.programTitle}</Text>
-                <Text style={styles.rowSub}>
-                  {r.channelName} · {dayjs(r.start).format("ddd h:mm A")}
-                </Text>
-              </View>
-              <Pressable
-                style={styles.switchBtn}
-                onPress={() => {
-                  const c = channelById(r.channelId);
-                  if (c) play(c);
-                }}
-                testID={`reminder-switch-${r.key}`}
-              >
-                <Ionicons name="play" size={14} color="#fff" />
-              </Pressable>
-              <Pressable hitSlop={8} onPress={() => removeReminder(r.key)} testID={`reminder-remove-${r.key}`}>
-                <Ionicons name="trash-outline" size={18} color={colors.onSurfaceTertiary} />
-              </Pressable>
-            </View>
-          ))
-        )}
-
-        <Text style={styles.section}>Recently Watched</Text>
-        {recent.length === 0 ? (
-          <View style={styles.empty}>
-            <Ionicons name="time-outline" size={34} color={colors.onSurfaceTertiary} />
-            <Text style={styles.emptyText}>Channels you watch will show up here</Text>
-          </View>
-        ) : (
-          recent.map((c) => {
-            const live = channelById(c.id) || c;
-            return <ChannelRow key={c.id} channel={live} onPress={() => play(live)} channelNumber={channelNumbers ? channelNumberById[live.id] : undefined} showChannelLogos={channelLogos} />;
-          })
-        )}
-      </ScrollView>
-    </View>
+      </View>
+    </PurpleTvShell>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.surface },
-  header: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.sm },
-  brand: { color: colors.brandSecondary, fontFamily: fonts.semibold, fontSize: 12 },
-  title: { color: colors.onSurface, fontFamily: fonts.display, fontSize: 28 },
-  section: {
-    color: colors.onSurface,
-    fontFamily: fonts.display,
-    fontSize: 18,
-    paddingHorizontal: spacing.lg,
-    marginTop: spacing.lg,
-    marginBottom: spacing.sm,
-  },
-  continueCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.lg,
-    marginHorizontal: spacing.lg,
-    marginBottom: spacing.sm,
-    backgroundColor: "#14141A",
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  continueLabel: {
-    color: colors.brandSecondary,
-    fontFamily: fonts.semibold,
-    fontSize: 11,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  continueName: { color: colors.onSurface, fontFamily: fonts.bold, fontSize: 17, marginTop: 2 },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    marginHorizontal: spacing.lg,
-    marginBottom: spacing.sm,
-    backgroundColor: colors.surfaceSecondary,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  rowName: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 14 },
-  channelNumber: { color: colors.brandSecondary, fontFamily: fonts.bold, fontSize: 13, minWidth: 34, textAlign: "right" },
-  rowSub: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 12, marginTop: 2 },
-  rowFocused: { borderColor: "#fff", borderWidth: 2, backgroundColor: "#2a121b" },
-  reminderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    marginHorizontal: spacing.lg,
-    marginBottom: spacing.sm,
-    backgroundColor: colors.surfaceSecondary,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  bell: {
-    width: 40,
-    height: 40,
-    borderRadius: radius.sm,
-    backgroundColor: colors.brandTertiary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  switchBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: radius.sm,
-    backgroundColor: colors.brand,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  empty: { alignItems: "center", gap: spacing.sm, paddingVertical: spacing.xl },
-  emptyText: { color: colors.onSurfaceTertiary, fontFamily: fonts.medium, fontSize: 13 },
+  page: { flex: 1, padding: 14 },
+  header: { minHeight: 50, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: tvColors.line },
+  kicker: { color: tvColors.purpleSoft, fontFamily: fonts.semibold, fontSize: 7.5, letterSpacing: 1 },
+  title: { color: "#fff", fontFamily: fonts.bold, fontSize: 18, marginTop: 2 },
+  headerRight: { flexDirection: "row", alignItems: "center", gap: 12 },
+  count: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 8.5 },
+  list: { paddingTop: 7, paddingBottom: 20 },
+  row: { minHeight: 56, flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 7, borderWidth: 2, borderColor: "transparent", borderBottomColor: tvColors.line, borderRadius: radius.sm },
+  focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
+  number: { width: 22, color: tvColors.textMuted, fontFamily: fonts.semibold, fontSize: 9, textAlign: "right" },
+  name: { width: 135, color: "#fff", fontFamily: fonts.semibold, fontSize: 10 },
+  programBlock: { flex: 1, minWidth: 0 },
+  program: { color: "rgba(255,255,255,0.9)", fontFamily: fonts.medium, fontSize: 9.5 },
+  track: { height: 2, backgroundColor: "rgba(255,255,255,0.10)", borderRadius: 1, overflow: "hidden", marginTop: 7 },
+  fill: { height: 2, backgroundColor: tvColors.purpleBright },
+  time: { width: 104, color: tvColors.textMuted, fontFamily: fonts.regular, fontSize: 7.5, textAlign: "right" },
+  heart: { width: 30, height: 30, alignItems: "center", justifyContent: "center" },
+  empty: { flex: 1, alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 40 },
+  emptyIcon: { width: 52, height: 52, borderRadius: 26, alignItems: "center", justifyContent: "center", backgroundColor: tvColors.purpleDeep },
+  emptyTitle: { color: "#fff", fontFamily: fonts.semibold, fontSize: 14 },
+  emptyText: { color: tvColors.textMuted, fontFamily: fonts.regular, fontSize: 9, textAlign: "center" },
+  guideButton: { minHeight: 32, justifyContent: "center", paddingHorizontal: 14, borderRadius: 5, backgroundColor: tvColors.purple, borderWidth: 2, borderColor: "transparent", marginTop: 4 },
+  guideText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 9 },
 });
