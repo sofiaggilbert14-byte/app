@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -14,11 +14,13 @@ const SIDES: { side: Side; label: string; hint: string }[] = [
   { side: "left", label: "Left edge", hint: "Move the app inward from the left side." },
   { side: "right", label: "Right edge", hint: "Move the app inward from the right side." },
   { side: "top", label: "Top edge", hint: "Move the app downward from the top." },
-  { side: "bottom", label: "Bottom edge", hint: "Move the app upward from the bottom." },
+  { side: "bottom", label: "Bottom edge", hint: "Move the app upward from the bottom edge." },
 ];
 
 export function TvCalibrationControls() {
-  const { calibration, setSide, reset } = useTvCalibration();
+  const { draftCalibration, setSide, save, reset, discard, hasChanges } = useTvCalibration();
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   if (!Platform.isTV) {
     return (
@@ -30,8 +32,21 @@ export function TvCalibrationControls() {
   }
 
   const adjust = (side: Side, delta: number) => {
+    setSaved(false);
     void Haptics.selectionAsync().catch(() => {});
-    setSide(side, Math.max(0, Math.min(TV_CALIBRATION_MAX_INSET, calibration[side] + delta)));
+    setSide(side, Math.max(0, Math.min(TV_CALIBRATION_MAX_INSET, draftCalibration[side] + delta)));
+  };
+
+  const applyChanges = async () => {
+    if (!hasChanges || saving) return;
+    setSaving(true);
+    try {
+      await save();
+      setSaved(true);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -40,11 +55,12 @@ export function TvCalibrationControls() {
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>TV screen fit / overscan</Text>
           <Text style={styles.hint}>
-            If menus or text are cut off by the TV bezel, increase the affected edge until the whole app fits on screen.
+            Adjust the edges, then choose Save & Apply. The app updates immediately without a restart.
           </Text>
         </View>
         <Pressable
           onPress={() => {
+            setSaved(false);
             void Haptics.selectionAsync().catch(() => {});
             reset();
           }}
@@ -52,7 +68,7 @@ export function TvCalibrationControls() {
           testID="settings-tv-calibration-reset"
         >
           <Ionicons name="refresh" size={17} color="#fff" />
-          <Text style={styles.resetText}>Reset</Text>
+          <Text style={styles.resetText}>Reset draft</Text>
         </Pressable>
       </View>
 
@@ -70,7 +86,7 @@ export function TvCalibrationControls() {
             >
               <Ionicons name="remove" size={20} color="#fff" />
             </Pressable>
-            <Text style={styles.value}>{calibration[side]} px</Text>
+            <Text style={styles.value}>{draftCalibration[side]} px</Text>
             <Pressable
               onPress={() => adjust(side, STEP)}
               style={({ focused }: any) => [styles.adjustButton, focused && styles.focused]}
@@ -81,6 +97,38 @@ export function TvCalibrationControls() {
           </View>
         </View>
       ))}
+
+      <View style={styles.actions}>
+        <Pressable
+          disabled={!hasChanges || saving}
+          onPress={() => {
+            setSaved(false);
+            discard();
+            void Haptics.selectionAsync().catch(() => {});
+          }}
+          style={({ focused }: any) => [
+            styles.secondaryButton,
+            (!hasChanges || saving) && styles.disabled,
+            focused && styles.focused,
+          ]}
+          testID="settings-tv-calibration-discard"
+        >
+          <Text style={styles.secondaryText}>Discard</Text>
+        </Pressable>
+        <Pressable
+          disabled={!hasChanges || saving}
+          onPress={() => void applyChanges()}
+          style={({ focused }: any) => [
+            styles.saveButton,
+            (!hasChanges || saving) && styles.disabled,
+            focused && styles.focused,
+          ]}
+          testID="settings-tv-calibration-save"
+        >
+          <Ionicons name={saved ? "checkmark-circle" : "save-outline"} size={18} color="#fff" />
+          <Text style={styles.saveText}>{saving ? "Saving…" : saved ? "Applied" : "Save & Apply"}</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -127,5 +175,31 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   resetText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 11 },
+  actions: { flexDirection: "row", justifyContent: "flex-end", gap: 8, marginTop: 4 },
+  secondaryButton: {
+    alignItems: "center",
+    borderColor: "rgba(255,255,255,0.25)",
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 36,
+    paddingHorizontal: 14,
+  },
+  secondaryText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 11 },
+  saveButton: {
+    alignItems: "center",
+    backgroundColor: RED,
+    borderColor: "rgba(255,255,255,0.25)",
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    justifyContent: "center",
+    minHeight: 36,
+    minWidth: 126,
+    paddingHorizontal: 14,
+  },
+  saveText: { color: "#fff", fontFamily: fonts.bold, fontSize: 11 },
+  disabled: { opacity: 0.45 },
   focused: { borderColor: "#fff", borderWidth: 2 },
 });
