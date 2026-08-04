@@ -4,6 +4,7 @@ import { VideoView, useVideoPlayer } from "expo-video";
 import { usePathname } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
 import { addTvKeyListener } from "@/src/utils/tvRemote";
+import { usePlayerEnginePreference } from "@/src/playerEnginePreference";
 
 export type StreamStatus = "loading" | "playing" | "error";
 
@@ -312,6 +313,8 @@ export function StreamPlayer({ uri, onStatus, style }: Props) {
   const isFocused = useIsFocused();
   const pathname = usePathname();
   const isGuidePreview = pathname === "/";
+  const [playerEnginePreference] = usePlayerEnginePreference();
+  const forceVlc = playerEnginePreference === "vlc" && vlcAvailable && !isGuidePreview;
   const [guideScanSettled, setGuideScanSettled] = useState(true);
   const lastDirectionalAt = useRef(0);
   const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -320,9 +323,10 @@ export function StreamPlayer({ uri, onStatus, style }: Props) {
   const cleanUri = useMemo(() => parsePipeHeaders(uri).uri, [uri]);
   const kind = useMemo(() => detectStreamKind(cleanUri), [cleanUri]);
   const initialEngine = useMemo(() => {
+    if (forceVlc) return "vlc" as Engine;
     const preferred = preferredEngine(kind);
     return preferred === "vlc" && !vlcAvailable ? "media3" : preferred;
-  }, [kind]);
+  }, [forceVlc, kind]);
   const [engine, setEngine] = useState<Engine>(initialEngine);
   const [fallbackUsed, setFallbackUsed] = useState(false);
   const stableRef = useRef(false);
@@ -362,7 +366,7 @@ export function StreamPlayer({ uri, onStatus, style }: Props) {
   }, [initialEngine, setStatus, uri]);
 
   useEffect(() => {
-    if (stableRef.current || !isFocused || !guideScanSettled) return;
+    if (forceVlc || stableRef.current || !isFocused || !guideScanSettled) return;
     const timer = setTimeout(() => {
       if (stableRef.current || fallbackUsed) return;
       const alternate: Engine = engine === "vlc" ? "media3" : "vlc";
@@ -375,7 +379,7 @@ export function StreamPlayer({ uri, onStatus, style }: Props) {
       setStatus("loading");
     }, ENGINE_START_TIMEOUT_MS);
     return () => clearTimeout(timer);
-  }, [engine, fallbackUsed, guideScanSettled, isFocused, setStatus, uri]);
+  }, [engine, fallbackUsed, forceVlc, guideScanSettled, isFocused, setStatus, uri]);
 
   const handleStatus = useCallback((status: StreamStatus) => {
     if (status === "playing") {
@@ -383,7 +387,7 @@ export function StreamPlayer({ uri, onStatus, style }: Props) {
       setStatus("playing");
       return;
     }
-    if (status === "error" && !fallbackUsed) {
+    if (status === "error" && !forceVlc && !fallbackUsed) {
       const alternate: Engine = engine === "vlc" ? "media3" : "vlc";
       if (alternate !== "vlc" || vlcAvailable) {
         setFallbackUsed(true);
@@ -393,7 +397,7 @@ export function StreamPlayer({ uri, onStatus, style }: Props) {
       }
     }
     setStatus(status);
-  }, [engine, fallbackUsed, setStatus]);
+  }, [engine, fallbackUsed, forceVlc, setStatus]);
 
   // The guide keeps its live preview feature, but during a held D-pad scan the
   // decoder is temporarily unmounted. It comes back automatically after the
