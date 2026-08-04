@@ -123,11 +123,24 @@ jobs:
         run: |
           PROBLEMS=android/build/reports/problems/problems-report.html
           if [ -f "$PROBLEMS" ]; then
-            echo "Problems report found, uploading..."
+            echo "Problems report found, copying..."
             mkdir -p ../artifacts
             cp "$PROBLEMS" ../artifacts/problems-report.html
           else
             echo "No problems report found"
+          fi
+
+      - name: Dump problems report to log
+        if: failure()
+        run: |
+          PROBLEMS=android/build/reports/problems/problems-report.html
+          if [ -f "$PROBLEMS" ]; then
+            echo "=== problems-report.html (first 400 lines) ==="
+            sed -n '1,400p' "$PROBLEMS" || true
+            echo "=== problems-report.html (lines 401-800) ==="
+            sed -n '401,800p' "$PROBLEMS" || true
+          else
+            echo "No problems report found at $PROBLEMS"
           fi
 
       - name: Upload debug artifacts
