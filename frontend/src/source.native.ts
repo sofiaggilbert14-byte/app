@@ -1,3 +1,6 @@
+Exit code: 0
+Wall time: 1.1 seconds
+Output:
 import dayjs from "dayjs";
 import * as FileSystem from "expo-file-system/legacy";
 import type { Channel, GuideResponse, SourceStatus } from "@/src/api";
@@ -32,6 +35,33 @@ let MEM: NativeMeta | null = null;
 let refreshPromise: Promise<NativeMeta> | null = null;
 let lastSourceError: string | null = null;
 const listeners = new Set<() => void>();
+
+export type LoadPhase = "idle" | "channels" | "downloading" | "decompressing" | "parsing" | "indexing" | "caching" | "ready" | "error";
+export type EpgProgress = {
+  phase: LoadPhase;
+  ratio: number;
+  etaSeconds: number | null;
+};
+
+let progress: EpgProgress = { phase: "idle", ratio: 0, etaSeconds: null };
+const progressListeners = new Set<(value: EpgProgress) => void>();
+
+export function subscribeProgress(listener: (value: EpgProgress) => void): () => void {
+  progressListeners.add(listener);
+  listener(progress);
+  return () => {
+    progressListeners.delete(listener);
+  };
+}
+
+function setProgress(next: EpgProgress): void {
+  progress = next;
+  for (const listener of progressListeners) {
+    try {
+      listener(progress);
+    } catch {}
+  }
+}
 
 function emit() {
   for (const listener of listeners) {
@@ -174,6 +204,7 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
     lastSourceError = null;
     let channels = cached?.channels || [];
     try {
+      setProgress({ phase: "channels", ratio: 0.05, etaSeconds: null });
       channels = await fetchPlaylist();
       MEM = {
         // A playlist fetch is not a successful guide refresh. Preserve the
@@ -187,7 +218,9 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
       emit();
 
       if (!nativeEpgAvailable) throw new Error("Native EPG engine is unavailable in this Android build");
+      setProgress({ phase: "downloading", ratio: 0.2, etaSeconds: null });
       const epg = await refreshNativeEpg(https(SOURCE_EPG));
+      setProgress({ phase: "caching", ratio: 0.9, etaSeconds: null });
       MEM = {
         ...MEM,
         ts: Date.now(),
@@ -196,10 +229,12 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
       };
       await persistMeta(MEM);
       emit();
+      setProgress({ phase: "ready", ratio: 1, etaSeconds: 0 });
       return MEM;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Source refresh failed";
       lastSourceError = message;
+      setProgress({ phase: "error", ratio: 0, etaSeconds: null });
       if (MEM) {
         MEM = { ...MEM, epgError: message };
         await persistMeta(MEM).catch(() => undefined);
@@ -314,3 +349,4 @@ export async function clearGuideCache(): Promise<void> {
   if (CHANNEL_CACHE_TMP) await FileSystem.deleteAsync(CHANNEL_CACHE_TMP, { idempotent: true }).catch(() => undefined);
   emit();
 }
+
