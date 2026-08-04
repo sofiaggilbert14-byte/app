@@ -17,7 +17,10 @@ export const SOURCE_EPG =
 const TTL_MS = 24 * 60 * 60 * 1000;
 const PROGRESS_THROTTLE_MS = 150;
 const CACHE_ROOT = FileSystem.documentDirectory || "";
-const CHANNEL_CACHE = CACHE_ROOT ? `${CACHE_ROOT}charm_native_channels_v1.json` : "";
+// Bump the channel metadata cache once so devices do not keep the previous
+// build's empty logo fields for 24 hours after XMLTV logo support is installed.
+const CHANNEL_CACHE = CACHE_ROOT ? `${CACHE_ROOT}charm_native_channels_v2.json` : "";
+const LEGACY_CHANNEL_CACHE = CACHE_ROOT ? `${CACHE_ROOT}charm_native_channels_v1.json` : "";
 const CHANNEL_CACHE_TMP = CHANNEL_CACHE ? `${CHANNEL_CACHE}.tmp` : "";
 const EXTINF_ATTR = /([a-zA-Z0-9-]+)="([^"]*)"/g;
 
@@ -88,7 +91,6 @@ function setProgress(next: Partial<EpgProgress>, force = false): void {
     return;
   }
 
-  // Keep one trailing update so progress never appears stuck when a burst ends.
   progressTimer = setTimeout(() => {
     progressTimer = null;
     notifyProgress(progress);
@@ -172,7 +174,9 @@ function parseM3U(text: string): Channel[] {
       id,
       tvg_id: tvgId,
       name,
-      logo: https((attrs["tvg-logo"] || "").trim()),
+      // Keep the original protocol. ChannelLogo owns protocol fallback so an
+      // HTTP-only logo server is not silently broken here.
+      logo: (attrs["tvg-logo"] || "").trim(),
       group: (attrs["group-title"] || "").trim(),
       url,
       stream_type: streamType(url),
@@ -183,12 +187,12 @@ function parseM3U(text: string): Channel[] {
   return sortChannels(channels);
 }
 
-async function readChannelCache(): Promise<NativeMeta | null> {
-  if (!CHANNEL_CACHE) return null;
+async function readMetaFile(path: string): Promise<NativeMeta | null> {
+  if (!path) return null;
   try {
-    const info = await FileSystem.getInfoAsync(CHANNEL_CACHE);
+    const info = await FileSystem.getInfoAsync(path);
     if (!info.exists) return null;
-    const parsed = JSON.parse(await FileSystem.readAsStringAsync(CHANNEL_CACHE)) as NativeMeta;
+    const parsed = JSON.parse(await FileSystem.readAsStringAsync(path)) as NativeMeta;
     if (!Array.isArray(parsed.channels) || !parsed.channels.length || !Number.isFinite(parsed.ts)) return null;
     return {
       ts: parsed.ts,
@@ -200,6 +204,10 @@ async function readChannelCache(): Promise<NativeMeta | null> {
   } catch {
     return null;
   }
+}
+
+async function readChannelCache(): Promise<NativeMeta | null> {
+  return readMetaFile(CHANNEL_CACHE);
 }
 
 async function persistMeta(meta: NativeMeta): Promise<void> {
@@ -229,6 +237,17 @@ async function ensureLoaded(): Promise<NativeMeta> {
     if (cached.ts <= 0) void refreshInternal(false);
     return cached;
   }
+
+  // Preserve instant startup from the old metadata cache, but mark it stale so
+  // this build immediately repopulates channel logos from XMLTV in background.
+  const legacy = await readMetaFile(LEGACY_CHANNEL_CACHE);
+  if (legacy) {
+    MEM = { ...legacy, ts: 0 };
+    await persistMeta(MEM).catch(() => undefined);
+    void refreshInternal(false);
+    return MEM;
+  }
+
   return refreshInternal(true);
 }
 
@@ -259,13 +278,26 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
       setProgress({ phase: "downloading", ratio: 0.2, etaSeconds: null }, true);
       const epg = await refreshNativeEpg(https(SOURCE_EPG));
       setProgress({ phase: "caching", ratio: 0.9, etaSeconds: null }, true);
+
+      const epgLogos = epg.channelLogos || {};
+      const channelsWithLogos = MEM.channels.map((channel) => {
+        const guideId = channel.tvg_id || channel.id;
+        const xmltvLogo = (epgLogos[guideId] || "").trim();
+        if (!xmltvLogo || xmltvLogo === channel.logo) return channel;
+        return { ...channel, logo: xmltvLogo };
+      });
+
       MEM = {
         ...MEM,
         ts: Date.now(),
+        channels: channelsWithLogos,
         epgProgramCount: Math.max(0, Math.round(epg.count || 0)),
         epgError: undefined,
       };
       await persistMeta(MEM);
+      if (LEGACY_CHANNEL_CACHE) {
+        void FileSystem.deleteAsync(LEGACY_CHANNEL_CACHE, { idempotent: true }).catch(() => undefined);
+      }
       emit();
       setProgress({ phase: "ready", ratio: 1, etaSeconds: 0 }, true);
       return MEM;
@@ -389,5 +421,6 @@ export async function clearGuideCache(): Promise<void> {
   await clearNativeEpg();
   if (CHANNEL_CACHE) await FileSystem.deleteAsync(CHANNEL_CACHE, { idempotent: true }).catch(() => undefined);
   if (CHANNEL_CACHE_TMP) await FileSystem.deleteAsync(CHANNEL_CACHE_TMP, { idempotent: true }).catch(() => undefined);
+  if (LEGACY_CHANNEL_CACHE) await FileSystem.deleteAsync(LEGACY_CHANNEL_CACHE, { idempotent: true }).catch(() => undefined);
   emit();
 }
