@@ -1,10 +1,11 @@
 import React from "react";
-import { View, Text, StyleSheet } from "react-native";
+import { Platform, View, Text, StyleSheet } from "react-native";
 import { Image } from "expo-image";
 import { colors, fonts, radius } from "@/src/theme";
 
 const MAX_CONCURRENT_IMAGE_LOADS = 4;
 const MAX_URI_HISTORY = 1000;
+const LOAD_SLOT_TIMEOUT_MS = 8000;
 
 type QueueEntry = {
   cancelled: boolean;
@@ -58,8 +59,27 @@ function initials(name: string): string {
   return (parts[0][0] + parts[1][0]).toUpperCase();
 }
 
-function isRemoteLogo(uri?: string): uri is string {
-  return !!uri && (uri.startsWith("https://") || uri.startsWith("http://"));
+function logoCandidates(uri?: string): string[] {
+  const value = (uri || "").trim();
+  if (!value) return [];
+
+  if (value.startsWith("//")) {
+    return Platform.OS === "web"
+      ? [`https:${value}`]
+      : [`https:${value}`, `http:${value}`];
+  }
+
+  if (value.startsWith("http://")) {
+    const secure = `https://${value.slice(7)}`;
+    return Platform.OS === "web" ? [secure, value] : [value, secure];
+  }
+
+  if (value.startsWith("https://")) {
+    if (Platform.OS === "web") return [value];
+    return [value, `http://${value.slice(8)}`];
+  }
+
+  return [];
 }
 
 function ChannelLogoComponent({
@@ -73,26 +93,49 @@ function ChannelLogoComponent({
   size?: number;
   disabled?: boolean;
 }) {
-  const [failed, setFailed] = React.useState(false);
+  const candidates = React.useMemo(() => logoCandidates(logo), [logo]);
+  const [attemptIndex, setAttemptIndex] = React.useState(0);
   const [allowedToLoad, setAllowedToLoad] = React.useState(false);
   const slotHeldRef = React.useRef(false);
+  const slotTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  React.useEffect(() => {
-    setFailed(false);
-    setAllowedToLoad(false);
+  const currentUri = candidates[attemptIndex];
+  const hasCandidate = !disabled && !!currentUri;
+
+  const releaseIfHeld = React.useCallback(() => {
+    if (slotTimerRef.current) {
+      clearTimeout(slotTimerRef.current);
+      slotTimerRef.current = null;
+    }
+    if (!slotHeldRef.current) return;
     slotHeldRef.current = false;
-  }, [logo]);
-
-  const validLogo = !disabled && isRemoteLogo(logo) && !failed && !failedUris.has(logo);
+    releaseLoadSlot();
+  }, []);
 
   React.useEffect(() => {
-    if (!validLogo || !logo) return;
+    setAttemptIndex(0);
+    setAllowedToLoad(false);
+    releaseIfHeld();
+  }, [logo, disabled, releaseIfHeld]);
 
-    if (succeededUris.has(logo)) {
+  React.useEffect(() => {
+    if (!hasCandidate || !currentUri) return;
+
+    // A URI that already failed during this app session should not consume one
+    // of the four network slots again. Move to its protocol fallback instead.
+    if (failedUris.has(currentUri)) {
+      if (attemptIndex + 1 < candidates.length) {
+        setAttemptIndex((value) => value + 1);
+      }
+      return;
+    }
+
+    if (succeededUris.has(currentUri)) {
       setAllowedToLoad(true);
       return;
     }
 
+    setAllowedToLoad(false);
     let mounted = true;
     const cancelQueuedRequest = requestLoadSlot(() => {
       if (!mounted) {
@@ -101,39 +144,47 @@ function ChannelLogoComponent({
       }
       slotHeldRef.current = true;
       setAllowedToLoad(true);
+
+      // A server that accepts the connection but never finishes must not block
+      // every logo behind it. Retire only this slot/candidate and let the queue
+      // continue; FlashList stays responsive and memory remains bounded.
+      slotTimerRef.current = setTimeout(() => {
+        if (!mounted) return;
+        releaseIfHeld();
+        setAllowedToLoad(false);
+        if (attemptIndex + 1 < candidates.length) {
+          setAttemptIndex((value) => value + 1);
+        }
+      }, LOAD_SLOT_TIMEOUT_MS);
     });
 
     return () => {
       mounted = false;
       cancelQueuedRequest();
-      if (slotHeldRef.current) {
-        slotHeldRef.current = false;
-        releaseLoadSlot();
-      }
+      releaseIfHeld();
     };
-  }, [logo, validLogo]);
+  }, [attemptIndex, candidates, currentUri, hasCandidate, releaseIfHeld]);
 
-  const releaseIfHeld = React.useCallback(() => {
-    if (!slotHeldRef.current) return;
-    slotHeldRef.current = false;
-    releaseLoadSlot();
-  }, []);
-
-  if (validLogo && allowedToLoad && logo) {
+  if (hasCandidate && allowedToLoad && currentUri) {
     return (
       <Image
-        source={{ uri: logo }}
+        source={{ uri: currentUri }}
         style={{ width: size, height: size, borderRadius: radius.sm }}
         contentFit="contain"
         cachePolicy="disk"
-        recyclingKey={logo}
+        recyclingKey={currentUri}
         transition={0}
-        onLoad={() => remember(succeededUris, successOrder, logo)}
+        onLoad={() => {
+          remember(succeededUris, successOrder, currentUri);
+        }}
         onLoadEnd={releaseIfHeld}
         onError={() => {
-          remember(failedUris, failureOrder, logo);
-          setFailed(true);
+          remember(failedUris, failureOrder, currentUri);
           releaseIfHeld();
+          setAllowedToLoad(false);
+          if (attemptIndex + 1 < candidates.length) {
+            setAttemptIndex((value) => value + 1);
+          }
         }}
       />
     );
