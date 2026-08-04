@@ -17,8 +17,6 @@ export const SOURCE_EPG =
 const TTL_MS = 24 * 60 * 60 * 1000;
 const PROGRESS_THROTTLE_MS = 150;
 const CACHE_ROOT = FileSystem.documentDirectory || "";
-// Bump the channel metadata cache once so devices do not keep the previous
-// build's empty logo fields for 24 hours after XMLTV logo support is installed.
 const CHANNEL_CACHE = CACHE_ROOT ? `${CACHE_ROOT}charm_native_channels_v2.json` : "";
 const LEGACY_CHANNEL_CACHE = CACHE_ROOT ? `${CACHE_ROOT}charm_native_channels_v1.json` : "";
 const CHANNEL_CACHE_TMP = CHANNEL_CACHE ? `${CHANNEL_CACHE}.tmp` : "";
@@ -129,6 +127,10 @@ function streamType(url: string): string {
   return "unknown";
 }
 
+function normalizeGuideKey(value: string | undefined): string {
+  return (value || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
 function sortChannels(channels: Channel[]): Channel[] {
   return [...channels].sort((a, b) =>
     (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" }),
@@ -174,8 +176,6 @@ function parseM3U(text: string): Channel[] {
       id,
       tvg_id: tvgId,
       name,
-      // Keep the original protocol. ChannelLogo owns protocol fallback so an
-      // HTTP-only logo server is not silently broken here.
       logo: (attrs["tvg-logo"] || "").trim(),
       group: (attrs["group-title"] || "").trim(),
       url,
@@ -238,8 +238,6 @@ async function ensureLoaded(): Promise<NativeMeta> {
     return cached;
   }
 
-  // Preserve instant startup from the old metadata cache, but mark it stale so
-  // this build immediately repopulates channel logos from XMLTV in background.
   const legacy = await readMetaFile(LEGACY_CHANNEL_CACHE);
   if (legacy) {
     MEM = { ...legacy, ts: 0 };
@@ -280,18 +278,59 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
       setProgress({ phase: "caching", ratio: 0.9, etaSeconds: null }, true);
 
       const epgLogos = epg.channelLogos || {};
-      const channelsWithLogos = MEM.channels.map((channel) => {
-        const guideId = channel.tvg_id || channel.id;
-        const xmltvLogo = (epgLogos[guideId] || "").trim();
-        if (!xmltvLogo || xmltvLogo === channel.logo) return channel;
-        return { ...channel, logo: xmltvLogo };
+      const epgNames = epg.channelNames || {};
+      const idsWithPrograms = new Set(epg.channelIdsWithPrograms || []);
+      const xmltvIdByNormalizedId = new Map<string, string>();
+      const xmltvIdByNormalizedName = new Map<string, string>();
+
+      for (const id of new Set([...Object.keys(epgLogos), ...Object.keys(epgNames), ...idsWithPrograms])) {
+        const key = normalizeGuideKey(id);
+        if (key && !xmltvIdByNormalizedId.has(key)) xmltvIdByNormalizedId.set(key, id);
+      }
+      for (const [id, name] of Object.entries(epgNames)) {
+        const key = normalizeGuideKey(name);
+        if (key && !xmltvIdByNormalizedName.has(key)) xmltvIdByNormalizedName.set(key, id);
+      }
+
+      let matchedChannels = 0;
+      const matchedChannelsWithLogos = MEM.channels.map((channel) => {
+        const tvgId = channel.tvg_id || "";
+        const exactProgramId = idsWithPrograms.has(tvgId)
+          ? tvgId
+          : idsWithPrograms.has(channel.id)
+            ? channel.id
+            : "";
+        const normalizedIdMatch =
+          xmltvIdByNormalizedId.get(normalizeGuideKey(tvgId)) ||
+          xmltvIdByNormalizedId.get(normalizeGuideKey(channel.id)) ||
+          "";
+        const nameMatch = xmltvIdByNormalizedName.get(normalizeGuideKey(channel.name)) || "";
+
+        const sourceId =
+          exactProgramId ||
+          (normalizedIdMatch && idsWithPrograms.has(normalizedIdMatch) ? normalizedIdMatch : "") ||
+          (nameMatch && idsWithPrograms.has(nameMatch) ? nameMatch : "");
+        const logoId =
+          (epgLogos[tvgId] ? tvgId : "") ||
+          (epgLogos[channel.id] ? channel.id : "") ||
+          (normalizedIdMatch && epgLogos[normalizedIdMatch] ? normalizedIdMatch : "") ||
+          (nameMatch && epgLogos[nameMatch] ? nameMatch : "");
+
+        if (sourceId) matchedChannels++;
+        const xmltvLogo = logoId ? (epgLogos[logoId] || "").trim() : "";
+        const nextLogo = xmltvLogo || channel.logo || "";
+        const nextGuideId = sourceId || channel.tvg_id;
+
+        if (nextLogo === channel.logo && nextGuideId === channel.tvg_id) return channel;
+        return { ...channel, tvg_id: nextGuideId, logo: nextLogo };
       });
 
       MEM = {
         ...MEM,
         ts: Date.now(),
-        channels: channelsWithLogos,
+        channels: matchedChannelsWithLogos,
         epgProgramCount: Math.max(0, Math.round(epg.count || 0)),
+        epgChannelCount: matchedChannels,
         epgError: undefined,
       };
       await persistMeta(MEM);
