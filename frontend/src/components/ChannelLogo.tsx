@@ -176,6 +176,9 @@ function ChannelLogoComponent({
         transition={0}
         onLoad={() => {
           remember(succeededUris, successOrder, currentUri);
+          // Once decode succeeds, the expensive network/decode slot is free.
+          // onLoadEnd remains below as an idempotent safety fallback.
+          releaseIfHeld();
         }}
         onLoadEnd={releaseIfHeld}
         onError={() => {
