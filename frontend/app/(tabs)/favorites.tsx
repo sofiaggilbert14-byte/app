@@ -8,9 +8,11 @@ import { colors, fonts, radius, spacing } from "@/src/theme";
 import { useStore } from "@/src/store";
 import { Channel } from "@/src/api";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
-import { nowNext } from "@/src/utils/time";
+import { nowNext, progressPct } from "@/src/utils/time";
 import { useTvBackToGuide } from "@/src/hooks/use-tv-back-to-guide";
 import { getTvSafeInsets } from "@/src/utils/tvLayout";
+
+const FAVORITE_GAP = spacing.sm;
 
 function byChannelName(a: Channel, b: Channel): number {
   return (a.name || "").localeCompare(b.name || "", undefined, {
@@ -22,13 +24,11 @@ function byChannelName(a: Channel, b: Channel): number {
 function ChannelRow({
   channel,
   onPress,
-  right,
   channelNumber,
   showChannelLogos = true,
 }: {
   channel: Channel;
   onPress: () => void;
-  right?: React.ReactNode;
   channelNumber?: number;
   showChannelLogos?: boolean;
 }) {
@@ -47,7 +47,57 @@ function ChannelRow({
           {current ? current.title : "No program info"}
         </Text>
       </View>
-      {right}
+    </Pressable>
+  );
+}
+
+function FavoriteChannelBlock({
+  channel,
+  width,
+  onPress,
+  onUnfavorite,
+  channelNumber,
+  showChannelLogos,
+}: {
+  channel: Channel;
+  width: number;
+  onPress: () => void;
+  onUnfavorite: () => void;
+  channelNumber?: number;
+  showChannelLogos: boolean;
+}) {
+  const now = new Date();
+  const { current } = nowNext(channel.programs, now);
+  const pct = progressPct(current, now);
+
+  return (
+    <Pressable
+      focusable
+      onPress={onPress}
+      onLongPress={onUnfavorite}
+      style={({ focused }: any) => [
+        styles.favoriteBlock,
+        { width },
+        focused && styles.favoriteBlockFocused,
+      ]}
+      testID={`favorite-block-${channel.id}`}
+    >
+      <View style={styles.favoriteBlockTop}>
+        <View style={styles.favoriteLogoRow}>
+          {channelNumber ? <Text style={styles.favoriteNumber}>{channelNumber}</Text> : null}
+          <ChannelLogo name={channel.name} logo={channel.logo} disabled={!showChannelLogos} size={38} />
+        </View>
+        <Ionicons name="star" size={17} color={colors.warning} />
+      </View>
+
+      <Text numberOfLines={1} style={styles.favoriteName}>{channel.name}</Text>
+      <Text numberOfLines={2} style={styles.favoriteProgram}>
+        {current?.title || "No program info"}
+      </Text>
+      <View style={styles.favoriteProgressTrack}>
+        <View style={[styles.favoriteProgressFill, { width: `${pct}%` }]} />
+      </View>
+      <Text numberOfLines={1} style={styles.favoriteHint}>OK to watch · Hold to unpin</Text>
     </Pressable>
   );
 }
@@ -56,7 +106,19 @@ export default function FavoritesScreen() {
   const router = useRouter();
   const { width, height } = useWindowDimensions();
   const tvSafe = getTvSafeInsets(width, height);
-  const { channels, favorites, toggleFavorite, recent, reminders, removeReminder, addRecent, channelById, lastChannelId, channelNumbers, channelLogos } = useStore();
+  const {
+    channels,
+    favorites,
+    toggleFavorite,
+    recent,
+    reminders,
+    removeReminder,
+    addRecent,
+    channelById,
+    lastChannelId,
+    channelNumbers,
+    channelLogos,
+  } = useStore();
   useTvBackToGuide();
 
   const favChannels = channels.filter((c) => favorites.includes(c.id)).sort(byChannelName);
@@ -64,9 +126,20 @@ export default function FavoritesScreen() {
   [...channels].sort(byChannelName).forEach((channel, index) => {
     channelNumberById[channel.id] = index + 1;
   });
+
+  const favoriteColumns = width >= 900 ? 6 : width >= 600 ? 3 : 2;
+  const favoriteAvailableWidth = Math.max(
+    320,
+    width - tvSafe.left - tvSafe.right - spacing.lg * 2,
+  );
+  const favoriteBlockWidth = Math.max(
+    118,
+    (favoriteAvailableWidth - FAVORITE_GAP * (favoriteColumns - 1)) / favoriteColumns,
+  );
+
   const lastChannel = lastChannelId ? channelById(lastChannelId) : null;
   const play = (c: Channel) => {
-    Haptics.selectionAsync();
+    void Haptics.selectionAsync().catch(() => {});
     addRecent(c);
     router.push({ pathname: "/player", params: { channelId: c.id } });
   };
@@ -88,6 +161,7 @@ export default function FavoritesScreen() {
         <Text style={styles.brand}>My Stuff</Text>
         <Text style={styles.title}>Favorites</Text>
       </View>
+
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 130 }}>
         {lastChannel && (
           <>
@@ -119,20 +193,19 @@ export default function FavoritesScreen() {
             <Text style={styles.emptyText}>Pin your favorite channels here</Text>
           </View>
         ) : (
-          favChannels.map((c) => (
-            <ChannelRow
-              key={c.id}
-              channel={c}
-              onPress={() => play(c)}
-              channelNumber={channelNumbers ? channelNumberById[c.id] : undefined}
-              showChannelLogos={channelLogos}
-              right={
-                <Pressable hitSlop={8} onPress={() => toggleFavorite(c.id)} testID={`unfav-${c.id}`}>
-                  <Ionicons name="star" size={20} color={colors.warning} />
-                </Pressable>
-              }
-            />
-          ))
+          <View style={styles.favoriteGrid}>
+            {favChannels.map((channel) => (
+              <FavoriteChannelBlock
+                key={channel.id}
+                channel={channel}
+                width={favoriteBlockWidth}
+                onPress={() => play(channel)}
+                onUnfavorite={() => toggleFavorite(channel.id)}
+                channelNumber={channelNumbers ? channelNumberById[channel.id] : undefined}
+                showChannelLogos={channelLogos}
+              />
+            ))}
+          </View>
         )}
 
         <Text style={styles.section}>Reminders</Text>
@@ -179,7 +252,15 @@ export default function FavoritesScreen() {
         ) : (
           recent.map((c) => {
             const live = channelById(c.id) || c;
-            return <ChannelRow key={c.id} channel={live} onPress={() => play(live)} channelNumber={channelNumbers ? channelNumberById[live.id] : undefined} showChannelLogos={channelLogos} />;
+            return (
+              <ChannelRow
+                key={c.id}
+                channel={live}
+                onPress={() => play(live)}
+                channelNumber={channelNumbers ? channelNumberById[live.id] : undefined}
+                showChannelLogos={channelLogos}
+              />
+            );
           })
         )}
       </ScrollView>
@@ -221,6 +302,50 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   continueName: { color: colors.onSurface, fontFamily: fonts.bold, fontSize: 17, marginTop: 2 },
+  favoriteGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: FAVORITE_GAP,
+    paddingHorizontal: spacing.lg,
+    alignItems: "stretch",
+  },
+  favoriteBlock: {
+    minHeight: 132,
+    backgroundColor: "rgba(35, 25, 18, 0.88)",
+    borderRadius: radius.md,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: "rgba(255, 227, 163, 0.13)",
+    gap: spacing.xs,
+  },
+  favoriteBlockFocused: {
+    borderColor: "#fff",
+    borderWidth: 3,
+    backgroundColor: "rgba(126,22,28,0.72)",
+  },
+  favoriteBlockTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  favoriteLogoRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs, flex: 1 },
+  favoriteNumber: {
+    minWidth: 24,
+    color: "#fff",
+    fontFamily: fonts.bold,
+    fontSize: 11,
+    textAlign: "right",
+  },
+  favoriteName: { color: "rgba(255,255,255,0.86)", fontFamily: fonts.semibold, fontSize: 11.5 },
+  favoriteProgram: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 12.5, minHeight: 32 },
+  favoriteProgressTrack: {
+    height: 4,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    borderRadius: radius.pill,
+    overflow: "hidden",
+  },
+  favoriteProgressFill: { height: 4, backgroundColor: colors.brand },
+  favoriteHint: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 8.5, marginTop: 2 },
   row: {
     flexDirection: "row",
     alignItems: "center",
