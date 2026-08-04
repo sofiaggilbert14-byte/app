@@ -40,13 +40,21 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         val now = System.currentTimeMillis()
         val minStop = now - GUIDE_HISTORY_MS
         val maxStart = now + GUIDE_WINDOW_MS
-        val batches = streamProgramBatches(url, minStop, maxStart)
+        val channelLogos = LinkedHashMap<String, String>()
+        val batches = streamProgramBatches(url, minStop, maxStart, channelLogos)
         database.replaceBatches(batches)
         rebuildCurrentCache(now)
+
+        val logos = Arguments.createMap()
+        for ((channelId, logoUrl) in channelLogos) {
+          logos.putString(channelId, logoUrl)
+        }
+
         val result = Arguments.createMap().apply {
           putDouble("count", database.count().toDouble())
           putDouble("windowStartMs", (now - GUIDE_HISTORY_MS).toDouble())
           putDouble("windowEndMs", maxStart.toDouble())
+          putMap("channelLogos", logos)
         }
         promise.resolve(result)
       } catch (t: Throwable) {
@@ -149,6 +157,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     url: String,
     minStop: Long,
     maxStart: Long,
+    channelLogos: MutableMap<String, String>,
   ): Sequence<List<NativeEpgProgram>> = sequence {
     openPossiblyGzipped(url).use { input ->
       val parser = Xml.newPullParser()
@@ -156,6 +165,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
 
       val batch = ArrayList<NativeEpgProgram>(BATCH_SIZE)
       var event = parser.eventType
+      var metadataChannelId: String? = null
       var channelId: String? = null
       var startMs = 0L
       var endMs = 0L
@@ -166,6 +176,16 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
       while (event != XmlPullParser.END_DOCUMENT) {
         when (event) {
           XmlPullParser.START_TAG -> when (parser.name) {
+            "channel" -> {
+              metadataChannelId = parser.getAttributeValue(null, "id")?.trim()?.takeIf { it.isNotEmpty() }
+            }
+            "icon" -> {
+              val id = metadataChannelId
+              val src = parser.getAttributeValue(null, "src")?.trim()
+              if (!id.isNullOrBlank() && !src.isNullOrBlank() && !channelLogos.containsKey(id)) {
+                channelLogos[id] = src
+              }
+            }
             "programme" -> {
               channelId = parser.getAttributeValue(null, "channel")
               startMs = parseXmltvTime(parser.getAttributeValue(null, "start"))
@@ -184,25 +204,28 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
             "title" -> if (keepProgram) title = parser.nextText().trim()
             "desc" -> if (keepProgram) description = parser.nextText().trim().ifEmpty { null }
           }
-          XmlPullParser.END_TAG -> if (parser.name == "programme") {
-            val id = channelId
-            if (keepProgram && !id.isNullOrBlank()) {
-              batch.add(
-                NativeEpgProgram(
-                  channelId = id,
-                  title = title.ifBlank { "No Information" },
-                  description = description,
-                  startMs = startMs,
-                  endMs = endMs,
+          XmlPullParser.END_TAG -> when (parser.name) {
+            "channel" -> metadataChannelId = null
+            "programme" -> {
+              val id = channelId
+              if (keepProgram && !id.isNullOrBlank()) {
+                batch.add(
+                  NativeEpgProgram(
+                    channelId = id,
+                    title = title.ifBlank { "No Information" },
+                    description = description,
+                    startMs = startMs,
+                    endMs = endMs,
+                  )
                 )
-              )
-              if (batch.size >= BATCH_SIZE) {
-                yield(ArrayList(batch))
-                batch.clear()
+                if (batch.size >= BATCH_SIZE) {
+                  yield(ArrayList(batch))
+                  batch.clear()
+                }
               }
+              channelId = null
+              keepProgram = false
             }
-            channelId = null
-            keepProgram = false
           }
         }
         event = parser.next()
