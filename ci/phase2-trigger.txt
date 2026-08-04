@@ -1,0 +1,1 @@
+Trigger the second-stage perf/opt-fix validation workflow after player and settings improvements.
