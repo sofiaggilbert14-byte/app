@@ -16,6 +16,7 @@ type NativeRefreshResult = {
   count: number;
   windowStartMs: number;
   windowEndMs: number;
+  channelLogos?: Record<string, string>;
 };
 
 type CharmEpgModule = {
