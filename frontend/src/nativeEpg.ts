@@ -50,11 +50,16 @@ export async function loadNativeEpgWindow(
   endMs: number,
 ): Promise<Record<string, Program[]>> {
   if (!nativeModule) return {};
-  const wanted = new Set(channelIds.filter(Boolean));
   const window = await nativeModule.getWindow(startMs, endMs);
   const result: Record<string, Program[]> = {};
-  for (const [channelId, programmes] of Object.entries(window)) {
-    if (!wanted.has(channelId)) continue;
+
+  // Preserve the requested channel order and avoid traversing every key in a
+  // potentially large native window object. Native-side filtering remains the
+  // ideal long-term optimization, but this removes unnecessary JS conversion.
+  for (const channelId of channelIds) {
+    if (!channelId || result[channelId]) continue;
+    const programmes = window[channelId];
+    if (!programmes?.length) continue;
     result[channelId] = programmes.map(toProgram);
   }
   return result;
