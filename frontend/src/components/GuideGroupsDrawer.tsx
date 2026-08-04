@@ -8,14 +8,14 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { fonts, radius } from "@/src/theme";
+import { fonts, radius, tvColors } from "@/src/theme";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 
 type MenuRoute = "/" | "/favorites" | "/search" | "/settings";
 type DrawerMode = "groups" | "rail";
 
-const RED = "#E3262E";
-const RED_DARK = "#8E1118";
+const PURPLE = "#7C3AED";
+const PURPLE_DARK = "#3B1768";
 const WHITE = "#F8F8F8";
 export const GUIDE_RAIL_WIDTH = 52;
 
@@ -31,7 +31,7 @@ function groupLabel(group: string): string {
 
 function groupIcon(group: string): React.ComponentProps<typeof Ionicons>["name"] {
   if (group === "All") return "grid";
-  if (group === "Favorites") return "star";
+  if (group === "Favorites") return "heart";
   if (group === "Recently Watched") return "time";
   if (group === "Movies") return "film";
   if (group === "Sports") return "football";
@@ -169,7 +169,7 @@ export function GuideGroupsDrawer({
             </View>
             <View style={styles.versionLine}>
               <View style={styles.versionRule} />
-              <Text style={styles.versionText}>EXPERIMENTAL v3</Text>
+              <Text style={styles.versionText}>PURPLE TV</Text>
               <View style={styles.versionRule} />
             </View>
           </View>
@@ -217,8 +217,8 @@ const styles = StyleSheet.create({
   layer: { ...StyleSheet.absoluteFillObject, zIndex: 100 },
   scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.04)" },
   drawer: {
-    backgroundColor: "#14181D",
-    borderRightColor: "rgba(255,255,255,0.12)",
+    backgroundColor: tvColors.canvasRaised,
+    borderRightColor: tvColors.line,
     borderRightWidth: 1,
     bottom: 0,
     left: 0,
@@ -229,7 +229,7 @@ const styles = StyleSheet.create({
     top: 0,
   },
   brandBlock: {
-    borderBottomColor: "rgba(255,255,255,0.10)",
+    borderBottomColor: tvColors.line,
     borderBottomWidth: 1,
     gap: 2,
     marginBottom: 5,
@@ -237,12 +237,12 @@ const styles = StyleSheet.create({
     paddingBottom: 7,
   },
   brandLine: { flexDirection: "row", alignItems: "baseline" },
-  brandCharm: { color: RED, fontFamily: fonts.bold, fontSize: 18, letterSpacing: 0.3 },
+  brandCharm: { color: PURPLE, fontFamily: fonts.bold, fontSize: 18, letterSpacing: 0.3 },
   brandIptv: { color: WHITE, fontFamily: fonts.medium, fontSize: 14 },
   versionLine: { flexDirection: "row", alignItems: "center", gap: 5 },
-  versionRule: { width: 13, height: 1, backgroundColor: RED },
-  versionText: { color: RED, fontFamily: fonts.medium, fontSize: 7, letterSpacing: 0.6 },
-  sectionTitle: { color: RED, fontFamily: fonts.semibold, fontSize: 10, paddingHorizontal: 6, paddingBottom: 3 },
+  versionRule: { width: 13, height: 1, backgroundColor: PURPLE },
+  versionText: { color: tvColors.purpleSoft, fontFamily: fonts.medium, fontSize: 7, letterSpacing: 0.6 },
+  sectionTitle: { color: tvColors.purpleSoft, fontFamily: fonts.semibold, fontSize: 10, paddingHorizontal: 6, paddingBottom: 3 },
   groupList: { gap: 1, paddingBottom: 3 },
   row: {
     alignItems: "center",
@@ -254,11 +254,11 @@ const styles = StyleSheet.create({
     minHeight: 34,
     paddingHorizontal: 7,
   },
-  activeRow: { backgroundColor: RED_DARK },
-  focusedRow: { backgroundColor: RED_DARK, borderColor: WHITE },
+  activeRow: { backgroundColor: PURPLE_DARK },
+  focusedRow: { backgroundColor: PURPLE_DARK, borderColor: WHITE },
   rowText: { color: "rgba(255,255,255,0.88)", flex: 1, fontFamily: fonts.medium, fontSize: 11 },
   activeText: { color: WHITE, fontFamily: fonts.bold },
-  footer: { borderTopColor: "rgba(255,255,255,0.16)", borderTopWidth: 1, gap: 0, paddingTop: 3 },
+  footer: { borderTopColor: tvColors.line, borderTopWidth: 1, gap: 0, paddingTop: 3 },
   footerRow: {
     alignItems: "center",
     borderColor: "transparent",
@@ -272,8 +272,8 @@ const styles = StyleSheet.create({
   footerText: { color: "rgba(255,255,255,0.88)", fontFamily: fonts.medium, fontSize: 10.5 },
   rail: {
     alignItems: "center",
-    backgroundColor: "#11151A",
-    borderRightColor: "rgba(255,255,255,0.12)",
+    backgroundColor: tvColors.canvas,
+    borderRightColor: tvColors.line,
     borderRightWidth: 1,
     bottom: 0,
     justifyContent: "space-between",
@@ -284,7 +284,7 @@ const styles = StyleSheet.create({
     top: 0,
     width: GUIDE_RAIL_WIDTH,
   },
-  railLogo: { color: RED, fontFamily: fonts.bold, fontSize: 22 },
+  railLogo: { color: PURPLE, fontFamily: fonts.bold, fontSize: 22 },
   railActions: { gap: 3 },
   railAction: {
     alignItems: "center",
@@ -296,7 +296,7 @@ const styles = StyleSheet.create({
     minHeight: 42,
     width: 44,
   },
-  railActionFocused: { backgroundColor: RED_DARK, borderColor: WHITE },
+  railActionFocused: { backgroundColor: PURPLE_DARK, borderColor: WHITE },
   railActionText: { color: WHITE, fontFamily: fonts.semibold, fontSize: 7 },
   railHint: { color: "rgba(255,255,255,0.44)", fontFamily: fonts.bold, fontSize: 7 },
 });
