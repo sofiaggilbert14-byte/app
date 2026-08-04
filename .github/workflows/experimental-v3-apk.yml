@@ -4,6 +4,12 @@ on:
   push:
     branches:
       - experimental/v3-native-performance
+  pull_request:
+    branches:
+      - experimental/tivimate-ui
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/experimental-v3-apk.yml'
   workflow_dispatch:
 
 concurrency:
@@ -43,6 +49,9 @@ jobs:
 
       - name: Make Gradle wrapper executable
         run: chmod +x android/gradlew
+
+      - name: Typecheck v3 source
+        run: npm run typecheck
 
       - name: Build release APK
         run: ./android/gradlew -p android assembleRelease --stacktrace
