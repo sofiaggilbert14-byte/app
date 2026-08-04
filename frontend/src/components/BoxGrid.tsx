@@ -180,7 +180,6 @@ export function BoxGrid({
         numColumns={numColumns}
         keyExtractor={(c) => c.id}
         drawDistance={360}
-        estimatedItemSize={160}
         contentContainerStyle={{ paddingBottom: 130, paddingHorizontal: spacing.xs, paddingTop: spacing.xs }}
         ListHeaderComponent={ListHeaderComponent}
         showsVerticalScrollIndicator={false}
