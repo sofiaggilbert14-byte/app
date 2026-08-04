@@ -64,20 +64,24 @@ function useCircuitCooldown(uri: string, onStatus: (s: StreamStatus) => void) {
 
   useEffect(() => {
     const remaining = circuitRemainingMs(uri);
-    const open = remaining > 0;
-    setBlocked(open);
-    if (!open) return;
+    if (!blocked) {
+      if (remaining > 0) setBlocked(true);
+      return;
+    }
 
-    // Keep the parent in loading state during cooldown so its 3-second error
-    // retry loop does not remount us repeatedly. Emit one error when the
-    // cooldown expires, which permits a single fresh reconnect attempt.
+    if (remaining <= 0) {
+      setBlocked(false);
+      onStatus("error");
+      return;
+    }
+
     onStatus("loading");
     const timer = setTimeout(() => {
       setBlocked(false);
       onStatus("error");
     }, remaining + 25);
     return () => clearTimeout(timer);
-  }, [onStatus, uri]);
+  }, [blocked, onStatus, uri]);
 
   return { blocked, setBlocked };
 }
