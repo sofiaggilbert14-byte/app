@@ -144,7 +144,7 @@ const styles = StyleSheet.create({
   title: { color: "#fff", fontFamily: fonts.bold, fontSize: 18, marginTop: 2 },
   body: { flex: 1, flexDirection: "row", gap: 16, paddingTop: 18 },
   keyboardPanel: { flex: 1.15, maxWidth: 520 },
-  searchBox: { height: 42, flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderColor: tvColors.borderStrong, borderRadius: radius.sm, paddingHorizontal: 10, backgroundColor: tvColors.panel },
+  searchBox: { height: 42, flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderColor: tvColors.lineStrong, borderRadius: radius.sm, paddingHorizontal: 10, backgroundColor: tvColors.panel },
   input: { flex: 1, color: "#fff", fontFamily: fonts.regular, fontSize: 11, padding: 0 },
   keys: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 10 },
   key: { width: 42, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 5, borderWidth: 2, borderColor: "transparent", backgroundColor: tvColors.panelRaised },
