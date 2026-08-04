@@ -1,6 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, UIManager, StyleProp, ViewStyle } from "react-native";
 import { VideoView, useVideoPlayer } from "expo-video";
+import { usePathname } from "expo-router";
+import { useIsFocused } from "@react-navigation/native";
+import { addTvKeyListener } from "@/src/utils/tvRemote";
 
 export type StreamStatus = "loading" | "playing" | "error";
 
@@ -12,6 +15,8 @@ const FAILURE_WINDOW_MS = 60_000;
 const MAX_FAILURES_PER_WINDOW = 5;
 const CIRCUIT_COOLDOWN_MS = 60_000;
 const ENGINE_START_TIMEOUT_MS = 12_000;
+const RAPID_GUIDE_KEY_MS = 240;
+const PREVIEW_RESUME_SETTLE_MS = 650;
 
 type FailureState = { failures: number[]; blockedUntil: number };
 const failureStateByKey = new Map<string, FailureState>();
@@ -304,6 +309,13 @@ function ExpoStream({ uri: rawUri, onStatus: setStatus, style, engine }: EngineP
 }
 
 export function StreamPlayer({ uri, onStatus, style }: Props) {
+  const isFocused = useIsFocused();
+  const pathname = usePathname();
+  const isGuidePreview = pathname === "/";
+  const [guideScanSettled, setGuideScanSettled] = useState(true);
+  const lastDirectionalAt = useRef(0);
+  const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const setStatus = useStatusTracker(onStatus, uri);
   const cleanUri = useMemo(() => parsePipeHeaders(uri).uri, [uri]);
   const kind = useMemo(() => detectStreamKind(cleanUri), [cleanUri]);
@@ -316,6 +328,33 @@ export function StreamPlayer({ uri, onStatus, style }: Props) {
   const stableRef = useRef(false);
 
   useEffect(() => {
+    if (!isFocused || !isGuidePreview || Platform.OS === "web") {
+      setGuideScanSettled(true);
+      return;
+    }
+
+    return addTvKeyListener((key) => {
+      if (key !== "UP" && key !== "DOWN" && key !== "LEFT" && key !== "RIGHT") return;
+      const now = Date.now();
+      const rapid = now - lastDirectionalAt.current <= RAPID_GUIDE_KEY_MS;
+      lastDirectionalAt.current = now;
+
+      if (settleTimer.current) clearTimeout(settleTimer.current);
+      if (rapid) setGuideScanSettled(false);
+      settleTimer.current = setTimeout(() => {
+        setGuideScanSettled(true);
+      }, PREVIEW_RESUME_SETTLE_MS);
+    });
+  }, [isFocused, isGuidePreview]);
+
+  useEffect(
+    () => () => {
+      if (settleTimer.current) clearTimeout(settleTimer.current);
+    },
+    [],
+  );
+
+  useEffect(() => {
     stableRef.current = false;
     setFallbackUsed(false);
     setEngine(initialEngine);
@@ -323,7 +362,7 @@ export function StreamPlayer({ uri, onStatus, style }: Props) {
   }, [initialEngine, setStatus, uri]);
 
   useEffect(() => {
-    if (stableRef.current) return;
+    if (stableRef.current || !isFocused || !guideScanSettled) return;
     const timer = setTimeout(() => {
       if (stableRef.current || fallbackUsed) return;
       const alternate: Engine = engine === "vlc" ? "media3" : "vlc";
@@ -336,7 +375,7 @@ export function StreamPlayer({ uri, onStatus, style }: Props) {
       setStatus("loading");
     }, ENGINE_START_TIMEOUT_MS);
     return () => clearTimeout(timer);
-  }, [engine, fallbackUsed, setStatus, uri]);
+  }, [engine, fallbackUsed, guideScanSettled, isFocused, setStatus, uri]);
 
   const handleStatus = useCallback((status: StreamStatus) => {
     if (status === "playing") {
@@ -355,6 +394,12 @@ export function StreamPlayer({ uri, onStatus, style }: Props) {
     }
     setStatus(status);
   }, [engine, fallbackUsed, setStatus]);
+
+  // The guide keeps its live preview feature, but during a held D-pad scan the
+  // decoder is temporarily unmounted. It comes back automatically after the
+  // final key settles, preventing decoder/GPU work from competing with
+  // FlashList/Fabric focus recycling. Hidden routes also stop decoding.
+  if (!isFocused || !uri || (isGuidePreview && !guideScanSettled)) return null;
 
   if (engine === "vlc") {
     return <VlcStream key={`vlc:${uri}`} uri={uri} onStatus={handleStatus} style={style} engine="vlc" />;
