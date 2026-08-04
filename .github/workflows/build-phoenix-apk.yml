@@ -1,4 +1,4 @@
-name: Build Charm IPTV Experimental APK (debug)
+name: Build Charm IPTV Experimental APK (capture-logs)
 
 on:
   workflow_dispatch:
@@ -94,6 +94,9 @@ jobs:
       - name: Regenerate Android project
         run: npx expo prebuild --platform android --no-install
 
+      - name: Prepare artifacts dir
+        run: mkdir -p artifacts
+
       - name: Configure cloud build resources
         run: |
           cat >> android/gradle.properties <<'EOF'
@@ -106,26 +109,23 @@ jobs:
           reactNativeArchitectures=armeabi-v7a,arm64-v8a
           EOF
 
-      - name: Precompile Kotlin UI module (debug)
+      - name: Precompile Kotlin UI module (capture)
         run: |
           chmod +x android/gradlew
-          # Compile the largest Kotlin module in an isolated JVM before the
-          # native C++ tasks fill Gradle's heap. Its output is reused below.
-          ./android/gradlew -p android :react-native-screens:compileReleaseKotlin --no-daemon --max-workers=1 --info --stacktrace
+          ./android/gradlew -p android :react-native-screens:compileReleaseKotlin --no-daemon --max-workers=1 --debug --warning-mode=all --stacktrace |& tee artifacts/gradle-precompile.log
 
-      - name: Build standalone universal release APK (debug)
+      - name: Build standalone universal release APK (capture)
         run: |
           chmod +x android/gradlew
-          ./android/gradlew -p android :app:assembleRelease --no-daemon --max-workers=1 --info --stacktrace
+          ./android/gradlew -p android :app:assembleRelease --no-daemon --max-workers=1 --debug --warning-mode=all --stacktrace |& tee artifacts/gradle-assemble.log
 
       - name: Collect Gradle problems report
         if: failure()
         run: |
           PROBLEMS=android/build/reports/problems/problems-report.html
           if [ -f "$PROBLEMS" ]; then
-            echo "Problems report found, copying..."
-            mkdir -p ../artifacts
-            cp "$PROBLEMS" ../artifacts/problems-report.html
+            echo "Problems report found, copying to artifacts..."
+            cp "$PROBLEMS" artifacts/problems-report.html
           else
             echo "No problems report found"
           fi
