@@ -1,13 +1,114 @@
-      - name: Collect release APKs
-        if: success()
-        run: |
-          mkdir -p frontend/artifacts
-          cp -v android/app/build/outputs/apk/release/*.apk frontend/artifacts/ || true
+name: Build CharmIPTV perf universal APK
 
-      - name: Upload release APK artifact
-        if: success()
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "frontend/**"
+      - ".github/workflows/build-phoenix-apk.yml"
+  push:
+    branches:
+      - perf/opt-fix
+    paths:
+      - "frontend/**"
+      - ".github/workflows/build-phoenix-apk.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: perf-opt-universal-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-and-build:
+    name: Validate and build universal Android TV APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      EXPO_PUBLIC_M3U_URL: ${{ vars.EXPO_PUBLIC_M3U_URL }}
+      EXPO_PUBLIC_EPG_URL: ${{ vars.EXPO_PUBLIC_EPG_URL }}
+      EXPO_PUBLIC_GUIDE_WINDOW_HOURS: ${{ vars.EXPO_PUBLIC_GUIDE_WINDOW_HOURS || '8' }}
+      CMAKE_BUILD_PARALLEL_LEVEL: "1"
+      CI: "1"
+
+    steps:
+      - name: Checkout perf/opt-fix
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android native toolchain
+        run: |
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006" "cmake;3.22.1"
+
+      - name: Install JavaScript dependencies
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Configure deterministic low-memory build
+        run: |
+          cat >> android/gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx5g -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8
+          org.gradle.parallel=false
+          org.gradle.workers.max=1
+          org.gradle.vfs.watch=false
+          kotlin.compiler.execution.strategy=in-process
+          kotlin.daemon.enabled=false
+          reactNativeArchitectures=armeabi-v7a,arm64-v8a
+          EOF
+
+      - name: Build universal release APK
+        run: |
+          chmod +x android/gradlew
+          ./android/gradlew -p android :app:assembleRelease --no-daemon --max-workers=1 --stacktrace
+
+      - name: Verify universal APK contents
+        shell: bash
+        run: |
+          APK="android/app/build/outputs/apk/release/app-release.apk"
+          test -f "$APK"
+          unzip -l "$APK" | grep -Eq "(assets/index\.android\.bundle|assets/.*\.bundle)"
+          unzip -l "$APK" | grep -q "lib/armeabi-v7a/"
+          unzip -l "$APK" | grep -q "lib/arm64-v8a/"
+          mkdir -p artifacts
+          cp "$APK" "artifacts/CharmIPTV-perf-opt-fix-Universal-${GITHUB_RUN_NUMBER}.apk"
+          sha256sum "artifacts/CharmIPTV-perf-opt-fix-Universal-${GITHUB_RUN_NUMBER}.apk" > artifacts/SHA256SUMS.txt
+
+      - name: Upload universal APK
         uses: actions/upload-artifact@v4
         with:
-          name: charm-iptv-release-apk
-          path: frontend/artifacts
+          name: CharmIPTV-perf-opt-fix-Universal-${{ github.run_number }}
+          path: |
+            frontend/artifacts/CharmIPTV-perf-opt-fix-Universal-${{ github.run_number }}.apk
+            frontend/artifacts/SHA256SUMS.txt
           if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
