@@ -10,7 +10,6 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { fonts, radius } from "@/src/theme";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
-import { getTvSafeInsets } from "@/src/utils/tvLayout";
 
 type MenuRoute = "/" | "/favorites" | "/search" | "/settings";
 type DrawerMode = "groups" | "rail";
@@ -142,9 +141,9 @@ export function GuideGroupsDrawer({
   onNavigate: (route: MenuRoute) => void;
   onExit: () => void;
 }) {
-  const { width, height } = useWindowDimensions();
+  const { width } = useWindowDimensions();
   const drawerWidth = useMemo(() => guideGroupsWidth(width), [width]);
-  const tvSafe = useMemo(() => getTvSafeInsets(width, height), [height, width]);
+  // Keep the requested 3% inward text shift without shrinking the drawer itself.
   const groupTextInset = useMemo(() => Math.max(4, Math.round(drawerWidth * 0.03)), [drawerWidth]);
   const groupsVisible = mode === "groups";
   const selectedIndex = useMemo(() => groups.indexOf(selected), [groups, selected]);
@@ -168,15 +167,7 @@ export function GuideGroupsDrawer({
           trapFocusUp
           trapFocusDown
           trapFocusRight
-          style={[
-            styles.drawer,
-            {
-              width: drawerWidth,
-              left: tvSafe.left,
-              top: tvSafe.top,
-              bottom: tvSafe.bottom,
-            },
-          ]}
+          style={[styles.drawer, { width: drawerWidth }]}
         >
           <View style={styles.brandBlock}>
             <View style={styles.brandLine}>
@@ -215,20 +206,7 @@ export function GuideGroupsDrawer({
           </View>
         </FocusGuide>
       ) : (
-        <FocusGuide
-          autoFocus
-          trapFocusUp
-          trapFocusDown
-          trapFocusRight
-          style={[
-            styles.rail,
-            {
-              left: tvSafe.left,
-              top: tvSafe.top,
-              bottom: tvSafe.bottom,
-            },
-          ]}
-        >
+        <FocusGuide autoFocus trapFocusUp trapFocusDown trapFocusRight style={styles.rail}>
           <Text style={styles.railLogo}>C</Text>
           <View style={styles.railActions}>
             <RailAction icon="heart" label="Favorites" onPress={openFavorites} />
@@ -250,10 +228,13 @@ const styles = StyleSheet.create({
     backgroundColor: "#14181D",
     borderRightColor: "rgba(255,255,255,0.12)",
     borderRightWidth: 1,
+    bottom: 0,
+    left: 0,
     paddingBottom: 5,
     paddingHorizontal: 6,
     paddingTop: 8,
     position: "absolute",
+    top: 0,
   },
   brandBlock: {
     borderBottomColor: "rgba(255,255,255,0.10)",
@@ -302,10 +283,13 @@ const styles = StyleSheet.create({
     backgroundColor: "#11151A",
     borderRightColor: "rgba(255,255,255,0.12)",
     borderRightWidth: 1,
+    bottom: 0,
     justifyContent: "space-between",
+    left: 0,
     paddingBottom: 7,
     paddingTop: 8,
     position: "absolute",
+    top: 0,
     width: GUIDE_RAIL_WIDTH,
   },
   railLogo: { color: RED, fontFamily: fonts.bold, fontSize: 22 },
