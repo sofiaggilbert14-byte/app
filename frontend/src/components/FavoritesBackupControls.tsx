@@ -213,7 +213,7 @@ export function FavoritesBackupControls({ channels, favorites, appVersion, toggl
     <View style={styles.wrap}>
       <Text style={styles.title}>Favorites backup & restore</Text>
       <Text style={styles.sub}>
-        Backups contain channel identity only, not private stream URLs. Restore matches those identities to this build's current lineup so favorites use the new build's live stream URLs, logos, and EPG data.
+        Backups contain channel identity only, not private stream URLs. Restore matches those identities to this build’s current lineup so favorites use the new build’s live stream URLs, logos, and EPG data.
       </Text>
       <View style={styles.actions}>
         <Pressable
