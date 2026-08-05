@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState, useMemo } from "react";
 import dayjs from "dayjs";
 import { storage } from "@/src/utils/storage";
 import { Channel, Program } from "@/src/api";
@@ -124,6 +124,11 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [recent, setRecent] = useState<Channel[]>([]);
   const [lastChannelId, setLastChannelId] = useState<string | null>(null);
   const [reminders, setReminders] = useState<Reminder[]>([]);
+  const remindersRef = useRef<Reminder[]>([]);
+  useEffect(() => {
+    remindersRef.current = reminders;
+  }, [reminders]);
+
   const [activeProgram, setActiveProgram] = useState<ActiveProgram>(null);
   const [pointerMode, setPointerModeState] = useState(false);
   const [guideLayout, setGuideLayoutState] = useState<GuideLayout>("cinematic");
@@ -134,6 +139,15 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [deviceLayoutMode, setDeviceLayoutModeState] = useState<DeviceLayoutMode>("auto");
   const [playerControlsTimeoutMs, setPlayerControlsTimeoutMsState] = useState<PlayerControlsTimeoutMs>(8000);
   const [autoRetryStreams, setAutoRetryStreamsState] = useState(true);
+
+  // Memoized helpers for fast lookups
+  const channelByIdMap = useMemo(() => {
+    const m = new Map<string, Channel>();
+    for (const c of channels) m.set(c.id, c);
+    return m;
+  }, [channels]);
+
+  const favoritesSet = useMemo(() => new Set(favorites), [favorites]);
 
   const setPointerMode = useCallback((v: boolean) => {
     setPointerModeState(v);
@@ -180,6 +194,76 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     storage.setItem(AUTO_RETRY_KEY, v);
   }, []);
 
+  const channelById = useCallback((id: string) => channelByIdMap.get(id), [channelByIdMap]);
+
+  const isFavorite = useCallback((id: string) => favoritesSet.has(id), [favoritesSet]);
+  const toggleFavorite = useCallback((id: string) => {
+    setFavorites((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      storage.setItem(FAV_KEY, next);
+      return next;
+    });
+  }, []);
+
+  const replaceFavorites = useCallback((ids: string[]) => {
+    const next = Array.from(new Set(ids.filter(Boolean)));
+    setFavorites(next);
+    storage.setItem(FAV_KEY, next);
+  }, []);
+
+  const addRecent = useCallback((c: Channel) => {
+    setLastChannelId(c.id);
+    storage.setItem(LAST_CHANNEL_KEY, c.id);
+    setRecent((prev) => {
+      const next = [c, ...prev.filter((x) => x.id !== c.id)].slice(0, 15);
+      storage.setItem(RECENT_KEY, next);
+      return next;
+    });
+  }, []);
+
+  const hasReminder = useCallback((key: string) => {
+    return remindersRef.current.some((r) => r.key === key);
+  }, []);
+
+  const addReminder = useCallback(async (program: Program, channel: Channel) => {
+    const key = reminderKey(channel.id, program.start);
+    if (remindersRef.current.some((r) => r.key === key)) return true;
+    const granted = await requestNotificationPermission();
+    if (!granted) return false;
+    const id = await scheduleProgramReminder({
+      title: `${program.title} is starting`,
+      body: `On ${channel.name}. Tap to switch channel.`,
+      date: new Date(program.start),
+      data: { channelId: channel.id },
+    });
+    if (!id) return false;
+    const rem: Reminder = {
+      key,
+      notificationId: id,
+      channelId: channel.id,
+      channelName: channel.name,
+      programTitle: program.title,
+      start: program.start,
+      stop: program.stop,
+    };
+    setReminders((prev) => {
+      const next = [...prev, rem];
+      storage.setItem(REM_KEY, next);
+      return next;
+    });
+    return true;
+  }, []);
+
+  const removeReminder = useCallback(async (key: string) => {
+    const rem = remindersRef.current.find((r) => r.key === key);
+    if (rem) await cancelReminder(rem.notificationId);
+    setReminders((prev) => {
+      const next = prev.filter((r) => r.key !== key);
+      storage.setItem(REM_KEY, next);
+      return next;
+    });
+  }, []);
+
   const refresh = useCallback(async (silent = false) => {
     const requestId = ++refreshRequestRef.current;
     if (!silent) setLoading(true);
@@ -188,11 +272,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       const day = dayjs(dateRef.current);
       const isToday = day.isSame(dayjs(), "day");
       const start = isToday ? undefined : day.startOf("day").toISOString();
-      // Keep only a moving guide window in rendered channel objects. The
-      // source cache can retain more guide data without creating a huge TV UI.
       const data = await loadGuide(start, GUIDE_WINDOW_HOURS);
-      // Source notifications can arrive close together (playlist first, then
-      // EPG). Never let an older, slower SQLite query replace newer rows.
       if (requestId !== refreshRequestRef.current) return;
       setChannels(data.channels);
       setWindowStart(data.start);
@@ -219,7 +299,10 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     try {
       await refreshSource(true);
       await refresh(true);
-    } catch {}
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn("hardRefresh error:", e);
+    }
     setRefreshing(false);
   }, [refresh]);
 
@@ -239,8 +322,6 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setPlayerControlsTimeoutMsState((await storage.getItem<PlayerControlsTimeoutMs>(PLAYER_TIMEOUT_KEY, 8000)) || 8000);
       setAutoRetryStreamsState((await storage.getItem<boolean>(AUTO_RETRY_KEY, true)) ?? true);
       requestNotificationPermission();
-      // Launch paints the last-good on-device guide first. The background
-      // check respects the 24-hour cache and does not download on every open.
       await refresh();
       void (async () => {
         try {
@@ -251,85 +332,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Re-paint when the source finishes its staged load (channels first, then EPG)
-  // or after a background refresh — reads from the in-memory cache, no network.
   useEffect(() => subscribeSource(() => refresh(true)), [refresh]);
-
-  const channelById = useCallback((id: string) => channels.find((c) => c.id === id), [channels]);
-
-  const isFavorite = useCallback((id: string) => favorites.includes(id), [favorites]);
-  const toggleFavorite = useCallback((id: string) => {
-    setFavorites((prev) => {
-      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
-      storage.setItem(FAV_KEY, next);
-      return next;
-    });
-  }, []);
-  const replaceFavorites = useCallback((ids: string[]) => {
-    const next = Array.from(new Set(ids.filter(Boolean)));
-    setFavorites(next);
-    storage.setItem(FAV_KEY, next);
-  }, []);
-
-  const addRecent = useCallback((c: Channel) => {
-    setLastChannelId(c.id);
-    storage.setItem(LAST_CHANNEL_KEY, c.id);
-    setRecent((prev) => {
-      const next = [c, ...prev.filter((x) => x.id !== c.id)].slice(0, 15);
-      storage.setItem(RECENT_KEY, next);
-      return next;
-    });
-  }, []);
-
-  const hasReminder = useCallback(
-    (key: string) => reminders.some((r) => r.key === key),
-    [reminders],
-  );
-
-  const addReminder = useCallback(
-    async (program: Program, channel: Channel) => {
-      const key = reminderKey(channel.id, program.start);
-      if (reminders.some((r) => r.key === key)) return true;
-      const granted = await requestNotificationPermission();
-      if (!granted) return false;
-      const id = await scheduleProgramReminder({
-        title: `${program.title} is starting`,
-        body: `On ${channel.name}. Tap to switch channel.`,
-        date: new Date(program.start),
-        data: { channelId: channel.id },
-      });
-      if (!id) return false;
-      const rem: Reminder = {
-        key,
-        notificationId: id,
-        channelId: channel.id,
-        channelName: channel.name,
-        programTitle: program.title,
-        start: program.start,
-        stop: program.stop,
-      };
-      setReminders((prev) => {
-        const next = [...prev, rem];
-        storage.setItem(REM_KEY, next);
-        return next;
-      });
-      return true;
-    },
-    [reminders],
-  );
-
-  const removeReminder = useCallback(
-    async (key: string) => {
-      const rem = reminders.find((r) => r.key === key);
-      if (rem) await cancelReminder(rem.notificationId);
-      setReminders((prev) => {
-        const next = prev.filter((r) => r.key !== key);
-        storage.setItem(REM_KEY, next);
-        return next;
-      });
-    },
-    [reminders],
-  );
 
   const openProgram = useCallback((program: Program, channel: Channel) => {
     if (!program || !channel || !channel.id || !program.start || Number.isNaN(Date.parse(program.start))) {
@@ -346,53 +349,101 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       channel,
     });
   }, []);
+
   const closeProgram = useCallback(() => setActiveProgram(null), []);
 
-  const value: Store = {
-    channels,
-    windowStart,
-    windowEnd,
-    loading,
-    refreshing,
-    error,
-    refresh,
-    hardRefresh,
-    selectedDate,
-    setSelectedDate,
-    channelById,
-    favorites,
-    isFavorite,
-    toggleFavorite,
-    replaceFavorites,
-    recent,
-    lastChannelId,
-    addRecent,
-    reminders,
-    hasReminder,
-    addReminder,
-    removeReminder,
-    activeProgram,
-    openProgram,
-    closeProgram,
-    pointerMode,
-    setPointerMode,
-    guideLayout,
-    setGuideLayout,
-    guideDensity,
-    setGuideDensity,
-    safePreviewMode,
-    setSafePreviewMode,
-    channelNumbers,
-    setChannelNumbers,
-    channelLogos,
-    setChannelLogos,
-    deviceLayoutMode,
-    setDeviceLayoutMode,
-    playerControlsTimeoutMs,
-    setPlayerControlsTimeoutMs,
-    autoRetryStreams,
-    setAutoRetryStreams,
-  };
+  const value: Store = useMemo(
+    () => ({
+      channels,
+      windowStart,
+      windowEnd,
+      loading,
+      refreshing,
+      error,
+      refresh,
+      hardRefresh,
+      selectedDate,
+      setSelectedDate,
+      channelById,
+      favorites,
+      isFavorite,
+      toggleFavorite,
+      replaceFavorites,
+      recent,
+      lastChannelId,
+      addRecent,
+      reminders,
+      hasReminder,
+      addReminder,
+      removeReminder,
+      activeProgram,
+      openProgram,
+      closeProgram,
+      pointerMode,
+      setPointerMode,
+      guideLayout,
+      setGuideLayout,
+      guideDensity,
+      setGuideDensity,
+      safePreviewMode,
+      setSafePreviewMode,
+      channelNumbers,
+      setChannelNumbers,
+      channelLogos,
+      setChannelLogos,
+      deviceLayoutMode,
+      setDeviceLayoutMode,
+      playerControlsTimeoutMs,
+      setPlayerControlsTimeoutMs,
+      autoRetryStreams,
+      setAutoRetryStreams,
+    }),
+    [
+      channels,
+      windowStart,
+      windowEnd,
+      loading,
+      refreshing,
+      error,
+      refresh,
+      hardRefresh,
+      selectedDate,
+      setSelectedDate,
+      channelById,
+      favorites,
+      isFavorite,
+      toggleFavorite,
+      replaceFavorites,
+      recent,
+      lastChannelId,
+      addRecent,
+      reminders,
+      hasReminder,
+      addReminder,
+      removeReminder,
+      activeProgram,
+      openProgram,
+      closeProgram,
+      pointerMode,
+      setPointerMode,
+      guideLayout,
+      setGuideLayout,
+      guideDensity,
+      setGuideDensity,
+      safePreviewMode,
+      setSafePreviewMode,
+      channelNumbers,
+      setChannelNumbers,
+      channelLogos,
+      setChannelLogos,
+      deviceLayoutMode,
+      setDeviceLayoutMode,
+      playerControlsTimeoutMs,
+      setPlayerControlsTimeoutMs,
+      autoRetryStreams,
+      setAutoRetryStreams,
+    ],
+  );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
