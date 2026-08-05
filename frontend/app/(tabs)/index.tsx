@@ -422,7 +422,7 @@ export default function GuideScreen() {
               <Text style={styles.drawerHeaderValue}>{category}</Text>
             </View>
             <View style={styles.headerSpacer} />
-            <Text style={styles.drawerVersion}>EXPERIMENTAL v3</Text>
+            <Text style={styles.drawerVersion}>RC1</Text>
             <Pressable
               onPress={hardRefresh}
               style={({ focused }: any) => [styles.headerIconButton, focused && styles.goldFocus]}
@@ -487,7 +487,7 @@ export default function GuideScreen() {
             <View style={styles.mobileHeroText}>
               <Text style={styles.detailsLabel}>MOBILE SAFE GUIDE</Text>
               <Text numberOfLines={1} style={styles.mobileHeroTitle}>
-                {preview.current?.title || previewChannel?.name || "Phoenix guide"}
+                {preview.current?.title || previewChannel?.name || "CharmIPTV guide"}
               </Text>
               <Text numberOfLines={2} style={styles.description}>
                 Cards are easier and safer on phones. Tap a channel card to play it; use the star to favorite it.
@@ -647,7 +647,7 @@ export default function GuideScreen() {
         )}
         {drawerMode !== null && (
           <View pointerEvents="none" style={styles.drawerGuideFooter}>
-            <Text style={styles.drawerGuideFooterCharm}>Charm IPTV</Text>
+            <Text style={styles.drawerGuideFooterCharm}>CharmIPTV</Text>
             <Text style={styles.drawerGuideFooterText}>TV Guide</Text>
           </View>
         )}
