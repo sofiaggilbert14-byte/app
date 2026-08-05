@@ -19,6 +19,12 @@ import {
   type PlayerEnginePreference,
   usePlayerEnginePreference,
 } from "@/src/playerEnginePreference";
+import {
+  readLatestFavoritesBackup,
+  resolveFavoritesBackup,
+  serializeFavoritesBackup,
+  writeFavoritesBackup,
+} from "@/src/utils/favoritesBackup";
 import { fonts, radius, tvColors } from "@/src/theme";
 
 type Section = "general" | "player" | "remote" | "epg" | "appearance" | "backup" | "account" | "about";
@@ -44,6 +50,9 @@ export default function SettingsScreen() {
   const router = useRouter();
   const {
     refresh,
+    channels,
+    favorites,
+    replaceFavorites,
     pointerMode,
     setPointerMode,
     guideLayout,
@@ -66,13 +75,15 @@ export default function SettingsScreen() {
   const [playerEnginePreference, setPlayerEnginePreference] = usePlayerEnginePreference();
   const [section, setSection] = useState<Section | null>(null);
   const [busy, setBusy] = useState(false);
+  const [backupStatus, setBackupStatus] = useState<string | null>(null);
 
-  const appVersion = Constants.expoConfig?.version || "2.0.0-beta";
+  const appVersion = Constants.expoConfig?.version || "2.0.0-purple";
   const versionCode = (Constants.expoConfig as any)?.android?.versionCode;
   const selected = useMemo(() => TILES.find((item) => item.id === section), [section]);
 
   const choose = useCallback((id: Section) => {
     void Haptics.selectionAsync().catch(() => undefined);
+    setBackupStatus(null);
     if (id === "epg") {
       router.push("/epg-sources" as any);
       return;
@@ -103,6 +114,41 @@ export default function SettingsScreen() {
     }
   }, [busy, refresh]);
 
+  const backupFavorites = useCallback(async () => {
+    if (busy) return;
+    setBusy(true);
+    setBackupStatus("Choose a folder for the favorites backup…");
+    try {
+      const raw = serializeFavoritesBackup(favorites, channels);
+      const fileName = await writeFavoritesBackup(raw);
+      setBackupStatus(`Saved ${favorites.length} favorite${favorites.length === 1 ? "" : "s"} to ${fileName}.`);
+    } catch (error) {
+      setBackupStatus(error instanceof Error ? error.message : "Favorites backup failed.");
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, channels, favorites]);
+
+  const restoreFavorites = useCallback(async () => {
+    if (busy) return;
+    if (!channels.length) {
+      setBackupStatus("Channels must be loaded before restoring favorites.");
+      return;
+    }
+    setBusy(true);
+    setBackupStatus("Choose the folder that contains your CharmIPTV favorites backup…");
+    try {
+      const { fileName, raw } = await readLatestFavoritesBackup();
+      const restored = resolveFavoritesBackup(raw, channels);
+      replaceFavorites(restored);
+      setBackupStatus(`Restored ${restored.length} favorite${restored.length === 1 ? "" : "s"} from ${fileName}.`);
+    } catch (error) {
+      setBackupStatus(error instanceof Error ? error.message : "Favorites restore failed.");
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, channels, replaceFavorites]);
+
   return (
     <PurpleTvShell active="/settings">
       <View style={styles.page}>
@@ -111,12 +157,6 @@ export default function SettingsScreen() {
             <Text style={styles.kicker}>SYSTEM</Text>
             <Text style={styles.title}>{selected ? selected.label : "Settings"}</Text>
           </View>
-          {section ? (
-            <Pressable onPress={() => setSection(null)} style={({ focused }: any) => [styles.backButton, focused && styles.focused]}>
-              <Ionicons name="arrow-back" size={14} color="#fff" />
-              <Text style={styles.backText}>All Settings</Text>
-            </Pressable>
-          ) : null}
         </View>
 
         {!section ? (
@@ -136,6 +176,19 @@ export default function SettingsScreen() {
           </View>
         ) : (
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.details}>
+            <Pressable
+              onPress={() => {
+                void Haptics.selectionAsync().catch(() => undefined);
+                setBackupStatus(null);
+                setSection(null);
+              }}
+              style={({ focused }: any) => [styles.backButton, focused && styles.focused]}
+              testID="settings-all-settings"
+            >
+              <Ionicons name="arrow-up" size={14} color="#fff" />
+              <Text style={styles.backText}>All Settings</Text>
+            </Pressable>
+
             {section === "general" ? (
               <SettingsCard title="Guide & channels" icon="list-outline">
                 <ChoiceRow<GuideLayout>
@@ -208,7 +261,14 @@ export default function SettingsScreen() {
 
             {section === "backup" ? (
               <SettingsCard title="Backup & Restore" icon="cloud-download-outline">
-                <Text style={styles.help}>CharmIPTV keeps its channel/guide cache locally. Clearing it forces a clean source rebuild while preserving your app installation.</Text>
+                <Text style={styles.help}>Favorites backups are portable JSON files stored in a folder you choose. They can be restored into a later beta or a separate CharmIPTV installation even when that build uses a different app package.</Text>
+                <View style={styles.backupActions}>
+                  <Action label={busy ? "Working…" : "Back Up Favorites"} icon="save-outline" onPress={backupFavorites} disabled={busy} />
+                  <Action label={busy ? "Working…" : "Restore Favorites"} icon="download-outline" onPress={restoreFavorites} disabled={busy} />
+                </View>
+                {backupStatus ? <Text style={styles.status}>{backupStatus}</Text> : null}
+                <View style={styles.divider} />
+                <Text style={styles.help}>Guide cache maintenance is separate from favorites. Rebuilding the guide does not erase your favorites list.</Text>
                 <Action label={busy ? "Working…" : "Clear & rebuild guide cache"} icon="trash-outline" onPress={clearCache} disabled={busy} />
               </SettingsCard>
             ) : null}
@@ -227,7 +287,8 @@ export default function SettingsScreen() {
                 <InfoRow label="Version" value={appVersion} />
                 <InfoRow label="Android build" value={versionCode ? String(versionCode) : "—"} />
                 <InfoRow label="Interface" value="Purple TV experiment" />
-                <InfoRow label="Core" value="perf/opt-fix" />
+                <InfoRow label="Install package" value="Purple / side-by-side" />
+                <InfoRow label="Core" value="perf/opt-fix performance grade" />
                 <Text style={styles.help}>This branch changes presentation and navigation while preserving the optimized playback, guide, cache, and source architecture underneath.</Text>
               </SettingsCard>
             ) : null}
@@ -301,13 +362,13 @@ const styles = StyleSheet.create({
   header: { minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: tvColors.line },
   kicker: { color: tvColors.purpleSoft, fontFamily: fonts.semibold, fontSize: 7.5, letterSpacing: 1 },
   title: { color: "#fff", fontFamily: fonts.bold, fontSize: 18, marginTop: 2 },
-  backButton: { minHeight: 30, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, borderRadius: 5, borderWidth: 2, borderColor: "transparent", backgroundColor: tvColors.panel },
+  backButton: { alignSelf: "flex-start", minHeight: 30, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, borderRadius: 5, borderWidth: 2, borderColor: "transparent", backgroundColor: tvColors.panel, marginBottom: 8 },
   backText: { color: "#fff", fontFamily: fonts.medium, fontSize: 8.5 },
   tileGrid: { flex: 1, flexDirection: "row", flexWrap: "wrap", alignContent: "center", gap: 9, paddingHorizontal: 18 },
   tile: { width: "23.8%", minHeight: 118, alignItems: "center", justifyContent: "center", gap: 10, borderRadius: radius.sm, borderWidth: 2, borderColor: "transparent", backgroundColor: tvColors.panelRaised },
   tileIcon: { width: 48, height: 48, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: tvColors.purpleDeep },
   tileText: { color: "#fff", fontFamily: fonts.medium, fontSize: 9.5, textAlign: "center" },
-  details: { paddingTop: 14, paddingHorizontal: 24, paddingBottom: 24 },
+  details: { paddingTop: 10, paddingHorizontal: 24, paddingBottom: 24 },
   card: { backgroundColor: tvColors.panel, borderWidth: 1, borderColor: tvColors.line, borderRadius: radius.md, padding: 14, gap: 9 },
   cardHeader: { flexDirection: "row", alignItems: "center", gap: 9, paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: tvColors.line },
   cardIcon: { width: 32, height: 32, borderRadius: 7, alignItems: "center", justifyContent: "center", backgroundColor: tvColors.purpleDeep },
@@ -327,6 +388,9 @@ const styles = StyleSheet.create({
   action: { alignSelf: "flex-start", minHeight: 32, flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 12, borderRadius: 5, borderWidth: 2, borderColor: "transparent", backgroundColor: tvColors.purple },
   actionText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 8.5 },
   disabled: { opacity: 0.55 },
+  backupActions: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
+  status: { color: tvColors.purpleSoft, fontFamily: fonts.medium, fontSize: 8.5, lineHeight: 12.5 },
+  divider: { height: 1, backgroundColor: tvColors.line, marginVertical: 2 },
   infoRow: { minHeight: 34, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: tvColors.line },
   infoLabel: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 8.5 },
   infoValue: { color: "#fff", fontFamily: fonts.medium, fontSize: 8.5 },
