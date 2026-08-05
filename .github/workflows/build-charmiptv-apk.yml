@@ -1,16 +1,10 @@
-name: Build CharmIPTV perf universal APK
+name: Build CharmIPTV RC1 universal APK
 
 on:
   workflow_dispatch:
-  pull_request:
-    branches:
-      - main
-    paths:
-      - "frontend/**"
-      - ".github/workflows/build-charmiptv-apk.yml"
   push:
     branches:
-      - perf/opt-fix
+      - release/rc1
     paths:
       - "frontend/**"
       - ".github/workflows/build-charmiptv-apk.yml"
@@ -19,12 +13,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: perf-opt-universal-${{ github.ref }}
+  group: charmiptv-rc1-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   validate-and-build:
-    name: Validate and build universal Android TV APK
+    name: Validate and build CharmIPTV RC1 APK
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     defaults:
@@ -38,7 +32,7 @@ jobs:
       CI: "1"
 
     steps:
-      - name: Checkout perf/opt-fix
+      - name: Checkout release/rc1
         uses: actions/checkout@v4
 
       - name: Setup Node
@@ -73,6 +67,10 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Verify RC identity
+        run: |
+          node -e 'const c=require("./app.json").expo; if(c.name!=="CharmIPTV"||c.version!=="2.0.0-rc.1"||c.android?.package!=="com.charmiptv.app"||c.android?.versionCode!==200001){console.error(c);process.exit(1)}'
+
       - name: Configure deterministic low-memory build
         run: |
           cat >> android/gradle.properties <<'EOF'
@@ -99,16 +97,17 @@ jobs:
           unzip -l "$APK" | grep -q "lib/armeabi-v7a/"
           unzip -l "$APK" | grep -q "lib/arm64-v8a/"
           mkdir -p artifacts
-          cp "$APK" "artifacts/CharmIPTV-perf-opt-fix-Universal-${GITHUB_RUN_NUMBER}.apk"
-          sha256sum "artifacts/CharmIPTV-perf-opt-fix-Universal-${GITHUB_RUN_NUMBER}.apk" > artifacts/SHA256SUMS.txt
+          OUT="artifacts/CharmIPTV-v2.0.0-RC1-Universal-${GITHUB_RUN_NUMBER}.apk"
+          cp "$APK" "$OUT"
+          sha256sum "$OUT" > artifacts/SHA256SUMS.txt
 
-      - name: Upload universal APK
+      - name: Upload RC1 APK
         uses: actions/upload-artifact@v4
         with:
-          name: CharmIPTV-perf-opt-fix-Universal-${{ github.run_number }}
+          name: CharmIPTV-v2.0.0-RC1-Universal-${{ github.run_number }}
           path: |
-            frontend/artifacts/CharmIPTV-perf-opt-fix-Universal-${{ github.run_number }}.apk
+            frontend/artifacts/CharmIPTV-v2.0.0-RC1-Universal-${{ github.run_number }}.apk
             frontend/artifacts/SHA256SUMS.txt
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
           compression-level: 0
