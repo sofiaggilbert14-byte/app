@@ -8,7 +8,7 @@ import { PurpleTvShell } from "@/src/components/PurpleTvShell";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { useStore } from "@/src/store";
 import { Channel } from "@/src/api";
-import { fonts, radius, spacing, tvColors } from "@/src/theme";
+import { fonts, radius, tvColors } from "@/src/theme";
 import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
 
 function channelSort(a: Channel, b: Channel) {
@@ -75,14 +75,6 @@ export default function LiveTvHomeScreen() {
       router.push({ pathname: "/player", params: { channelId: channel.id } });
     },
     [addRecent, router],
-  );
-
-  const go = useCallback(
-    (route: "/guide" | "/channels" | "/favorites" | "/search") => {
-      void Haptics.selectionAsync().catch(() => undefined);
-      router.replace(route as any);
-    },
-    [router],
   );
 
   return (
@@ -178,25 +170,8 @@ export default function LiveTvHomeScreen() {
             );
           })}
         </ScrollView>
-
-        <View style={styles.quickRow}>
-          <QuickCard icon="calendar" label="TV Guide" onPress={() => go("/guide")} />
-          <QuickCard icon="list" label="Channels" onPress={() => go("/channels")} />
-          <QuickCard icon="heart" label="Favorites" onPress={() => go("/favorites")} />
-          <QuickCard icon="search" label="Search" onPress={() => go("/search")} />
-        </View>
       </ScrollView>
     </PurpleTvShell>
-  );
-}
-
-function QuickCard({ icon, label, onPress }: { icon: React.ComponentProps<typeof Ionicons>["name"]; label: string; onPress: () => void }) {
-  return (
-    <Pressable onPress={onPress} style={({ focused }: any) => [styles.quickCard, focused && styles.focused]}>
-      <View style={styles.quickIcon}><Ionicons name={icon} size={20} color={tvColors.purpleSoft} /></View>
-      <Text style={styles.quickLabel}>{label}</Text>
-      <Ionicons name="chevron-forward" size={14} color={tvColors.textMuted} />
-    </Pressable>
   );
 }
 
@@ -232,9 +207,5 @@ const styles = StyleSheet.create({
   channelCardArt: { height: 64, borderRadius: 5, overflow: "hidden", alignItems: "center", justifyContent: "center", marginBottom: 6 },
   channelName: { color: "#fff", fontFamily: fonts.semibold, fontSize: 9.5 },
   channelProgram: { color: tvColors.textMuted, fontFamily: fonts.regular, fontSize: 8.5, marginTop: 2 },
-  quickRow: { flexDirection: "row", gap: 8, marginTop: 2 },
-  quickCard: { flex: 1, minHeight: 52, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: tvColors.panel, borderWidth: 2, borderColor: "transparent", borderRadius: radius.sm, paddingHorizontal: 10 },
-  quickIcon: { width: 29, height: 29, borderRadius: 7, alignItems: "center", justifyContent: "center", backgroundColor: tvColors.purpleDeep },
-  quickLabel: { flex: 1, color: "#fff", fontFamily: fonts.medium, fontSize: 9.5 },
   focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
 });
