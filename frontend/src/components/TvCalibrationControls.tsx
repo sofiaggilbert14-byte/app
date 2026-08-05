@@ -1,11 +1,16 @@
-import React, { useState } from "react";
-import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import React, { useRef, useState } from "react";
+import { Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { fonts, radius, spacing } from "@/src/theme";
-import { TV_CALIBRATION_MAX_INSET, TvCalibration, useTvCalibration } from "@/src/tvCalibration";
+import {
+  getTvCalibrationLimit,
+  TvCalibration,
+  useTvCalibration,
+} from "@/src/tvCalibration";
 
 const STEP = 4;
+const MIN_ADJUST_INTERVAL_MS = 90;
 const RED = "#E3262E";
 
 type Side = keyof TvCalibration;
@@ -19,8 +24,11 @@ const SIDES: { side: Side; label: string; hint: string }[] = [
 
 export function TvCalibrationControls() {
   const { draftCalibration, setSide, save, reset, discard, hasChanges } = useTvCalibration();
+  const { width, height } = useWindowDimensions();
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const savingRef = useRef(false);
+  const lastAdjustAt = useRef(0);
 
   if (!Platform.isTV) {
     return (
@@ -32,19 +40,25 @@ export function TvCalibrationControls() {
   }
 
   const adjust = (side: Side, delta: number) => {
+    const now = Date.now();
+    if (now - lastAdjustAt.current < MIN_ADJUST_INTERVAL_MS) return;
+    lastAdjustAt.current = now;
     setSaved(false);
     void Haptics.selectionAsync().catch(() => {});
-    setSide(side, Math.max(0, Math.min(TV_CALIBRATION_MAX_INSET, draftCalibration[side] + delta)));
+    const limit = getTvCalibrationLimit(side, width, height);
+    setSide(side, Math.max(0, Math.min(limit, draftCalibration[side] + delta)));
   };
 
   const applyChanges = async () => {
-    if (!hasChanges || saving) return;
+    if (!hasChanges || savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     try {
       await save();
       setSaved(true);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
@@ -55,11 +69,12 @@ export function TvCalibrationControls() {
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>TV screen fit / overscan</Text>
           <Text style={styles.hint}>
-            Adjust the edges, then choose Save & Apply. The app updates immediately without a restart.
+            CharmIPTV automatically applies a TV-safe area from the current screen ratio. Use these controls only if your television still crops an edge.
           </Text>
         </View>
         <Pressable
           onPress={() => {
+            if (savingRef.current) return;
             setSaved(false);
             void Haptics.selectionAsync().catch(() => {});
             reset();
@@ -72,36 +87,40 @@ export function TvCalibrationControls() {
         </Pressable>
       </View>
 
-      {SIDES.map(({ side, label, hint }) => (
-        <View key={side} style={styles.row}>
-          <View style={styles.copy}>
-            <Text style={styles.label}>{label}</Text>
-            <Text style={styles.hint}>{hint}</Text>
+      {SIDES.map(({ side, label, hint }) => {
+        const limit = getTvCalibrationLimit(side, width, height);
+        return (
+          <View key={side} style={styles.row}>
+            <View style={styles.copy}>
+              <Text style={styles.label}>{label}</Text>
+              <Text style={styles.hint}>{hint}</Text>
+            </View>
+            <View style={styles.adjuster}>
+              <Pressable
+                onPress={() => adjust(side, -STEP)}
+                style={({ focused }: any) => [styles.adjustButton, focused && styles.focused]}
+                testID={`settings-tv-calibration-${side}-minus`}
+              >
+                <Ionicons name="remove" size={20} color="#fff" />
+              </Pressable>
+              <Text style={styles.value}>{Math.min(draftCalibration[side], limit)} px</Text>
+              <Pressable
+                onPress={() => adjust(side, STEP)}
+                style={({ focused }: any) => [styles.adjustButton, focused && styles.focused]}
+                testID={`settings-tv-calibration-${side}-plus`}
+              >
+                <Ionicons name="add" size={20} color="#fff" />
+              </Pressable>
+            </View>
           </View>
-          <View style={styles.adjuster}>
-            <Pressable
-              onPress={() => adjust(side, -STEP)}
-              style={({ focused }: any) => [styles.adjustButton, focused && styles.focused]}
-              testID={`settings-tv-calibration-${side}-minus`}
-            >
-              <Ionicons name="remove" size={20} color="#fff" />
-            </Pressable>
-            <Text style={styles.value}>{draftCalibration[side]} px</Text>
-            <Pressable
-              onPress={() => adjust(side, STEP)}
-              style={({ focused }: any) => [styles.adjustButton, focused && styles.focused]}
-              testID={`settings-tv-calibration-${side}-plus`}
-            >
-              <Ionicons name="add" size={20} color="#fff" />
-            </Pressable>
-          </View>
-        </View>
-      ))}
+        );
+      })}
 
       <View style={styles.actions}>
         <Pressable
           disabled={!hasChanges || saving}
           onPress={() => {
+            if (savingRef.current) return;
             setSaved(false);
             discard();
             void Haptics.selectionAsync().catch(() => {});
