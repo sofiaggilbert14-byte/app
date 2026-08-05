@@ -14,7 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import Constants from "expo-constants";
 import dayjs from "dayjs";
-import { colors, fonts, radius, spacing } from "@/src/theme";
+import { colors, fonts, radius } from "@/src/theme";
 import type { SourceStatus } from "@/src/api";
 import {
   DeviceLayoutMode,
@@ -349,7 +349,7 @@ export default function SettingsScreen() {
               <Card>
                 <Text style={styles.cardTitle}>How restore works</Text>
                 <Text style={styles.sub}>
-                  The backup never stores private stream URLs. Restore matches saved channel identity to the current build's playlist and only restores channels that currently have a playable stream. This means a restored favorite automatically uses the new build's current stream URL, logo, and EPG information.
+                  The backup never stores private stream URLs. Restore matches saved channel identity to the current build’s playlist and only restores channels that currently have a playable stream. This means a restored favorite automatically uses the new build’s current stream URL, logo, and EPG information.
                 </Text>
               </Card>
             </>
