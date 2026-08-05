@@ -68,9 +68,14 @@ export default function FavoritesScreen() {
     <PurpleTvShell active="/favorites">
       <View style={styles.page}>
         <View style={styles.header}>
-          <View>
+          <View style={styles.headerCopy}>
             <Text style={styles.kicker}>MY CHANNELS</Text>
-            <Text style={styles.title}>All Favorites</Text>
+            <View style={styles.titleRow}>
+              <Text style={styles.title}>All Favorites</Text>
+              <Text numberOfLines={2} style={styles.addHint}>
+                Add channels from the TV Guide by long-pressing a channel or using the Favorite button.
+              </Text>
+            </View>
           </View>
           <View style={styles.headerRight}>
             <Text style={styles.count}>{items.length} favorites</Text>
@@ -94,7 +99,7 @@ export default function FavoritesScreen() {
           <View style={styles.empty}>
             <View style={styles.emptyIcon}><Ionicons name="heart-outline" size={28} color={tvColors.purpleSoft} /></View>
             <Text style={styles.emptyTitle}>No favorites yet</Text>
-            <Text style={styles.emptyText}>Long-press a guide channel or use the heart button to add one.</Text>
+            <Text style={styles.emptyText}>Long-press a guide channel or use the Favorite button to add one.</Text>
             <Pressable onPress={() => router.replace("/guide" as any)} style={({ focused }: any) => [styles.guideButton, focused && styles.focused]}>
               <Text style={styles.guideText}>Open TV Guide</Text>
             </Pressable>
@@ -107,9 +112,12 @@ export default function FavoritesScreen() {
 
 const styles = StyleSheet.create({
   page: { flex: 1, padding: 14 },
-  header: { minHeight: 50, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: tvColors.line },
+  header: { minHeight: 54, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: tvColors.line, gap: 14 },
+  headerCopy: { flex: 1, minWidth: 0 },
   kicker: { color: tvColors.purpleSoft, fontFamily: fonts.semibold, fontSize: 7.5, letterSpacing: 1 },
+  titleRow: { flexDirection: "row", alignItems: "center", gap: 12, minWidth: 0 },
   title: { color: "#fff", fontFamily: fonts.bold, fontSize: 18, marginTop: 2 },
+  addHint: { flex: 1, maxWidth: 360, color: tvColors.textMuted, fontFamily: fonts.regular, fontSize: 7.5, lineHeight: 10.5, marginTop: 2 },
   headerRight: { flexDirection: "row", alignItems: "center", gap: 12 },
   count: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 8.5 },
   list: { paddingTop: 7, paddingBottom: 20 },
