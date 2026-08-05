@@ -31,6 +31,14 @@ type NavItem = {
   icon: React.ComponentProps<typeof Ionicons>["name"];
 };
 
+type FooterAction = {
+  label: string;
+  icon: React.ComponentProps<typeof Ionicons>["name"];
+  onPress: () => void;
+  disabled?: boolean;
+  testID?: string;
+};
+
 const NAV: NavItem[] = [
   { route: "/", label: "Live TV", icon: "tv-outline" },
   { route: "/guide", label: "TV Guide", icon: "calendar-outline" },
@@ -64,11 +72,13 @@ export function PurpleTvShell({
   children,
   headerRight,
   contentStyle,
+  footerAction,
 }: {
   active: Route;
   children: React.ReactNode;
   headerRight?: React.ReactNode;
   contentStyle?: any;
+  footerAction?: FooterAction;
 }) {
   const router = useRouter();
   const { width, height } = useWindowDimensions();
@@ -103,12 +113,11 @@ export function PurpleTvShell({
       <View style={styles.sidebar}>
         <SmallBrand />
         <View style={styles.nav}>
-          {NAV.map((item, index) => {
+          {NAV.map((item) => {
             const selected = item.route === active;
             return (
               <Pressable
                 key={item.route}
-                hasTVPreferredFocus={selected || (active === "/" && index === 0)}
                 onPress={() => navigate(item.route)}
                 style={({ focused }: any) => [
                   styles.navRow,
@@ -129,14 +138,29 @@ export function PurpleTvShell({
             );
           })}
         </View>
-        <View style={styles.sidebarFooter}>
+        <View style={[styles.sidebarFooter, footerAction && styles.sidebarFooterRow]}>
+          {footerAction ? (
+            <Pressable
+              disabled={footerAction.disabled}
+              onPress={footerAction.onPress}
+              style={({ focused }: any) => [
+                styles.footerCompact,
+                footerAction.disabled && styles.footerDisabled,
+                focused && styles.navRowFocused,
+              ]}
+              testID={footerAction.testID}
+            >
+              <Ionicons name={footerAction.icon} size={13} color={tvColors.textMuted} />
+              <Text numberOfLines={1} style={styles.footerCompactText}>{footerAction.label}</Text>
+            </Pressable>
+          ) : null}
           <Pressable
             onPress={exit}
-            style={({ focused }: any) => [styles.power, focused && styles.navRowFocused]}
+            style={({ focused }: any) => [footerAction ? styles.footerCompact : styles.power, focused && styles.navRowFocused]}
             testID="purple-nav-power"
           >
             <Ionicons name="power-outline" size={14} color={tvColors.textMuted} />
-            <Text style={styles.powerText}>Exit</Text>
+            <Text numberOfLines={1} style={footerAction ? styles.footerCompactText : styles.powerText}>Exit</Text>
           </Pressable>
         </View>
       </View>
@@ -217,6 +241,7 @@ const styles = StyleSheet.create({
   },
   navTextSelected: { color: "#fff", fontFamily: fonts.semibold },
   sidebarFooter: { borderTopWidth: 1, borderTopColor: tvColors.line, paddingTop: 6 },
+  sidebarFooterRow: { flexDirection: "row", gap: 4 },
   power: {
     minHeight: 30,
     borderRadius: radius.sm,
@@ -228,6 +253,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9,
   },
   powerText: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 9.5 },
+  footerCompact: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 30,
+    borderRadius: radius.sm,
+    borderWidth: 2,
+    borderColor: "transparent",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    paddingHorizontal: 4,
+  },
+  footerCompactText: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 8 },
+  footerDisabled: { opacity: 0.5 },
   content: { flex: 1, backgroundColor: tvColors.canvas },
   headerRight: {
     position: "absolute",
