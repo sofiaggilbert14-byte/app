@@ -1,5 +1,5 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { Platform, StyleProp, View, ViewStyle } from "react-native";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Platform, StyleProp, useWindowDimensions, View, ViewStyle } from "react-native";
 import { storage } from "@/src/utils/storage";
 
 export type TvCalibration = {
@@ -20,8 +20,9 @@ type TvCalibrationContextValue = {
 };
 
 const DEFAULT_CALIBRATION: TvCalibration = { left: 0, right: 0, top: 0, bottom: 0 };
-const STORAGE_KEY = "charm_tv_calibration_v1";
-const MAX_INSET = 96;
+const STORAGE_KEY = "charm_tv_calibration_v2";
+const LEGACY_STORAGE_KEY = "charm_tv_calibration_v1";
+const MAX_INSET = 64;
 const Ctx = createContext<TvCalibrationContextValue | null>(null);
 
 function clamp(value: number): number {
@@ -42,18 +43,31 @@ function sameCalibration(a: TvCalibration, b: TvCalibration): boolean {
   return a.left === b.left && a.right === b.right && a.top === b.top && a.bottom === b.bottom;
 }
 
+export function getTvCalibrationLimit(side: keyof TvCalibration, width: number, height: number): number {
+  const horizontal = Math.max(12, Math.min(48, Math.round(Math.max(1, width) * 0.05)));
+  const vertical = Math.max(10, Math.min(32, Math.round(Math.max(1, height) * 0.05)));
+  return side === "left" || side === "right" ? horizontal : vertical;
+}
+
 export function TvCalibrationProvider({ children }: { children: React.ReactNode }) {
   const [calibration, setCalibration] = useState<TvCalibration>(DEFAULT_CALIBRATION);
   const [draftCalibration, setDraftCalibration] = useState<TvCalibration>(DEFAULT_CALIBRATION);
+  const saveInFlightRef = useRef(false);
 
   useEffect(() => {
     let active = true;
-    storage.getItem<TvCalibration>(STORAGE_KEY, DEFAULT_CALIBRATION).then((saved) => {
-      if (!active || !saved) return;
-      const next = normalize(saved);
+    void (async () => {
+      const saved = await storage.getItem<TvCalibration | null>(STORAGE_KEY, null);
+      const legacy = saved || (await storage.getItem<TvCalibration | null>(LEGACY_STORAGE_KEY, null));
+      if (!active || !legacy) return;
+      const next = normalize(legacy);
       setCalibration(next);
       setDraftCalibration(next);
-    });
+      if (!saved) {
+        await storage.setItem(STORAGE_KEY, next);
+        await storage.removeItem(LEGACY_STORAGE_KEY);
+      }
+    })();
     return () => {
       active = false;
     };
@@ -64,12 +78,19 @@ export function TvCalibrationProvider({ children }: { children: React.ReactNode 
   }, []);
 
   const save = useCallback(async () => {
-    const next = normalize(draftCalibration);
-    // Updating provider state applies the new frame padding immediately across
-    // every mounted TV screen; persistence happens in the same user action.
-    setCalibration(next);
-    setDraftCalibration(next);
-    await storage.setItem(STORAGE_KEY, next);
+    // A held OK button can fire two presses before React paints `saving=true` in
+    // the controls. Keep an independent synchronous guard here so calibration
+    // can never apply twice concurrently to the root TV frame.
+    if (saveInFlightRef.current) return;
+    saveInFlightRef.current = true;
+    try {
+      const next = normalize(draftCalibration);
+      setCalibration(next);
+      setDraftCalibration(next);
+      await storage.setItem(STORAGE_KEY, next);
+    } finally {
+      saveInFlightRef.current = false;
+    }
   }, [draftCalibration]);
 
   const reset = useCallback(() => {
@@ -100,15 +121,19 @@ export function useTvCalibration(): TvCalibrationContextValue {
 
 export function TvCalibrationFrame({ children, style }: { children: React.ReactNode; style?: StyleProp<ViewStyle> }) {
   const { calibration } = useTvCalibration();
+  const { width, height } = useWindowDimensions();
 
-  // Overscan is primarily a TV problem. Phones/tablets keep their normal safe-area behavior.
+  // Hardware TV overscan itself is not exposed to Android. The automatic safe
+  // zone is handled by getTvSafeInsets(); this frame is only the user's extra
+  // correction. Clamp it against the current window so repeated adjustments can
+  // never collapse the root content area or destabilize TV focus/layout.
   const calibratedStyle: StyleProp<ViewStyle> = Platform.isTV
     ? {
         flex: 1,
-        paddingLeft: calibration.left,
-        paddingRight: calibration.right,
-        paddingTop: calibration.top,
-        paddingBottom: calibration.bottom,
+        paddingLeft: Math.min(calibration.left, getTvCalibrationLimit("left", width, height)),
+        paddingRight: Math.min(calibration.right, getTvCalibrationLimit("right", width, height)),
+        paddingTop: Math.min(calibration.top, getTvCalibrationLimit("top", width, height)),
+        paddingBottom: Math.min(calibration.bottom, getTvCalibrationLimit("bottom", width, height)),
       }
     : { flex: 1 };
 
