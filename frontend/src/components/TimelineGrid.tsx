@@ -96,10 +96,6 @@ const TimelineRow = memo(function TimelineRow({
     setPreferredHandle((current) => (current === handle ? current : handle));
   }, []);
 
-  useEffect(() => {
-    setPreferredHandle(undefined);
-  }, [item.id, preferred?.key]);
-
   return (
     <View style={[styles.row, { height: rowHeight }]}>
       <Animated.View
