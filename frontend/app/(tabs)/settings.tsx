@@ -101,7 +101,7 @@ export default function SettingsScreen() {
   const [busy, setBusy] = useState(false);
   useTvBackToGuide();
 
-  const appVersion = Constants.expoConfig?.version || "2.0.0-beta";
+  const appVersion = Constants.expoConfig?.version || "2.0.0-rc.1";
   const androidVersionCode = (Constants.expoConfig as any)?.android?.versionCode;
   const heading = section === "home"
     ? "All Settings"
@@ -158,10 +158,10 @@ export default function SettingsScreen() {
     >
       <View style={[styles.sidebar, compact && styles.sidebarCompact]}>
         <View style={styles.brandRow}>
-          <Text style={styles.brandCharm}>CHARM</Text>
-          <Text style={styles.brandIptv}> IPTV</Text>
+          <Text style={styles.brandCharm}>Charm</Text>
+          <Text style={styles.brandIptv}>IPTV</Text>
         </View>
-        <Text style={styles.versionMark}>EXPERIMENTAL v3</Text>
+        <Text style={styles.versionMark}>RC1</Text>
         <View style={[styles.nav, compact && styles.navCompact]}>
           <Pressable
             hasTVPreferredFocus={section === "home"}
@@ -297,7 +297,7 @@ export default function SettingsScreen() {
                 { label: "30 sec", value: 30000 },
                 { label: "60 sec", value: 60000 },
               ]} onChange={setPlayerControlsTimeoutMs} />
-              <ToggleRow label="Auto retry streams" sub="Reconnect after a stream drop using the bounded v3 retry policy." value={autoRetryStreams} onChange={setAutoRetryStreams} />
+              <ToggleRow label="Auto retry streams" sub="Reconnect automatically after a stream drop using the bounded recovery policy." value={autoRetryStreams} onChange={setAutoRetryStreams} />
             </Card>
           )}
 
@@ -358,8 +358,8 @@ export default function SettingsScreen() {
           {section === "about" && (
             <>
               <Card>
-                <Text style={styles.cardTitle}>Charm IPTV Experimental v3</Text>
-                <Stat label="Build" value={`v${appVersion}${androidVersionCode ? ` (${androidVersionCode})` : ""}`} />
+                <Text style={styles.cardTitle}>CharmIPTV RC1</Text>
+                <Stat label="Version" value={`v${appVersion}${androidVersionCode ? ` (${androidVersionCode})` : ""}`} />
                 <Stat label="Platform" value={Platform.isTV ? "Android TV / Fire TV" : Platform.OS} />
                 <Stat label="Data mode" value={diagnostics?.mode || "—"} />
                 <Text style={styles.sub}>Native streaming XMLTV, indexed SQLite guide storage, bounded player recovery, and TV-first display calibration.</Text>
