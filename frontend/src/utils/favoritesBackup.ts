@@ -20,6 +20,15 @@ type FavoritesBackupV1 = {
   favorites: FavoriteIdentity[];
 };
 
+export type FavoritesRestoreUnavailable = FavoriteIdentity & {
+  reason: "not-found" | "no-playable-stream" | "ambiguous-tvg-id" | "ambiguous-name";
+};
+
+export type FavoritesRestoreResult = string[] & {
+  unavailable: FavoritesRestoreUnavailable[];
+  sourceCount: number;
+};
+
 function normalized(value?: string): string {
   return (value || "")
     .normalize("NFKD")
@@ -27,6 +36,10 @@ function normalized(value?: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
+}
+
+function playable(channel?: Channel): channel is Channel {
+  return !!channel && typeof channel.url === "string" && channel.url.trim().length > 0;
 }
 
 function timestampForFile(date = new Date()): string {
@@ -44,8 +57,9 @@ export function serializeFavoritesBackup(favoriteIds: string[], channels: Channe
       name: channel.name || "",
     }));
 
-  // Preserve IDs that are temporarily absent from the current playlist. They
-  // may become valid again in a later build/source refresh.
+  // Never persist stream URLs. If a favorite is temporarily absent from the
+  // playlist we can preserve its old ID as identity metadata, but restore will
+  // only accept it when a current, playable channel can be resolved.
   for (const id of favoriteIds) {
     if (!favorites.some((item) => item.id === id)) {
       favorites.push({ id, tvgId: "", name: "" });
@@ -61,7 +75,14 @@ export function serializeFavoritesBackup(favoriteIds: string[], channels: Channe
   return `${JSON.stringify(payload, null, 2)}\n`;
 }
 
-export function resolveFavoritesBackup(raw: string, channels: Channel[]): string[] {
+function addGrouped(map: Map<string, Channel[]>, key: string, channel: Channel) {
+  if (!key) return;
+  const list = map.get(key);
+  if (list) list.push(channel);
+  else map.set(key, [channel]);
+}
+
+export function resolveFavoritesBackup(raw: string, channels: Channel[]): FavoritesRestoreResult {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -75,47 +96,74 @@ export function resolveFavoritesBackup(raw: string, channels: Channel[]): string
   }
 
   const byId = new Map(channels.map((channel) => [channel.id, channel]));
-  const byTvgId = new Map<string, Channel>();
-  const byName = new Map<string, Channel>();
+  const byTvgId = new Map<string, Channel[]>();
+  const byName = new Map<string, Channel[]>();
   for (const channel of channels) {
-    const tvgId = normalized(channel.tvg_id);
-    const name = normalized(channel.name);
-    if (tvgId && !byTvgId.has(tvgId)) byTvgId.set(tvgId, channel);
-    if (name && !byName.has(name)) byName.set(name, channel);
+    addGrouped(byTvgId, normalized(channel.tvg_id), channel);
+    addGrouped(byName, normalized(channel.name), channel);
   }
 
   const restored = new Set<string>();
+  const unavailable: FavoritesRestoreUnavailable[] = [];
+
   for (const item of payload.favorites) {
     if (!item || typeof item !== "object") continue;
     const identity = item as Partial<FavoriteIdentity>;
     const id = typeof identity.id === "string" ? identity.id : "";
+    const tvgIdRaw = typeof identity.tvgId === "string" ? identity.tvgId : "";
+    const nameRaw = typeof identity.name === "string" ? identity.name : "";
+    const tvgId = normalized(tvgIdRaw);
+    const name = normalized(nameRaw);
+
+    let matched: Channel | undefined;
+    let reason: FavoritesRestoreUnavailable["reason"] = "not-found";
+    let sawUnplayableCandidate = false;
+
+    // 1) Exact current channel ID.
     const exact = id ? byId.get(id) : undefined;
     if (exact) {
-      restored.add(exact.id);
+      if (playable(exact)) matched = exact;
+      else sawUnplayableCandidate = true;
+    }
+
+    // 2) Current playlist tvg-id. A duplicate tvg-id is accepted only when it
+    // resolves to exactly one playable current channel; otherwise it is
+    // ambiguous and we continue to the safer unique-name fallback.
+    if (!matched && tvgId) {
+      const candidates = byTvgId.get(tvgId) || [];
+      const playableCandidates = candidates.filter(playable);
+      if (playableCandidates.length === 1) matched = playableCandidates[0];
+      else if (playableCandidates.length > 1) reason = "ambiguous-tvg-id";
+      else if (candidates.length) sawUnplayableCandidate = true;
+    }
+
+    // 3) Normalized channel name, but only when that name is unique in the new
+    // playlist. We never guess between duplicate names.
+    if (!matched && name) {
+      const candidates = byName.get(name) || [];
+      if (candidates.length === 1) {
+        if (playable(candidates[0])) matched = candidates[0];
+        else sawUnplayableCandidate = true;
+      } else if (candidates.length > 1) {
+        reason = "ambiguous-name";
+      }
+    }
+
+    if (matched) {
+      // Save the NEW build's current channel ID. The favorite therefore uses
+      // that channel's current stream URL, logo and EPG data automatically.
+      restored.add(matched.id);
       continue;
     }
 
-    const tvgId = normalized(typeof identity.tvgId === "string" ? identity.tvgId : "");
-    const byGuideId = tvgId ? byTvgId.get(tvgId) : undefined;
-    if (byGuideId) {
-      restored.add(byGuideId.id);
-      continue;
-    }
-
-    const name = normalized(typeof identity.name === "string" ? identity.name : "");
-    const byChannelName = name ? byName.get(name) : undefined;
-    if (byChannelName) {
-      restored.add(byChannelName.id);
-      continue;
-    }
-
-    // Keep an unmatched original ID instead of silently losing the favorite.
-    // If the channel returns after a later playlist refresh, it can become
-    // visible as a favorite again without another restore operation.
-    if (id) restored.add(id);
+    if (sawUnplayableCandidate) reason = "no-playable-stream";
+    unavailable.push({ id, tvgId: tvgIdRaw, name: nameRaw, reason });
   }
 
-  return Array.from(restored);
+  const result = Array.from(restored) as FavoritesRestoreResult;
+  result.unavailable = unavailable;
+  result.sourceCount = payload.favorites.length;
+  return result;
 }
 
 export async function writeFavoritesBackup(raw: string): Promise<string> {
@@ -162,7 +210,7 @@ export async function readLatestFavoritesBackup(): Promise<{ fileName: string; r
   }
 
   // Timestamped filenames sort newest-first. If a provider exposes a decorated
-  // URI name, the payload validation below still prevents importing bad data.
+  // URI name, payload validation still prevents importing an unrelated file.
   let lastError: Error | null = null;
   for (const candidate of candidates) {
     try {
