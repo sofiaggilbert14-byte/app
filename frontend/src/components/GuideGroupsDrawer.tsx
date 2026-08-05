@@ -10,6 +10,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { fonts, radius } from "@/src/theme";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
+import { getTvSafeInsets } from "@/src/utils/tvLayout";
 
 type MenuRoute = "/" | "/favorites" | "/search" | "/settings";
 type DrawerMode = "groups" | "rail";
@@ -45,11 +46,13 @@ const GroupItem = memo(function GroupItem({
   group,
   active,
   hasPreferredFocus,
+  textInset,
   onSelect,
 }: {
   group: string;
   active: boolean;
   hasPreferredFocus: boolean;
+  textInset: number;
   onSelect: (group: string) => void;
 }) {
   const handlePress = useCallback(() => onSelect(group), [group, onSelect]);
@@ -69,7 +72,10 @@ const GroupItem = memo(function GroupItem({
         color={active ? WHITE : "rgba(255,255,255,0.86)"}
         size={19}
       />
-      <Text numberOfLines={1} style={[styles.rowText, active && styles.activeText]}>
+      <Text
+        numberOfLines={1}
+        style={[styles.rowText, { marginLeft: textInset }, active && styles.activeText]}
+      >
         {groupLabel(group)}
       </Text>
     </Pressable>
@@ -136,8 +142,10 @@ export function GuideGroupsDrawer({
   onNavigate: (route: MenuRoute) => void;
   onExit: () => void;
 }) {
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const drawerWidth = useMemo(() => guideGroupsWidth(width), [width]);
+  const tvSafe = useMemo(() => getTvSafeInsets(width, height), [height, width]);
+  const groupTextInset = useMemo(() => Math.max(4, Math.round(drawerWidth * 0.03)), [drawerWidth]);
   const groupsVisible = mode === "groups";
   const selectedIndex = useMemo(() => groups.indexOf(selected), [groups, selected]);
 
@@ -160,7 +168,15 @@ export function GuideGroupsDrawer({
           trapFocusUp
           trapFocusDown
           trapFocusRight
-          style={[styles.drawer, { width: drawerWidth }]}
+          style={[
+            styles.drawer,
+            {
+              width: drawerWidth,
+              left: tvSafe.left,
+              top: tvSafe.top,
+              bottom: tvSafe.bottom,
+            },
+          ]}
         >
           <View style={styles.brandBlock}>
             <View style={styles.brandLine}>
@@ -174,7 +190,7 @@ export function GuideGroupsDrawer({
             </View>
           </View>
 
-          <Text style={styles.sectionTitle}>Groups</Text>
+          <Text style={[styles.sectionTitle, { marginLeft: groupTextInset }]}>Groups</Text>
           <ScrollView contentContainerStyle={styles.groupList} showsVerticalScrollIndicator={false}>
             {groups.map((group, index) => {
               const active = group === selected;
@@ -184,6 +200,7 @@ export function GuideGroupsDrawer({
                   group={group}
                   active={active}
                   hasPreferredFocus={active || (index === 0 && selectedIndex < 0)}
+                  textInset={groupTextInset}
                   onSelect={onSelect}
                 />
               );
@@ -198,7 +215,20 @@ export function GuideGroupsDrawer({
           </View>
         </FocusGuide>
       ) : (
-        <FocusGuide autoFocus trapFocusUp trapFocusDown trapFocusRight style={styles.rail}>
+        <FocusGuide
+          autoFocus
+          trapFocusUp
+          trapFocusDown
+          trapFocusRight
+          style={[
+            styles.rail,
+            {
+              left: tvSafe.left,
+              top: tvSafe.top,
+              bottom: tvSafe.bottom,
+            },
+          ]}
+        >
           <Text style={styles.railLogo}>C</Text>
           <View style={styles.railActions}>
             <RailAction icon="heart" label="Favorites" onPress={openFavorites} />
@@ -220,13 +250,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#14181D",
     borderRightColor: "rgba(255,255,255,0.12)",
     borderRightWidth: 1,
-    bottom: 0,
-    left: 0,
     paddingBottom: 5,
     paddingHorizontal: 6,
     paddingTop: 8,
     position: "absolute",
-    top: 0,
   },
   brandBlock: {
     borderBottomColor: "rgba(255,255,255,0.10)",
@@ -275,13 +302,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#11151A",
     borderRightColor: "rgba(255,255,255,0.12)",
     borderRightWidth: 1,
-    bottom: 0,
     justifyContent: "space-between",
-    left: 0,
     paddingBottom: 7,
     paddingTop: 8,
     position: "absolute",
-    top: 0,
     width: GUIDE_RAIL_WIDTH,
   },
   railLogo: { color: RED, fontFamily: fonts.bold, fontSize: 22 },
