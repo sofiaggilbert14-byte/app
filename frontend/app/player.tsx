@@ -99,6 +99,11 @@ export default function PlayerScreen() {
 
   const [channelId, setChannelId] = useState(params.channelId);
   const channel = useMemo(() => channelById(channelId), [channelId, channelById]);
+  const streamChannels = useMemo(() => channels.filter((item) => !!item.url), [channels]);
+  const streamIndex = useMemo(
+    () => streamChannels.findIndex((item) => item.id === channelId),
+    [channelId, streamChannels],
+  );
   const channelNumberById = useMemo(() => {
     const map: Record<string, number> = {};
     [...channels]
@@ -162,6 +167,14 @@ export default function PlayerScreen() {
     addRecent(c);
     scheduleHide();
   }, [addRecent, channelById, channelId, scheduleHide, showSwitchNotice]);
+
+  const stepStream = useCallback((direction: -1 | 1) => {
+    if (streamChannels.length < 2) return;
+    const baseIndex = streamIndex >= 0 ? streamIndex : 0;
+    const nextIndex = (baseIndex + direction + streamChannels.length) % streamChannels.length;
+    const target = streamChannels[nextIndex];
+    if (target) changeChannel(target.id, { haptic: true });
+  }, [changeChannel, streamChannels, streamIndex]);
 
   const surf = (id: string) => {
     changeChannel(id, { haptic: true });
@@ -404,10 +417,19 @@ export default function PlayerScreen() {
             <View style={styles.mainControls}>
               <Pressable
                 style={({ focused }: any) => [styles.mainBtn, focused && styles.ctrlFocused]}
+                onPress={() => stepStream(-1)}
+                disabled={streamChannels.length < 2}
+                testID="player-previous-btn"
+              >
+                <Ionicons name="play-skip-back-outline" size={22} color="#fff" />
+                <Text style={styles.mainBtnText}>Previous</Text>
+              </Pressable>
+              <Pressable
+                style={({ focused }: any) => [styles.mainBtn, focused && styles.ctrlFocused]}
                 onPress={() => leavePlayerTo("/")}
                 testID="player-guide-btn"
               >
-                <Ionicons name="list-outline" size={26} color="#fff" />
+                <Ionicons name="list-outline" size={22} color="#fff" />
                 <Text style={styles.mainBtnText}>Guide</Text>
               </Pressable>
               <Pressable
@@ -418,7 +440,7 @@ export default function PlayerScreen() {
                 }}
                 testID="player-channels-btn"
               >
-                <Ionicons name="list" size={26} color="#fff" />
+                <Ionicons name="list" size={22} color="#fff" />
                 <Text style={styles.mainBtnText}>Channels</Text>
               </Pressable>
               <Pressable
@@ -429,7 +451,7 @@ export default function PlayerScreen() {
                 }}
                 testID="player-audio-btn"
               >
-                <Ionicons name="volume-high-outline" size={26} color="#fff" />
+                <Ionicons name="volume-high-outline" size={22} color="#fff" />
                 <Text style={styles.mainBtnText}>Audio</Text>
               </Pressable>
               <Pressable
@@ -440,15 +462,24 @@ export default function PlayerScreen() {
                 }}
                 testID="player-captions-btn"
               >
-                <Ionicons name="logo-closed-captioning" size={26} color="#fff" />
+                <Ionicons name="logo-closed-captioning" size={22} color="#fff" />
                 <Text style={styles.mainBtnText}>Captions</Text>
+              </Pressable>
+              <Pressable
+                style={({ focused }: any) => [styles.mainBtn, focused && styles.ctrlFocused]}
+                onPress={() => stepStream(1)}
+                disabled={streamChannels.length < 2}
+                testID="player-next-btn"
+              >
+                <Ionicons name="play-skip-forward-outline" size={22} color="#fff" />
+                <Text style={styles.mainBtnText}>Next</Text>
               </Pressable>
               <Pressable
                 style={({ focused }: any) => [styles.mainBtn, styles.stopBtn, focused && styles.ctrlFocused]}
                 onPress={stopAndExit}
                 testID="player-overlay-stop-btn"
               >
-                <Ionicons name="stop" size={24} color="#fff" />
+                <Ionicons name="stop" size={22} color="#fff" />
                 <Text style={styles.mainBtnText}>Stop</Text>
               </Pressable>
             </View>
@@ -542,14 +573,15 @@ const styles = StyleSheet.create({
   progressTrack: { position: "absolute", left: spacing.md, right: 78, bottom: 10, height: 5, borderRadius: 3, backgroundColor: "rgba(255,255,255,0.18)", overflow: "hidden" },
   progressFill: { height: "100%", backgroundColor: RED, borderRadius: 3 },
   liveEdge: { position: "absolute", right: spacing.md, bottom: 5, color: RED_SOFT, fontFamily: fonts.bold, fontSize: 12 },
-  mainControls: { flexDirection: "row", gap: spacing.sm },
+  mainControls: { flexDirection: "row", gap: 6 },
   mainBtn: {
-    flex: 1, height: 55, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm,
-    backgroundColor: "rgba(30,32,35,0.96)", borderWidth: 1, borderColor: "rgba(255,255,255,0.20)", borderRadius: radius.md,
+    flex: 1, minWidth: 0, height: 47, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4,
+    paddingHorizontal: 4, backgroundColor: "rgba(30,32,35,0.96)", borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.20)", borderRadius: radius.md,
   },
   mainBtnActive: { backgroundColor: "rgba(227,34,42,0.42)", borderColor: RED_SOFT },
   stopBtn: { backgroundColor: RED, borderColor: RED_SOFT },
-  mainBtnText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 15 },
+  mainBtnText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 13 },
   channelStrip: { gap: spacing.sm, paddingTop: spacing.xs },
   surfItem: {
     width: 104, minHeight: 68, alignItems: "center", justifyContent: "center", gap: 2, borderRadius: radius.md,
