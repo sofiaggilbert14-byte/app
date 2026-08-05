@@ -32,6 +32,10 @@ import {
   subscribeSource,
   type SourceDiagnostics,
 } from "@/src/source";
+import {
+  type PlayerEnginePreference,
+  usePlayerEnginePreference,
+} from "@/src/playerEnginePreference";
 import { TvCalibrationControls } from "@/src/components/TvCalibrationControls";
 import { useTvBackToGuide } from "@/src/hooks/use-tv-back-to-guide";
 import { getTvSafeInsets } from "@/src/utils/tvLayout";
@@ -75,6 +79,7 @@ export default function SettingsScreen() {
     autoRetryStreams,
     setAutoRetryStreams,
   } = useStore();
+  const [playerEnginePreference, setPlayerEnginePreference] = usePlayerEnginePreference();
 
   const { width, height } = useWindowDimensions();
   const tvSafe = useMemo(() => getTvSafeInsets(width, height), [width, height]);
@@ -211,6 +216,18 @@ export default function SettingsScreen() {
 
           {section === "playback" && (
             <Card>
+              <ChoiceRow<PlayerEnginePreference>
+                label="Video player"
+                value={playerEnginePreference}
+                options={[
+                  { label: "App Default", value: "default" },
+                  { label: "VLC", value: "vlc" },
+                ]}
+                onChange={setPlayerEnginePreference}
+              />
+              <Text style={styles.sub}>
+                App Default automatically chooses the best engine for each stream. VLC forces VLC for full-screen playback when it is available; live guide preview remains on the optimized default path.
+              </Text>
               <ChoiceRow<PlayerControlsTimeoutMs> label="Player controls timeout" value={playerControlsTimeoutMs} options={[
                 { label: "8 sec", value: 8000 },
                 { label: "15 sec", value: 15000 },
