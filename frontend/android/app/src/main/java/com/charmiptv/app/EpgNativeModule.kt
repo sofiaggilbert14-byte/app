@@ -40,13 +40,40 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         val now = System.currentTimeMillis()
         val minStop = now - GUIDE_HISTORY_MS
         val maxStart = now + GUIDE_WINDOW_MS
-        val batches = streamProgramBatches(url, minStop, maxStart)
+        val channelLogos = LinkedHashMap<String, String>()
+        val channelNames = LinkedHashMap<String, String>()
+        val channelIdsWithPrograms = LinkedHashSet<String>()
+        val batches = streamProgramBatches(
+          url,
+          minStop,
+          maxStart,
+          channelLogos,
+          channelNames,
+          channelIdsWithPrograms,
+        )
         database.replaceBatches(batches)
         rebuildCurrentCache(now)
+
+        val logos = Arguments.createMap()
+        for ((channelId, logoUrl) in channelLogos) {
+          logos.putString(channelId, logoUrl)
+        }
+        val names = Arguments.createMap()
+        for ((channelId, channelName) in channelNames) {
+          names.putString(channelId, channelName)
+        }
+        val programIds = Arguments.createArray()
+        for (channelId in channelIdsWithPrograms) {
+          programIds.pushString(channelId)
+        }
+
         val result = Arguments.createMap().apply {
           putDouble("count", database.count().toDouble())
           putDouble("windowStartMs", (now - GUIDE_HISTORY_MS).toDouble())
           putDouble("windowEndMs", maxStart.toDouble())
+          putMap("channelLogos", logos)
+          putMap("channelNames", names)
+          putArray("channelIdsWithPrograms", programIds)
         }
         promise.resolve(result)
       } catch (t: Throwable) {
@@ -149,6 +176,9 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     url: String,
     minStop: Long,
     maxStart: Long,
+    channelLogos: MutableMap<String, String>,
+    channelNames: MutableMap<String, String>,
+    channelIdsWithPrograms: MutableSet<String>,
   ): Sequence<List<NativeEpgProgram>> = sequence {
     openPossiblyGzipped(url).use { input ->
       val parser = Xml.newPullParser()
@@ -156,6 +186,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
 
       val batch = ArrayList<NativeEpgProgram>(BATCH_SIZE)
       var event = parser.eventType
+      var metadataChannelId: String? = null
       var channelId: String? = null
       var startMs = 0L
       var endMs = 0L
@@ -166,8 +197,25 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
       while (event != XmlPullParser.END_DOCUMENT) {
         when (event) {
           XmlPullParser.START_TAG -> when (parser.name) {
+            "channel" -> {
+              metadataChannelId = parser.getAttributeValue(null, "id")?.trim()?.takeIf { it.isNotEmpty() }
+            }
+            "display-name" -> {
+              val id = metadataChannelId
+              if (!id.isNullOrBlank() && !channelNames.containsKey(id)) {
+                val displayName = parser.nextText().trim()
+                if (displayName.isNotEmpty()) channelNames[id] = displayName
+              }
+            }
+            "icon" -> {
+              val id = metadataChannelId
+              val src = parser.getAttributeValue(null, "src")?.trim()
+              if (!id.isNullOrBlank() && !src.isNullOrBlank() && !channelLogos.containsKey(id)) {
+                channelLogos[id] = src
+              }
+            }
             "programme" -> {
-              channelId = parser.getAttributeValue(null, "channel")
+              channelId = parser.getAttributeValue(null, "channel")?.trim()
               startMs = parseXmltvTime(parser.getAttributeValue(null, "start"))
               endMs = parseXmltvTime(parser.getAttributeValue(null, "stop"))
               keepProgram =
@@ -179,30 +227,32 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
               title = ""
               description = null
             }
-            // Do not allocate title/description strings for the days of XMLTV
-            // data that are outside our retained guide window.
             "title" -> if (keepProgram) title = parser.nextText().trim()
             "desc" -> if (keepProgram) description = parser.nextText().trim().ifEmpty { null }
           }
-          XmlPullParser.END_TAG -> if (parser.name == "programme") {
-            val id = channelId
-            if (keepProgram && !id.isNullOrBlank()) {
-              batch.add(
-                NativeEpgProgram(
-                  channelId = id,
-                  title = title.ifBlank { "No Information" },
-                  description = description,
-                  startMs = startMs,
-                  endMs = endMs,
+          XmlPullParser.END_TAG -> when (parser.name) {
+            "channel" -> metadataChannelId = null
+            "programme" -> {
+              val id = channelId
+              if (keepProgram && !id.isNullOrBlank()) {
+                channelIdsWithPrograms.add(id)
+                batch.add(
+                  NativeEpgProgram(
+                    channelId = id,
+                    title = title.ifBlank { "No Information" },
+                    description = description,
+                    startMs = startMs,
+                    endMs = endMs,
+                  )
                 )
-              )
-              if (batch.size >= BATCH_SIZE) {
-                yield(ArrayList(batch))
-                batch.clear()
+                if (batch.size >= BATCH_SIZE) {
+                  yield(ArrayList(batch))
+                  batch.clear()
+                }
               }
+              channelId = null
+              keepProgram = false
             }
-            channelId = null
-            keepProgram = false
           }
         }
         event = parser.next()
@@ -277,8 +327,6 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         return 0L
       }
 
-      // Howard Hinnant's civil-date-to-days algorithm, adapted to Long. This
-      // avoids Calendar/Date/substring allocations for every XMLTV timestamp.
       var y = year.toLong()
       val m = month.toLong()
       val d = day.toLong()
@@ -295,8 +343,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
           minute * 60_000L +
           second * 1_000L
 
-      val restStart = 14
-      var i = restStart
+      var i = 14
       while (i < value.length && value[i].isWhitespace()) i++
       if (i + 4 < value.length && (value[i] == '+' || value[i] == '-')) {
         val sign = if (value[i] == '-') -1 else 1
