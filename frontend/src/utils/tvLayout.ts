@@ -13,15 +13,15 @@ export function getTvSafeInsets(width: number, height: number) {
   const safeHeight = Math.max(1, height);
   const aspect = Math.max(safeWidth, safeHeight) / Math.min(safeWidth, safeHeight);
 
-  // TV manufacturers still ship sets with HDMI/overscan cropping enabled.
-  // Use a title-safe style margin rather than assuming the reported Android
-  // viewport reaches the visible panel edge. Wider panels get a little more
-  // horizontal protection while 4:3-ish displays keep more usable space.
-  const horizontalRatio = aspect >= 1.95 ? 0.0475 : aspect >= 1.68 ? 0.0425 : 0.0375;
-  const verticalRatio = aspect >= 1.95 ? 0.04 : aspect >= 1.68 ? 0.0375 : 0.035;
+  // Android TV recommends keeping important content about 5% inside the panel
+  // edges. Scale that safe zone from the actual reported app window instead of
+  // hard-coding a 1080p layout. Very wide displays get a small extra horizontal
+  // guard while more square displays retain slightly more usable space.
+  const horizontalRatio = aspect >= 2.0 ? 0.055 : aspect >= 1.6 ? 0.05 : 0.045;
+  const verticalRatio = aspect >= 2.0 ? 0.05 : aspect >= 1.6 ? 0.05 : 0.045;
 
-  const horizontal = clamp(Math.round(safeWidth * horizontalRatio), 24, 64);
-  const vertical = clamp(Math.round(safeHeight * verticalRatio), 18, 48);
+  const horizontal = clamp(Math.round(safeWidth * horizontalRatio), 28, 72);
+  const vertical = clamp(Math.round(safeHeight * verticalRatio), 20, 54);
 
   return {
     top: vertical,
