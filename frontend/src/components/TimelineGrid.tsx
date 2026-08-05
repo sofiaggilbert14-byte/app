@@ -210,7 +210,10 @@ export function TimelineGrid({
                 ref={listRef}
                 keyExtractor={(row) => row.channel.id}
                 drawDistance={Math.max(720, ROW_H * 16)}
-                removeClippedSubviews
+                // Keep FlashList virtualization, but do not let React Native's
+                // second clipping layer detach the currently focused transformed
+                // row during rapid Android TV / Fire TV D-pad navigation.
+                removeClippedSubviews={false}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingBottom: 120 }}
                 refreshControl={
