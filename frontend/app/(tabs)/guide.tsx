@@ -1,5 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Animated,
+  Easing,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -33,8 +43,66 @@ function matches(channel: Channel, group: string) {
   return channel.group === group;
 }
 
+function AutoScrollDescription({ text }: { text: string }) {
+  const translateY = useRef(new Animated.Value(0)).current;
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const [contentHeight, setContentHeight] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    let pauseTimer: ReturnType<typeof setTimeout> | null = null;
+    const overflow = Math.max(0, contentHeight - viewportHeight);
+
+    translateY.stopAnimation();
+    translateY.setValue(0);
+    if (overflow <= 2 || !viewportHeight || !contentHeight) return undefined;
+
+    const schedule = () => {
+      pauseTimer = setTimeout(() => {
+        if (cancelled) return;
+        const duration = Math.max(6500, Math.round((overflow / 14) * 1000));
+        Animated.timing(translateY, {
+          toValue: -overflow,
+          duration,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }).start(({ finished }) => {
+          if (cancelled || !finished) return;
+          // Jump back to the beginning, pause there, then repeat.
+          translateY.setValue(0);
+          schedule();
+        });
+      }, 3500);
+    };
+
+    schedule();
+    return () => {
+      cancelled = true;
+      if (pauseTimer) clearTimeout(pauseTimer);
+      translateY.stopAnimation();
+      translateY.setValue(0);
+    };
+  }, [contentHeight, text, translateY, viewportHeight]);
+
+  return (
+    <View
+      style={styles.aboutViewport}
+      onLayout={(event) => setViewportHeight(event.nativeEvent.layout.height)}
+      pointerEvents="none"
+    >
+      <Animated.View
+        onLayout={(event) => setContentHeight(event.nativeEvent.layout.height)}
+        style={{ transform: [{ translateY }] }}
+      >
+        <Text style={styles.description}>{text}</Text>
+      </Animated.View>
+    </View>
+  );
+}
+
 export default function PurpleGuideScreen() {
   const router = useRouter();
+  const { width: screenWidth } = useWindowDimensions();
   const {
     channels,
     windowStart,
@@ -64,6 +132,7 @@ export default function PurpleGuideScreen() {
   const [resetToken, setResetToken] = useState(0);
   const metadataTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const groupChangedAt = useRef(0);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date().toISOString()), 60_000);
@@ -127,34 +196,34 @@ export default function PurpleGuideScreen() {
     previewId === previewChannel.id &&
     previewStatus !== "error";
 
-  const previewDelay = safePreviewMode === "delayed" ? 1200 : 700;
+  const previewDelay = safePreviewMode === "delayed" ? 1500 : 950;
 
-  useEffect(() => {
-    if (!previewChannel?.id || !previewChannel.url || safePreviewMode === "off") {
-      setPreviewId(null);
-      return;
-    }
-    if (previewTimer.current) clearTimeout(previewTimer.current);
-    const id = previewChannel.id;
-    previewTimer.current = setTimeout(() => setPreviewId(id), previewDelay);
-    return () => {
-      if (previewTimer.current) clearTimeout(previewTimer.current);
-    };
-  }, [previewChannel?.id, previewChannel?.url, previewDelay, safePreviewMode]);
+  const detailsRailWidth = useMemo(() => {
+    // The former rail used a 0.78 / 1.9 flex relationship, clamped to 228–340.
+    // Recreate that effective width, then reduce it by exactly 30% so the
+    // reclaimed space always goes to the guide on both 720p and 1080p TVs.
+    const available = Math.max(480, screenWidth - 196);
+    const former = Math.min(340, Math.max(228, available * (0.78 / (1.9 + 0.78))));
+    return Math.round(Math.min(238, Math.max(160, former * 0.7)));
+  }, [screenWidth]);
 
   const onFocusChannel = useCallback(
     (channel: Channel) => {
       if (metadataTimer.current) clearTimeout(metadataTimer.current);
       if (previewTimer.current) clearTimeout(previewTimer.current);
+      const requestedId = channel.id;
+      const recentlyChangedGroup = Date.now() - groupChangedAt.current < 1800;
+      const delay = recentlyChangedGroup ? Math.max(previewDelay, 1300) : previewDelay;
+
       metadataTimer.current = setTimeout(() => {
-        setFocusedId(channel.id);
+        setFocusedId(requestedId);
         setPreviewStatus("loading");
-        if (safePreviewMode === "off") {
+        if (safePreviewMode === "off" || !channel.url) {
           setPreviewId(null);
           return;
         }
-        previewTimer.current = setTimeout(() => setPreviewId(channel.id), previewDelay);
-      }, 90);
+        previewTimer.current = setTimeout(() => setPreviewId(requestedId), delay);
+      }, 120);
     },
     [previewDelay, safePreviewMode],
   );
@@ -170,14 +239,42 @@ export default function PurpleGuideScreen() {
 
   const chooseGroup = useCallback((next: string) => {
     void Haptics.selectionAsync().catch(() => undefined);
+    if (metadataTimer.current) clearTimeout(metadataTimer.current);
+    if (previewTimer.current) clearTimeout(previewTimer.current);
+    groupChangedAt.current = Date.now();
     setGroup(next);
     setFocusedId(null);
     setPreviewId(null);
+    setPreviewStatus("loading");
     setResetToken((value) => value + 1);
   }, []);
 
+  const resetGuide = useCallback(() => {
+    void Haptics.selectionAsync().catch(() => undefined);
+    if (metadataTimer.current) clearTimeout(metadataTimer.current);
+    if (previewTimer.current) clearTimeout(previewTimer.current);
+    groupChangedAt.current = Date.now();
+    setGroup("All");
+    setFocusedId(null);
+    setPreviewId(null);
+    setPreviewStatus("loading");
+    setResetToken((value) => value + 1);
+    void hardRefresh();
+  }, [hardRefresh]);
+
+  const aboutText = current?.desc || "Move through the guide to preview a channel and read its current program description.";
+
   return (
-    <PurpleTvShell active="/guide">
+    <PurpleTvShell
+      active="/guide"
+      footerAction={{
+        label: "Reset",
+        icon: "refresh-outline",
+        onPress: resetGuide,
+        disabled: refreshing,
+        testID: "purple-guide-reset",
+      }}
+    >
       <View style={styles.page}>
         <View style={styles.header}>
           <View>
@@ -201,9 +298,6 @@ export default function PurpleGuideScreen() {
               </Pressable>
             ))}
           </ScrollView>
-          <Pressable onPress={hardRefresh} style={({ focused }: any) => [styles.refresh, focused && styles.focused]}>
-            <Ionicons name="refresh" size={15} color="#fff" />
-          </Pressable>
         </View>
 
         <EpgProgressBar />
@@ -220,7 +314,7 @@ export default function PurpleGuideScreen() {
           </View>
         ) : (
           <View style={styles.body}>
-            <FocusGuide style={styles.gridPanel} autoFocus trapFocusUp trapFocusDown>
+            <FocusGuide style={styles.gridPanel} autoFocus>
               {guideLayout === "compact" ? (
                 <BoxGrid
                   channels={filtered}
@@ -257,7 +351,7 @@ export default function PurpleGuideScreen() {
               )}
             </FocusGuide>
 
-            <View style={styles.detailsPanel}>
+            <View style={[styles.detailsPanel, { width: detailsRailWidth }]}>
               <View style={styles.preview} pointerEvents="none">
                 {previewVisible && previewChannel ? (
                   <ErrorBoundary fallback={() => null}>
@@ -271,9 +365,9 @@ export default function PurpleGuideScreen() {
                 ) : (
                   <View style={styles.previewFallback}>
                     {previewChannel ? (
-                      <ChannelLogo name={previewChannel.name} logo={previewChannel.logo} disabled={!channelLogos} size={64} />
+                      <ChannelLogo name={previewChannel.name} logo={previewChannel.logo} disabled={!channelLogos} size={46} />
                     ) : (
-                      <Ionicons name="tv-outline" size={44} color={tvColors.purpleSoft} />
+                      <Ionicons name="tv-outline" size={34} color={tvColors.purpleSoft} />
                     )}
                   </View>
                 )}
@@ -287,24 +381,25 @@ export default function PurpleGuideScreen() {
                     : "Select a channel"}
                 </Text>
                 <Text numberOfLines={2} style={styles.programTitle}>{current?.title || "No program information"}</Text>
-                <Text style={styles.timeText}>
+                <Text numberOfLines={1} style={styles.timeText}>
                   {current
                     ? `${fmtTime(current.start)}${current.stop ? ` - ${fmtTime(current.stop)}` : ""}`
                     : "Guide information will appear here"}
                 </Text>
                 <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${progress}%` }]} /></View>
                 <Text style={styles.descLabel}>ABOUT</Text>
-                <Text numberOfLines={6} style={styles.description}>
-                  {current?.desc || "Move through the guide to preview a channel and read its current program description."}
-                </Text>
+                <AutoScrollDescription text={aboutText} />
+                {current?.stop ? (
+                  <Text style={styles.remaining}>{Math.max(0, dayjs(current.stop).diff(dayjs(), "minute"))} min remaining</Text>
+                ) : null}
                 <View style={styles.actions}>
                   <Pressable
                     disabled={!previewChannel}
                     onPress={() => previewChannel && play(previewChannel)}
                     style={({ focused }: any) => [styles.watchButton, focused && styles.focused]}
                   >
-                    <Ionicons name="play" size={14} color="#fff" />
-                    <Text style={styles.watchText}>Watch Now</Text>
+                    <Ionicons name="play" size={12} color="#fff" />
+                    <Text style={styles.watchText}>Watch</Text>
                   </Pressable>
                   <Pressable
                     disabled={!previewChannel}
@@ -313,15 +408,12 @@ export default function PurpleGuideScreen() {
                   >
                     <Ionicons
                       name={previewChannel && favorites.includes(previewChannel.id) ? "heart" : "heart-outline"}
-                      size={14}
+                      size={12}
                       color={tvColors.purpleSoft}
                     />
                     <Text style={styles.secondaryText}>Favorite</Text>
                   </Pressable>
                 </View>
-                {current?.stop ? (
-                  <Text style={styles.remaining}>{Math.max(0, dayjs(current.stop).diff(dayjs(), "minute"))} min remaining</Text>
-                ) : null}
               </View>
             </View>
           </View>
@@ -341,28 +433,28 @@ const styles = StyleSheet.create({
   groupChipActive: { backgroundColor: tvColors.purple },
   groupText: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 8.5 },
   groupTextActive: { color: "#fff", fontFamily: fonts.semibold },
-  refresh: { width: 34, height: 30, borderRadius: 6, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "transparent", backgroundColor: tvColors.panel },
   body: { flex: 1, flexDirection: "row", gap: 8, minHeight: 0 },
-  gridPanel: { flex: 1.9, minWidth: 0, overflow: "hidden", backgroundColor: tvColors.canvasRaised, borderWidth: 1, borderColor: tvColors.line, borderRadius: radius.sm },
-  detailsPanel: { flex: 0.78, minWidth: 228, maxWidth: 340, backgroundColor: tvColors.panel, borderRadius: radius.sm, borderWidth: 1, borderColor: tvColors.line, overflow: "hidden" },
-  preview: { height: "42%", minHeight: 128, backgroundColor: "#05050B", overflow: "hidden" },
+  gridPanel: { flex: 1, minWidth: 0, overflow: "hidden", backgroundColor: tvColors.canvasRaised, borderWidth: 1, borderColor: tvColors.line, borderRadius: radius.sm },
+  detailsPanel: { flexShrink: 0, backgroundColor: tvColors.panel, borderRadius: radius.sm, borderWidth: 1, borderColor: tvColors.line, overflow: "hidden" },
+  preview: { width: "100%", aspectRatio: 16 / 9, flexShrink: 0, backgroundColor: "#05050B", overflow: "hidden" },
   previewFallback: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: tvColors.purpleDeep },
-  liveTag: { position: "absolute", left: 8, bottom: 8, backgroundColor: "rgba(124,58,237,0.92)", borderRadius: 4, paddingHorizontal: 6, paddingVertical: 3 },
-  liveTagText: { color: "#fff", fontFamily: fonts.bold, fontSize: 7 },
-  detailsCopy: { flex: 1, padding: 11 },
-  channelName: { color: tvColors.purpleSoft, fontFamily: fonts.semibold, fontSize: 9 },
-  programTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 16, lineHeight: 19, marginTop: 4 },
-  timeText: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 8.5, marginTop: 4 },
-  progressTrack: { height: 3, backgroundColor: "rgba(255,255,255,0.12)", borderRadius: 2, overflow: "hidden", marginTop: 7 },
+  liveTag: { position: "absolute", left: 6, bottom: 6, backgroundColor: "rgba(124,58,237,0.92)", borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2 },
+  liveTagText: { color: "#fff", fontFamily: fonts.bold, fontSize: 6 },
+  detailsCopy: { flex: 1, minHeight: 0, padding: 8 },
+  channelName: { color: tvColors.purpleSoft, fontFamily: fonts.semibold, fontSize: 8 },
+  programTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 13, lineHeight: 15.5, marginTop: 3 },
+  timeText: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 7.2, marginTop: 3 },
+  progressTrack: { height: 3, backgroundColor: "rgba(255,255,255,0.12)", borderRadius: 2, overflow: "hidden", marginTop: 6 },
   progressFill: { height: 3, backgroundColor: tvColors.purpleBright },
-  descLabel: { color: tvColors.purpleSoft, fontFamily: fonts.semibold, fontSize: 7.5, letterSpacing: 0.8, marginTop: 9 },
-  description: { color: "rgba(255,255,255,0.82)", fontFamily: fonts.regular, fontSize: 9.5, lineHeight: 13.5, marginTop: 3 },
-  actions: { flexDirection: "row", gap: 6, marginTop: 10 },
-  watchButton: { flex: 1, minHeight: 31, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, backgroundColor: tvColors.purple, borderRadius: 5, borderWidth: 2, borderColor: "transparent" },
-  watchText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 8.5 },
-  secondaryButton: { flex: 1, minHeight: 31, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, backgroundColor: tvColors.panelRaised, borderRadius: 5, borderWidth: 2, borderColor: "transparent" },
-  secondaryText: { color: "#fff", fontFamily: fonts.medium, fontSize: 8.5 },
-  remaining: { color: tvColors.textMuted, fontFamily: fonts.regular, fontSize: 7.5, marginTop: 6 },
+  descLabel: { color: tvColors.purpleSoft, fontFamily: fonts.semibold, fontSize: 6.8, letterSpacing: 0.7, marginTop: 7, marginBottom: 3 },
+  aboutViewport: { flex: 1, minHeight: 42, overflow: "hidden", borderWidth: 1, borderColor: "rgba(168,85,247,0.16)", borderRadius: 4, backgroundColor: "rgba(7,7,17,0.38)", paddingHorizontal: 5, paddingVertical: 4 },
+  description: { color: "rgba(255,255,255,0.82)", fontFamily: fonts.regular, fontSize: 8.1, lineHeight: 11.5 },
+  remaining: { color: tvColors.textMuted, fontFamily: fonts.regular, fontSize: 6.8, marginTop: 5 },
+  actions: { flexDirection: "row", gap: 5, marginTop: 7, marginBottom: 4 },
+  watchButton: { flex: 1, minWidth: 0, minHeight: 27, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, backgroundColor: tvColors.purple, borderRadius: 5, borderWidth: 2, borderColor: "transparent", paddingHorizontal: 3 },
+  watchText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 7.5 },
+  secondaryButton: { flex: 1, minWidth: 0, minHeight: 27, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, backgroundColor: tvColors.panelRaised, borderRadius: 5, borderWidth: 2, borderColor: "transparent", paddingHorizontal: 3 },
+  secondaryText: { color: "#fff", fontFamily: fonts.medium, fontSize: 7.2 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.md },
   centerText: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 11 },
   focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
