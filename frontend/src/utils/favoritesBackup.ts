@@ -94,15 +94,25 @@ export function resolveFavoritesBackup(raw: string, channels: Channel[]): string
       restored.add(exact.id);
       continue;
     }
+
     const tvgId = normalized(typeof identity.tvgId === "string" ? identity.tvgId : "");
     const byGuideId = tvgId ? byTvgId.get(tvgId) : undefined;
     if (byGuideId) {
       restored.add(byGuideId.id);
       continue;
     }
+
     const name = normalized(typeof identity.name === "string" ? identity.name : "");
     const byChannelName = name ? byName.get(name) : undefined;
-    if (byChannelName) restored.add(byChannelName.id);
+    if (byChannelName) {
+      restored.add(byChannelName.id);
+      continue;
+    }
+
+    // Keep an unmatched original ID instead of silently losing the favorite.
+    // If the channel returns after a later playlist refresh, it can become
+    // visible as a favorite again without another restore operation.
+    if (id) restored.add(id);
   }
 
   return Array.from(restored);
