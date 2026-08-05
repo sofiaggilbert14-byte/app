@@ -2,6 +2,12 @@ name: Build CharmIPTV RC1 universal APK
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "frontend/**"
+      - ".github/workflows/build-charmiptv-apk.yml"
   push:
     branches:
       - release/rc1
