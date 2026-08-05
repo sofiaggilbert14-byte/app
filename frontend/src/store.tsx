@@ -65,6 +65,7 @@ type Store = {
   favorites: string[];
   isFavorite: (id: string) => boolean;
   toggleFavorite: (id: string) => void;
+  replaceFavorites: (ids: string[]) => void;
 
   recent: Channel[];
   lastChannelId: string | null;
@@ -98,7 +99,6 @@ type Store = {
   setPlayerControlsTimeoutMs: (v: PlayerControlsTimeoutMs) => void;
   autoRetryStreams: boolean;
   setAutoRetryStreams: (v: boolean) => void;
-
 };
 
 const Ctx = createContext<Store | null>(null);
@@ -265,6 +265,11 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       return next;
     });
   }, []);
+  const replaceFavorites = useCallback((ids: string[]) => {
+    const next = Array.from(new Set(ids.filter(Boolean)));
+    setFavorites(next);
+    storage.setItem(FAV_KEY, next);
+  }, []);
 
   const addRecent = useCallback((c: Channel) => {
     setLastChannelId(c.id);
@@ -358,6 +363,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     favorites,
     isFavorite,
     toggleFavorite,
+    replaceFavorites,
     recent,
     lastChannelId,
     addRecent,
