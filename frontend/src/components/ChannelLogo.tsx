@@ -121,8 +121,6 @@ function ChannelLogoComponent({
   React.useEffect(() => {
     if (!hasCandidate || !currentUri) return;
 
-    // A URI that already failed during this app session should not consume one
-    // of the four network slots again. Move to its protocol fallback instead.
     if (failedUris.has(currentUri)) {
       if (attemptIndex + 1 < candidates.length) {
         setAttemptIndex((value) => value + 1);
@@ -145,9 +143,6 @@ function ChannelLogoComponent({
       slotHeldRef.current = true;
       setAllowedToLoad(true);
 
-      // A server that accepts the connection but never finishes must not block
-      // every logo behind it. Retire only this slot/candidate and let the queue
-      // continue; FlashList stays responsive and memory remains bounded.
       slotTimerRef.current = setTimeout(() => {
         if (!mounted) return;
         releaseIfHeld();
@@ -172,12 +167,13 @@ function ChannelLogoComponent({
         style={{ width: size, height: size, borderRadius: radius.sm }}
         contentFit="contain"
         cachePolicy="disk"
+        priority="low"
+        allowDownscaling
+        autoplay={false}
         recyclingKey={currentUri}
         transition={0}
         onLoad={() => {
           remember(succeededUris, successOrder, currentUri);
-          // Once decode succeeds, the expensive network/decode slot is free.
-          // onLoadEnd remains below as an idempotent safety fallback.
           releaseIfHeld();
         }}
         onLoadEnd={releaseIfHeld}
