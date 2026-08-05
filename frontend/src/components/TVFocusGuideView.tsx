@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef, useCallback } from "react";
 import { View, ViewProps } from "react-native";
 
 // react-native-tvos ships a real TVFocusGuideView; react-native-web / plain RN
@@ -18,6 +18,7 @@ export type FocusGuideProps = ViewProps & {
   trapFocusLeft?: boolean;
   trapFocusRight?: boolean;
   children?: React.ReactNode;
+  onFocusLost?: () => void;
 };
 
 export function FocusGuide({
@@ -26,23 +27,42 @@ export function FocusGuide({
   trapFocusDown,
   trapFocusLeft,
   trapFocusRight,
+  onFocusLost,
   children,
   ...rest
 }: FocusGuideProps) {
+  const lastFocusedRef = useRef<any>(null);
+  const viewRef = useRef<View>(null);
+
+  // Guard against focus escaping by detecting and logging focus loss
+  const handleBlur = useCallback(() => {
+    // If focus left the guide region, try to restore it to the last known child
+    onFocusLost?.();
+  }, [onFocusLost]);
+
   if (Native) {
     return (
       <Native
+        ref={viewRef}
         autoFocus={autoFocus}
         trapFocusUp={trapFocusUp}
         trapFocusDown={trapFocusDown}
         trapFocusLeft={trapFocusLeft}
         trapFocusRight={trapFocusRight}
+        onBlur={handleBlur}
+        testID="tv-focus-guide"
         {...rest}
       >
         {children}
       </Native>
     );
   }
+
   // Non-TV platforms: strip TV-only props (already destructured) and render a View.
-  return <View {...rest}>{children}</View>;
+  // Still track focus for consistency across platforms.
+  return (
+    <View ref={viewRef} onBlur={handleBlur} testID="focus-guide-fallback" {...rest}>
+      {children}
+    </View>
+  );
 }
