@@ -121,7 +121,7 @@ export default function SettingsScreen() {
     try {
       const raw = serializeFavoritesBackup(favorites, channels);
       const fileName = await writeFavoritesBackup(raw);
-      setBackupStatus(`Saved ${favorites.length} favorite${favorites.length === 1 ? "" : "s"} to ${fileName}.`);
+      setBackupStatus(`Saved ${favorites.length} favorite${favorites.length === 1 ? "" : "s"} to ${fileName}. Stream URLs are not stored.`);
     } catch (error) {
       setBackupStatus(error instanceof Error ? error.message : "Favorites backup failed.");
     } finally {
@@ -141,7 +141,19 @@ export default function SettingsScreen() {
       const { fileName, raw } = await readLatestFavoritesBackup();
       const restored = resolveFavoritesBackup(raw, channels);
       replaceFavorites(restored);
-      setBackupStatus(`Restored ${restored.length} favorite${restored.length === 1 ? "" : "s"} from ${fileName}.`);
+
+      const unavailableCount = restored.unavailable.length;
+      const unavailableNames = restored.unavailable
+        .map((item) => item.name || item.tvgId || item.id)
+        .filter(Boolean)
+        .slice(0, 3);
+      const skippedSummary = unavailableCount
+        ? ` ${unavailableCount} unavailable favorite${unavailableCount === 1 ? " was" : "s were"} skipped${unavailableNames.length ? ` (${unavailableNames.join(", ")}${unavailableCount > unavailableNames.length ? ", …" : ""})` : ""}.`
+        : " All favorites matched current playable channels.";
+
+      setBackupStatus(
+        `Restored ${restored.length} favorite${restored.length === 1 ? "" : "s"} from ${fileName}.${skippedSummary}`,
+      );
     } catch (error) {
       setBackupStatus(error instanceof Error ? error.message : "Favorites restore failed.");
     } finally {
@@ -261,7 +273,7 @@ export default function SettingsScreen() {
 
             {section === "backup" ? (
               <SettingsCard title="Backup & Restore" icon="cloud-download-outline">
-                <Text style={styles.help}>Favorites backups are portable JSON files stored in a folder you choose. They can be restored into a later beta or a separate CharmIPTV installation even when that build uses a different app package.</Text>
+                <Text style={styles.help}>Favorites backups are portable JSON files stored in a folder you choose. They contain channel identity only—never stream URLs. Restore matches the current playlist and uses the current build&apos;s stream, logo and EPG data.</Text>
                 <View style={styles.backupActions}>
                   <Action label={busy ? "Working…" : "Back Up Favorites"} icon="save-outline" onPress={backupFavorites} disabled={busy} />
                   <Action label={busy ? "Working…" : "Restore Favorites"} icon="download-outline" onPress={restoreFavorites} disabled={busy} />
