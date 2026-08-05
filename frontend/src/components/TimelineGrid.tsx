@@ -95,6 +95,7 @@ export function TimelineGrid({
   const scrollX = useRef(new Animated.Value(0)).current;
   const negScrollX = useMemo(() => Animated.multiply(scrollX, -1), [scrollX]);
   const [bodyH, setBodyH] = useState(0);
+  const [bodyW, setBodyW] = useState(0);
   const listRef = useRef<any>(null);
   const horizontalRef = useRef<ScrollView>(null);
   const focusRegionRef = useRef<"channel" | "program">("program");
@@ -158,6 +159,15 @@ export function TimelineGrid({
     : 0;
   const showNow = nowMs > windowStartMs && nowMs < windowEndMs;
 
+  const jumpToNow = useCallback(() => {
+    if (!showNow) return;
+    const viewportWidth = Math.max(LOGO_W + 1, bodyW || width);
+    const usableTimelineWidth = Math.max(1, viewportWidth - LOGO_W);
+    const maxScroll = Math.max(0, LOGO_W + timelineWidth - viewportWidth);
+    const target = Math.max(0, Math.min(maxScroll, nowOffset - usableTimelineWidth * 0.22));
+    horizontalRef.current?.scrollTo({ x: target, animated: true });
+  }, [LOGO_W, bodyW, nowOffset, showNow, timelineWidth, width]);
+
   useEffect(() => {
     if (!resetToken) return;
     setPreferFirstChannel(true);
@@ -184,11 +194,24 @@ export function TimelineGrid({
       <View style={styles.headerRow}>
         <View style={[styles.corner, { width: LOGO_W }]}>
           <Text style={styles.cornerText}>{dayjs(windowStart).format("MMM D")}</Text>
+          <Pressable
+            focusable
+            disabled={!showNow}
+            onPress={jumpToNow}
+            style={({ focused }: any) => [
+              styles.nowButton,
+              !showNow && styles.nowButtonDisabled,
+              focused && styles.nowButtonFocused,
+            ]}
+            testID="timeline-jump-now"
+          >
+            <Text style={styles.nowButtonText}>NOW</Text>
+          </Pressable>
         </View>
         <View style={styles.headerTrack}>
           <Animated.View style={{ width: timelineWidth, height: HEADER_H, transform: [{ translateX: negScrollX }] }}>
             {ticks.map((tick) => (
-              <Text key={tick.key} style={[styles.tickLabel, { left: tick.left }]}> 
+              <Text key={tick.key} style={[styles.tickLabel, { left: tick.left }]}>
                 {tick.label}
               </Text>
             ))}
@@ -196,7 +219,13 @@ export function TimelineGrid({
         </View>
       </View>
 
-      <View style={styles.body} onLayout={(e: LayoutChangeEvent) => setBodyH(e.nativeEvent.layout.height)}>
+      <View
+        style={styles.body}
+        onLayout={(e: LayoutChangeEvent) => {
+          setBodyH(e.nativeEvent.layout.height);
+          setBodyW(e.nativeEvent.layout.width);
+        }}
+      >
         <ScrollView
           ref={horizontalRef}
           horizontal
@@ -226,7 +255,7 @@ export function TimelineGrid({
                 renderItem={({ item: row, index }) => {
                   const item = row.channel;
                   return (
-                    <View style={[styles.row, { height: ROW_H }]}> 
+                    <View style={[styles.row, { height: ROW_H }]}>
                       <Animated.View style={[styles.logoCol, { width: LOGO_W, height: ROW_H, transform: [{ translateX: scrollX }] }]}>
                         <Pressable
                           style={({ focused }: any) => [styles.logoCell, focused && styles.cellFocused]}
@@ -311,13 +340,33 @@ const styles = StyleSheet.create({
   corner: {
     height: HEADER_H,
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "space-between",
+    flexDirection: "row",
+    paddingHorizontal: 4,
     borderRightWidth: 1,
     borderRightColor: "rgba(255,255,255,0.12)",
     backgroundColor: "rgba(0,0,0,0.72)",
     zIndex: 5,
   },
-  cornerText: { color: GOLD_SOFT, fontFamily: fonts.bold, fontSize: 11 },
+  cornerText: { color: GOLD_SOFT, fontFamily: fonts.bold, fontSize: 9.5 },
+  nowButton: {
+    minWidth: 36,
+    height: 22,
+    paddingHorizontal: 6,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: "rgba(227,38,46,0.72)",
+    backgroundColor: "rgba(142,17,24,0.78)",
+  },
+  nowButtonFocused: {
+    borderColor: "#fff",
+    borderWidth: 2,
+    backgroundColor: GOLD,
+  },
+  nowButtonDisabled: { opacity: 0.35 },
+  nowButtonText: { color: "#fff", fontFamily: fonts.bold, fontSize: 8.5, letterSpacing: 0.5 },
   headerTrack: { flex: 1, height: HEADER_H, overflow: "hidden" },
   tickLabel: {
     position: "absolute",
