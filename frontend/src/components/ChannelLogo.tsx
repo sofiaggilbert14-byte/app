@@ -3,9 +3,9 @@ import { Platform, View, Text, StyleSheet } from "react-native";
 import { Image } from "expo-image";
 import { colors, fonts, radius } from "@/src/theme";
 
-const MAX_CONCURRENT_IMAGE_LOADS = 4;
+const MAX_CONCURRENT_IMAGE_LOADS = 6;
 const MAX_URI_HISTORY = 1000;
-const LOAD_SLOT_TIMEOUT_MS = 8000;
+const LOAD_SLOT_TIMEOUT_MS = 10000;
 
 type QueueEntry = {
   cancelled: boolean;
@@ -87,11 +87,13 @@ function ChannelLogoComponent({
   logo,
   size = 48,
   disabled = false,
+  visible = true,
 }: {
   name: string;
   logo?: string;
   size?: number;
   disabled?: boolean;
+  visible?: boolean;
 }) {
   const candidates = React.useMemo(() => logoCandidates(logo), [logo]);
   const [attemptIndex, setAttemptIndex] = React.useState(0);
@@ -100,7 +102,7 @@ function ChannelLogoComponent({
   const slotTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const currentUri = candidates[attemptIndex];
-  const hasCandidate = !disabled && !!currentUri;
+  const hasCandidate = !disabled && visible && !!currentUri;
 
   const releaseIfHeld = React.useCallback(() => {
     if (slotTimerRef.current) {
@@ -116,7 +118,7 @@ function ChannelLogoComponent({
     setAttemptIndex(0);
     setAllowedToLoad(false);
     releaseIfHeld();
-  }, [logo, disabled, releaseIfHeld]);
+  }, [logo, disabled, visible, releaseIfHeld]);
 
   React.useEffect(() => {
     if (!hasCandidate || !currentUri) return;
