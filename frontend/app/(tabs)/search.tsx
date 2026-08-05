@@ -7,7 +7,6 @@ import {
   TextInput,
   ScrollView,
   KeyboardAvoidingView,
-  useWindowDimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -17,12 +16,9 @@ import { colors, fonts, radius, spacing } from "@/src/theme";
 import { useStore } from "@/src/store";
 import { Channel, Program } from "@/src/api";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
-import { getTvSafeInsets } from "@/src/utils/tvLayout";
 
 export default function SearchScreen() {
   const router = useRouter();
-  const { width, height } = useWindowDimensions();
-  const tvSafe = getTvSafeInsets(width, height);
   const { channels, addRecent, openProgram, channelLogos } = useStore();
   const [q, setQ] = useState("");
 
@@ -52,17 +48,7 @@ export default function SearchScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={[
-        styles.container,
-        {
-          paddingTop: tvSafe.top,
-          paddingBottom: tvSafe.bottom,
-          paddingLeft: tvSafe.left,
-          paddingRight: tvSafe.right,
-        },
-      ]}
-    >
+    <KeyboardAvoidingView style={styles.container}>
       <View style={{ paddingTop: spacing.md }}>
         <View style={styles.header}>
           <Text style={styles.brand}>Find anything</Text>
