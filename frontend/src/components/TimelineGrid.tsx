@@ -1,4 +1,3 @@
-
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
@@ -89,8 +88,6 @@ export function TimelineGrid({
   onLeftBoundary?: () => void;
 }) {
   const { width } = useWindowDimensions();
-  // TV dimensions are intentionally compact. Android TV reports a large logical
-  // width, but overscan and viewing distance made the old measurements balloon.
   const big = width >= 900;
   const ROW_H = density === "large" ? (big ? 60 : 56) : density === "compact" ? (big ? 42 : 40) : big ? 48 : 46;
   const LOGO_W = big ? 112 : 86;
@@ -184,7 +181,6 @@ export function TimelineGrid({
 
   return (
     <View style={styles.wrap} testID="epg-timeline-grid">
-      {/* time header: sticky corner + horizontally-synced ticks */}
       <View style={styles.headerRow}>
         <View style={[styles.corner, { width: LOGO_W }]}>
           <Text style={styles.cornerText}>{dayjs(windowStart).format("MMM D")}</Text>
@@ -200,8 +196,6 @@ export function TimelineGrid({
         </View>
       </View>
 
-      {/* body: one horizontal scroll wrapping ONE recycling vertical list. Each
-          row holds the logo AND its programs, so they can never drift apart. */}
       <View style={styles.body} onLayout={(e: LayoutChangeEvent) => setBodyH(e.nativeEvent.layout.height)}>
         <ScrollView
           ref={horizontalRef}
@@ -218,7 +212,10 @@ export function TimelineGrid({
                 ref={listRef}
                 keyExtractor={(row) => row.channel.id}
                 drawDistance={Math.max(720, ROW_H * 16)}
-                removeClippedSubviews
+                // FlashList still virtualizes/recycles rows. Disabling RN's
+                // additional clipping layer prevents Android TV from detaching
+                // the currently focused transformed row during a fast D-pad scan.
+                removeClippedSubviews={false}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingBottom: 120 }}
                 refreshControl={
@@ -229,35 +226,33 @@ export function TimelineGrid({
                 renderItem={({ item: row, index }) => {
                   const item = row.channel;
                   return (
-                  <View style={[styles.row, { height: ROW_H }]}> 
-                    {/* sticky logo â€” translated with horizontal scroll to stay pinned left */}
-                    <Animated.View style={[styles.logoCol, { width: LOGO_W, height: ROW_H, transform: [{ translateX: scrollX }] }]}>
-                      <Pressable
-                        style={({ focused }: any) => [styles.logoCell, focused && styles.cellFocused]}
-                        focusable
-                        hasTVPreferredFocus={index === 0 && preferFirstChannel}
-                        onFocus={() => {
-                          focusRegionRef.current = "channel";
-                          if (index === 0 && preferFirstChannel) setPreferFirstChannel(false);
-                          onChannelFocus?.(item);
-                        }}
-                        onPress={() => onChannelPress(item)}
-                        onLongPress={() => onChannelLongPress?.(item)}
-                        testID={`epg-channel-${item.id}`}
-                      >
-                        {showChannelNumbers && (
-                          <Text style={styles.channelNumber}>{channelNumberById?.[item.id] || index + 1}</Text>
-                        )}
-                        <ChannelLogo name={item.name} logo={item.logo} disabled={!showChannelLogos} size={LOGO_SIZE} />
-                        <Text numberOfLines={1} style={styles.logoName}>
-                          {item.name}
-                        </Text>
-                      </Pressable>
-                    </Animated.View>
+                    <View style={[styles.row, { height: ROW_H }]}> 
+                      <Animated.View style={[styles.logoCol, { width: LOGO_W, height: ROW_H, transform: [{ translateX: scrollX }] }]}>
+                        <Pressable
+                          style={({ focused }: any) => [styles.logoCell, focused && styles.cellFocused]}
+                          focusable
+                          hasTVPreferredFocus={index === 0 && preferFirstChannel}
+                          onFocus={() => {
+                            focusRegionRef.current = "channel";
+                            if (index === 0 && preferFirstChannel) setPreferFirstChannel(false);
+                            onChannelFocus?.(item);
+                          }}
+                          onPress={() => onChannelPress(item)}
+                          onLongPress={() => onChannelLongPress?.(item)}
+                          testID={`epg-channel-${item.id}`}
+                        >
+                          {showChannelNumbers && (
+                            <Text style={styles.channelNumber}>{channelNumberById?.[item.id] || index + 1}</Text>
+                          )}
+                          <ChannelLogo name={item.name} logo={item.logo} disabled={!showChannelLogos} size={LOGO_SIZE} />
+                          <Text numberOfLines={1} style={styles.logoName}>
+                            {item.name}
+                          </Text>
+                        </Pressable>
+                      </Animated.View>
 
-                    {/* programs */}
-                    <View style={{ width: timelineWidth, height: ROW_H }}>
-                      {row.programs.map((prepared, i) => (
+                      <View style={{ width: timelineWidth, height: ROW_H }}>
+                        {row.programs.map((prepared, i) => (
                           <Pressable
                             key={prepared.key}
                             onFocus={() => {
@@ -282,15 +277,15 @@ export function TimelineGrid({
                               {prepared.timeLabel}
                             </Text>
                           </Pressable>
-                      ))}
-                      {row.programs.length === 0 && (
-                        <View style={[styles.progCell, { left: 0, width: timelineWidth - 6 }]}>
-                          <Text style={styles.noData}>No guide data</Text>
-                        </View>
-                      )}
+                        ))}
+                        {row.programs.length === 0 && (
+                          <View style={[styles.progCell, { left: 0, width: timelineWidth - 6 }]}>
+                            <Text style={styles.noData}>No guide data</Text>
+                          </View>
+                        )}
+                      </View>
                     </View>
-                  </View>
-                );
+                  );
                 }}
               />
             )}
@@ -377,4 +372,3 @@ const styles = StyleSheet.create({
   noData: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 9 },
   nowLine: { position: "absolute", top: 0, bottom: 0, width: 2, backgroundColor: GOLD, zIndex: 3, pointerEvents: "none" },
 });
-
