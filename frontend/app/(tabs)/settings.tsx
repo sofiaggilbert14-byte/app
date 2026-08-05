@@ -37,6 +37,7 @@ import {
   usePlayerEnginePreference,
 } from "@/src/playerEnginePreference";
 import { TvCalibrationControls } from "@/src/components/TvCalibrationControls";
+import { FavoritesBackupControls } from "@/src/components/FavoritesBackupControls";
 import { useTvBackToGuide } from "@/src/hooks/use-tv-back-to-guide";
 import { getTvSafeInsets } from "@/src/utils/tvLayout";
 
@@ -44,19 +45,29 @@ const RED = "#E3262E";
 const RED_DEEP = "#A80F17";
 const PANEL = "rgba(24,28,34,0.94)";
 
-type SettingsSection = "guide" | "playback" | "remote" | "appearance" | "accessibility" | "about";
+type SettingsSection = "home" | "guide" | "playback" | "remote" | "appearance" | "accessibility" | "backup" | "about";
 
-const SECTIONS: { id: SettingsSection; label: string; icon: React.ComponentProps<typeof Ionicons>["name"] }[] = [
+type SettingsItem = {
+  id: Exclude<SettingsSection, "home">;
+  label: string;
+  icon: React.ComponentProps<typeof Ionicons>["name"];
+};
+
+const SECTIONS: SettingsItem[] = [
   { id: "guide", label: "Guide", icon: "list" },
   { id: "playback", label: "Playback", icon: "play-circle-outline" },
   { id: "remote", label: "Remote Control", icon: "game-controller-outline" },
   { id: "appearance", label: "Appearance", icon: "color-palette-outline" },
   { id: "accessibility", label: "Accessibility", icon: "accessibility-outline" },
+  { id: "backup", label: "Backup & Restore", icon: "archive-outline" },
   { id: "about", label: "About", icon: "information-circle-outline" },
 ];
 
 export default function SettingsScreen() {
   const {
+    channels,
+    favorites,
+    toggleFavorite,
     refresh: refreshGuide,
     hardRefresh,
     refreshing,
@@ -84,7 +95,7 @@ export default function SettingsScreen() {
   const { width, height } = useWindowDimensions();
   const tvSafe = useMemo(() => getTvSafeInsets(width, height), [width, height]);
   const compact = width < 720 || (deviceLayoutMode === "mobile" && !Platform.isTV);
-  const [section, setSection] = useState<SettingsSection>("guide");
+  const [section, setSection] = useState<SettingsSection>("home");
   const [status, setStatus] = useState<SourceStatus | null>(null);
   const [diagnostics, setDiagnostics] = useState<SourceDiagnostics | null>(null);
   const [busy, setBusy] = useState(false);
@@ -92,6 +103,14 @@ export default function SettingsScreen() {
 
   const appVersion = Constants.expoConfig?.version || "2.0.0-beta";
   const androidVersionCode = (Constants.expoConfig as any)?.android?.versionCode;
+  const heading = section === "home"
+    ? "All Settings"
+    : `${SECTIONS.find((item) => item.id === section)?.label || "Settings"} settings`;
+
+  const selectSection = useCallback((next: SettingsSection) => {
+    void Haptics.selectionAsync().catch(() => undefined);
+    setSection(next);
+  }, []);
 
   const loadStatus = useCallback(() => {
     setStatus(sourceStatus());
@@ -144,14 +163,25 @@ export default function SettingsScreen() {
         </View>
         <Text style={styles.versionMark}>EXPERIMENTAL v3</Text>
         <View style={[styles.nav, compact && styles.navCompact]}>
-          {SECTIONS.map((item, index) => (
+          <Pressable
+            hasTVPreferredFocus={section === "home"}
+            onPress={() => selectSection("home")}
+            style={({ focused }: any) => [
+              styles.navItem,
+              compact && styles.navItemCompact,
+              section === "home" && styles.navActive,
+              focused && styles.focused,
+            ]}
+            testID="settings-all-settings"
+          >
+            <Ionicons name="grid-outline" size={18} color="#fff" />
+            <Text style={styles.navText}>All Settings</Text>
+          </Pressable>
+          {SECTIONS.map((item) => (
             <Pressable
               key={item.id}
-              hasTVPreferredFocus={index === 0}
-              onPress={() => {
-                void Haptics.selectionAsync().catch(() => undefined);
-                setSection(item.id);
-              }}
+              hasTVPreferredFocus={section === item.id}
+              onPress={() => selectSection(item.id)}
               style={({ focused }: any) => [
                 styles.navItem,
                 compact && styles.navItemCompact,
@@ -168,7 +198,7 @@ export default function SettingsScreen() {
       </View>
 
       <View style={styles.content}>
-        <Text style={styles.heading}>{SECTIONS.find((item) => item.id === section)?.label} settings</Text>
+        <Text style={styles.heading}>{heading}</Text>
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
@@ -176,6 +206,39 @@ export default function SettingsScreen() {
             <RefreshControl refreshing={refreshing} onRefresh={hardRefresh} tintColor={RED} colors={[RED]} />
           }
         >
+          {section !== "home" && (
+            <Pressable
+              focusable
+              onPress={() => selectSection("home")}
+              style={({ focused }: any) => [styles.backToAll, focused && styles.focused]}
+              testID={`settings-back-all-${section}`}
+            >
+              <Ionicons name="arrow-back" size={19} color="#fff" />
+              <Text style={styles.backToAllText}>All Settings</Text>
+            </Pressable>
+          )}
+
+          {section === "home" && (
+            <Card>
+              <Text style={styles.cardTitle}>All Settings</Text>
+              <Text style={styles.sub}>Choose a settings area. Every section includes a quick return to this page.</Text>
+              <View style={styles.settingsHubGrid}>
+                {SECTIONS.map((item) => (
+                  <Pressable
+                    key={item.id}
+                    focusable
+                    onPress={() => selectSection(item.id)}
+                    style={({ focused }: any) => [styles.settingsHubItem, focused && styles.focused]}
+                    testID={`settings-hub-${item.id}`}
+                  >
+                    <Ionicons name={item.icon} size={25} color="#fff" />
+                    <Text style={styles.settingsHubText}>{item.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </Card>
+          )}
+
           {section === "guide" && (
             <>
               <Card>
@@ -271,6 +334,25 @@ export default function SettingsScreen() {
                 { label: "Off", value: "off" },
               ]} onChange={setSafePreviewMode} />
             </Card>
+          )}
+
+          {section === "backup" && (
+            <>
+              <Card>
+                <FavoritesBackupControls
+                  channels={channels}
+                  favorites={favorites}
+                  appVersion={appVersion}
+                  toggleFavorite={toggleFavorite}
+                />
+              </Card>
+              <Card>
+                <Text style={styles.cardTitle}>How restore works</Text>
+                <Text style={styles.sub}>
+                  The backup never stores private stream URLs. Restore matches saved channel identity to the current build's playlist and only restores channels that currently have a playable stream. This means a restored favorite automatically uses the new build's current stream URL, logo, and EPG information.
+                </Text>
+              </Card>
+            </>
           )}
 
           {section === "about" && (
@@ -370,6 +452,11 @@ const styles = StyleSheet.create({
   content: { flex: 1, paddingHorizontal: 14, paddingTop: 10 },
   heading: { color: "#fff", fontFamily: fonts.bold, fontSize: 21, marginBottom: 8 },
   scrollContent: { gap: 8, paddingBottom: 56 },
+  backToAll: { alignSelf: "flex-start", minHeight: 38, flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 11, borderRadius: radius.sm, borderWidth: 1, borderColor: "rgba(255,255,255,0.18)", backgroundColor: "rgba(255,255,255,0.06)" },
+  backToAllText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 11.5 },
+  settingsHubGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 2 },
+  settingsHubItem: { minHeight: 76, flexGrow: 1, flexBasis: "30%", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 10, borderRadius: radius.md, borderWidth: 1, borderColor: "rgba(255,255,255,0.16)", backgroundColor: "rgba(255,255,255,0.05)" },
+  settingsHubText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 11.5, textAlign: "center" },
   card: { backgroundColor: PANEL, borderRadius: radius.md, padding: 9, gap: 7 },
   cardTitle: { color: "#fff", fontFamily: fonts.semibold, fontSize: 13 },
   settingLabel: { color: "#fff", fontFamily: fonts.semibold, fontSize: 11.5 },
