@@ -1,11 +1,17 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { fonts, radius, spacing } from "@/src/theme";
-import { TV_CALIBRATION_MAX_INSET, TvCalibration, useTvCalibration } from "@/src/tvCalibration";
+import {
+  TV_CALIBRATION_MAX_OFFSET,
+  TV_CALIBRATION_MIN_OFFSET,
+  TvCalibration,
+  useTvCalibration,
+} from "@/src/tvCalibration";
 
 const STEP = 4;
+const MIN_ADJUST_INTERVAL_MS = 90;
 const RED = "#E3262E";
 
 type Side = keyof TvCalibration;
@@ -21,6 +27,8 @@ export function TvCalibrationControls() {
   const { draftCalibration, setSide, save, reset, discard, hasChanges } = useTvCalibration();
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const savingRef = useRef(false);
+  const lastAdjustAt = useRef(0);
 
   if (!Platform.isTV) {
     return (
@@ -32,19 +40,28 @@ export function TvCalibrationControls() {
   }
 
   const adjust = (side: Side, delta: number) => {
+    const now = Date.now();
+    if (now - lastAdjustAt.current < MIN_ADJUST_INTERVAL_MS) return;
+    lastAdjustAt.current = now;
     setSaved(false);
     void Haptics.selectionAsync().catch(() => {});
-    setSide(side, Math.max(0, Math.min(TV_CALIBRATION_MAX_INSET, draftCalibration[side] + delta)));
+    const next = Math.max(
+      TV_CALIBRATION_MIN_OFFSET,
+      Math.min(TV_CALIBRATION_MAX_OFFSET, draftCalibration[side] + delta),
+    );
+    setSide(side, next);
   };
 
   const applyChanges = async () => {
-    if (!hasChanges || saving) return;
+    if (!hasChanges || savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     try {
       await save();
       setSaved(true);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
@@ -60,6 +77,7 @@ export function TvCalibrationControls() {
         </View>
         <Pressable
           onPress={() => {
+            if (savingRef.current) return;
             setSaved(false);
             void Haptics.selectionAsync().catch(() => {});
             reset();
@@ -102,6 +120,7 @@ export function TvCalibrationControls() {
         <Pressable
           disabled={!hasChanges || saving}
           onPress={() => {
+            if (savingRef.current) return;
             setSaved(false);
             discard();
             void Haptics.selectionAsync().catch(() => {});
