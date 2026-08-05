@@ -16,6 +16,9 @@ type NativeRefreshResult = {
   count: number;
   windowStartMs: number;
   windowEndMs: number;
+  channelLogos?: Record<string, string>;
+  channelNames?: Record<string, string>;
+  channelIdsWithPrograms?: string[];
 };
 
 type CharmEpgModule = {
@@ -53,9 +56,6 @@ export async function loadNativeEpgWindow(
   const window = await nativeModule.getWindow(startMs, endMs);
   const result: Record<string, Program[]> = {};
 
-  // Preserve the requested channel order and avoid traversing every key in a
-  // potentially large native window object. Native-side filtering remains the
-  // ideal long-term optimization, but this removes unnecessary JS conversion.
   for (const channelId of channelIds) {
     if (!channelId || result[channelId]) continue;
     const programmes = window[channelId];
