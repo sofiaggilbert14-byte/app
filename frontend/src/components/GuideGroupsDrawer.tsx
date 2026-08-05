@@ -171,12 +171,12 @@ export function GuideGroupsDrawer({
         >
           <View style={styles.brandBlock}>
             <View style={styles.brandLine}>
-              <Text style={styles.brandCharm}>CHARM</Text>
-              <Text style={styles.brandIptv}> IPTV</Text>
+              <Text style={styles.brandCharm}>Charm</Text>
+              <Text style={styles.brandIptv}>IPTV</Text>
             </View>
             <View style={styles.versionLine}>
               <View style={styles.versionRule} />
-              <Text style={styles.versionText}>EXPERIMENTAL v3</Text>
+              <Text style={styles.versionText}>RC1</Text>
               <View style={styles.versionRule} />
             </View>
           </View>
