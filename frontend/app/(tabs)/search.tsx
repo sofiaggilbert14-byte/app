@@ -7,6 +7,7 @@ import {
   TextInput,
   ScrollView,
   KeyboardAvoidingView,
+  useWindowDimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -16,10 +17,13 @@ import { colors, fonts, radius, spacing } from "@/src/theme";
 import { useStore } from "@/src/store";
 import { Channel, Program } from "@/src/api";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
+import { getTvSafeInsets } from "@/src/utils/tvLayout";
 
 export default function SearchScreen() {
   const router = useRouter();
-  const { channels, addRecent, openProgram } = useStore();
+  const { width, height } = useWindowDimensions();
+  const tvSafe = getTvSafeInsets(width, height);
+  const { channels, addRecent, openProgram, channelLogos } = useStore();
   const [q, setQ] = useState("");
 
   const { chResults, progResults } = useMemo(() => {
@@ -42,13 +46,23 @@ export default function SearchScreen() {
   }, [q, channels]);
 
   const play = (c: Channel) => {
-    Haptics.selectionAsync();
+    void Haptics.selectionAsync().catch(() => {});
     addRecent(c);
     router.push({ pathname: "/player", params: { channelId: c.id } });
   };
 
   return (
-    <KeyboardAvoidingView style={styles.container}>
+    <KeyboardAvoidingView
+      style={[
+        styles.container,
+        {
+          paddingTop: tvSafe.top,
+          paddingBottom: tvSafe.bottom,
+          paddingLeft: tvSafe.left,
+          paddingRight: tvSafe.right,
+        },
+      ]}
+    >
       <View style={{ paddingTop: spacing.md }}>
         <View style={styles.header}>
           <Text style={styles.brand}>Find anything</Text>
@@ -92,7 +106,7 @@ export default function SearchScreen() {
             {chResults.length > 0 && <Text style={styles.section}>Channels</Text>}
             {chResults.map((c) => (
               <Pressable key={c.id} style={({ focused }: any) => [styles.row, focused && styles.rowFocused]} onPress={() => play(c)} testID={`search-ch-${c.id}`}>
-                <ChannelLogo name={c.name} logo={c.logo} size={40} />
+                <ChannelLogo name={c.name} logo={c.logo} disabled={!channelLogos} size={40} />
                 <Text numberOfLines={1} style={styles.rowName}>{c.name}</Text>
                 <Ionicons name="play-circle" size={22} color={colors.brand} />
               </Pressable>
@@ -106,7 +120,7 @@ export default function SearchScreen() {
                 onPress={() => openProgram(p, c)}
                 testID={`search-prog-${c.id}-${i}`}
               >
-                <ChannelLogo name={c.name} logo={c.logo} size={40} />
+                <ChannelLogo name={c.name} logo={c.logo} disabled={!channelLogos} size={40} />
                 <View style={{ flex: 1 }}>
                   <Text numberOfLines={1} style={styles.rowName}>{p.title}</Text>
                   <Text numberOfLines={1} style={styles.rowSub}>
