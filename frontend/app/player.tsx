@@ -30,7 +30,6 @@ import { getTvSafeInsets } from "@/src/utils/tvLayout";
 const CHANNEL_PREVIEW_DELAY_MS = 650;
 const SWITCH_NOTICE_MS = 2_500;
 const STREAM_RETRY_MS = 3_000;
-const TV_OVERLAY_HIDE_MS = 8_000;
 const RED = "#E3222A";
 const RED_SOFT = "#FF5258";
 
@@ -126,9 +125,9 @@ export default function PlayerScreen() {
   const switchNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const controlsRef = useRef(controls);
   const tuneGenerationRef = useRef(0);
-  // TVs use remote key events; phones rotate naturally without Phoenix forcing orientation.
+  // TVs use remote key events; phones rotate naturally without forcing orientation.
   const isTV = Platform.OS !== "web" && Platform.isTV;
-  const overlayHideMs = isTV ? Math.min(playerControlsTimeoutMs, TV_OVERLAY_HIDE_MS) : playerControlsTimeoutMs;
+  const overlayHideMs = playerControlsTimeoutMs;
 
   const showSwitchNotice = useCallback((name: string) => {
     if (switchNoticeTimer.current) clearTimeout(switchNoticeTimer.current);
@@ -337,7 +336,7 @@ export default function PlayerScreen() {
         <View style={styles.switchNotice} pointerEvents="none">
           <ActivityIndicator color="#fff" size="small" />
           <Text numberOfLines={1} style={styles.switchNoticeText}>
-            Switching to {switchNotice}
+            {switchNotice}
           </Text>
         </View>
       )}
@@ -373,7 +372,7 @@ export default function PlayerScreen() {
               </Text>
             </View>
             <View style={styles.buildPill}>
-              <Text style={styles.buildPillText}>EXPERIMENTAL v3</Text>
+              <Text style={styles.buildPillText}>RC1</Text>
             </View>
           </LinearGradient>
 
@@ -406,7 +405,7 @@ export default function PlayerScreen() {
                 {!!current?.category && <Text numberOfLines={1} style={styles.programCategory}>{current.category}</Text>}
               </View>
               <View style={styles.panelChannelMark}>
-                <Text numberOfLines={2} style={styles.panelChannelName}>{channel?.name || "CHARM IPTV"}</Text>
+                <Text numberOfLines={2} style={styles.panelChannelName}>{channel?.name || "CharmIPTV"}</Text>
               </View>
               <View style={styles.progressTrack}>
                 <View style={[styles.progressFill, { width: `${programProgress}%` }]} />
