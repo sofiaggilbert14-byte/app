@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   BackHandler,
+  Easing,
   FlatList,
   Platform,
   Pressable,
@@ -29,6 +31,50 @@ const CHANNEL_PREVIEW_DELAY_MS = 650;
 const STREAM_RETRY_MS = 3000;
 const SWITCH_NOTICE_MS = 1800;
 const TV_OVERLAY_HIDE_MS = 8000;
+
+function AutoScrollProgramDescription({ text, activeKey }: { text: string; activeKey: string }) {
+  const translateY = useRef(new Animated.Value(0)).current;
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const [contentHeight, setContentHeight] = useState(0);
+
+  useEffect(() => {
+    translateY.stopAnimation();
+    translateY.setValue(0);
+    if (!text || !viewportHeight || contentHeight <= viewportHeight + 2) return;
+
+    const overflow = contentHeight - viewportHeight;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.delay(1100),
+        Animated.timing(translateY, {
+          toValue: -overflow,
+          duration: Math.max(4200, overflow * 95),
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }),
+        Animated.delay(900),
+        Animated.timing(translateY, { toValue: 0, duration: 0, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => {
+      loop.stop();
+      translateY.stopAnimation();
+    };
+  }, [activeKey, contentHeight, text, translateY, viewportHeight]);
+
+  if (!text) return null;
+  return (
+    <View style={styles.descriptionViewport} onLayout={(event) => setViewportHeight(event.nativeEvent.layout.height)}>
+      <Animated.Text
+        onLayout={(event) => setContentHeight(event.nativeEvent.layout.height)}
+        style={[styles.description, { transform: [{ translateY }] }]}
+      >
+        {text}
+      </Animated.Text>
+    </View>
+  );
+}
 
 export default function PlayerScreen() {
   const router = useRouter();
@@ -68,7 +114,8 @@ export default function PlayerScreen() {
     () => [...channels].sort((a, b) => (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" })),
     [channels],
   );
-  const currentIndex = useMemo(() => sortedChannels.findIndex((item) => item.id === channelId), [channelId, sortedChannels]);
+  const streamChannels = useMemo(() => sortedChannels.filter((item) => !!item.url), [sortedChannels]);
+  const streamIndex = useMemo(() => streamChannels.findIndex((item) => item.id === channelId), [channelId, streamChannels]);
   const numberById = useMemo(() => {
     const result: Record<string, number> = {};
     sortedChannels.forEach((item, index) => { result[item.id] = index + 1; });
@@ -79,6 +126,8 @@ export default function PlayerScreen() {
   const { current, next } = nowNext(channel?.programs, playerNow);
   const progress = current ? progressPct(current, playerNow) : 0;
   const hasStream = !!channel?.url;
+  const programDescription = current?.desc || (next ? `Next: ${next.title}` : "Live television");
+  const programDescriptionKey = `${channelId}:${current?.start || ""}:${current?.title || ""}`;
 
   const showNotice = useCallback((text: string) => {
     if (noticeTimer.current) clearTimeout(noticeTimer.current);
@@ -124,11 +173,12 @@ export default function PlayerScreen() {
   }, [changeChannel, channelId]);
 
   const stepChannel = useCallback((direction: -1 | 1) => {
-    if (!sortedChannels.length) return;
-    const base = currentIndex >= 0 ? currentIndex : 0;
-    const nextIndex = (base + direction + sortedChannels.length) % sortedChannels.length;
-    changeChannel(sortedChannels[nextIndex].id, true);
-  }, [changeChannel, currentIndex, sortedChannels]);
+    if (streamChannels.length < 2) return;
+    const base = streamIndex >= 0 ? streamIndex : 0;
+    const nextIndex = (base + direction + streamChannels.length) % streamChannels.length;
+    const target = streamChannels[nextIndex];
+    if (target) changeChannel(target.id, true);
+  }, [changeChannel, streamChannels, streamIndex]);
 
   const retryNow = useCallback(() => {
     if (!hasStream) return;
@@ -306,9 +356,7 @@ export default function PlayerScreen() {
                   </Text>
                 </View>
                 <Text numberOfLines={1} style={styles.programTitle}>{current?.title || channel?.name || "Live TV"}</Text>
-                <Text numberOfLines={2} style={styles.description}>
-                  {current?.desc || (next ? `Next: ${next.title}` : "Live television")}
-                </Text>
+                <AutoScrollProgramDescription text={programDescription} activeKey={programDescriptionKey} />
               </View>
             </View>
 
@@ -328,7 +376,7 @@ export default function PlayerScreen() {
                 <Text style={styles.controlLabel}>Channels</Text>
               </Pressable>
               <View style={styles.controlsSpacer} />
-              <Pressable onPress={() => stepChannel(-1)} style={({ focused }: any) => [styles.iconControl, focused && styles.focused]}>
+              <Pressable disabled={streamChannels.length < 2} onPress={() => stepChannel(-1)} style={({ focused }: any) => [styles.iconControl, focused && styles.focused]}>
                 <Ionicons name="play-skip-back" size={18} color="#fff" />
               </Pressable>
               <Pressable
@@ -342,7 +390,7 @@ export default function PlayerScreen() {
               >
                 <Ionicons name="eye-off-outline" size={18} color="#fff" />
               </Pressable>
-              <Pressable onPress={() => stepChannel(1)} style={({ focused }: any) => [styles.iconControl, focused && styles.focused]}>
+              <Pressable disabled={streamChannels.length < 2} onPress={() => stepChannel(1)} style={({ focused }: any) => [styles.iconControl, focused && styles.focused]}>
                 <Ionicons name="play-skip-forward" size={18} color="#fff" />
               </Pressable>
               <View style={styles.controlsSpacer} />
@@ -406,6 +454,7 @@ const styles = StyleSheet.create({
   livePillText: { color: "#fff", fontFamily: fonts.bold, fontSize: 6.5 },
   programTime: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 8 },
   programTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 14, marginTop: 3 },
+  descriptionViewport: { height: 26, overflow: "hidden" },
   description: { color: "rgba(255,255,255,0.76)", fontFamily: fonts.regular, fontSize: 8.5, lineHeight: 12, marginTop: 2 },
   progressRow: { height: 20, flexDirection: "row", alignItems: "center", gap: 8, marginTop: 6 },
   edgeTime: { width: 42, color: "#fff", fontFamily: fonts.medium, fontSize: 7.5 },
