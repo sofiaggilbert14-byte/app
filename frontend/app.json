@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Charm IPTV Experimental",
-    "slug": "charm-iptv-experimental",
-    "version": "2.0.0-experimental.1",
+    "name": "Charm IPTV Purple",
+    "slug": "charm-iptv-purple",
+    "version": "2.0.0-purple.1",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
-    "scheme": "charmiptv-experimental",
+    "scheme": "charmiptv-purple",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "android": {
@@ -14,8 +14,8 @@
         "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.charmiptv.app.experimental",
-      "versionCode": 3,
+      "package": "com.charmiptv.app.purple",
+      "versionCode": 4,
       "permissions": [
         "INTERNET",
         "ACCESS_NETWORK_STATE",
@@ -57,7 +57,7 @@
       [
         "expo-notifications",
         {
-          "color": "#E11D48"
+          "color": "#8B5CF6"
         }
       ],
       "react-native-vlc-media-player",
