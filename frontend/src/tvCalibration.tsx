@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, StyleProp, View, ViewStyle } from "react-native";
 import { storage } from "@/src/utils/storage";
 
@@ -20,13 +20,16 @@ type TvCalibrationContextValue = {
 };
 
 const DEFAULT_CALIBRATION: TvCalibration = { left: 0, right: 0, top: 0, bottom: 0 };
-const STORAGE_KEY = "charm_tv_calibration_v1";
-const MAX_INSET = 96;
+// New generation intentionally starts at zero so the larger automatic-safe-area
+// calibration from the previous test build cannot keep the app shrunken after update.
+const STORAGE_KEY = "charm_tv_calibration_v3";
+export const TV_CALIBRATION_MIN_OFFSET = -96;
+export const TV_CALIBRATION_MAX_OFFSET = 96;
 const Ctx = createContext<TvCalibrationContextValue | null>(null);
 
 function clamp(value: number): number {
   if (!Number.isFinite(value)) return 0;
-  return Math.max(0, Math.min(MAX_INSET, Math.round(value)));
+  return Math.max(TV_CALIBRATION_MIN_OFFSET, Math.min(TV_CALIBRATION_MAX_OFFSET, Math.round(value)));
 }
 
 function normalize(value: TvCalibration): TvCalibration {
@@ -45,6 +48,7 @@ function sameCalibration(a: TvCalibration, b: TvCalibration): boolean {
 export function TvCalibrationProvider({ children }: { children: React.ReactNode }) {
   const [calibration, setCalibration] = useState<TvCalibration>(DEFAULT_CALIBRATION);
   const [draftCalibration, setDraftCalibration] = useState<TvCalibration>(DEFAULT_CALIBRATION);
+  const saveInFlightRef = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -64,12 +68,18 @@ export function TvCalibrationProvider({ children }: { children: React.ReactNode 
   }, []);
 
   const save = useCallback(async () => {
-    const next = normalize(draftCalibration);
-    // Updating provider state applies the new frame padding immediately across
-    // every mounted TV screen; persistence happens in the same user action.
-    setCalibration(next);
-    setDraftCalibration(next);
-    await storage.setItem(STORAGE_KEY, next);
+    // Guard held/repeated OK events so screen-fit changes cannot be committed
+    // concurrently and destabilize the root layout.
+    if (saveInFlightRef.current) return;
+    saveInFlightRef.current = true;
+    try {
+      const next = normalize(draftCalibration);
+      setCalibration(next);
+      setDraftCalibration(next);
+      await storage.setItem(STORAGE_KEY, next);
+    } finally {
+      saveInFlightRef.current = false;
+    }
   }, [draftCalibration]);
 
   const reset = useCallback(() => {
@@ -101,18 +111,23 @@ export function useTvCalibration(): TvCalibrationContextValue {
 export function TvCalibrationFrame({ children, style }: { children: React.ReactNode; style?: StyleProp<ViewStyle> }) {
   const { calibration } = useTvCalibration();
 
-  // Overscan is primarily a TV problem. Phones/tablets keep their normal safe-area behavior.
+  // Zero fills the normal reported Android window. Positive values move an edge
+  // inward; negative values use negative margins to stretch that edge outward.
+  // This restores the old full-screen behavior while still letting users correct
+  // TVs that crop too much or expose unwanted borders.
   const calibratedStyle: StyleProp<ViewStyle> = Platform.isTV
     ? {
         flex: 1,
-        paddingLeft: calibration.left,
-        paddingRight: calibration.right,
-        paddingTop: calibration.top,
-        paddingBottom: calibration.bottom,
+        marginLeft: Math.min(0, calibration.left),
+        marginRight: Math.min(0, calibration.right),
+        marginTop: Math.min(0, calibration.top),
+        marginBottom: Math.min(0, calibration.bottom),
+        paddingLeft: Math.max(0, calibration.left),
+        paddingRight: Math.max(0, calibration.right),
+        paddingTop: Math.max(0, calibration.top),
+        paddingBottom: Math.max(0, calibration.bottom),
       }
     : { flex: 1 };
 
   return <View style={[calibratedStyle, style]}>{children}</View>;
 }
-
-export const TV_CALIBRATION_MAX_INSET = MAX_INSET;
