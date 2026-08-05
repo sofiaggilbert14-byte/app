@@ -15,6 +15,10 @@ import {
   useStore,
 } from "@/src/store";
 import { clearGuideCache, refreshSource } from "@/src/source";
+import {
+  type PlayerEnginePreference,
+  usePlayerEnginePreference,
+} from "@/src/playerEnginePreference";
 import { fonts, radius, tvColors } from "@/src/theme";
 
 type Section = "general" | "player" | "remote" | "epg" | "appearance" | "backup" | "account" | "about";
@@ -59,6 +63,7 @@ export default function SettingsScreen() {
     autoRetryStreams,
     setAutoRetryStreams,
   } = useStore();
+  const [playerEnginePreference, setPlayerEnginePreference] = usePlayerEnginePreference();
   const [section, setSection] = useState<Section | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -159,6 +164,12 @@ export default function SettingsScreen() {
 
             {section === "player" ? (
               <SettingsCard title="Playback" icon="play-circle-outline">
+                <ChoiceRow<PlayerEnginePreference>
+                  label="Video player"
+                  value={playerEnginePreference}
+                  options={[{ label: "App Default", value: "default" }, { label: "VLC", value: "vlc" }]}
+                  onChange={setPlayerEnginePreference}
+                />
                 <ChoiceRow<PlayerControlsTimeoutMs>
                   label="Controls timeout"
                   value={playerControlsTimeoutMs}
@@ -166,7 +177,7 @@ export default function SettingsScreen() {
                   onChange={setPlayerControlsTimeoutMs}
                 />
                 <ToggleRow label="Auto retry streams" value={autoRetryStreams} onChange={setAutoRetryStreams} />
-                <Text style={styles.help}>Retry uses the existing bounded engine fallback and does not change stream compatibility.</Text>
+                <Text style={styles.help}>App Default chooses the best engine per stream. VLC can be forced for full-screen playback when available; the purple guide preview stays on its optimized default path.</Text>
               </SettingsCard>
             ) : null}
 
