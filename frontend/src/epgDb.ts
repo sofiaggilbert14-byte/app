@@ -93,10 +93,13 @@ export async function replaceIndexedPrograms(
   let written = 0;
   const batch: unknown[] = [];
   const valueSql: string[] = [];
+  
+  // Increased batch size from 80 to 160 for faster inserts
+  // SQLite supports up to 999 parameters safely; 160 rows × 6 cols = 960 params
+  const MAX_BATCH_SIZE = 160;
+
   const flush = async () => {
     if (!valueSql.length) return;
-    // Each staging batch is a short write. The live programs table stays fully
-    // queryable while a new guide is being prepared in the second layer.
     await db.runAsync(
       `INSERT OR REPLACE INTO programs_staging
        (channel_id, start_ms, stop_ms, title, description, category)
@@ -125,7 +128,7 @@ export async function replaceIndexedPrograms(
         program.category || null,
       );
       written++;
-      if (valueSql.length >= 80) await flush();
+      if (valueSql.length >= MAX_BATCH_SIZE) await flush();
     }
   }
   await flush();
@@ -160,8 +163,9 @@ export async function loadIndexedPrograms(
   if (!db || !channelIds.length) return programs;
 
   const uniqueIds = [...new Set(channelIds.filter(Boolean))];
-  for (let offset = 0; offset < uniqueIds.length; offset += 80) {
-    const ids = uniqueIds.slice(offset, offset + 80);
+  // Batch query by 100 channels at a time (SQLite param limit is 999; 100 + 2 = 102 params)
+  for (let offset = 0; offset < uniqueIds.length; offset += 100) {
+    const ids = uniqueIds.slice(offset, offset + 100);
     const placeholders = ids.map(() => "?").join(",");
     const rows = await db.getAllAsync<ProgramRow>(
       `SELECT channel_id, start_ms, stop_ms, title, description, category
