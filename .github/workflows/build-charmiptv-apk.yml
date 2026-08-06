@@ -76,6 +76,9 @@ jobs:
       - name: Verify RC identity
         run: |
           node -e 'const c=require("./app.json").expo; if(c.name!=="CharmIPTV"||c.version!=="2.0.0-rc.1"||c.android?.package!=="com.charmiptv.app"||c.android?.versionCode!==200001){console.error(c);process.exit(1)}'
+          grep -Eq "applicationId[[:space:]]+'com\.charmiptv\.app'" android/app/build.gradle
+          grep -Eq "versionCode[[:space:]]+200001" android/app/build.gradle
+          grep -Eq 'versionName[[:space:]]+"2\.0\.0-rc\.1"' android/app/build.gradle
 
       - name: Configure deterministic low-memory build
         run: |
