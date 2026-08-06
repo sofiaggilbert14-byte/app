@@ -19,7 +19,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { colors, fonts, radius, spacing } from "@/src/theme";
+import { fonts, radius, spacing } from "@/src/theme";
 import { useStore } from "@/src/store";
 import { Channel } from "@/src/api";
 import { TimelineGrid } from "@/src/components/TimelineGrid";
@@ -218,6 +218,13 @@ export default function GuideScreen() {
       : drawerMode === "rail"
         ? GUIDE_RAIL_WIDTH
         : 0;
+
+  // Match purple TV's details rail sizing (clamped), then keep RC1 red/gold chrome.
+  const detailsRailWidth = useMemo(() => {
+    const available = Math.max(480, width - Math.max(drawerGuideInset, 52) - 24);
+    const former = Math.min(340, Math.max(228, available * (0.78 / (1.9 + 0.78))));
+    return Math.round(Math.min(238, Math.max(160, former * 0.7)));
+  }, [drawerGuideInset, width]);
 
   const sortedChannels = useMemo(() => [...channels].sort(byChannelName), [channels]);
 
@@ -485,64 +492,163 @@ export default function GuideScreen() {
     setDrawerMode(null);
   }, []);
 
-  const renderGuideGrid = (interactive: boolean) => {
-    if (compactGuide) {
-      return (
-        <View
-          style={styles.timelineArea}
-          pointerEvents={interactive ? "auto" : "none"}
-          focusable={false}
-          accessible={false}
-        >
-          <BoxGrid
-            channels={filtered}
-            now={now}
-            onChannelPress={openChannel}
-            onProgramPress={openProgram}
-            onChannelFocus={interactive ? focusPreviewChannel : undefined}
-            refreshing={refreshing}
-            onRefresh={hardRefresh}
-            density={guideDensity}
-            showChannelNumbers={channelNumbers}
-            channelNumberById={channelNumberById}
-            showChannelLogos={channelLogos}
-            favoriteIds={favoriteSet}
-            reminderKeys={reminderKeys}
-            onToggleFavorite={toggleFavorite}
-            resetToken={interactive ? guideResetToken : 0}
-          />
-        </View>
-      );
-    }
+  const favoritePreview = useCallback(() => {
+    if (!previewChannel) return;
+    void Haptics.selectionAsync().catch(() => {});
+    toggleFavorite(previewChannel.id);
+  }, [previewChannel, toggleFavorite]);
+
+  /** Purple TV guide body: channel grid + right details rail, RC1 colors. */
+  const renderPurpleStyleGuide = (interactive: boolean) => {
+    const grid = compactGuide ? (
+      <BoxGrid
+        channels={filtered}
+        now={now}
+        onChannelPress={openChannel}
+        onProgramPress={openProgram}
+        onChannelFocus={interactive ? focusPreviewChannel : undefined}
+        refreshing={refreshing}
+        onRefresh={hardRefresh}
+        density={guideDensity}
+        showChannelNumbers={channelNumbers}
+        channelNumberById={channelNumberById}
+        showChannelLogos={channelLogos}
+        favoriteIds={favoriteSet}
+        reminderKeys={reminderKeys}
+        onToggleFavorite={toggleFavorite}
+        resetToken={interactive ? guideResetToken : 0}
+      />
+    ) : (
+      <TimelineGrid
+        channels={filtered}
+        windowStart={windowStart}
+        windowEnd={windowEnd}
+        now={now}
+        onChannelPress={openChannel}
+        onProgramPress={openProgram}
+        onChannelFocus={interactive ? focusPreviewChannel : undefined}
+        onChannelLongPress={favoriteChannel}
+        refreshing={refreshing}
+        onRefresh={hardRefresh}
+        density={guideDensity}
+        showChannelNumbers={channelNumbers}
+        channelNumberById={channelNumberById}
+        showChannelLogos={channelLogos}
+        favoriteIds={favoriteSet}
+        reminderKeys={reminderKeys}
+        resetToken={interactive ? guideResetToken : 0}
+        active={interactive}
+        onLeftBoundary={interactive ? returnToGroups : undefined}
+      />
+    );
 
     return (
-      <FocusGuide style={styles.timelineArea} autoFocus={interactive}>
-        <ErrorBoundary>
-          <View pointerEvents={interactive ? "auto" : "none"} focusable={false} accessible={false} style={{ flex: 1 }}>
-            <TimelineGrid
-              channels={filtered}
-              windowStart={windowStart}
-              windowEnd={windowEnd}
-              now={now}
-              onChannelPress={openChannel}
-              onProgramPress={openProgram}
-              onChannelFocus={interactive ? focusPreviewChannel : undefined}
-              onChannelLongPress={favoriteChannel}
-              refreshing={refreshing}
-              onRefresh={hardRefresh}
-              density={guideDensity}
-              showChannelNumbers={channelNumbers}
-              channelNumberById={channelNumberById}
-              showChannelLogos={channelLogos}
-              favoriteIds={favoriteSet}
-              reminderKeys={reminderKeys}
-              resetToken={interactive ? guideResetToken : 0}
-              active={interactive}
-              onLeftBoundary={interactive ? returnToGroups : undefined}
-            />
+      <View style={styles.guideBody} testID="rc1-purple-style-guide">
+        <FocusGuide
+          style={styles.gridPanel}
+          autoFocus={interactive}
+          trapFocusDown={interactive}
+          trapFocusRight={interactive}
+        >
+          <View
+            pointerEvents={interactive ? "auto" : "none"}
+            focusable={false}
+            accessible={false}
+            style={styles.gridPanelInner}
+          >
+            <ErrorBoundary>{grid}</ErrorBoundary>
           </View>
-        </ErrorBoundary>
-      </FocusGuide>
+        </FocusGuide>
+
+        <View style={[styles.sideDetailsPanel, { width: detailsRailWidth }]} pointerEvents={interactive ? "auto" : "none"}>
+          <View
+            style={styles.sidePreview}
+            focusable={false}
+            accessible={false}
+            pointerEvents="none"
+            testID="guide-preview-card"
+          >
+            {previewPlayerVisible && previewChannel ? (
+              <ErrorBoundary fallback={() => null}>
+                <StreamPlayer
+                  key={`guide-preview-${previewChannel.id}`}
+                  uri={previewChannel.url}
+                  onStatus={setPreviewStatus}
+                  style={StyleSheet.absoluteFill}
+                />
+              </ErrorBoundary>
+            ) : (
+              <View style={styles.sidePreviewFallback}>
+                {previewChannel ? (
+                  <ChannelLogo
+                    name={previewChannel.name}
+                    logo={previewChannel.logo}
+                    disabled={!channelLogos}
+                    size={46}
+                  />
+                ) : (
+                  <Ionicons name="tv-outline" size={34} color={GOLD_SOFT} />
+                )}
+              </View>
+            )}
+            <View style={styles.liveTag}>
+              <Text style={styles.liveTagText}>{previewLabelText}</Text>
+            </View>
+          </View>
+
+          <View style={styles.sideDetailsCopy}>
+            <Text numberOfLines={1} style={styles.sideChannelName}>
+              {previewChannelLabel || "Select a channel"}
+            </Text>
+            <Text numberOfLines={2} style={styles.sideProgramTitle}>
+              {preview.current?.title || "No program information"}
+            </Text>
+            <Text numberOfLines={1} style={styles.sideTimeText}>
+              {preview.current
+                ? `${fmtTime(preview.current.start)}${preview.current.stop ? ` - ${fmtTime(preview.current.stop)}` : ""}`
+                : "Guide information will appear here"}
+            </Text>
+            <View style={styles.sideProgressTrack}>
+              <View style={[styles.sideProgressFill, { width: `${previewProgress}%` }]} />
+            </View>
+            <Text style={styles.sideDescLabel}>ABOUT</Text>
+            <AutoScrollDescription
+              text={descriptionText}
+              activeKey={descriptionKey}
+              compact={shortScreen}
+            />
+            {preview.current?.stop ? (
+              <Text style={styles.sideRemaining}>
+                {Math.max(0, dayjs(preview.current.stop).diff(dayjs(), "minute"))} min remaining
+              </Text>
+            ) : null}
+            <View style={styles.sideActions}>
+              <Pressable
+                disabled={!interactive || !previewChannel}
+                onPress={() => previewChannel && openChannel(previewChannel)}
+                style={({ focused }: any) => [styles.sideWatchButton, focused && styles.goldFocus]}
+                testID="guide-side-watch"
+              >
+                <Ionicons name="play" size={12} color="#fff" />
+                <Text style={styles.sideWatchText}>Watch</Text>
+              </Pressable>
+              <Pressable
+                disabled={!interactive || !previewChannel}
+                onPress={favoritePreview}
+                style={({ focused }: any) => [styles.sideSecondaryButton, focused && styles.goldFocus]}
+                testID="guide-side-favorite"
+              >
+                <Ionicons
+                  name={previewChannel && favoriteSet.has(previewChannel.id) ? "star" : "star-outline"}
+                  size={12}
+                  color={GOLD_SOFT}
+                />
+                <Text style={styles.sideSecondaryText}>Favorite</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </View>
     );
   };
 
@@ -565,10 +671,12 @@ export default function GuideScreen() {
         ]}
       >
         {drawerMode !== null && (
-          <View style={styles.drawerGuideHeader}>
-            <View>
-              <Text style={styles.drawerHeaderLabel}>CHANNEL GROUP</Text>
-              <Text style={styles.drawerHeaderValue}>{category}</Text>
+          <View style={styles.guideHeader}>
+            <View style={styles.guideHeaderCopy}>
+              <Text style={styles.guideKicker}>TV GUIDE</Text>
+              <Text numberOfLines={1} style={styles.guideTitle}>
+                {category === "All" ? "All Channels" : category === "Recently Watched" ? "Recent" : category}
+              </Text>
             </View>
             <View style={styles.headerSpacer} />
             <Text style={styles.drawerVersion}>RC1</Text>
@@ -600,6 +708,50 @@ export default function GuideScreen() {
               testID="drawer-layout-grid"
             >
               <Ionicons name="grid" size={19} color="#fff" />
+            </Pressable>
+          </View>
+        )}
+
+        {drawerMode === null && !mobileSafeGuide && (
+          <View style={styles.guideHeader}>
+            <View style={styles.guideHeaderCopy}>
+              <Text style={styles.guideKicker}>TV GUIDE</Text>
+              <Text numberOfLines={1} style={styles.guideTitle}>
+                {category === "All" ? "All Channels" : category === "Recently Watched" ? "Recent" : category}
+              </Text>
+            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.groupChipRow}
+              style={styles.groupChipScroll}
+            >
+              {categories.map((group) => {
+                const activeGroup = group === category;
+                return (
+                  <Pressable
+                    key={group}
+                    onPress={() => openGroup(group)}
+                    style={({ focused }: any) => [
+                      styles.groupChip,
+                      activeGroup && styles.groupChipActive,
+                      focused && styles.goldFocus,
+                    ]}
+                    testID={`guide-chip-${group}`}
+                  >
+                    <Text style={[styles.groupChipText, activeGroup && styles.groupChipTextActive]}>
+                      {group === "Recently Watched" ? "Recent" : group}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+            <Pressable
+              onPress={hardRefresh}
+              style={({ focused }: any) => [styles.headerIconButton, focused && styles.goldFocus]}
+              testID="guide-header-refresh"
+            >
+              <Ionicons name="refresh" size={20} color="#fff" />
             </Pressable>
           </View>
         )}
@@ -647,7 +799,7 @@ export default function GuideScreen() {
           </ScrollView>
         )}
 
-        {drawerMode !== null ? null : mobileSafeGuide ? (
+        {mobileSafeGuide && drawerMode === null ? (
           <View style={styles.mobileHero}>
             <View style={styles.mobileHeroText}>
               <Text style={styles.detailsLabel}>MOBILE SAFE GUIDE</Text>
@@ -677,86 +829,7 @@ export default function GuideScreen() {
               </Pressable>
             </View>
           </View>
-        ) : (
-          <View style={[styles.previewDetailsRow, compactGuide && styles.previewDetailsRowCompact, shortScreen && styles.previewDetailsRowShort]}>
-            <View
-              style={styles.livePreviewPanel}
-              focusable={false}
-              accessible={false}
-              pointerEvents="none"
-              testID="guide-preview-card"
-            >
-              <LinearGradient
-                colors={["rgba(227,38,46,0.22)", "rgba(68,39,12,0.78)", "rgba(0,0,0,0.94)"]}
-                style={StyleSheet.absoluteFill}
-              />
-              {previewPlayerVisible && (
-                <ErrorBoundary
-                  fallback={(reset) => (
-                    <Pressable style={styles.previewCenter} onPress={reset} focusable={false}>
-                      <Text style={styles.previewChannelName}>Preview unavailable — OK in Settings to retry</Text>
-                    </Pressable>
-                  )}
-                >
-                  <StreamPlayer
-                    key={`guide-preview-${previewChannel.id}`}
-                    uri={previewChannel.url}
-                    onStatus={setPreviewStatus}
-                    style={StyleSheet.absoluteFill}
-                  />
-                </ErrorBoundary>
-              )}
-              <LinearGradient
-                colors={["rgba(0,0,0,0.18)", "rgba(0,0,0,0.70)"]}
-                style={StyleSheet.absoluteFill}
-              />
-              <View style={styles.previewLabel}>
-                <Text style={styles.previewLabelText}>{previewLabelText}</Text>
-              </View>
-              <View style={[styles.previewCenter, previewPlayerVisible && styles.previewCenterOverlay]}>
-                {previewChannel ? (
-                  <ChannelLogo
-                    name={previewChannel.name}
-                    logo={previewChannel.logo}
-                    disabled={!channelLogos}
-                    size={compactGuide || shortScreen ? 32 : 44}
-                  />
-                ) : (
-                  <Ionicons name="tv-outline" size={compactGuide || shortScreen ? 30 : 42} color={GOLD_SOFT} />
-                )}
-                <Text numberOfLines={1} style={styles.previewChannelName}>
-                  {previewChannelLabel || "Select a channel"}
-                </Text>
-              </View>
-              <View style={styles.liveBadge}>
-                <View style={styles.liveDot} />
-                <Text style={styles.liveBadgeText}>LIVE</Text>
-              </View>
-            </View>
-
-            <View style={styles.detailsPanel}>
-              <View style={styles.detailsHeader}>
-                <Text numberOfLines={1} style={styles.detailsLabel}>
-                  {previewChannelLabel || "LIVE TV"}
-                </Text>
-              </View>
-              <Text numberOfLines={1} style={[styles.programTitle, compactGuide && styles.programTitleCompact]}>
-                {preview.current?.title || "No program information"}
-              </Text>
-              <View style={styles.programMetaRow}>
-                <Text style={styles.programMeta}>
-                  {preview.current ? `${fmtTime(preview.current.start)} - ${preview.current.stop ? fmtTime(preview.current.stop) : "Later"}` : "Guide still loading"}
-                </Text>
-                <View style={styles.progressTrack}>
-                  <View style={[styles.progressFill, { width: `${previewProgress}%` }]} />
-                </View>
-                <Text style={styles.programMeta}>{preview.current?.stop ? `${Math.max(0, dayjs(preview.current.stop).diff(dayjs(), "minute"))} min left` : ""}</Text>
-              </View>
-              <Text style={styles.descriptionLabel}>PROGRAM DESCRIPTION</Text>
-              <AutoScrollDescription text={descriptionText} activeKey={descriptionKey} compact={compactGuide || shortScreen} />
-            </View>
-          </View>
-        )}
+        ) : null}
 
         <EpgProgressBar />
 
@@ -800,9 +873,9 @@ export default function GuideScreen() {
             resetToken={guideResetToken}
           />
         ) : (
-          // Keep the channel guide visible behind the groups drawer (purple-style
-          // always-on guide), but only interactive once a group is chosen.
-          renderGuideGrid(drawerMode === null)
+          // Purple TV layout: channel grid + right details/preview rail (RC1 colors).
+          // Visible behind the groups drawer; interactive after a group is opened.
+          renderPurpleStyleGuide(drawerMode === null)
         )}
       </View>
 
@@ -845,16 +918,32 @@ const styles = StyleSheet.create({
   },
   versionBadgeText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 11, letterSpacing: 0.6 },
   headerSpacer: { flex: 1 },
-  drawerGuideHeader: {
+  guideHeader: {
     alignItems: "center",
     borderBottomColor: "rgba(255,255,255,0.12)",
     borderBottomWidth: 1,
     flexDirection: "row",
-    minHeight: 44,
+    gap: 8,
+    minHeight: 48,
     paddingHorizontal: 8,
   },
-  drawerHeaderLabel: { color: "rgba(255,255,255,0.68)", fontFamily: fonts.medium, fontSize: 10, letterSpacing: 0.8 },
-  drawerHeaderValue: { color: "#fff", fontFamily: fonts.bold, fontSize: 14, marginTop: 1 },
+  guideHeaderCopy: { minWidth: 120 },
+  guideKicker: { color: GOLD, fontFamily: fonts.semibold, fontSize: 8, letterSpacing: 1 },
+  guideTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 16, marginTop: 1 },
+  groupChipScroll: { flexGrow: 1, flexShrink: 1, maxHeight: 40 },
+  groupChipRow: { alignItems: "center", gap: 5, paddingHorizontal: 4 },
+  groupChip: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderColor: "transparent",
+    borderRadius: radius.sm,
+    borderWidth: 2,
+    justifyContent: "center",
+    minHeight: 28,
+    paddingHorizontal: 10,
+  },
+  groupChipActive: { backgroundColor: GOLD_DEEP },
+  groupChipText: { color: "rgba(255,255,255,0.72)", fontFamily: fonts.medium, fontSize: 9 },
+  groupChipTextActive: { color: "#fff", fontFamily: fonts.semibold },
   drawerVersion: { color: GOLD, fontFamily: fonts.semibold, fontSize: 10, letterSpacing: 0.5, marginRight: 7 },
   viewToggle: {
     alignItems: "center",
@@ -866,22 +955,98 @@ const styles = StyleSheet.create({
     width: 34,
   },
   viewToggleActive: { backgroundColor: GOLD },
-  drawerGuideFooter: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "center",
-    minHeight: 36,
-    gap: 6,
+  guideBody: { flex: 1, flexDirection: "row", gap: 8, minHeight: 0, paddingHorizontal: 4, paddingBottom: 4 },
+  gridPanel: {
+    backgroundColor: "rgba(0,0,0,0.32)",
+    borderColor: "rgba(255,255,255,0.10)",
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    flex: 1,
+    minWidth: 0,
+    overflow: "hidden",
   },
-  drawerGuideFooterCharm: { color: GOLD, fontFamily: fonts.bold, fontSize: 16 },
-  drawerGuideFooterText: { color: "#fff", fontFamily: fonts.medium, fontSize: 16 },
+  gridPanelInner: { flex: 1 },
+  sideDetailsPanel: {
+    backgroundColor: PANEL,
+    borderColor: "rgba(255,255,255,0.10)",
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    flexShrink: 0,
+    overflow: "hidden",
+  },
+  sidePreview: {
+    aspectRatio: 16 / 9,
+    backgroundColor: "#05070A",
+    flexShrink: 0,
+    overflow: "hidden",
+    width: "100%",
+  },
+  sidePreviewFallback: {
+    alignItems: "center",
+    backgroundColor: GOLD_DEEP,
+    flex: 1,
+    justifyContent: "center",
+  },
+  liveTag: {
+    backgroundColor: "rgba(227,38,46,0.92)",
+    borderRadius: 4,
+    bottom: 6,
+    left: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    position: "absolute",
+  },
+  liveTagText: { color: "#fff", fontFamily: fonts.bold, fontSize: 6.5 },
+  sideDetailsCopy: { flex: 1, minHeight: 0, padding: 8 },
+  sideChannelName: { color: GOLD, fontFamily: fonts.semibold, fontSize: 8.5 },
+  sideProgramTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 13, lineHeight: 15.5, marginTop: 3 },
+  sideTimeText: { color: "rgba(255,255,255,0.72)", fontFamily: fonts.medium, fontSize: 7.5, marginTop: 3 },
+  sideProgressTrack: {
+    backgroundColor: "rgba(255,255,255,0.12)",
+    borderRadius: 2,
+    height: 3,
+    marginTop: 6,
+    overflow: "hidden",
+  },
+  sideProgressFill: { backgroundColor: GOLD, height: 3 },
+  sideDescLabel: { color: GOLD, fontFamily: fonts.semibold, fontSize: 7, letterSpacing: 0.7, marginBottom: 2, marginTop: 7 },
+  sideRemaining: { color: "rgba(255,255,255,0.55)", fontFamily: fonts.medium, fontSize: 7.5, marginTop: 4 },
+  sideActions: { flexDirection: "row", gap: 6, marginTop: 8 },
+  sideWatchButton: {
+    alignItems: "center",
+    backgroundColor: GOLD,
+    borderColor: "transparent",
+    borderRadius: 5,
+    borderWidth: 2,
+    flex: 1,
+    flexDirection: "row",
+    gap: 4,
+    justifyContent: "center",
+    minHeight: 27,
+    minWidth: 0,
+    paddingHorizontal: 3,
+  },
+  sideWatchText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 9 },
+  sideSecondaryButton: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderColor: "transparent",
+    borderRadius: 5,
+    borderWidth: 2,
+    flex: 1,
+    flexDirection: "row",
+    gap: 4,
+    justifyContent: "center",
+    minHeight: 27,
+    minWidth: 0,
+    paddingHorizontal: 3,
+  },
+  sideSecondaryText: { color: GOLD_SOFT, fontFamily: fonts.semibold, fontSize: 9 },
   mobileHero: {
     minHeight: 84,
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
-    borderRadius: 0,
-    borderWidth: 0,
     backgroundColor: PANEL,
     paddingHorizontal: 8,
     paddingVertical: 5,
@@ -926,56 +1091,8 @@ const styles = StyleSheet.create({
     minHeight: 29,
     paddingHorizontal: 12,
   },
-  previewDetailsRow: { flexDirection: "row", gap: 8, height: 138, alignItems: "stretch" },
-  previewDetailsRowCompact: { height: 104 },
-  previewDetailsRowShort: { height: 116 },
-  livePreviewPanel: {
-    width: "32.25%",
-    height: "100%",
-    borderRadius: 0,
-    borderWidth: 0,
-    backgroundColor: PANEL,
-    overflow: "hidden",
-    padding: 4,
-  },
-  previewLabel: {
-    alignSelf: "center",
-    backgroundColor: "rgba(227,38,46,0.16)",
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-  },
-  previewLabelText: { color: GOLD_SOFT, fontFamily: fonts.bold, fontSize: 10 },
-  previewCenter: { flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.xs },
-  previewCenterOverlay: { alignItems: "flex-start", justifyContent: "flex-end" },
-  previewChannelName: { color: "#fff", fontFamily: fonts.bold, fontSize: 12, textAlign: "center" },
-  liveBadge: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
-  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.error },
-  liveBadgeText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 11 },
-  detailsPanel: {
-    flex: 1,
-    borderRadius: 0,
-    borderWidth: 0,
-    backgroundColor: PANEL,
-    padding: spacing.sm,
-    gap: 2,
-    overflow: "hidden",
-  },
-  detailsHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   detailsLabel: { color: GOLD, fontFamily: fonts.bold, fontSize: 10 },
-  programTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 16 },
-  programTitleCompact: { fontSize: 14 },
-  programMetaRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  programMeta: { color: GOLD_SOFT, fontFamily: fonts.medium, fontSize: 10 },
-  progressTrack: {
-    width: 80,
-    height: 4,
-    borderRadius: radius.pill,
-    backgroundColor: "rgba(255,255,255,0.20)",
-    overflow: "hidden",
-  },
-  progressFill: { height: 4, backgroundColor: GOLD },
-  descriptionLabel: { color: GOLD, fontFamily: fonts.semibold, fontSize: 9, marginTop: 1 },
+  description: { color: "rgba(255,255,255,0.84)", fontFamily: fonts.regular, fontSize: 10.5, lineHeight: 14 },
   descriptionViewport: {
     flex: 1,
     minHeight: 30,
@@ -983,14 +1100,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
   },
   descriptionViewportCompact: { minHeight: 14 },
-  description: { color: "rgba(255,255,255,0.84)", fontFamily: fonts.regular, fontSize: 10.5, lineHeight: 14 },
-  timelineArea: {
-    flex: 1,
-    borderRadius: 0,
-    borderWidth: 0,
-    overflow: "hidden",
-    backgroundColor: "rgba(0,0,0,0.32)",
-  },
   goldFocus: {
     borderColor: GOLD_SOFT,
     borderWidth: 2,
