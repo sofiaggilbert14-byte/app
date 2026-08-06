@@ -11,7 +11,7 @@ def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
 react {
     entryFile = file(["node", "-e", "require('expo/scripts/resolveAppEntry')", projectRoot, "android", "absolute"].execute(null, rootDir).text.trim())
     reactNativeDir = new File(["node", "--print", "require.resolve('react-native/package.json')"].execute(null, rootDir).text.trim()).getParentFile().getAbsoluteFile()
-    def reactNativePackageDir = new File(["node", "--print", "require.resolve('react-native/package.json')"].execute(null, rootDir).text.trim()).getParentFile()
+    def reactNativePackageDir = new File(["node", "--print", "require.resolve('react-native/package.json', { paths: [require.resolve('react-native/package.json')] })"].execute(null, rootDir).text.trim()).getParentFile()
     hermesCommand = new File(reactNativePackageDir, "sdks/hermesc/%OS-BIN%/hermesc").getAbsolutePath()
     codegenDir = new File(["node", "--print", "require.resolve('@react-native/codegen/package.json', { paths: [require.resolve('react-native/package.json')] })"].execute(null, rootDir).text.trim()).getParentFile().getAbsoluteFile()
 
@@ -24,9 +24,9 @@ react {
     /* Folders */
      //   The root of your project, i.e. where "package.json" lives. Default is '../..'
     // root = file("../../")
-    //   The folder where the React Native package lives.
+    //   The folder where the react-native NPM package is. Default is ../../node_modules/react-native
     // reactNativeDir = file("../../node_modules/react-native")
-    //   The folder where the React Native Codegen package lives.
+    //   The folder where the react-native Codegen package is. Default is ../../node_modules/@react-native/codegen
     // codegenDir = file("../../node_modules/@react-native/codegen")
 
     /* Variants */
@@ -36,7 +36,7 @@ react {
     // nodeExecutableAndArgs = ["node"]
     // bundleConfig = file(../rn-cli.config.js)
     // bundleAssetName = "MyApplication.android.bundle"
-    // entryFile = file("../js/MyApplication.android.js")
+    // entryFile = file("../js/index.android.js")
     // extraPackagerArgs = []
 
     /* Hermes Commands */
@@ -68,8 +68,8 @@ android {
         applicationId 'com.charmiptv.app'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode 200001
+        versionName "2.0.0-rc.1"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
@@ -132,7 +132,7 @@ dependencies {
 
     def isGifEnabled = (findProperty('expo.gif.enabled') ?: "") == "true";
     def isWebpEnabled = (findProperty('expo.webp.enabled') ?: "") == "true";
-    def isWebpAnimatedEnabled = (findProperty('expo.webp.animated') ?: "") == "true";
+    def isWebpAnimatedEnabled = (findProperty('expo.webp.animated.enabled') ?: "") == "true";
 
     if (isGifEnabled) {
         implementation("com.facebook.fresco:animated-gif:${expoLibs.versions.fresco.get()}")
