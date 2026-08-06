@@ -5,6 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import Constants from "expo-constants";
 import { PurpleTvShell } from "@/src/components/PurpleTvShell";
+import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { TvCalibrationControls } from "@/src/components/TvCalibrationControls";
 import {
   DeviceLayoutMode,
@@ -172,23 +173,27 @@ export default function SettingsScreen() {
         </View>
 
         {!section ? (
-          <View style={styles.tileGrid}>
-            {TILES.map((tile, index) => (
-              <Pressable
-                key={tile.id}
-                hasTVPreferredFocus={index === 0}
-                onPress={() => choose(tile.id)}
-                style={({ focused }: any) => [styles.tile, focused && styles.focused]}
-                testID={`settings-tile-${tile.id}`}
-              >
-                <View style={styles.tileIcon}><Ionicons name={tile.icon} size={27} color={tvColors.purpleSoft} /></View>
-                <Text style={styles.tileText}>{tile.label}</Text>
-              </Pressable>
-            ))}
-          </View>
+          <FocusGuide style={styles.tileGridWrap} autoFocus trapFocusUp trapFocusDown>
+            <View style={styles.tileGrid}>
+              {TILES.map((tile, index) => (
+                <Pressable
+                  key={tile.id}
+                  hasTVPreferredFocus={index === 0}
+                  onPress={() => choose(tile.id)}
+                  style={({ focused }: any) => [styles.tile, focused && styles.focused]}
+                  testID={`settings-tile-${tile.id}`}
+                >
+                  <View style={styles.tileIcon}><Ionicons name={tile.icon} size={27} color={tvColors.purpleSoft} /></View>
+                  <Text style={styles.tileText}>{tile.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </FocusGuide>
         ) : (
+          <FocusGuide style={styles.detailsWrap} autoFocus trapFocusUp trapFocusDown>
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.details}>
             <Pressable
+              hasTVPreferredFocus
               onPress={() => {
                 void Haptics.selectionAsync().catch(() => undefined);
                 setBackupStatus(null);
@@ -305,6 +310,7 @@ export default function SettingsScreen() {
               </SettingsCard>
             ) : null}
           </ScrollView>
+          </FocusGuide>
         )}
       </View>
     </PurpleTvShell>
@@ -376,7 +382,9 @@ const styles = StyleSheet.create({
   title: { color: "#fff", fontFamily: fonts.bold, fontSize: 18, marginTop: 2 },
   backButton: { alignSelf: "flex-start", minHeight: 30, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, borderRadius: 5, borderWidth: 2, borderColor: "transparent", backgroundColor: tvColors.panel, marginBottom: 8 },
   backText: { color: "#fff", fontFamily: fonts.medium, fontSize: 8.5 },
+  tileGridWrap: { flex: 1 },
   tileGrid: { flex: 1, flexDirection: "row", flexWrap: "wrap", alignContent: "center", gap: 9, paddingHorizontal: 18 },
+  detailsWrap: { flex: 1 },
   tile: { width: "23.8%", minHeight: 118, alignItems: "center", justifyContent: "center", gap: 10, borderRadius: radius.sm, borderWidth: 2, borderColor: "transparent", backgroundColor: tvColors.panelRaised },
   tileIcon: { width: 48, height: 48, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: tvColors.purpleDeep },
   tileText: { color: "#fff", fontFamily: fonts.medium, fontSize: 9.5, textAlign: "center" },

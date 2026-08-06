@@ -322,12 +322,24 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setPlayerControlsTimeoutMsState((await storage.getItem<PlayerControlsTimeoutMs>(PLAYER_TIMEOUT_KEY, 8000)) || 8000);
       setAutoRetryStreamsState((await storage.getItem<boolean>(AUTO_RETRY_KEY, true)) ?? true);
       requestNotificationPermission();
+
+      // Fast paint from cache, then verify the source is healthy.
       await refresh();
-      void (async () => {
+      try {
+        const status = await refreshSource(false);
+        if (status.channel_count === 0 || status.error) {
+          await refreshSource(true);
+          await refresh(true);
+        }
+      } catch {
         try {
-          await refreshSource(false);
-        } catch {}
-      })();
+          await refreshSource(true);
+          await refresh(true);
+        } catch (bootError) {
+          // eslint-disable-next-line no-console
+          console.warn("Guide bootstrap refresh failed:", bootError);
+        }
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

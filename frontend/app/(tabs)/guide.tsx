@@ -133,6 +133,24 @@ export default function PurpleGuideScreen() {
   const metadataTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const groupChangedAt = useRef(0);
+  const bootRetryRef = useRef(0);
+
+  // Aggressive recovery: if the guide is empty after load, retry without requiring Settings.
+  useEffect(() => {
+    if (loading || refreshing) return;
+    if (channels.length > 0) return;
+    if (bootRetryRef.current >= 2) return;
+    bootRetryRef.current += 1;
+    void hardRefresh();
+  }, [loading, refreshing, channels.length, hardRefresh]);
+
+  useEffect(() => {
+    if (loading || refreshing || !error || channels.length > 0) return;
+    if (bootRetryRef.current >= 2) return;
+    bootRetryRef.current += 1;
+    const timer = setTimeout(() => void hardRefresh(), 1500);
+    return () => clearTimeout(timer);
+  }, [loading, refreshing, error, channels.length, hardRefresh]);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date().toISOString()), 60_000);
@@ -306,15 +324,37 @@ export default function PurpleGuideScreen() {
           <View style={styles.center}>
             <ActivityIndicator color={tvColors.purpleBright} size="large" />
             <Text style={styles.centerText}>Loading channels and guide…</Text>
+            <Pressable
+              hasTVPreferredFocus
+              focusable
+              disabled={refreshing}
+              onPress={() => void hardRefresh()}
+              style={({ focused }: any) => [styles.retryButton, focused && styles.focused]}
+              testID="purple-guide-retry-loading"
+            >
+              <Ionicons name="refresh-outline" size={14} color="#fff" />
+              <Text style={styles.retryText}>{refreshing ? "Loading…" : "Retry now"}</Text>
+            </Pressable>
           </View>
         ) : error && channels.length === 0 ? (
           <View style={styles.center}>
             <Ionicons name="cloud-offline-outline" size={32} color={tvColors.purpleSoft} />
             <Text style={styles.centerText}>{error}</Text>
+            <Pressable
+              hasTVPreferredFocus
+              focusable
+              disabled={refreshing}
+              onPress={() => void hardRefresh()}
+              style={({ focused }: any) => [styles.retryButton, focused && styles.focused]}
+              testID="purple-guide-retry-error"
+            >
+              <Ionicons name="refresh-outline" size={14} color="#fff" />
+              <Text style={styles.retryText}>{refreshing ? "Reloading…" : "Reload guide"}</Text>
+            </Pressable>
           </View>
         ) : (
           <View style={styles.body}>
-            <FocusGuide style={styles.gridPanel} autoFocus>
+            <FocusGuide style={styles.gridPanel} autoFocus trapFocusUp trapFocusDown trapFocusRight>
               {guideLayout === "compact" ? (
                 <BoxGrid
                   channels={filtered}
@@ -456,6 +496,8 @@ const styles = StyleSheet.create({
   secondaryButton: { flex: 1, minWidth: 0, minHeight: 27, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, backgroundColor: tvColors.panelRaised, borderRadius: 5, borderWidth: 2, borderColor: "transparent", paddingHorizontal: 3 },
   secondaryText: { color: "#fff", fontFamily: fonts.medium, fontSize: 7.2 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.md },
-  centerText: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 11 },
+  centerText: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 11, textAlign: "center", maxWidth: 320 },
+  retryButton: { minHeight: 32, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, borderRadius: 6, borderWidth: 2, borderColor: "transparent", backgroundColor: tvColors.purple, marginTop: 4 },
+  retryText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 9 },
   focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
 });

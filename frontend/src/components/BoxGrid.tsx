@@ -23,6 +23,7 @@ type ChannelCardProps = {
   onProgramPress: (p: Program, c: Channel) => void;
   onChannelFocus?: (c: Channel) => void;
   toggleFavorite: (id: string) => void;
+  preferInitialFocus?: boolean;
 };
 
 const ChannelCard = memo(function ChannelCard({
@@ -37,6 +38,7 @@ const ChannelCard = memo(function ChannelCard({
   onProgramPress,
   onChannelFocus,
   toggleFavorite,
+  preferInitialFocus = false,
 }: ChannelCardProps) {
   const { current, next } = nowNext(item.programs, nowDate);
   const pct = progressPct(current, nowDate);
@@ -55,6 +57,7 @@ const ChannelCard = memo(function ChannelCard({
     <View style={styles.cell}>
       <Pressable
         focusable
+        hasTVPreferredFocus={preferInitialFocus}
         onFocus={handleFocus}
         style={({ focused }: any) => [styles.card, focused && styles.cardFocused]}
         onPress={handleChannelPress}
@@ -156,6 +159,7 @@ export function BoxGrid({
         onProgramPress={onProgramPress}
         onChannelFocus={onChannelFocus}
         toggleFavorite={toggleFavorite}
+        preferInitialFocus={index === 0}
       />
     ),
     [channelNumberById, favoriteSet, nowDate, onChannelFocus, onChannelPress, onProgramPress, showChannelLogos, showChannelNumbers, toggleFavorite],

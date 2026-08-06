@@ -11,6 +11,7 @@ import {
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { fonts, radius, spacing, tvColors } from "@/src/theme";
 import { getTvSafeInsets } from "@/src/utils/tvLayout";
 
@@ -165,7 +166,15 @@ export function PurpleTvShell({
         </View>
       </View>
 
-      <View style={[styles.content, contentStyle]}>{children}</View>
+      <FocusGuide
+        key={`purple-content-${active}`}
+        style={[styles.content, contentStyle]}
+        autoFocus
+        trapFocusUp
+        trapFocusDown
+      >
+        {children}
+      </FocusGuide>
       {headerRight ? <View style={styles.headerRight}>{headerRight}</View> : null}
     </View>
   );

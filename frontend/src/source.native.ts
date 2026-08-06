@@ -230,9 +230,12 @@ async function fetchPlaylist(): Promise<Channel[]> {
 }
 
 async function ensureLoaded(): Promise<NativeMeta> {
-  if (MEM) return MEM;
+  if (MEM && MEM.channels.length > 0) return MEM;
   const cached = await readChannelCache();
   if (cached) {
+    if (cached.channels.length === 0) {
+      return refreshInternal(true);
+    }
     MEM = cached;
     if (cached.ts <= 0) void refreshInternal(false);
     return cached;
@@ -240,6 +243,9 @@ async function ensureLoaded(): Promise<NativeMeta> {
 
   const legacy = await readMetaFile(LEGACY_CHANNEL_CACHE);
   if (legacy) {
+    if (legacy.channels.length === 0) {
+      return refreshInternal(true);
+    }
     MEM = { ...legacy, ts: 0 };
     await persistMeta(MEM).catch(() => undefined);
     void refreshInternal(false);

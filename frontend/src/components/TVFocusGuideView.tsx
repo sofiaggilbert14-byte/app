@@ -1,5 +1,6 @@
-import React, { useRef, useCallback } from "react";
+import React, { useRef, useCallback, useEffect } from "react";
 import { View, ViewProps } from "react-native";
+import { requestNativeFocusWithRetry } from "@/src/utils/tvFocus";
 
 // react-native-tvos ships a real TVFocusGuideView; react-native-web / plain RN
 // do not. We resolve it at runtime and fall back to a plain View so the same
@@ -9,9 +10,6 @@ const RN = require("react-native");
 const Native = RN.TVFocusGuideView as React.ComponentType<any> | undefined;
 
 export type FocusGuideProps = ViewProps & {
-  // When focus enters this container it is redirected to the last-focused child,
-  // keeping the guide grid a cohesive focus group so the D-pad can't "fall out"
-  // of the virtualized list into the tab bar.
   autoFocus?: boolean;
   trapFocusUp?: boolean;
   trapFocusDown?: boolean;
@@ -31,14 +29,34 @@ export function FocusGuide({
   children,
   ...rest
 }: FocusGuideProps) {
-  const lastFocusedRef = useRef<any>(null);
+  const lastFocusedRef = useRef<unknown>(null);
   const viewRef = useRef<View>(null);
+  const restoreCleanupRef = useRef<(() => void) | null>(null);
+  const restoreTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Guard against focus escaping by detecting and logging focus loss
+  const restoreFocus = useCallback(() => {
+    if (restoreCleanupRef.current) {
+      restoreCleanupRef.current();
+      restoreCleanupRef.current = null;
+    }
+    if (lastFocusedRef.current) {
+      restoreCleanupRef.current = requestNativeFocusWithRetry(lastFocusedRef.current);
+    }
+  }, []);
+
   const handleBlur = useCallback(() => {
-    // If focus left the guide region, try to restore it to the last known child
     onFocusLost?.();
-  }, [onFocusLost]);
+    if (restoreTimerRef.current) clearTimeout(restoreTimerRef.current);
+    restoreTimerRef.current = setTimeout(restoreFocus, 120);
+  }, [onFocusLost, restoreFocus]);
+
+  useEffect(
+    () => () => {
+      if (restoreTimerRef.current) clearTimeout(restoreTimerRef.current);
+      if (restoreCleanupRef.current) restoreCleanupRef.current();
+    },
+    [],
+  );
 
   if (Native) {
     return (
@@ -58,11 +76,19 @@ export function FocusGuide({
     );
   }
 
-  // Non-TV platforms: strip TV-only props (already destructured) and render a View.
-  // Still track focus for consistency across platforms.
   return (
     <View ref={viewRef} onBlur={handleBlur} testID="focus-guide-fallback" {...rest}>
       {children}
     </View>
   );
+}
+
+/** Attach to Pressable onFocus: `onFocus={(e) => trackFocus(focusTracker, e, handler)}` */
+export function trackFocus(
+  tracker: React.MutableRefObject<unknown>,
+  node: unknown,
+  onFocus?: () => void,
+) {
+  if (node) tracker.current = node;
+  onFocus?.();
 }

@@ -67,7 +67,67 @@ type TimelineRowProps = {
   onChannelLongPress?: (channel: Channel) => void;
   onProgramPress: (program: Program, channel: Channel) => void;
   onProgramFocus: (program: PreparedProgram, channel: Channel) => void;
+  preferInitialFocus?: boolean;
 };
+
+type ProgramCellProps = {
+  prepared: PreparedProgram;
+  programIndex: number;
+  channel: Channel;
+  isPreferred: boolean;
+  preferInitialFocus: boolean;
+  capturePreferred: (node: any) => void;
+  onProgramFocus: (program: PreparedProgram, channel: Channel) => void;
+  onProgramPress: (program: Program, channel: Channel) => void;
+  onChannelLongPress?: (channel: Channel) => void;
+};
+
+const ProgramCell = memo(function ProgramCell({
+  prepared,
+  programIndex,
+  channel,
+  isPreferred,
+  preferInitialFocus,
+  capturePreferred,
+  onProgramFocus,
+  onProgramPress,
+  onChannelLongPress,
+}: ProgramCellProps) {
+  const handleProgramFocus = useCallback(
+    () => onProgramFocus(prepared, channel),
+    [onProgramFocus, prepared, channel],
+  );
+  const handleProgramPress = useCallback(
+    () => onProgramPress(prepared.program, channel),
+    [onProgramPress, prepared, channel],
+  );
+  const handleChannelLongPress = useCallback(
+    () => onChannelLongPress?.(channel),
+    [onChannelLongPress, channel],
+  );
+
+  return (
+    <Pressable
+      key={prepared.key}
+      ref={isPreferred ? capturePreferred : undefined}
+      onFocus={handleProgramFocus}
+      onPress={handleProgramPress}
+      onLongPress={handleChannelLongPress}
+      focusable
+      hasTVPreferredFocus={preferInitialFocus && isPreferred}
+      style={({ focused }: any) => [
+        styles.progCell,
+        { left: prepared.left, width: prepared.width },
+        prepared.isLive && styles.progLive,
+        focused && styles.programCellFocused,
+      ]}
+      testID={`epg-prog-${channel.id}-${programIndex}`}
+    >
+      <Text numberOfLines={1} style={styles.progTitle}>{prepared.program.title}</Text>
+      <Text numberOfLines={1} style={styles.progTime}>{prepared.timeLabel}</Text>
+    </Pressable>
+  );
+});
 
 const TimelineRow = memo(function TimelineRow({
   row,
@@ -85,6 +145,7 @@ const TimelineRow = memo(function TimelineRow({
   onChannelLongPress,
   onProgramPress,
   onProgramFocus,
+  preferInitialFocus = false,
 }: TimelineRowProps) {
   const item = row.channel;
   const preferred = row.programs.find((program) => program.isLive) || row.programs[0];
@@ -118,6 +179,7 @@ const TimelineRow = memo(function TimelineRow({
         <Pressable
           style={({ focused }: any) => [styles.logoCell, focused && styles.logoCellFocused]}
           focusable
+          hasTVPreferredFocus={preferInitialFocus && !preferred}
           {...(preferredHandle ? ({ nextFocusRight: preferredHandle } as any) : {})}
           onFocus={handleChannelFocus}
           onPress={handleChannelPress}
@@ -133,38 +195,20 @@ const TimelineRow = memo(function TimelineRow({
       </Animated.View>
 
       <View style={{ width: timelineWidth, height: rowHeight }}>
-        {row.programs.map((prepared, programIndex) => {
-          const isPreferred = prepared.key === preferred?.key;
-          const handleProgramFocus = useCallback(
-            () => onProgramFocus(prepared, item),
-            [onProgramFocus, prepared, item]
-          );
-          const handleProgramPress = useCallback(
-            () => onProgramPress(prepared.program, item),
-            [onProgramPress, prepared, item]
-          );
-
-          return (
-            <Pressable
-              key={prepared.key}
-              ref={isPreferred ? capturePreferred : undefined}
-              onFocus={handleProgramFocus}
-              onPress={handleProgramPress}
-              onLongPress={handleChannelLongPress}
-              focusable
-              style={({ focused }: any) => [
-                styles.progCell,
-                { left: prepared.left, width: prepared.width },
-                prepared.isLive && styles.progLive,
-                focused && styles.programCellFocused,
-              ]}
-              testID={`epg-prog-${item.id}-${programIndex}`}
-            >
-              <Text numberOfLines={1} style={styles.progTitle}>{prepared.program.title}</Text>
-              <Text numberOfLines={1} style={styles.progTime}>{prepared.timeLabel}</Text>
-            </Pressable>
-          );
-        })}
+        {row.programs.map((prepared, programIndex) => (
+          <ProgramCell
+            key={prepared.key}
+            prepared={prepared}
+            programIndex={programIndex}
+            channel={item}
+            isPreferred={prepared.key === preferred?.key}
+            preferInitialFocus={preferInitialFocus}
+            capturePreferred={capturePreferred}
+            onProgramFocus={onProgramFocus}
+            onProgramPress={onProgramPress}
+            onChannelLongPress={onChannelLongPress}
+          />
+        ))}
         {row.programs.length === 0 && (
           <View style={[styles.progCell, { left: 0, width: Math.max(24, timelineWidth - 6) }]}>
             <Text style={styles.noData}>No guide data</Text>
@@ -352,6 +396,7 @@ export function TimelineGrid({
         onChannelLongPress={onChannelLongPress}
         onProgramPress={onProgramPress}
         onProgramFocus={keepProgramVisible}
+        preferInitialFocus={index === 0}
       />
     ),
     [ROW_H, LOGO_W, LOGO_SIZE, timelineWidth, scrollX, showChannelNumbers, channelNumberById, showChannelLogos, onChannelPress, onChannelFocus, onChannelLongPress, onProgramPress, keepProgramVisible]
