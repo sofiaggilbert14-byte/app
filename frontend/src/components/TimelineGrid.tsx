@@ -96,6 +96,11 @@ const TimelineRow = memo(function TimelineRow({
     setPreferredHandle((current) => (current === handle ? current : handle));
   }, []);
 
+  // Memoized channel press callback - stable reference
+  const handleChannelPress = useCallback(() => onChannelPress(item), [onChannelPress, item]);
+  const handleChannelFocus = useCallback(() => onChannelFocus?.(item), [onChannelFocus, item]);
+  const handleChannelLongPress = useCallback(() => onChannelLongPress?.(item), [onChannelLongPress, item]);
+
   return (
     <View style={[styles.row, { height: rowHeight }]}>
       <Animated.View
@@ -114,9 +119,9 @@ const TimelineRow = memo(function TimelineRow({
           style={({ focused }: any) => [styles.logoCell, focused && styles.logoCellFocused]}
           focusable
           {...(preferredHandle ? ({ nextFocusRight: preferredHandle } as any) : {})}
-          onFocus={() => onChannelFocus?.(item)}
-          onPress={() => onChannelPress(item)}
-          onLongPress={() => onChannelLongPress?.(item)}
+          onFocus={handleChannelFocus}
+          onPress={handleChannelPress}
+          onLongPress={handleChannelLongPress}
           testID={`epg-channel-${item.id}`}
         >
           {showChannelNumbers && (
@@ -130,13 +135,22 @@ const TimelineRow = memo(function TimelineRow({
       <View style={{ width: timelineWidth, height: rowHeight }}>
         {row.programs.map((prepared, programIndex) => {
           const isPreferred = prepared.key === preferred?.key;
+          const handleProgramFocus = useCallback(
+            () => onProgramFocus(prepared, item),
+            [onProgramFocus, prepared, item]
+          );
+          const handleProgramPress = useCallback(
+            () => onProgramPress(prepared.program, item),
+            [onProgramPress, prepared, item]
+          );
+
           return (
             <Pressable
               key={prepared.key}
               ref={isPreferred ? capturePreferred : undefined}
-              onFocus={() => onProgramFocus(prepared, item)}
-              onPress={() => onProgramPress(prepared.program, item)}
-              onLongPress={() => onChannelLongPress?.(item)}
+              onFocus={handleProgramFocus}
+              onPress={handleProgramPress}
+              onLongPress={handleChannelLongPress}
               focusable
               style={({ focused }: any) => [
                 styles.progCell,
@@ -316,6 +330,33 @@ export function TimelineGrid({
     }
   }, [onChannelFocus, programViewportW, timelineWidth]);
 
+  // Memoized row render callback
+  const renderRow = useCallback(
+    ({ item: row, index }: { item: PreparedRow; index: number }) => (
+      <TimelineRow
+        row={row}
+        index={index}
+        rowHeight={ROW_H}
+        logoWidth={LOGO_W}
+        logoSize={LOGO_SIZE}
+        timelineWidth={timelineWidth}
+        scrollX={scrollX}
+        showChannelNumbers={showChannelNumbers}
+        channelNumberById={channelNumberById}
+        showChannelLogos={showChannelLogos}
+        onChannelPress={onChannelPress}
+        onChannelFocus={(channel) => {
+          focusRegionRef.current = "channel";
+          onChannelFocus?.(channel);
+        }}
+        onChannelLongPress={onChannelLongPress}
+        onProgramPress={onProgramPress}
+        onProgramFocus={keepProgramVisible}
+      />
+    ),
+    [ROW_H, LOGO_W, LOGO_SIZE, timelineWidth, scrollX, showChannelNumbers, channelNumberById, showChannelLogos, onChannelPress, onChannelFocus, onChannelLongPress, onProgramPress, keepProgramVisible]
+  );
+
   return (
     <View style={styles.wrap} testID="epg-timeline-grid">
       <View style={styles.headerRow}>
@@ -363,28 +404,7 @@ export function TimelineGrid({
                     <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={ACCENT} colors={[ACCENT]} />
                   ) : undefined
                 }
-                renderItem={({ item: row, index }) => (
-                  <TimelineRow
-                    row={row}
-                    index={index}
-                    rowHeight={ROW_H}
-                    logoWidth={LOGO_W}
-                    logoSize={LOGO_SIZE}
-                    timelineWidth={timelineWidth}
-                    scrollX={scrollX}
-                    showChannelNumbers={showChannelNumbers}
-                    channelNumberById={channelNumberById}
-                    showChannelLogos={showChannelLogos}
-                    onChannelPress={onChannelPress}
-                    onChannelFocus={(channel) => {
-                      focusRegionRef.current = "channel";
-                      onChannelFocus?.(channel);
-                    }}
-                    onChannelLongPress={onChannelLongPress}
-                    onProgramPress={onProgramPress}
-                    onProgramFocus={keepProgramVisible}
-                  />
-                )}
+                renderItem={renderRow}
               />
             )}
             {showNow && bodyH > 0 && <View style={[styles.nowLine, { left: LOGO_W + nowOffset }]} />}
