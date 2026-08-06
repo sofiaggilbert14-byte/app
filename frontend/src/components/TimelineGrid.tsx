@@ -66,6 +66,9 @@ type TimelineRowProps = {
   timelineWidth: number;
   /** Negated horizontal pan — applied only to the program track, never logos. */
   negScrollX: Animated.AnimatedMultiplication<number> | Animated.AnimatedInterpolation<number>;
+  /** Current timeline pan (px) — used to limit which program cells are TV-focusable. */
+  panX: number;
+  programViewportW: number;
   showChannelNumbers: boolean;
   channelNumberById?: Record<string, number>;
   showChannelLogos: boolean;
@@ -86,11 +89,21 @@ type ProgramCellProps = {
   isPreferred: boolean;
   preferInitialFocus: boolean;
   hasReminder: boolean;
+  tvFocusable: boolean;
   capturePreferred: (node: any) => void;
   onProgramFocus: (program: PreparedProgram, channel: Channel) => void;
   onProgramPress: (program: Program, channel: Channel) => void;
   onChannelLongPress?: (channel: Channel) => void;
 };
+
+function programNearViewport(prepared: PreparedProgram, panX: number, viewportW: number) {
+  // Keep about one screen of runway on each side so Left/Right still finds neighbors,
+  // without leaving the entire multi-hour timeline focusable (that lags TV focus search).
+  const pad = Math.max(160, viewportW > 0 ? viewportW * 0.55 : 220);
+  const left = panX - pad;
+  const right = panX + Math.max(viewportW, 280) + pad;
+  return prepared.left < right && prepared.left + prepared.width > left;
+}
 
 const ProgramCell = memo(function ProgramCell({
   prepared,
@@ -99,6 +112,7 @@ const ProgramCell = memo(function ProgramCell({
   isPreferred,
   preferInitialFocus,
   hasReminder,
+  tvFocusable,
   capturePreferred,
   onProgramFocus,
   onProgramPress,
@@ -125,8 +139,8 @@ const ProgramCell = memo(function ProgramCell({
       onPress={handleProgramPress}
       onLongPress={handleChannelLongPress}
       delayLongPress={450}
-      focusable
-      hasTVPreferredFocus={preferInitialFocus && isPreferred}
+      focusable={tvFocusable}
+      hasTVPreferredFocus={preferInitialFocus && isPreferred && tvFocusable}
       style={({ focused }: any) => [
         styles.progCell,
         { left: prepared.left, width: prepared.width },
@@ -155,6 +169,8 @@ const TimelineRow = memo(function TimelineRow({
   logoSize,
   timelineWidth,
   negScrollX,
+  panX,
+  programViewportW,
   showChannelNumbers,
   channelNumberById,
   showChannelLogos,
@@ -231,21 +247,26 @@ const TimelineRow = memo(function TimelineRow({
             },
           ]}
         >
-          {row.programs.map((prepared, programIndex) => (
-            <ProgramCell
-              key={prepared.key}
-              prepared={prepared}
-              programIndex={programIndex}
-              channel={item}
-              isPreferred={prepared.key === preferred?.key}
-              preferInitialFocus={preferInitialFocus}
-              hasReminder={!!reminderKeys?.has(reminderKey(item.id, prepared.program.start))}
-              capturePreferred={capturePreferred}
-              onProgramFocus={handleProgramFocus}
-              onProgramPress={onProgramPress}
-              onChannelLongPress={onChannelLongPress}
-            />
-          ))}
+          {row.programs.map((prepared, programIndex) => {
+            const near = programNearViewport(prepared, panX, programViewportW);
+            const isPreferred = prepared.key === preferred?.key;
+            return (
+              <ProgramCell
+                key={prepared.key}
+                prepared={prepared}
+                programIndex={programIndex}
+                channel={item}
+                isPreferred={isPreferred}
+                preferInitialFocus={preferInitialFocus}
+                hasReminder={!!reminderKeys?.has(reminderKey(item.id, prepared.program.start))}
+                tvFocusable={near || (preferInitialFocus && isPreferred)}
+                capturePreferred={capturePreferred}
+                onProgramFocus={handleProgramFocus}
+                onProgramPress={onProgramPress}
+                onChannelLongPress={onChannelLongPress}
+              />
+            );
+          })}
           {row.programs.length === 0 && (
             <View style={[styles.progCell, { left: 0, width: Math.max(24, timelineWidth - 6) }]}>
               <Text style={styles.noData}>No guide data</Text>
@@ -312,6 +333,8 @@ export function TimelineGrid({
   const panAnimRef = useRef<Animated.CompositeAnimation | null>(null);
   const [bodyH, setBodyH] = useState(0);
   const [programViewportW, setProgramViewportW] = useState(0);
+  // Mirror of scroll offset for focus culling (Animated.Value can't drive React props).
+  const [panX, setPanX] = useState(0);
   const [preferFirstRow, setPreferFirstRow] = useState(true);
   const listRef = useRef<any>(null);
   const focusRegionRef = useRef<"channel" | "program">("program");
@@ -396,7 +419,10 @@ export function TimelineGrid({
     (target: number, animated: boolean) => {
       const next = Math.max(0, target);
       scrollXRef.current = next;
+      // Update focus window immediately so neighbor cells are focusable before pan settles.
+      setPanX(next);
       panAnimRef.current?.stop();
+      // JS driver: safer with FlashList recycling than native-driver multiply transforms.
       if (!animated) {
         scrollX.setValue(next);
         return;
@@ -405,7 +431,7 @@ export function TimelineGrid({
         toValue: next,
         duration: HORIZONTAL_PAN_MS,
         easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
+        useNativeDriver: false,
       });
       panAnimRef.current.start(() => {
         panAnimRef.current = null;
@@ -418,7 +444,7 @@ export function TimelineGrid({
     setPreferFirstRow(true);
     lastReportedDeepRef.current = false;
     focusedRowRef.current = 0;
-    const clearPreferred = setTimeout(() => setPreferFirstRow(false), 900);
+    const clearPreferred = setTimeout(() => setPreferFirstRow(false), 420);
     if (!resetToken) return () => clearTimeout(clearPreferred);
     try {
       setHorizontalOffset(0, false);
@@ -526,6 +552,8 @@ export function TimelineGrid({
         logoSize={LOGO_SIZE}
         timelineWidth={timelineWidth}
         negScrollX={negScrollX}
+        panX={panX}
+        programViewportW={programViewportW}
         showChannelNumbers={showChannelNumbers}
         channelNumberById={channelNumberById}
         showChannelLogos={showChannelLogos}
@@ -538,7 +566,7 @@ export function TimelineGrid({
         preferInitialFocus={preferFirstRow && index === 0}
       />
     ),
-    [ROW_H, LOGO_W, LOGO_SIZE, timelineWidth, negScrollX, showChannelNumbers, channelNumberById, showChannelLogos, reminderKeys, onChannelPress, onChannelLongPress, onProgramPress, onRowProgramFocus, onRowChannelFocus, preferFirstRow],
+    [ROW_H, LOGO_W, LOGO_SIZE, timelineWidth, negScrollX, panX, programViewportW, showChannelNumbers, channelNumberById, showChannelLogos, reminderKeys, onChannelPress, onChannelLongPress, onProgramPress, onRowProgramFocus, onRowChannelFocus, preferFirstRow],
   );
 
   return (

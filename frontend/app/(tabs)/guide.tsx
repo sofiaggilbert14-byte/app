@@ -114,6 +114,7 @@ export default function PurpleGuideScreen() {
     hardRefresh,
     addRecent,
     openProgram,
+    activeProgram,
     favorites,
     recent,
     lastChannelId,
@@ -142,6 +143,13 @@ export default function PurpleGuideScreen() {
   const trapGuideUpRef = useRef(false);
   const lastFocusAtRef = useRef(0);
   const reminderKeys = useMemo(() => new Set(reminders.map((item) => item.key)), [reminders]);
+  // Freeze grid reminder badges while the program sheet is open so Cancel/Remind
+  // doesn't rebuild the FlashList under the modal (Fire TV crash / hitch source).
+  const [gridReminderKeys, setGridReminderKeys] = useState(reminderKeys);
+  useEffect(() => {
+    if (activeProgram) return;
+    setGridReminderKeys(reminderKeys);
+  }, [activeProgram, reminderKeys]);
 
   // Aggressive recovery: if the guide is empty after load, retry without requiring Settings.
   useEffect(() => {
@@ -419,7 +427,9 @@ export default function PurpleGuideScreen() {
           </View>
         ) : (
           <View style={styles.body}>
-            <FocusGuide style={styles.gridPanel} autoFocus trapFocusUp={trapGuideUp} trapFocusDown trapFocusRight>
+            {/* No autoFocus here — first program cell uses hasTVPreferredFocus so group chips
+                stay reachable without fighting a second focus owner (startup lag). */}
+            <FocusGuide style={styles.gridPanel} trapFocusUp={trapGuideUp} trapFocusDown trapFocusRight>
               {guideLayout === "compact" ? (
                 <BoxGrid
                   channels={filtered}
@@ -432,9 +442,9 @@ export default function PurpleGuideScreen() {
                   showChannelNumbers={channelNumbers}
                   channelNumberById={channelNumberById}
                   showChannelLogos={channelLogos}
-                  reminderKeys={reminderKeys}
+                  reminderKeys={gridReminderKeys}
                   resetToken={resetToken}
-                  active
+                  active={!activeProgram}
                   onUpBoundary={onGuideUpBoundary}
                   onFocusedRowChange={onFocusedGuideRow}
                 />
@@ -454,9 +464,9 @@ export default function PurpleGuideScreen() {
                   showChannelNumbers={channelNumbers}
                   channelNumberById={channelNumberById}
                   showChannelLogos={channelLogos}
-                  reminderKeys={reminderKeys}
+                  reminderKeys={gridReminderKeys}
                   resetToken={resetToken}
-                  active
+                  active={!activeProgram}
                   onUpBoundary={onGuideUpBoundary}
                   onFocusedRowChange={onFocusedGuideRow}
                 />
