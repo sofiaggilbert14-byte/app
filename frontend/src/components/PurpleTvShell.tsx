@@ -186,12 +186,10 @@ export function PurpleTvShell({
       </View>
 
       <FocusGuide
-        key={`purple-content-${active}`}
         style={[styles.content, contentStyle]}
-        // Guide owns initial focus via hasTVPreferredFocus on the first program cell.
-        // Auto-focusing the whole content region races group chips and feels laggy on TV.
+        // Do not remount on every route (key churn steals focus). Guide owns its own
+        // mount-once preferred focus; other screens can autoFocus the content region.
         autoFocus={!bootSidebarFocus && active !== "/guide"}
-        trapFocusUp={active !== "/guide"}
         trapFocusDown
       >
         {children}

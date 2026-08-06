@@ -21,7 +21,18 @@ const INITIAL_PROGRESS: EpgProgress = { phase: "idle", ratio: 0, etaSeconds: nul
 export function EpgProgressBar() {
   // Keep high-frequency progress updates out of the shared guide context.
   const [epgProgress, setEpgProgress] = useState<EpgProgress>(INITIAL_PROGRESS);
-  useEffect(() => subscribeProgress(setEpgProgress), []);
+  const lastUiAt = useRef(0);
+  useEffect(
+    () =>
+      subscribeProgress((next) => {
+        // Throttle UI to ~4 Hz so guide focus isn't fighting the progress bar on boot.
+        const now = Date.now();
+        if (next.phase !== "error" && now - lastUiAt.current < 250) return;
+        lastUiAt.current = now;
+        setEpgProgress(next);
+      }),
+    [],
+  );
   const { phase, ratio, etaSeconds } = epgProgress;
   const w = useRef(new Animated.Value(0)).current;
 
@@ -35,11 +46,7 @@ export function EpgProgressBar() {
     phase === "error";
 
   useEffect(() => {
-    Animated.timing(w, {
-      toValue: Math.max(0.03, Math.min(1, ratio)),
-      duration: 250,
-      useNativeDriver: false,
-    }).start();
+    w.setValue(Math.max(0.03, Math.min(1, ratio)));
   }, [ratio, w]);
 
   if (!visible) return null;

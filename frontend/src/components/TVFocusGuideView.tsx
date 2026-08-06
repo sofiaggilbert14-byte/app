@@ -1,6 +1,5 @@
-import React, { useRef, useCallback, useEffect } from "react";
+import React from "react";
 import { View, ViewProps } from "react-native";
-import { requestNativeFocusWithRetry } from "@/src/utils/tvFocus";
 
 // react-native-tvos ships a real TVFocusGuideView; react-native-web / plain RN
 // do not. We resolve it at runtime and fall back to a plain View so the same
@@ -19,6 +18,11 @@ export type FocusGuideProps = ViewProps & {
   onFocusLost?: () => void;
 };
 
+/**
+ * Thin TV focus guide wrapper.
+ * Intentionally does NOT restore focus on blur — that race fights chips/modals/grids
+ * on Fire TV and is a major source of focus lag/jumps.
+ */
 export function FocusGuide({
   autoFocus,
   trapFocusUp,
@@ -29,45 +33,15 @@ export function FocusGuide({
   children,
   ...rest
 }: FocusGuideProps) {
-  const lastFocusedRef = useRef<unknown>(null);
-  const viewRef = useRef<View>(null);
-  const restoreCleanupRef = useRef<(() => void) | null>(null);
-  const restoreTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const restoreFocus = useCallback(() => {
-    if (restoreCleanupRef.current) {
-      restoreCleanupRef.current();
-      restoreCleanupRef.current = null;
-    }
-    if (lastFocusedRef.current) {
-      restoreCleanupRef.current = requestNativeFocusWithRetry(lastFocusedRef.current);
-    }
-  }, []);
-
-  const handleBlur = useCallback(() => {
-    onFocusLost?.();
-    if (restoreTimerRef.current) clearTimeout(restoreTimerRef.current);
-    restoreTimerRef.current = setTimeout(restoreFocus, 120);
-  }, [onFocusLost, restoreFocus]);
-
-  useEffect(
-    () => () => {
-      if (restoreTimerRef.current) clearTimeout(restoreTimerRef.current);
-      if (restoreCleanupRef.current) restoreCleanupRef.current();
-    },
-    [],
-  );
-
   if (Native) {
     return (
       <Native
-        ref={viewRef}
         autoFocus={autoFocus}
         trapFocusUp={trapFocusUp}
         trapFocusDown={trapFocusDown}
         trapFocusLeft={trapFocusLeft}
         trapFocusRight={trapFocusRight}
-        onBlur={handleBlur}
+        onBlur={onFocusLost}
         testID="tv-focus-guide"
         {...rest}
       >
@@ -77,7 +51,7 @@ export function FocusGuide({
   }
 
   return (
-    <View ref={viewRef} onBlur={handleBlur} testID="focus-guide-fallback" {...rest}>
+    <View onBlur={onFocusLost} testID="focus-guide-fallback" {...rest}>
       {children}
     </View>
   );
