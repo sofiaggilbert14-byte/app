@@ -26,11 +26,13 @@ function ChannelRow({
   onPress,
   channelNumber,
   showChannelLogos = true,
+  favorite = false,
 }: {
   channel: Channel;
   onPress: () => void;
   channelNumber?: number;
   showChannelLogos?: boolean;
+  favorite?: boolean;
 }) {
   const { current } = nowNext(channel.programs, new Date());
   return (
@@ -40,7 +42,13 @@ function ChannelRow({
       testID={`fav-row-${channel.id}`}
     >
       {channelNumber ? <Text style={styles.channelNumber}>{channelNumber}</Text> : null}
-      <ChannelLogo name={channel.name} logo={channel.logo} disabled={!showChannelLogos} size={44} />
+      <ChannelLogo
+        name={channel.name}
+        logo={channel.logo}
+        disabled={!showChannelLogos}
+        size={44}
+        favorite={favorite}
+      />
       <View style={{ flex: 1 }}>
         <Text numberOfLines={1} style={styles.rowName}>{channel.name}</Text>
         <Text numberOfLines={1} style={styles.rowSub}>
@@ -85,7 +93,13 @@ function FavoriteChannelBlock({
       <View style={styles.favoriteBlockTop}>
         <View style={styles.favoriteLogoRow}>
           {channelNumber ? <Text style={styles.favoriteNumber}>{channelNumber}</Text> : null}
-          <ChannelLogo name={channel.name} logo={channel.logo} disabled={!showChannelLogos} size={38} />
+          <ChannelLogo
+            name={channel.name}
+            logo={channel.logo}
+            disabled={!showChannelLogos}
+            size={38}
+            favorite
+          />
         </View>
         <Ionicons name="star" size={17} color={colors.warning} />
       </View>
@@ -121,7 +135,8 @@ export default function FavoritesScreen() {
   } = useStore();
   useTvBackToGuide();
 
-  const favChannels = channels.filter((c) => favorites.includes(c.id)).sort(byChannelName);
+  const favoriteSet = React.useMemo(() => new Set(favorites), [favorites]);
+  const favChannels = channels.filter((c) => favoriteSet.has(c.id)).sort(byChannelName);
   const channelNumberById: Record<string, number> = {};
   [...channels].sort(byChannelName).forEach((channel, index) => {
     channelNumberById[channel.id] = index + 1;
@@ -171,7 +186,13 @@ export default function FavoritesScreen() {
               onPress={() => play(lastChannel)}
               testID="favorites-continue-watching"
             >
-              <ChannelLogo name={lastChannel.name} logo={lastChannel.logo} disabled={!channelLogos} size={58} />
+              <ChannelLogo
+                name={lastChannel.name}
+                logo={lastChannel.logo}
+                disabled={!channelLogos}
+                size={58}
+                favorite={favoriteSet.has(lastChannel.id)}
+              />
               <View style={{ flex: 1 }}>
                 <Text style={styles.continueLabel}>Last channel</Text>
                 <Text numberOfLines={1} style={styles.continueName}>
@@ -259,6 +280,7 @@ export default function FavoritesScreen() {
                 onPress={() => play(live)}
                 channelNumber={channelNumbers ? channelNumberById[live.id] : undefined}
                 showChannelLogos={channelLogos}
+                favorite={favoriteSet.has(live.id)}
               />
             );
           })
