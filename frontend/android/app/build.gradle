@@ -1,42 +1,156 @@
-diff --git a/frontend/android/app/build.gradle b/frontend/android/app/build.gradle
-index 123..456
---- a/frontend/android/app/build.gradle
-+++ b/frontend/android/app/build.gradle
-@@
-     release {
-@@
--            def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
--            shrinkResources enableShrinkResources.toBoolean()
--            minifyEnabled enableMinifyInReleaseBuilds
--            proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
-+            // Enable resource shrinking and code minification for release builds to reduce APK size and memory usage.
-+            def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'true'
-+            shrinkResources enableShrinkResources.toBoolean()
-+            // Enable R8/ProGuard
-+            minifyEnabled true
-+            // Use the optimized ProGuard rules file for better shrinking.
-+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
-+            // Avoid debuggable in release builds.
-+            debuggable false
-@@
-     packagingOptions {
-         jniLibs {
--            def enableLegacyPackaging = findProperty('expo.useLegacyPackaging') ?: 'false'
--            useLegacyPackaging enableLegacyPackaging.toBoolean()
-+            def enableLegacyPackaging = findProperty('expo.useLegacyPackaging') ?: 'false'
-+            useLegacyPackaging enableLegacyPackaging.toBoolean()
-+            // Strip debug symbols for release to reduce native binary size
-+            doNotStrip "*/libhermes.so"
-         }
-     }
-+
-+    // Configure splits to avoid shipping universal APKs that contain all ABIs
-+    splits {
-+        abi {
-+            enable true
-+            reset()
-+            include "armeabi-v7a", "arm64-v8a"
-+            universalApk false
-+        }
-+    }
- }
+apply plugin: "com.android.application"
+apply plugin: "org.jetbrains.kotlin.android"
+apply plugin: "com.facebook.react"
+
+def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
+
+/**
+ * This is the configuration block to customize your React Native Android app.
+ * By default you don't need to apply any configuration, just uncomment the lines you need.
+ */
+react {
+    entryFile = file(["node", "-e", "require('expo/scripts/resolveAppEntry')", projectRoot, "android", "absolute"].execute(null, rootDir).text.trim())
+    reactNativeDir = new File(["node", "--print", "require.resolve('react-native/package.json')"].execute(null, rootDir).text.trim()).getParentFile().getAbsoluteFile()
+    def reactNativePackageDir = new File(["node", "--print", "require.resolve('react-native/package.json')"].execute(null, rootDir).text.trim()).getParentFile()
+    hermesCommand = new File(reactNativePackageDir, "sdks/hermesc/%OS-BIN%/hermesc").getAbsolutePath()
+    codegenDir = new File(["node", "--print", "require.resolve('@react-native/codegen/package.json', { paths: [require.resolve('react-native/package.json')] })"].execute(null, rootDir).text.trim()).getParentFile().getAbsoluteFile()
+
+    enableBundleCompression = (findProperty('android.enableBundleCompression') ?: false).toBoolean()
+    // Use Expo CLI to bundle the app, this ensures the Metro config
+    // works correctly with Expo projects.
+    cliFile = new File(["node", "--print", "require.resolve('@expo/cli', { paths: [require.resolve('expo/package.json')] })"].execute(null, rootDir).text.trim())
+    bundleCommand = "export:embed"
+
+    /* Folders */
+     //   The root of your project, i.e. where "package.json" lives. Default is '../..'
+    // root = file("../../")
+    //   The folder where the React Native package lives.
+    // reactNativeDir = file("../../node_modules/react-native")
+    //   The folder where React Native Codegen lives.
+    // codegenDir = file("../../node_modules/@react-native/codegen")
+
+    /* Variants */
+    // debuggableVariants = ["liteDebug", "prodDebug"]
+
+    /* Bundling */
+    // nodeExecutableAndArgs = ["node"]
+    // bundleConfig = file(../rn-cli.config.js)
+    // bundleAssetName = "MyApplication.android.bundle"
+    // entryFile = file("../rn-cli.config.js")
+    // extraPackagerArgs = []
+
+    /* Hermes Commands */
+    // hermesCommand = "$rootDir/my-custom-hermesc/bin/hermesc"
+    // hermesFlags = ["-O", "-output-source-map"]
+
+    /* Autolinking */
+    autolinkLibrariesWithApp()
+}
+
+/**
+ * Set this to true in release builds to optimize the app using R8.
+ */
+def enableMinifyInReleaseBuilds = (findProperty('android.enableMinifyInReleaseBuilds') ?: false).toBoolean()
+
+/**
+ * Preferred JavaScriptCore flavor when Hermes is disabled.
+ */
+def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
+
+android {
+    ndkVersion rootProject.ext.ndkVersion
+
+    buildToolsVersion rootProject.ext.buildToolsVersion
+    compileSdk rootProject.ext.compileSdkVersion
+
+    // Keep the Java/Kotlin namespace aligned with the existing native source
+    // package, but give Purple TV a distinct application ID so it can be
+    // installed beside stable/perf builds without replacing their app data.
+    namespace 'com.charmiptv.app'
+    defaultConfig {
+        applicationId 'com.charmiptv.app.purple'
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 4
+        versionName "2.0.0-purple.1"
+
+        buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
+    }
+    signingConfigs {
+        debug {
+            storeFile file('debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+    }
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
+        release {
+            // Test builds use the Android debug keystore so the universal APK
+            // is immediately sideloadable. Production signing can replace this
+            // without changing the package/ABI build path.
+            signingConfig signingConfigs.debug
+            def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
+            shrinkResources enableShrinkResources.toBoolean()
+            minifyEnabled enableMinifyInReleaseBuilds
+            proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+            def enablePngCrunch = findProperty('android.enablePngCrunchInReleaseBuilds') ?: 'true'
+            crunchPngs enablePngCrunch.toBoolean()
+        }
+    }
+    packagingOptions {
+        jniLibs {
+            // Do not name this local variable `useLegacyPackaging`: that shadows
+            // the AGP DSL setter and causes Groovy to try calling a String.
+            def legacyPackagingEnabled = (findProperty('expo.useLegacyPackaging') ?: 'false').toBoolean()
+            useLegacyPackaging legacyPackagingEnabled
+        }
+    }
+    androidResources {
+        ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~'
+    }
+}
+
+// Apply static values from `gradle.properties` to the `android.packagingOptions`
+// Accepts values in comma delimited lists, example:
+// android.packagingOptions.pickFirsts=/LICENSE,**/picasa.ini
+["pickFirsts", "excludes", "merges", "doNotStrip"].each { prop ->
+    def options = (findProperty("android.packagingOptions.$prop") ?: "").split(",");
+    for (i in 0..<options.size()) options[i] = options[i].trim();
+    options -= ""
+
+    if (options.length > 0) {
+        println "android.packagingOptions.$prop += $options ($options.length)"
+        options.each {
+            android.packagingOptions[prop] += it
+        }
+    }
+}
+
+dependencies {
+    implementation("com.facebook.react:react-android")
+
+    def isGifEnabled = (findProperty('expo.gif.enabled') ?: "") == "true";
+    def isWebpEnabled = (findProperty('expo.webp.enabled') ?: "") == "true";
+    def isWebpAnimatedEnabled = (findProperty('expo.webp.animated') ?: "") == "true";
+
+    if (isGifEnabled) {
+        implementation("com.facebook.fresco:animated-gif:${expoLibs.versions.fresco.get()}")
+    }
+
+    if (isWebpEnabled) {
+        implementation("com.facebook.fresco:webpsupport:${expoLibs.versions.fresco.get()}")
+        if (isWebpAnimatedEnabled) {
+            implementation("com.facebook.fresco:animated-webp:${expoLibs.versions.fresco.get()}")
+        }
+    }
+
+    if (hermesEnabled.toBoolean()) {
+        implementation("com.facebook.react:hermes-android")
+    } else {
+        implementation jscFlavor
+    }
+}

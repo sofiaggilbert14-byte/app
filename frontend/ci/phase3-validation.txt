@@ -1,0 +1,1 @@
+Validate guide preview initialization, held-D-pad rendering pressure, compact player details, auto-scrolling descriptions, and tune generation safety.

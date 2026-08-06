@@ -1,0 +1,81 @@
+name: Build CharmIPTV Purple TV APK
+
+on:
+  push:
+    branches:
+      - experimental/purple-tv-ui
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/purple-tv-ui.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: purple-tv-ui-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-release-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout purple TV UI
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install Android native toolchain
+        uses: android-actions/setup-android@v3
+
+      - name: Install JavaScript dependencies
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x android/gradlew
+
+      - name: Build universal release APK
+        run: ./android/gradlew -p android assembleRelease --no-daemon --stacktrace
+        env:
+          CI: '1'
+          GRADLE_OPTS: '-Dorg.gradle.jvmargs=-Xmx3g -Dorg.gradle.workers.max=2'
+
+      - name: Verify universal APK contents
+        run: |
+          APK="android/app/build/outputs/apk/release/app-release.apk"
+          test -f "$APK"
+          unzip -l "$APK" | grep -E "(index\.android\.bundle|assets/.*\.bundle|resources\.arsc)" >/dev/null
+          cp "$APK" "android/app/build/outputs/apk/release/CharmIPTV-Purple-TV-Universal.apk"
+
+      - name: Upload purple TV APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: CharmIPTV-Purple-TV-Universal
+          path: frontend/android/app/build/outputs/apk/release/CharmIPTV-Purple-TV-Universal.apk
+          if-no-files-found: error
+          retention-days: 14

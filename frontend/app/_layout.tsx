@@ -82,7 +82,7 @@ export default function RootLayout() {
               <NotificationRouter />
               <ReminderAutoSwitcher />
               <ErrorBoundary>
-                <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#0F0F13" } }}>
+                <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#070711" } }}>
                   <Stack.Screen name="(tabs)" />
                   <Stack.Screen name="player" options={{ animation: "fade" }} />
                 </Stack>

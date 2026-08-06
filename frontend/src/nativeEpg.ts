@@ -16,6 +16,9 @@ type NativeRefreshResult = {
   count: number;
   windowStartMs: number;
   windowEndMs: number;
+  channelLogos?: Record<string, string>;
+  channelNames?: Record<string, string>;
+  channelIdsWithPrograms?: string[];
 };
 
 type CharmEpgModule = {
@@ -50,11 +53,13 @@ export async function loadNativeEpgWindow(
   endMs: number,
 ): Promise<Record<string, Program[]>> {
   if (!nativeModule) return {};
-  const wanted = new Set(channelIds.filter(Boolean));
   const window = await nativeModule.getWindow(startMs, endMs);
   const result: Record<string, Program[]> = {};
-  for (const [channelId, programmes] of Object.entries(window)) {
-    if (!wanted.has(channelId)) continue;
+
+  for (const channelId of channelIds) {
+    if (!channelId || result[channelId]) continue;
+    const programmes = window[channelId];
+    if (!programmes?.length) continue;
     result[channelId] = programmes.map(toProgram);
   }
   return result;

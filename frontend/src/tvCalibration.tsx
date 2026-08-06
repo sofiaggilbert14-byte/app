@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, StyleProp, View, ViewStyle } from "react-native";
 import { storage } from "@/src/utils/storage";
 
@@ -11,58 +11,94 @@ export type TvCalibration = {
 
 type TvCalibrationContextValue = {
   calibration: TvCalibration;
+  draftCalibration: TvCalibration;
   setSide: (side: keyof TvCalibration, value: number) => void;
+  save: () => Promise<void>;
   reset: () => void;
+  discard: () => void;
+  hasChanges: boolean;
 };
 
 const DEFAULT_CALIBRATION: TvCalibration = { left: 0, right: 0, top: 0, bottom: 0 };
-const STORAGE_KEY = "charm_tv_calibration_v1";
-const MAX_INSET = 96;
+// New generation intentionally starts at zero so the larger automatic-safe-area
+// calibration from the previous test build cannot keep the app shrunken after update.
+const STORAGE_KEY = "charm_tv_calibration_v3";
+export const TV_CALIBRATION_MIN_OFFSET = -96;
+export const TV_CALIBRATION_MAX_OFFSET = 96;
 const Ctx = createContext<TvCalibrationContextValue | null>(null);
 
 function clamp(value: number): number {
   if (!Number.isFinite(value)) return 0;
-  return Math.max(0, Math.min(MAX_INSET, Math.round(value)));
+  return Math.max(TV_CALIBRATION_MIN_OFFSET, Math.min(TV_CALIBRATION_MAX_OFFSET, Math.round(value)));
+}
+
+function normalize(value: TvCalibration): TvCalibration {
+  return {
+    left: clamp(value.left),
+    right: clamp(value.right),
+    top: clamp(value.top),
+    bottom: clamp(value.bottom),
+  };
+}
+
+function sameCalibration(a: TvCalibration, b: TvCalibration): boolean {
+  return a.left === b.left && a.right === b.right && a.top === b.top && a.bottom === b.bottom;
 }
 
 export function TvCalibrationProvider({ children }: { children: React.ReactNode }) {
   const [calibration, setCalibration] = useState<TvCalibration>(DEFAULT_CALIBRATION);
+  const [draftCalibration, setDraftCalibration] = useState<TvCalibration>(DEFAULT_CALIBRATION);
+  const saveInFlightRef = useRef(false);
 
   useEffect(() => {
     let active = true;
     storage.getItem<TvCalibration>(STORAGE_KEY, DEFAULT_CALIBRATION).then((saved) => {
       if (!active || !saved) return;
-      setCalibration({
-        left: clamp(saved.left),
-        right: clamp(saved.right),
-        top: clamp(saved.top),
-        bottom: clamp(saved.bottom),
-      });
+      const next = normalize(saved);
+      setCalibration(next);
+      setDraftCalibration(next);
     });
     return () => {
       active = false;
     };
   }, []);
 
-  const persist = useCallback((next: TvCalibration) => {
-    setCalibration(next);
-    void storage.setItem(STORAGE_KEY, next);
+  const setSide = useCallback((side: keyof TvCalibration, value: number) => {
+    setDraftCalibration((current) => ({ ...current, [side]: clamp(value) }));
   }, []);
 
-  const setSide = useCallback(
-    (side: keyof TvCalibration, value: number) => {
-      setCalibration((current) => {
-        const next = { ...current, [side]: clamp(value) };
-        void storage.setItem(STORAGE_KEY, next);
-        return next;
-      });
-    },
-    [],
+  const save = useCallback(async () => {
+    // Guard held/repeated OK events so screen-fit changes cannot be committed
+    // concurrently and destabilize the root layout.
+    if (saveInFlightRef.current) return;
+    saveInFlightRef.current = true;
+    try {
+      const next = normalize(draftCalibration);
+      setCalibration(next);
+      setDraftCalibration(next);
+      await storage.setItem(STORAGE_KEY, next);
+    } finally {
+      saveInFlightRef.current = false;
+    }
+  }, [draftCalibration]);
+
+  const reset = useCallback(() => {
+    setDraftCalibration(DEFAULT_CALIBRATION);
+  }, []);
+
+  const discard = useCallback(() => {
+    setDraftCalibration(calibration);
+  }, [calibration]);
+
+  const hasChanges = useMemo(
+    () => !sameCalibration(calibration, draftCalibration),
+    [calibration, draftCalibration],
   );
 
-  const reset = useCallback(() => persist(DEFAULT_CALIBRATION), [persist]);
-
-  const value = useMemo(() => ({ calibration, setSide, reset }), [calibration, reset, setSide]);
+  const value = useMemo(
+    () => ({ calibration, draftCalibration, setSide, save, reset, discard, hasChanges }),
+    [calibration, discard, draftCalibration, hasChanges, reset, save, setSide],
+  );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
@@ -75,18 +111,23 @@ export function useTvCalibration(): TvCalibrationContextValue {
 export function TvCalibrationFrame({ children, style }: { children: React.ReactNode; style?: StyleProp<ViewStyle> }) {
   const { calibration } = useTvCalibration();
 
-  // Overscan is primarily a TV problem. Phones/tablets keep their normal safe-area behavior.
+  // Zero fills the normal reported Android window. Positive values move an edge
+  // inward; negative values use negative margins to stretch that edge outward.
+  // This restores the old full-screen behavior while still letting users correct
+  // TVs that crop too much or expose unwanted borders.
   const calibratedStyle: StyleProp<ViewStyle> = Platform.isTV
     ? {
         flex: 1,
-        paddingLeft: calibration.left,
-        paddingRight: calibration.right,
-        paddingTop: calibration.top,
-        paddingBottom: calibration.bottom,
+        marginLeft: Math.min(0, calibration.left),
+        marginRight: Math.min(0, calibration.right),
+        marginTop: Math.min(0, calibration.top),
+        marginBottom: Math.min(0, calibration.bottom),
+        paddingLeft: Math.max(0, calibration.left),
+        paddingRight: Math.max(0, calibration.right),
+        paddingTop: Math.max(0, calibration.top),
+        paddingBottom: Math.max(0, calibration.bottom),
       }
     : { flex: 1 };
 
   return <View style={[calibratedStyle, style]}>{children}</View>;
 }
-
-export const TV_CALIBRATION_MAX_INSET = MAX_INSET;

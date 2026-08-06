@@ -13,8 +13,6 @@ import java.io.FilterInputStream
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
-import java.util.Calendar
-import java.util.TimeZone
 import java.util.concurrent.Executors
 import java.util.zip.GZIPInputStream
 
@@ -22,7 +20,14 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   ReactContextBaseJavaModule(reactContext) {
 
   private val database = EpgDatabase(reactContext)
-  private val executor = Executors.newSingleThreadExecutor()
+
+  // Refresh/network/XML work is intentionally isolated from guide reads. A slow
+  // EPG download must never queue getWindow/getCurrent behind it; WAL lets the
+  // query executor keep serving the last-good live table until the final swap.
+  private val refreshExecutor = Executors.newSingleThreadExecutor()
+  private val queryExecutor = Executors.newFixedThreadPool(2)
+
+  private val currentCacheLock = Any()
   private val currentCache = HashMap<String, NativeEpgProgram>()
   @Volatile private var currentCacheValidUntilMs = 0L
 
@@ -30,18 +35,45 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
 
   @ReactMethod
   fun refresh(url: String, promise: Promise) {
-    executor.execute {
+    refreshExecutor.execute {
       try {
         val now = System.currentTimeMillis()
-        val minStop = now - 6L * 60L * 60L * 1000L
+        val minStop = now - GUIDE_HISTORY_MS
         val maxStart = now + GUIDE_WINDOW_MS
-        val batches = streamProgramBatches(url, minStop, maxStart)
+        val channelLogos = LinkedHashMap<String, String>()
+        val channelNames = LinkedHashMap<String, String>()
+        val channelIdsWithPrograms = LinkedHashSet<String>()
+        val batches = streamProgramBatches(
+          url,
+          minStop,
+          maxStart,
+          channelLogos,
+          channelNames,
+          channelIdsWithPrograms,
+        )
         database.replaceBatches(batches)
         rebuildCurrentCache(now)
+
+        val logos = Arguments.createMap()
+        for ((channelId, logoUrl) in channelLogos) {
+          logos.putString(channelId, logoUrl)
+        }
+        val names = Arguments.createMap()
+        for ((channelId, channelName) in channelNames) {
+          names.putString(channelId, channelName)
+        }
+        val programIds = Arguments.createArray()
+        for (channelId in channelIdsWithPrograms) {
+          programIds.pushString(channelId)
+        }
+
         val result = Arguments.createMap().apply {
           putDouble("count", database.count().toDouble())
-          putDouble("windowStartMs", now.toDouble())
+          putDouble("windowStartMs", (now - GUIDE_HISTORY_MS).toDouble())
           putDouble("windowEndMs", maxStart.toDouble())
+          putMap("channelLogos", logos)
+          putMap("channelNames", names)
+          putArray("channelIdsWithPrograms", programIds)
         }
         promise.resolve(result)
       } catch (t: Throwable) {
@@ -52,9 +84,14 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
 
   @ReactMethod
   fun getWindow(startMs: Double, endMs: Double, promise: Promise) {
-    executor.execute {
+    queryExecutor.execute {
       try {
-        val programmes = database.queryWindow(startMs.toLong(), endMs.toLong())
+        val start = startMs.toLong()
+        val end = endMs.toLong()
+        if (end <= start || end - start > MAX_QUERY_WINDOW_MS) {
+          throw IllegalArgumentException("Invalid EPG query window")
+        }
+        val programmes = database.queryWindow(start, end)
         val grouped = Arguments.createMap()
         val channelArrays = HashMap<String, WritableArray>()
         for (program in programmes) {
@@ -73,12 +110,13 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
 
   @ReactMethod
   fun getCurrent(promise: Promise) {
-    executor.execute {
+    queryExecutor.execute {
       try {
         val now = System.currentTimeMillis()
         if (now >= currentCacheValidUntilMs) rebuildCurrentCache(now)
+        val snapshot = synchronized(currentCacheLock) { HashMap(currentCache) }
         val result = Arguments.createMap()
-        for ((channelId, program) in currentCache) {
+        for ((channelId, program) in snapshot) {
           result.putMap(channelId, programToMap(program))
         }
         promise.resolve(result)
@@ -90,11 +128,13 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
 
   @ReactMethod
   fun clear(promise: Promise) {
-    executor.execute {
+    refreshExecutor.execute {
       try {
         database.clear()
-        currentCache.clear()
-        currentCacheValidUntilMs = 0L
+        synchronized(currentCacheLock) {
+          currentCache.clear()
+          currentCacheValidUntilMs = 0L
+        }
         promise.resolve(true)
       } catch (t: Throwable) {
         promise.reject("EPG_CLEAR_FAILED", t.message ?: "Could not clear native EPG cache", t)
@@ -104,15 +144,23 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
 
   private fun rebuildCurrentCache(nowMs: Long) {
     val programmes = database.queryCurrent(nowMs)
-    currentCache.clear()
     var earliestEnd = Long.MAX_VALUE
+    val replacement = HashMap<String, NativeEpgProgram>(programmes.size)
     for (program in programmes) {
-      currentCache[program.channelId] = program
+      replacement[program.channelId] = program
       if (program.endMs < earliestEnd) earliestEnd = program.endMs
     }
     val normalRefresh = nowMs + CURRENT_CACHE_REFRESH_MS
-    currentCacheValidUntilMs = if (earliestEnd == Long.MAX_VALUE) normalRefresh
-    else minOf(normalRefresh, maxOf(nowMs + 1_000L, earliestEnd))
+    val validUntil = if (earliestEnd == Long.MAX_VALUE) {
+      normalRefresh
+    } else {
+      minOf(normalRefresh, maxOf(nowMs + 1_000L, earliestEnd))
+    }
+    synchronized(currentCacheLock) {
+      currentCache.clear()
+      currentCache.putAll(replacement)
+      currentCacheValidUntilMs = validUntil
+    }
   }
 
   private fun programToMap(program: NativeEpgProgram) = Arguments.createMap().apply {
@@ -128,6 +176,9 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     url: String,
     minStop: Long,
     maxStart: Long,
+    channelLogos: MutableMap<String, String>,
+    channelNames: MutableMap<String, String>,
+    channelIdsWithPrograms: MutableSet<String>,
   ): Sequence<List<NativeEpgProgram>> = sequence {
     openPossiblyGzipped(url).use { input ->
       val parser = Xml.newPullParser()
@@ -135,49 +186,73 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
 
       val batch = ArrayList<NativeEpgProgram>(BATCH_SIZE)
       var event = parser.eventType
+      var metadataChannelId: String? = null
       var channelId: String? = null
       var startMs = 0L
       var endMs = 0L
+      var keepProgram = false
       var title = ""
       var description: String? = null
 
       while (event != XmlPullParser.END_DOCUMENT) {
         when (event) {
           XmlPullParser.START_TAG -> when (parser.name) {
+            "channel" -> {
+              metadataChannelId = parser.getAttributeValue(null, "id")?.trim()?.takeIf { it.isNotEmpty() }
+            }
+            "display-name" -> {
+              val id = metadataChannelId
+              if (!id.isNullOrBlank() && !channelNames.containsKey(id)) {
+                val displayName = parser.nextText().trim()
+                if (displayName.isNotEmpty()) channelNames[id] = displayName
+              }
+            }
+            "icon" -> {
+              val id = metadataChannelId
+              val src = parser.getAttributeValue(null, "src")?.trim()
+              if (!id.isNullOrBlank() && !src.isNullOrBlank() && !channelLogos.containsKey(id)) {
+                channelLogos[id] = src
+              }
+            }
             "programme" -> {
-              channelId = parser.getAttributeValue(null, "channel")
+              channelId = parser.getAttributeValue(null, "channel")?.trim()
               startMs = parseXmltvTime(parser.getAttributeValue(null, "start"))
               endMs = parseXmltvTime(parser.getAttributeValue(null, "stop"))
+              keepProgram =
+                !channelId.isNullOrBlank() &&
+                  startMs > 0L &&
+                  endMs > startMs &&
+                  endMs >= minStop &&
+                  startMs <= maxStart
               title = ""
               description = null
             }
-            "title" -> if (channelId != null) title = parser.nextText().trim()
-            "desc" -> if (channelId != null) description = parser.nextText().trim().ifEmpty { null }
+            "title" -> if (keepProgram) title = parser.nextText().trim()
+            "desc" -> if (keepProgram) description = parser.nextText().trim().ifEmpty { null }
           }
-          XmlPullParser.END_TAG -> if (parser.name == "programme") {
-            val id = channelId
-            if (
-              !id.isNullOrBlank() &&
-              startMs > 0L &&
-              endMs > startMs &&
-              endMs >= minStop &&
-              startMs <= maxStart
-            ) {
-              batch.add(
-                NativeEpgProgram(
-                  channelId = id,
-                  title = title.ifBlank { "No Information" },
-                  description = description,
-                  startMs = startMs,
-                  endMs = endMs,
+          XmlPullParser.END_TAG -> when (parser.name) {
+            "channel" -> metadataChannelId = null
+            "programme" -> {
+              val id = channelId
+              if (keepProgram && !id.isNullOrBlank()) {
+                channelIdsWithPrograms.add(id)
+                batch.add(
+                  NativeEpgProgram(
+                    channelId = id,
+                    title = title.ifBlank { "No Information" },
+                    description = description,
+                    startMs = startMs,
+                    endMs = endMs,
+                  )
                 )
-              )
-              if (batch.size >= BATCH_SIZE) {
-                yield(ArrayList(batch))
-                batch.clear()
+                if (batch.size >= BATCH_SIZE) {
+                  yield(ArrayList(batch))
+                  batch.clear()
+                }
               }
+              channelId = null
+              keepProgram = false
             }
-            channelId = null
           }
         }
         event = parser.next()
@@ -192,10 +267,12 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     connection.readTimeout = 45_000
     connection.instanceFollowRedirects = true
     connection.setRequestProperty("User-Agent", "CharmIPTV/Experimental-v3")
+    connection.setRequestProperty("Accept-Encoding", "gzip")
     connection.connect()
     if (connection.responseCode !in 200..299) {
+      val status = connection.responseCode
       connection.disconnect()
-      throw IllegalStateException("EPG HTTP ${connection.responseCode}")
+      throw IllegalStateException("EPG HTTP $status")
     }
 
     try {
@@ -208,14 +285,14 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
           }
         }
       }
-      val buffered = BufferedInputStream(networkStream, 64 * 1024)
+      val buffered = BufferedInputStream(networkStream, NETWORK_BUFFER_SIZE)
       buffered.mark(2)
       val b1 = buffered.read()
       val b2 = buffered.read()
       buffered.reset()
 
       return if (b1 == 0x1f && b2 == 0x8b) {
-        GZIPInputStream(buffered, 64 * 1024)
+        GZIPInputStream(buffered, NETWORK_BUFFER_SIZE)
       } else {
         buffered
       }
@@ -230,23 +307,51 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     val value = raw.trim()
     if (value.length < 14) return 0L
     return try {
-      val year = value.substring(0, 4).toInt()
-      val month = value.substring(4, 6).toInt()
-      val day = value.substring(6, 8).toInt()
-      val hour = value.substring(8, 10).toInt()
-      val minute = value.substring(10, 12).toInt()
-      val second = value.substring(12, 14).toInt()
-      val calendar = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
-        clear()
-        set(year, month - 1, day, hour, minute, second)
+      fun digits(offset: Int, count: Int): Int {
+        var result = 0
+        for (i in offset until offset + count) {
+          val digit = value[i].code - '0'.code
+          if (digit !in 0..9) throw NumberFormatException("Invalid XMLTV time")
+          result = result * 10 + digit
+        }
+        return result
       }
-      var millis = calendar.timeInMillis
-      val rest = value.substring(14).trim()
-      if (rest.length >= 5 && (rest[0] == '+' || rest[0] == '-')) {
-        val sign = if (rest[0] == '-') -1 else 1
-        val offsetHours = rest.substring(1, 3).toInt()
-        val offsetMinutes = rest.substring(3, 5).toInt()
-        millis -= sign * (offsetHours * 60L + offsetMinutes) * 60_000L
+
+      val year = digits(0, 4)
+      val month = digits(4, 2)
+      val day = digits(6, 2)
+      val hour = digits(8, 2)
+      val minute = digits(10, 2)
+      val second = digits(12, 2)
+      if (month !in 1..12 || day !in 1..31 || hour !in 0..23 || minute !in 0..59 || second !in 0..59) {
+        return 0L
+      }
+
+      var y = year.toLong()
+      val m = month.toLong()
+      val d = day.toLong()
+      y -= if (m <= 2L) 1L else 0L
+      val era = Math.floorDiv(y, 400L)
+      val yoe = y - era * 400L
+      val mp = m + if (m > 2L) -3L else 9L
+      val doy = (153L * mp + 2L) / 5L + d - 1L
+      val doe = yoe * 365L + yoe / 4L - yoe / 100L + doy
+      val epochDay = era * 146097L + doe - 719468L
+      var millis =
+        epochDay * 86_400_000L +
+          hour * 3_600_000L +
+          minute * 60_000L +
+          second * 1_000L
+
+      var i = 14
+      while (i < value.length && value[i].isWhitespace()) i++
+      if (i + 4 < value.length && (value[i] == '+' || value[i] == '-')) {
+        val sign = if (value[i] == '-') -1 else 1
+        val offsetHours = digits(i + 1, 2)
+        val offsetMinutes = digits(i + 3, 2)
+        if (offsetHours <= 23 && offsetMinutes <= 59) {
+          millis -= sign * (offsetHours * 60L + offsetMinutes) * 60_000L
+        }
       }
       millis
     } catch (_: Throwable) {
@@ -255,16 +360,22 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   }
 
   override fun invalidate() {
-    currentCache.clear()
-    currentCacheValidUntilMs = 0L
-    executor.shutdownNow()
+    synchronized(currentCacheLock) {
+      currentCache.clear()
+      currentCacheValidUntilMs = 0L
+    }
+    refreshExecutor.shutdownNow()
+    queryExecutor.shutdownNow()
     database.close()
     super.invalidate()
   }
 
   companion object {
     private const val BATCH_SIZE = 1000
+    private const val NETWORK_BUFFER_SIZE = 64 * 1024
+    private const val GUIDE_HISTORY_MS = 6L * 60L * 60L * 1000L
     private const val GUIDE_WINDOW_MS = 24L * 60L * 60L * 1000L
+    private const val MAX_QUERY_WINDOW_MS = 24L * 60L * 60L * 1000L
     private const val CURRENT_CACHE_REFRESH_MS = 30_000L
   }
 }
