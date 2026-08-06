@@ -24,7 +24,8 @@ concurrency:
 
 jobs:
   build-release-apk:
-    runs-on: ubuntu-24.04
+    # Prefer the largest hosted pool; pin only if a package needs 24.04 specifically.
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     defaults:
       run:

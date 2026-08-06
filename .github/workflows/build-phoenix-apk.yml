@@ -1,13 +1,9 @@
 name: Build CharmIPTV perf universal APK
 
+# Manual + dedicated branch only. Running this on every PR to main doubled hosted-runner
+# demand alongside Purple TV APK and made capacity incidents cancel all checks.
 on:
   workflow_dispatch:
-  pull_request:
-    branches:
-      - main
-    paths:
-      - "frontend/**"
-      - ".github/workflows/build-phoenix-apk.yml"
   push:
     branches:
       - perf/opt-fix
@@ -27,7 +23,7 @@ concurrency:
 jobs:
   validate-and-build:
     name: Validate and build universal Android TV APK
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 90
     defaults:
       run:
