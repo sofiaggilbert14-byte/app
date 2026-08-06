@@ -4,11 +4,10 @@ import { Ionicons } from "@expo/vector-icons";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Haptics from "expo-haptics";
 import type { Channel } from "@/src/api";
+import { useStore } from "@/src/store";
 import { colors, fonts, radius, spacing } from "@/src/theme";
-import { storage } from "@/src/utils/storage";
 
 const RED = "#E3262E";
-const FAVORITES_STORAGE_KEY = "gs_favorites";
 const BACKUP_FORMAT = "charmiptv-favorites";
 const BACKUP_VERSION = 1;
 
@@ -68,7 +67,8 @@ function parseBackup(raw: string): FavoritesBackup | null {
   }
 }
 
-export function FavoritesBackupControls({ channels, favorites, appVersion, toggleFavorite }: Props) {
+export function FavoritesBackupControls({ channels, favorites, appVersion }: Props) {
+  const { mergeFavorites } = useStore();
   const [busy, setBusy] = useState<"backup" | "restore" | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState(false);
@@ -191,9 +191,7 @@ export function FavoritesBackupControls({ channels, favorites, appVersion, toggl
 
       const existing = new Set(favorites);
       const toAdd = [...matched].filter((id) => !existing.has(id));
-      const merged = [...new Set([...favorites, ...matched])];
-      for (const id of toAdd) toggleFavorite(id);
-      await storage.setItem(FAVORITES_STORAGE_KEY, merged);
+      mergeFavorites(toAdd);
 
       const missing = Math.max(0, selected.favorites.length - matched.size);
       const already = matched.size - toAdd.length;
@@ -207,7 +205,7 @@ export function FavoritesBackupControls({ channels, favorites, appVersion, toggl
     } finally {
       setBusy(null);
     }
-  }, [busy, channels, favorites, setResult, toggleFavorite]);
+  }, [busy, channels, favorites, mergeFavorites, setResult]);
 
   return (
     <View style={styles.wrap}>
