@@ -1,5 +1,8 @@
 import { findNodeHandle, Platform, UIManager } from "react-native";
 
+// react-native-tvos exposes UIManager.focus at runtime; stock RN typings omit it.
+type TvUIManager = typeof UIManager & { focus?: (tag: number) => void };
+
 /** Request native TV focus on a React node (Pressable ref, View ref, etc.). */
 export function requestNativeFocus(node: unknown): boolean {
   if (!node) return false;
@@ -7,7 +10,7 @@ export function requestNativeFocus(node: unknown): boolean {
   if (!handle) return false;
   if (Platform.isTV) {
     try {
-      UIManager.focus?.(handle);
+      (UIManager as TvUIManager).focus?.(handle);
       return true;
     } catch {
       return false;

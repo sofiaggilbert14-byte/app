@@ -26,6 +26,7 @@ import { Channel } from "@/src/api";
 import { useStore } from "@/src/store";
 import { fonts, radius, spacing, tvColors } from "@/src/theme";
 import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
+import { requestNativeFocus } from "@/src/utils/tvFocus";
 
 const BASE_GROUPS = ["All", "Favorites", "Recently Watched", "Sports", "News", "Movies", "Kids", "Music"];
 
@@ -130,10 +131,13 @@ export default function PurpleGuideScreen() {
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewStatus, setPreviewStatus] = useState<StreamStatus>("loading");
   const [resetToken, setResetToken] = useState(0);
+  // First guide row starts focused; allow Up to reach group chips until focus moves deeper.
+  const [trapGuideUp, setTrapGuideUp] = useState(false);
   const metadataTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const groupChangedAt = useRef(0);
   const bootRetryRef = useRef(0);
+  const groupChipRefs = useRef(new Map<string, any>());
 
   // Aggressive recovery: if the guide is empty after load, retry without requiring Settings.
   useEffect(() => {
@@ -264,8 +268,19 @@ export default function PurpleGuideScreen() {
     setFocusedId(null);
     setPreviewId(null);
     setPreviewStatus("loading");
+    setTrapGuideUp(false);
     setResetToken((value) => value + 1);
   }, []);
+
+  const onFocusedGuideRow = useCallback((index: number) => {
+    setTrapGuideUp(index > 0);
+  }, []);
+
+  const onGuideUpBoundary = useCallback(() => {
+    setTrapGuideUp(false);
+    const chip = groupChipRefs.current.get(group);
+    if (chip) requestNativeFocus(chip);
+  }, [group]);
 
   const resetGuide = useCallback(() => {
     void Haptics.selectionAsync().catch(() => undefined);
@@ -276,6 +291,7 @@ export default function PurpleGuideScreen() {
     setFocusedId(null);
     setPreviewId(null);
     setPreviewStatus("loading");
+    setTrapGuideUp(false);
     setResetToken((value) => value + 1);
     void hardRefresh();
   }, [hardRefresh]);
@@ -303,6 +319,10 @@ export default function PurpleGuideScreen() {
             {groups.map((item) => (
               <Pressable
                 key={item}
+                ref={(node) => {
+                  if (node) groupChipRefs.current.set(item, node);
+                  else groupChipRefs.current.delete(item);
+                }}
                 onPress={() => chooseGroup(item)}
                 style={({ focused }: any) => [
                   styles.groupChip,
@@ -354,7 +374,7 @@ export default function PurpleGuideScreen() {
           </View>
         ) : (
           <View style={styles.body}>
-            <FocusGuide style={styles.gridPanel} autoFocus trapFocusUp trapFocusDown trapFocusRight>
+            <FocusGuide style={styles.gridPanel} autoFocus trapFocusUp={trapGuideUp} trapFocusDown trapFocusRight>
               {guideLayout === "compact" ? (
                 <BoxGrid
                   channels={filtered}
@@ -387,6 +407,8 @@ export default function PurpleGuideScreen() {
                   showChannelLogos={channelLogos}
                   resetToken={resetToken}
                   active
+                  onUpBoundary={onGuideUpBoundary}
+                  onFocusedRowChange={onFocusedGuideRow}
                 />
               )}
             </FocusGuide>

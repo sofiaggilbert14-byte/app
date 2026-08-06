@@ -1,12 +1,9 @@
 // Expo config plugin: native Android TV remote support WITHOUT the
 // react-native-tvos fork (which the build pipeline doesn't support).
 //
-// It does what TVEventHandler does under the hood: overrides the Activity's
-// dispatchKeyEvent to capture the D-pad / OK keys and forwards them to JS via
-// RCTDeviceEventEmitter ("TvRemoteKey"). It also exposes a small native module
-// (`TvRemote`) with tap(x, y) to inject a real touch (for pointer/mouse mode)
-// and setPointerActive(bool) so the keys are consumed instead of moving the
-// (unreliable, under Fabric) native focus.
+// It overrides the Activity's dispatchKeyEvent to capture the D-pad / OK keys
+// and forwards them to JS via RCTDeviceEventEmitter ("TvRemoteKey"). It also
+// exposes native helpers for pointer mode and deterministic guide focus.
 const {
   withMainActivity,
   withMainApplication,
@@ -20,6 +17,7 @@ function moduleKt(pkg) {
 
 import android.os.SystemClock
 import android.view.MotionEvent
+import android.view.View
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
@@ -33,11 +31,47 @@ class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBas
     // JVM level with the @ReactMethod fun setPointerActive(...) below.
     @JvmField
     var pointerActive: Boolean = false
+
+    @JvmField
+    var guideNavigationActive: Boolean = false
   }
 
   @ReactMethod
   fun setPointerActive(active: Boolean) {
     pointerActive = active
+  }
+
+  @ReactMethod
+  fun setGuideNavigationActive(active: Boolean) {
+    guideNavigationActive = active
+  }
+
+  @ReactMethod
+  fun focusView(reactTag: Double) {
+    val activity = ctx.currentActivity ?: return
+    activity.runOnUiThread {
+      try {
+        activity.findViewById<View>(reactTag.toInt())?.requestFocus()
+      } catch (e: Throwable) {}
+    }
+  }
+
+  @ReactMethod
+  fun moveFocus(direction: String) {
+    val activity = ctx.currentActivity ?: return
+    activity.runOnUiThread {
+      try {
+        val current = activity.currentFocus ?: return@runOnUiThread
+        val nativeDirection = when (direction.uppercase()) {
+          "UP" -> View.FOCUS_UP
+          "DOWN" -> View.FOCUS_DOWN
+          "LEFT" -> View.FOCUS_LEFT
+          "RIGHT" -> View.FOCUS_RIGHT
+          else -> return@runOnUiThread
+        }
+        current.focusSearch(nativeDirection)?.requestFocus()
+      } catch (e: Throwable) {}
+    }
   }
 
   @ReactMethod
@@ -145,10 +179,19 @@ function withTvRemotePackageRegistered(config) {
 function withTvRemoteKeyCapture(config) {
   return withMainActivity(config, (cfg) => {
     let src = cfg.modResults.contents;
+
+    // Upgrade an Activity produced by an earlier version of this plugin.
     if (src.includes("dispatchKeyEvent")) {
+      if (!src.includes("guideNavigationActive")) {
+        src = src.replace(
+          "if (TvRemoteModule.pointerActive) return true",
+          `if (TvRemoteModule.pointerActive) return true\n      if (TvRemoteModule.guideNavigationActive && (key == "UP" || key == "DOWN")) return true`,
+        );
+      }
       cfg.modResults.contents = src;
       return cfg;
     }
+
     const method = `
   override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
     val key: String? = if (event.action == android.view.KeyEvent.ACTION_DOWN) {
@@ -173,6 +216,7 @@ function withTvRemoteKeyCapture(config) {
           ?.emit("TvRemoteKey", key)
       } catch (e: Throwable) {}
       if (TvRemoteModule.pointerActive) return true
+      if (TvRemoteModule.guideNavigationActive && (key == "UP" || key == "DOWN")) return true
     }
     return super.dispatchKeyEvent(event)
   }

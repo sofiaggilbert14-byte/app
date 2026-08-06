@@ -11,17 +11,20 @@ import {
   LayoutChangeEvent,
   useTVEventHandler,
   findNodeHandle,
+  Platform,
 } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 import dayjs from "dayjs";
 import { colors, fonts, tvColors } from "@/src/theme";
 import { Channel, Program } from "@/src/api";
 import { ChannelLogo } from "./ChannelLogo";
+import { moveNativeFocus } from "@/src/utils/tvRemote";
 
 const HEADER_H = 30;
 const ACCENT = "#8B5CF6";
 const ACCENT_SOFT = "#F5F3FF";
 const MINUTE_MS = 60_000;
+const GUIDE_ESCAPE_GUARD_MS = 180;
 
 function mins(a: string, b: string) {
   return dayjs(a).diff(dayjs(b), "minute");
@@ -237,6 +240,8 @@ export function TimelineGrid({
   resetToken = 0,
   active = true,
   onLeftBoundary,
+  onUpBoundary,
+  onFocusedRowChange,
 }: {
   channels: Channel[];
   windowStart: string;
@@ -255,6 +260,10 @@ export function TimelineGrid({
   resetToken?: number;
   active?: boolean;
   onLeftBoundary?: () => void;
+  /** Fired when Up is pressed on the first guide row so focus can exit to group chips. */
+  onUpBoundary?: () => void;
+  /** Reports the currently focused row index so the parent can relax trapFocusUp on row 0. */
+  onFocusedRowChange?: (index: number) => void;
 }) {
   const { width } = useWindowDimensions();
   const big = width >= 900;
@@ -268,7 +277,19 @@ export function TimelineGrid({
   const listRef = useRef<any>(null);
   const horizontalRef = useRef<ScrollView>(null);
   const focusRegionRef = useRef<"channel" | "program">("program");
+  const focusedRowRef = useRef(0);
+  const guideEscapeInFlight = useRef(false);
+  const escapeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollXRef = useRef(0);
+
+  const reportFocusedRow = useCallback(
+    (index: number) => {
+      focusedRowRef.current = index;
+      guideEscapeInFlight.current = false;
+      onFocusedRowChange?.(index);
+    },
+    [onFocusedRowChange],
+  );
 
   const totalMin = mins(windowEnd, windowStart);
   const longGuideWindow = totalMin >= 20 * 60;
@@ -335,17 +356,40 @@ export function TimelineGrid({
       scrollXRef.current = 0;
       scrollX.setValue(0);
       listRef.current?.scrollToIndex({ index: 0, animated: true, viewPosition: 0 });
+      reportFocusedRow(0);
     } catch {}
-  }, [resetToken, scrollX]);
+  }, [resetToken, reportFocusedRow, scrollX]);
+
+  useEffect(
+    () => () => {
+      if (escapeTimer.current) clearTimeout(escapeTimer.current);
+    },
+    [],
+  );
 
   useTVEventHandler(
     useCallback(
       (event) => {
-        if (active && event?.eventType === "left" && focusRegionRef.current === "channel") {
+        if (!active) return;
+        if (event?.eventType === "left" && focusRegionRef.current === "channel") {
           onLeftBoundary?.();
+          return;
+        }
+        // Up on the first row exits to the controls above the grid (group chips).
+        if (event?.eventType === "up" && focusedRowRef.current <= 0) {
+          if (guideEscapeInFlight.current) return;
+          guideEscapeInFlight.current = true;
+          onUpBoundary?.();
+          if (Platform.isTV) {
+            requestAnimationFrame(() => moveNativeFocus("UP"));
+          }
+          if (escapeTimer.current) clearTimeout(escapeTimer.current);
+          escapeTimer.current = setTimeout(() => {
+            guideEscapeInFlight.current = false;
+          }, GUIDE_ESCAPE_GUARD_MS);
         }
       },
-      [active, onLeftBoundary],
+      [active, onLeftBoundary, onUpBoundary],
     ),
   );
 
@@ -391,15 +435,19 @@ export function TimelineGrid({
         onChannelPress={onChannelPress}
         onChannelFocus={(channel) => {
           focusRegionRef.current = "channel";
+          reportFocusedRow(index);
           onChannelFocus?.(channel);
         }}
         onChannelLongPress={onChannelLongPress}
         onProgramPress={onProgramPress}
-        onProgramFocus={keepProgramVisible}
+        onProgramFocus={(prepared, channel) => {
+          reportFocusedRow(index);
+          keepProgramVisible(prepared, channel);
+        }}
         preferInitialFocus={index === 0}
       />
     ),
-    [ROW_H, LOGO_W, LOGO_SIZE, timelineWidth, scrollX, showChannelNumbers, channelNumberById, showChannelLogos, onChannelPress, onChannelFocus, onChannelLongPress, onProgramPress, keepProgramVisible]
+    [ROW_H, LOGO_W, LOGO_SIZE, timelineWidth, scrollX, showChannelNumbers, channelNumberById, showChannelLogos, onChannelPress, onChannelFocus, onChannelLongPress, onProgramPress, keepProgramVisible, reportFocusedRow]
   );
 
   return (

@@ -1,12 +1,19 @@
-import { NativeModules, NativeEventEmitter, DeviceEventEmitter, Platform } from "react-native";
+import {
+  NativeModules,
+  NativeEventEmitter,
+  DeviceEventEmitter,
+  Platform,
+  findNodeHandle,
+} from "react-native";
 
 // Native module injected by ./plugins/withTvRemote (Android only). Absent on web
-// or Expo Go, in which case everything below is a safe no-op.
+// / iOS / Expo Go, in which case everything below is a safe no-op.
 const TvRemote: any = Platform.OS === "android" ? NativeModules.TvRemote : null;
 
 export const tvRemoteAvailable = !!TvRemote;
 
 export type TvKey = "UP" | "DOWN" | "LEFT" | "RIGHT" | "SELECT" | "BACK";
+export type TvFocusDirection = "UP" | "DOWN" | "LEFT" | "RIGHT";
 
 const emitter = TvRemote ? new NativeEventEmitter(TvRemote) : null;
 
@@ -27,6 +34,39 @@ export function setPointerActive(active: boolean) {
   try {
     TvRemote?.setPointerActive?.(active);
   } catch {}
+}
+
+// While a timeline cell owns focus, consume vertical D-pad events natively.
+// TimelineGrid can use this when it owns vertical navigation itself.
+export function setGuideNavigationActive(active: boolean) {
+  try {
+    TvRemote?.setGuideNavigationActive?.(active);
+  } catch {}
+}
+
+// Ask Android's normal focus engine to move once in a direction. TimelineGrid
+// uses this at its top boundary so Up exits naturally to the controls above it.
+export function moveNativeFocus(direction: TvFocusDirection): boolean {
+  try {
+    if (!TvRemote?.moveFocus) return false;
+    TvRemote.moveFocus(direction);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Request real Android input focus for a React host view or native tag.
+export function focusNativeView(target: any): boolean {
+  try {
+    const candidate = target?.current ?? target;
+    const tag = typeof candidate === "number" ? candidate : findNodeHandle(candidate);
+    if (!tag) return false;
+    TvRemote?.focusView?.(tag);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // Inject a real tap at screen coordinates (dp) so the element under the virtual
