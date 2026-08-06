@@ -1,20 +1,14 @@
 name: Frontend CI
 
-# Fast checks so PRs get a green signal even when long APK jobs are queued.
+# Always run on PRs targeting main so status checks appear even when only
+# workflow/docs change. Keep this job short so it can finish while APK jobs queue.
 on:
   pull_request:
     branches:
       - main
-    paths:
-      - 'frontend/**'
-      - '.github/workflows/frontend-ci.yml'
   push:
     branches:
       - main
-      - cursor/**
-    paths:
-      - 'frontend/**'
-      - '.github/workflows/frontend-ci.yml'
   workflow_dispatch:
 
 concurrency:
@@ -23,8 +17,8 @@ concurrency:
 
 jobs:
   typecheck-lint:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: frontend

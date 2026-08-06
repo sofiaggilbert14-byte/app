@@ -300,7 +300,6 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       await refreshSource(true);
       await refresh(true);
     } catch (e) {
-      // eslint-disable-next-line no-console
       console.warn("hardRefresh error:", e);
     }
     setRefreshing(false);
@@ -336,7 +335,6 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
           await refreshSource(true);
           await refresh(true);
         } catch (bootError) {
-          // eslint-disable-next-line no-console
           console.warn("Guide bootstrap refresh failed:", bootError);
         }
       }

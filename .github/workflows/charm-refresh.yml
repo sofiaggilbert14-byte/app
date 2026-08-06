@@ -18,8 +18,9 @@ concurrency:
 
 jobs:
   refresh:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    runs-on: ubuntu-24.04
+    # Allow queue wait + build; previous 10m timeout cancelled jobs before a runner arrived.
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -29,7 +30,33 @@ jobs:
         with:
           node-version: "24"
 
+      - name: Verify required secrets
+        id: secrets
+        run: |
+          missing=0
+          for name in CF_ACCOUNT_ID CF_KV_NAMESPACE_ID CF_API_TOKEN M3U_URL EPG_URL; do
+            # Values are injected below; empty means secret not configured.
+            eval "val=\$$name"
+            if [ -z "$val" ]; then
+              echo "::warning::Missing secret/env: $name"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "Cloudflare/guide secrets are not configured; skipping refresh."
+            exit 0
+          fi
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+        env:
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_KV_NAMESPACE_ID: ${{ secrets.CF_KV_NAMESPACE_ID }}
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          M3U_URL: ${{ secrets.M3U_URL }}
+          EPG_URL: ${{ secrets.EPG_URL }}
+
       - name: Build data & upload to Cloudflare KV
+        if: steps.secrets.outputs.ready == 'true'
         run: node cloudflare-backend/scripts/build-and-upload.mjs
         env:
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
