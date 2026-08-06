@@ -188,8 +188,10 @@ export function PurpleTvShell({
       <FocusGuide
         key={`purple-content-${active}`}
         style={[styles.content, contentStyle]}
-        autoFocus={!bootSidebarFocus}
-        trapFocusUp
+        // Guide owns initial focus via hasTVPreferredFocus on the first program cell.
+        // Auto-focusing the whole content region races group chips and feels laggy on TV.
+        autoFocus={!bootSidebarFocus && active !== "/guide"}
+        trapFocusUp={active !== "/guide"}
         trapFocusDown
       >
         {children}

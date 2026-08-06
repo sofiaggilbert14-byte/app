@@ -125,9 +125,10 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [lastChannelId, setLastChannelId] = useState<string | null>(null);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const remindersRef = useRef<Reminder[]>([]);
-  useEffect(() => {
-    remindersRef.current = reminders;
-  }, [reminders]);
+  // Keep ref in sync during render so async add/remove see the latest list immediately
+  // (useEffect would lag one frame and break hasReminder after setReminders).
+  remindersRef.current = reminders;
+  const remindersSet = useMemo(() => new Set(reminders.map((r) => r.key)), [reminders]);
 
   const [activeProgram, setActiveProgram] = useState<ActiveProgram>(null);
   const [pointerMode, setPointerModeState] = useState(false);
@@ -221,47 +222,68 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const hasReminder = useCallback((key: string) => {
-    return remindersRef.current.some((r) => r.key === key);
-  }, []);
+  const hasReminder = useCallback((key: string) => remindersSet.has(key), [remindersSet]);
 
   const addReminder = useCallback(async (program: Program, channel: Channel) => {
-    const key = reminderKey(channel.id, program.start);
-    if (remindersRef.current.some((r) => r.key === key)) return true;
-    const granted = await requestNotificationPermission();
-    if (!granted) return false;
-    const id = await scheduleProgramReminder({
-      title: `${program.title} is starting`,
-      body: `On ${channel.name}. Tap to switch channel.`,
-      date: new Date(program.start),
-      data: { channelId: channel.id },
-    });
-    if (!id) return false;
-    const rem: Reminder = {
-      key,
-      notificationId: id,
-      channelId: channel.id,
-      channelName: channel.name,
-      programTitle: program.title,
-      start: program.start,
-      stop: program.stop,
-    };
-    setReminders((prev) => {
-      const next = [...prev, rem];
-      storage.setItem(REM_KEY, next);
-      return next;
-    });
-    return true;
+    try {
+      if (!program?.start || !channel?.id) return false;
+      const key = reminderKey(channel.id, program.start);
+      if (remindersRef.current.some((r) => r.key === key)) return true;
+      const granted = await requestNotificationPermission();
+      if (!granted) return false;
+      const id = await scheduleProgramReminder({
+        title: `${program.title || "Program"} is starting`,
+        body: `On ${channel.name || "channel"}. Tap to switch channel.`,
+        date: new Date(program.start),
+        data: { channelId: channel.id },
+      });
+      if (!id) return false;
+      const rem: Reminder = {
+        key,
+        notificationId: id,
+        channelId: channel.id,
+        channelName: channel.name,
+        programTitle: program.title,
+        start: program.start,
+        stop: program.stop,
+      };
+      // Update ref synchronously so immediate hasReminder / toggle reads are correct.
+      remindersRef.current = [...remindersRef.current.filter((r) => r.key !== key), rem];
+      setReminders((prev) => {
+        const next = [...prev.filter((r) => r.key !== key), rem];
+        try {
+          storage.setItem(REM_KEY, next);
+        } catch {}
+        return next;
+      });
+      return true;
+    } catch {
+      return false;
+    }
   }, []);
 
   const removeReminder = useCallback(async (key: string) => {
-    const rem = remindersRef.current.find((r) => r.key === key);
-    if (rem) await cancelReminder(rem.notificationId);
-    setReminders((prev) => {
-      const next = prev.filter((r) => r.key !== key);
-      storage.setItem(REM_KEY, next);
-      return next;
-    });
+    try {
+      if (!key) return;
+      const rem = remindersRef.current.find((r) => r.key === key);
+      // Flip UI / store immediately; cancel the OS notification after paint.
+      remindersRef.current = remindersRef.current.filter((r) => r.key !== key);
+      setReminders((prev) => {
+        const next = prev.filter((r) => r.key !== key);
+        try {
+          storage.setItem(REM_KEY, next);
+        } catch {}
+        return next;
+      });
+      if (rem?.notificationId) {
+        const notificationId = rem.notificationId;
+        setTimeout(() => {
+          void cancelReminder(notificationId).catch(() => {});
+        }, 0);
+      }
+    } catch {
+      // Never let reminder cleanup take down the guide.
+    }
   }, []);
 
   const refresh = useCallback(async (silent = false) => {
