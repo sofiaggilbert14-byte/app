@@ -19,8 +19,9 @@ import { ChannelLogo } from "@/src/components/ChannelLogo";
 
 export default function SearchScreen() {
   const router = useRouter();
-  const { channels, addRecent, openProgram, channelLogos } = useStore();
+  const { channels, addRecent, openProgram, channelLogos, favorites } = useStore();
   const [q, setQ] = useState("");
+  const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
 
   const { chResults, progResults } = useMemo(() => {
     const ql = q.toLowerCase().trim();
@@ -92,7 +93,13 @@ export default function SearchScreen() {
             {chResults.length > 0 && <Text style={styles.section}>Channels</Text>}
             {chResults.map((c) => (
               <Pressable key={c.id} style={({ focused }: any) => [styles.row, focused && styles.rowFocused]} onPress={() => play(c)} testID={`search-ch-${c.id}`}>
-                <ChannelLogo name={c.name} logo={c.logo} disabled={!channelLogos} size={40} />
+                <ChannelLogo
+                  name={c.name}
+                  logo={c.logo}
+                  disabled={!channelLogos}
+                  size={40}
+                  favorite={favoriteSet.has(c.id)}
+                />
                 <Text numberOfLines={1} style={styles.rowName}>{c.name}</Text>
                 <Ionicons name="play-circle" size={22} color={colors.brand} />
               </Pressable>
@@ -106,7 +113,13 @@ export default function SearchScreen() {
                 onPress={() => openProgram(p, c)}
                 testID={`search-prog-${c.id}-${i}`}
               >
-                <ChannelLogo name={c.name} logo={c.logo} disabled={!channelLogos} size={40} />
+                <ChannelLogo
+                  name={c.name}
+                  logo={c.logo}
+                  disabled={!channelLogos}
+                  size={40}
+                  favorite={favoriteSet.has(c.id)}
+                />
                 <View style={{ flex: 1 }}>
                   <Text numberOfLines={1} style={styles.rowName}>{p.title}</Text>
                   <Text numberOfLines={1} style={styles.rowSub}>
