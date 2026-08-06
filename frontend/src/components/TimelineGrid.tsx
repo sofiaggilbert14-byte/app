@@ -15,6 +15,7 @@ import { FlashList } from "@shopify/flash-list";
 import dayjs from "dayjs";
 import { colors, fonts } from "@/src/theme";
 import { Channel, Program } from "@/src/api";
+import { useStore } from "@/src/store";
 import { ChannelLogo } from "./ChannelLogo";
 
 const HEADER_H = 30;
@@ -88,6 +89,8 @@ export function TimelineGrid({
   onLeftBoundary?: () => void;
 }) {
   const { width } = useWindowDimensions();
+  const { favorites } = useStore();
+  const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
   const big = width >= 900;
   const ROW_H = density === "large" ? (big ? 60 : 56) : density === "compact" ? (big ? 42 : 40) : big ? 48 : 46;
   const LOGO_W = big ? 112 : 86;
@@ -273,7 +276,13 @@ export function TimelineGrid({
                           {showChannelNumbers && (
                             <Text style={styles.channelNumber}>{channelNumberById?.[item.id] || index + 1}</Text>
                           )}
-                          <ChannelLogo name={item.name} logo={item.logo} disabled={!showChannelLogos} size={LOGO_SIZE} />
+                          <ChannelLogo
+                            name={item.name}
+                            logo={item.logo}
+                            disabled={!showChannelLogos}
+                            size={LOGO_SIZE}
+                            favorite={favoriteSet.has(item.id)}
+                          />
                           <Text numberOfLines={1} style={styles.logoName}>
                             {item.name}
                           </Text>
