@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import dayjs from "dayjs";
 import { storage } from "@/src/utils/storage";
 import { Channel, Program } from "@/src/api";
@@ -65,6 +65,7 @@ type Store = {
   favorites: string[];
   isFavorite: (id: string) => boolean;
   toggleFavorite: (id: string) => void;
+  mergeFavorites: (ids: string[]) => void;
 
   recent: Channel[];
   lastChannelId: string | null;
@@ -98,7 +99,6 @@ type Store = {
   setPlayerControlsTimeoutMs: (v: PlayerControlsTimeoutMs) => void;
   autoRetryStreams: boolean;
   setAutoRetryStreams: (v: boolean) => void;
-
 };
 
 const Ctx = createContext<Store | null>(null);
@@ -134,6 +134,9 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [deviceLayoutMode, setDeviceLayoutModeState] = useState<DeviceLayoutMode>("auto");
   const [playerControlsTimeoutMs, setPlayerControlsTimeoutMsState] = useState<PlayerControlsTimeoutMs>(8000);
   const [autoRetryStreams, setAutoRetryStreamsState] = useState(true);
+
+  const channelMap = useMemo(() => new Map(channels.map((channel) => [channel.id, channel])), [channels]);
+  const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
 
   const setPointerMode = useCallback((v: boolean) => {
     setPointerModeState(v);
@@ -255,13 +258,32 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   // or after a background refresh — reads from the in-memory cache, no network.
   useEffect(() => subscribeSource(() => refresh(true)), [refresh]);
 
-  const channelById = useCallback((id: string) => channels.find((c) => c.id === id), [channels]);
+  const channelById = useCallback((id: string) => channelMap.get(id), [channelMap]);
 
-  const isFavorite = useCallback((id: string) => favorites.includes(id), [favorites]);
+  const isFavorite = useCallback((id: string) => favoriteSet.has(id), [favoriteSet]);
   const toggleFavorite = useCallback((id: string) => {
     setFavorites((prev) => {
       const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
-      storage.setItem(FAV_KEY, next);
+      void storage.setItem(FAV_KEY, next);
+      return next;
+    });
+  }, []);
+
+  const mergeFavorites = useCallback((ids: string[]) => {
+    const requested = new Set(ids.filter(Boolean));
+    if (!requested.size) return;
+    setFavorites((prev) => {
+      const nextSet = new Set(prev);
+      let changed = false;
+      for (const id of requested) {
+        if (!nextSet.has(id)) {
+          nextSet.add(id);
+          changed = true;
+        }
+      }
+      if (!changed) return prev;
+      const next = Array.from(nextSet);
+      void storage.setItem(FAV_KEY, next);
       return next;
     });
   }, []);
@@ -358,6 +380,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     favorites,
     isFavorite,
     toggleFavorite,
+    mergeFavorites,
     recent,
     lastChannelId,
     addRecent,
