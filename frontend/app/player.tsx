@@ -1,9 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Animated,
   BackHandler,
-  Easing,
   FlatList,
   Platform,
   Pressable,
@@ -32,46 +30,14 @@ const CHANNEL_PREVIEW_DELAY_MS = 650;
 const STREAM_RETRY_MS = 3000;
 const SWITCH_NOTICE_MS = 1800;
 
-function AutoScrollProgramDescription({ text, activeKey }: { text: string; activeKey: string }) {
-  const translateY = useRef(new Animated.Value(0)).current;
-  const [viewportHeight, setViewportHeight] = useState(0);
-  const [contentHeight, setContentHeight] = useState(0);
-
-  useEffect(() => {
-    translateY.stopAnimation();
-    translateY.setValue(0);
-    if (!text || !viewportHeight || contentHeight <= viewportHeight + 2) return;
-
-    const overflow = contentHeight - viewportHeight;
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.delay(1100),
-        Animated.timing(translateY, {
-          toValue: -overflow,
-          duration: Math.max(4200, overflow * 95),
-          easing: Easing.linear,
-          useNativeDriver: true,
-        }),
-        Animated.delay(900),
-        Animated.timing(translateY, { toValue: 0, duration: 0, useNativeDriver: true }),
-      ]),
-    );
-    loop.start();
-    return () => {
-      loop.stop();
-      translateY.stopAnimation();
-    };
-  }, [activeKey, contentHeight, text, translateY, viewportHeight]);
-
+function AutoScrollProgramDescription({ text }: { text: string; activeKey: string }) {
+  // Static copy — animated marquees hitch the JS thread during channel surfing.
   if (!text) return null;
   return (
-    <View style={styles.descriptionViewport} onLayout={(event) => setViewportHeight(event.nativeEvent.layout.height)}>
-      <Animated.Text
-        onLayout={(event) => setContentHeight(event.nativeEvent.layout.height)}
-        style={[styles.description, { transform: [{ translateY }] }]}
-      >
+    <View style={styles.descriptionViewport}>
+      <Text numberOfLines={2} style={styles.description}>
         {text}
-      </Animated.Text>
+      </Text>
     </View>
   );
 }
@@ -99,14 +65,18 @@ export default function PlayerScreen() {
   const [channelsOpen, setChannelsOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [retryAttempt, setRetryAttempt] = useState(0);
+  const [playerNow, setPlayerNow] = useState(() => new Date());
 
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const controlsRef = useRef(true);
+  const channelsOpenRef = useRef(false);
   const generationRef = useRef(0);
   const channelsButtonRef = useRef<any>(null);
+  const lastStripFocusAtRef = useRef(0);
+  const rapidStripUntilRef = useRef(0);
 
   const isTV = Platform.OS !== "web" && Platform.isTV;
   const overlayHideMs = playerControlsTimeoutMs;
@@ -127,7 +97,11 @@ export default function PlayerScreen() {
     return result;
   }, [sortedChannels]);
 
-  const playerNow = new Date();
+  useEffect(() => {
+    const timer = setInterval(() => setPlayerNow(new Date()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+
   const { current, next } = nowNext(channel?.programs, playerNow);
   const progress = current ? progressPct(current, playerNow) : 0;
   const hasStream = !!channel?.url;
@@ -149,7 +123,8 @@ export default function PlayerScreen() {
     }, overlayHideMs);
   }, [overlayHideMs]);
 
-  const revealControls = useCallback(() => {
+  const revealControls = useCallback((opts?: { claimChannelsFocus?: boolean }) => {
+    const wasHidden = !controlsRef.current;
     controlsRef.current = true;
     setControls(true);
     // Keep Retry focused during stream errors — don't steal focus to Channels.
@@ -158,7 +133,14 @@ export default function PlayerScreen() {
       return;
     }
     scheduleHide();
-    if (isTV) {
+    // Only claim Channels focus when waking from hidden controls — never while the
+    // strip is open or on every D-pad tick (that yanks focus off the active card).
+    const shouldClaim =
+      opts?.claimChannelsFocus !== false &&
+      wasHidden &&
+      isTV &&
+      !channelsOpenRef.current;
+    if (shouldClaim) {
       requestAnimationFrame(() => requestNativeFocus(channelsButtonRef.current));
     }
   }, [hasStream, isTV, scheduleHide, status]);
@@ -176,13 +158,25 @@ export default function PlayerScreen() {
     setChannelId(id);
     addRecent(target);
     showNotice(`Switching to ${target.name}`);
-    revealControls();
+    // Keep strip/card focus — do not reclaim Channels button.
+    revealControls({ claimChannelsFocus: false });
   }, [addRecent, channelById, channelId, revealControls, showNotice]);
 
   const previewChannel = useCallback((id: string) => {
     if (id === channelId) return;
     if (previewTimer.current) clearTimeout(previewTimer.current);
-    previewTimer.current = setTimeout(() => changeChannel(id), CHANNEL_PREVIEW_DELAY_MS);
+    const nowTs = Date.now();
+    const rapid = nowTs - lastStripFocusAtRef.current < 240;
+    lastStripFocusAtRef.current = nowTs;
+    if (rapid) rapidStripUntilRef.current = nowTs + 750;
+    // While holding Left/Right on the strip, delay decoder swaps hard.
+    const delay = nowTs < rapidStripUntilRef.current || rapid
+      ? Math.max(CHANNEL_PREVIEW_DELAY_MS, 900)
+      : CHANNEL_PREVIEW_DELAY_MS;
+    previewTimer.current = setTimeout(() => {
+      if (Date.now() < rapidStripUntilRef.current) return;
+      changeChannel(id);
+    }, delay);
   }, [changeChannel, channelId]);
 
   const stepChannel = useCallback((direction: -1 | 1) => {
@@ -210,17 +204,19 @@ export default function PlayerScreen() {
   }, [controls]);
 
   useEffect(() => {
-    if (channel) addRecent(channel);
-  }, [addRecent, channel]);
+    channelsOpenRef.current = channelsOpen;
+  }, [channelsOpen]);
 
+  // Cold mount / explicit retry only — channel zaps must not reclaim Channels focus.
   useEffect(() => {
-    revealControls();
+    revealControls({ claimChannelsFocus: true });
     return () => {
       if (hideTimer.current) clearTimeout(hideTimer.current);
       if (previewTimer.current) clearTimeout(previewTimer.current);
       if (retryTimer.current) clearTimeout(retryTimer.current);
     };
-  }, [channelId, retryToken, revealControls]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional cold-mount/retry only
+  }, [retryToken]);
 
   useEffect(() => {
     if (status === "playing") {
@@ -247,8 +243,12 @@ export default function PlayerScreen() {
 
   useEffect(() => {
     if (!isTV) return;
-    return addTvKeyListener(() => revealControls());
-  }, [isTV, revealControls]);
+    // Wake controls from hidden state only — never steal strip focus on every key.
+    return addTvKeyListener(() => {
+      if (!controlsRef.current) revealControls({ claimChannelsFocus: true });
+      else scheduleHide();
+    });
+  }, [isTV, revealControls, scheduleHide]);
 
   useEffect(
     () => () => {
@@ -383,7 +383,7 @@ export default function PlayerScreen() {
               </View>
             </View>
             <View style={styles.topSpacer} />
-            <Text style={styles.clock}>{fmtTime(new Date().toISOString())}</Text>
+            <Text style={styles.clock}>{fmtTime(playerNow.toISOString())}</Text>
           </LinearGradient>
 
           <LinearGradient
@@ -464,6 +464,7 @@ export default function PlayerScreen() {
                 initialNumToRender={8}
                 maxToRenderPerBatch={6}
                 windowSize={4}
+                removeClippedSubviews={false}
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.channelStrip}
                 renderItem={({ item }) => (

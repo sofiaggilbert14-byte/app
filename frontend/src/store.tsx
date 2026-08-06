@@ -212,12 +212,17 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     storage.setItem(FAV_KEY, next);
   }, []);
 
+  const recentPersistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const addRecent = useCallback((c: Channel) => {
     setLastChannelId(c.id);
-    storage.setItem(LAST_CHANNEL_KEY, c.id);
     setRecent((prev) => {
       const next = [c, ...prev.filter((x) => x.id !== c.id)].slice(0, 15);
-      storage.setItem(RECENT_KEY, next);
+      // Debounce AsyncStorage writes during rapid channel surfing.
+      if (recentPersistTimer.current) clearTimeout(recentPersistTimer.current);
+      recentPersistTimer.current = setTimeout(() => {
+        storage.setItem(LAST_CHANNEL_KEY, c.id);
+        storage.setItem(RECENT_KEY, next);
+      }, 450);
       return next;
     });
   }, []);

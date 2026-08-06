@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useMemo } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -20,6 +20,7 @@ const ChannelListRow = memo(function ChannelListRow({
   number,
   favorite,
   logos,
+  now,
   onPlay,
   onFavorite,
 }: {
@@ -27,10 +28,10 @@ const ChannelListRow = memo(function ChannelListRow({
   number: number;
   favorite: boolean;
   logos: boolean;
+  now: Date;
   onPlay: (channel: Channel) => void;
   onFavorite: (id: string) => void;
 }) {
-  const now = new Date();
   const current = nowNext(channel.programs, now).current;
   const progress = current ? progressPct(current, now) : 0;
   return (
@@ -67,6 +68,12 @@ export default function ChannelsScreen() {
   const { channels, favorites, toggleFavorite, addRecent, channelLogos, hardRefresh, loading, refreshing, error } = useStore();
   const sorted = useMemo(() => [...channels].sort(byName), [channels]);
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const play = useCallback((channel: Channel) => {
     void Haptics.selectionAsync().catch(() => undefined);
@@ -121,6 +128,7 @@ export default function ChannelsScreen() {
             initialNumToRender={12}
             maxToRenderPerBatch={10}
             windowSize={7}
+            removeClippedSubviews={false}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.list}
             renderItem={({ item, index }) => (
@@ -129,6 +137,7 @@ export default function ChannelsScreen() {
                 number={index + 1}
                 favorite={favoriteSet.has(item.id)}
                 logos={channelLogos}
+                now={now}
                 onPlay={play}
                 onFavorite={favorite}
               />
