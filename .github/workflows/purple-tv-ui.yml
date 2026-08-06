@@ -3,7 +3,11 @@ name: Build CharmIPTV Purple TV APK
 on:
   push:
     branches:
+      - main
       - experimental/purple-tv-ui
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/purple-tv-ui.yml'
   pull_request:
     branches:
       - main
@@ -12,9 +16,11 @@ on:
       - '.github/workflows/purple-tv-ui.yml'
   workflow_dispatch:
 
+# Do not cancel in-progress APK builds — runner queues are long, and merge/retrigger
+# events were wiping queued jobs before they ever got a runner.
 concurrency:
-  group: purple-tv-ui-${{ github.ref }}
-  cancel-in-progress: true
+  group: purple-tv-ui-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build-release-apk:

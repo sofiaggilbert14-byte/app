@@ -18,9 +18,11 @@ on:
 permissions:
   contents: read
 
+# Keep queued/running APK jobs alive across retriggers — cancel storms left PRs red
+# even when typecheck/lint would have passed.
 concurrency:
-  group: perf-opt-universal-${{ github.ref }}
-  cancel-in-progress: true
+  group: perf-opt-universal-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   validate-and-build:
