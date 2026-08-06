@@ -125,9 +125,10 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [lastChannelId, setLastChannelId] = useState<string | null>(null);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const remindersRef = useRef<Reminder[]>([]);
-  useEffect(() => {
-    remindersRef.current = reminders;
-  }, [reminders]);
+  // Keep ref in sync during render so async add/remove see the latest list immediately
+  // (useEffect would lag one frame and break hasReminder after setReminders).
+  remindersRef.current = reminders;
+  const remindersSet = useMemo(() => new Set(reminders.map((r) => r.key)), [reminders]);
 
   const [activeProgram, setActiveProgram] = useState<ActiveProgram>(null);
   const [pointerMode, setPointerModeState] = useState(false);
@@ -221,9 +222,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const hasReminder = useCallback((key: string) => {
-    return remindersRef.current.some((r) => r.key === key);
-  }, []);
+  const hasReminder = useCallback((key: string) => remindersSet.has(key), [remindersSet]);
 
   const addReminder = useCallback(async (program: Program, channel: Channel) => {
     const key = reminderKey(channel.id, program.start);
@@ -246,8 +245,10 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       start: program.start,
       stop: program.stop,
     };
+    // Update ref synchronously so immediate hasReminder / toggle reads are correct.
+    remindersRef.current = [...remindersRef.current.filter((r) => r.key !== key), rem];
     setReminders((prev) => {
-      const next = [...prev, rem];
+      const next = [...prev.filter((r) => r.key !== key), rem];
       storage.setItem(REM_KEY, next);
       return next;
     });
@@ -256,12 +257,16 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
 
   const removeReminder = useCallback(async (key: string) => {
     const rem = remindersRef.current.find((r) => r.key === key);
-    if (rem) await cancelReminder(rem.notificationId);
+    // Flip UI / store immediately; cancel the OS notification in the background.
+    remindersRef.current = remindersRef.current.filter((r) => r.key !== key);
     setReminders((prev) => {
       const next = prev.filter((r) => r.key !== key);
       storage.setItem(REM_KEY, next);
       return next;
     });
+    if (rem?.notificationId) {
+      void cancelReminder(rem.notificationId).catch(() => {});
+    }
   }, []);
 
   const refresh = useCallback(async (silent = false) => {

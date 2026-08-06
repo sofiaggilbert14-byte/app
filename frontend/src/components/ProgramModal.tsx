@@ -10,14 +10,18 @@ import { reminderKey } from "@/src/utils/time";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 
 export function ProgramModal() {
-  const { activeProgram, closeProgram, addReminder, removeReminder, hasReminder, reminders } = useStore();
+  const { activeProgram, closeProgram, addReminder, removeReminder, reminders } = useStore();
   const router = useRouter();
   const [msg, setMsg] = React.useState<string | null>(null);
-  // Subscribe to reminders so Cancel/Remind label updates immediately after toggle.
-  void reminders;
+  const [busy, setBusy] = React.useState(false);
+  // Optimistic override so the label flips the instant the user presses Remind/Cancel,
+  // before async notification scheduling finishes.
+  const [optimisticReminded, setOptimisticReminded] = React.useState<boolean | null>(null);
 
   React.useEffect(() => {
     setMsg(null);
+    setBusy(false);
+    setOptimisticReminded(null);
   }, [activeProgram]);
 
   // Close on the hardware / remote BACK button while the sheet is open.
@@ -33,7 +37,9 @@ export function ProgramModal() {
   if (!activeProgram) return null;
   const { program, channel } = activeProgram;
   const key = reminderKey(channel.id, program.start);
-  const reminded = hasReminder(key);
+  // Derive from reactive reminders (not a stale ref) so Cancel/Remind updates immediately.
+  const storeReminded = reminders.some((r) => r.key === key);
+  const reminded = optimisticReminded ?? storeReminded;
   const start = dayjs(program.start);
   const isFuture = start.isAfter(dayjs());
   const isLive = dayjs().isAfter(program.start) && program.stop && dayjs().isBefore(program.stop);
@@ -45,17 +51,29 @@ export function ProgramModal() {
   };
 
   const onReminder = async () => {
-    if (reminded) {
-      await removeReminder(key);
-      setMsg("Reminder removed");
-      return;
-    }
-    const ok = await addReminder(program, channel);
-    if (ok) {
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    if (busy) return;
+    setBusy(true);
+    try {
+      if (reminded) {
+        setOptimisticReminded(false);
+        setMsg("Reminder removed");
+        await removeReminder(key);
+        void Haptics.selectionAsync().catch(() => {});
+        return;
+      }
+      setOptimisticReminded(true);
       setMsg("Reminder set — we'll alert you before it starts");
-    } else {
-      setMsg("Enable notifications to set reminders");
+      const ok = await addReminder(program, channel);
+      if (ok) {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      } else {
+        setOptimisticReminded(false);
+        setMsg("Enable notifications to set reminders");
+      }
+    } finally {
+      setBusy(false);
+      // Prefer store truth once the async work settles.
+      setOptimisticReminded(null);
     }
   };
 
@@ -111,6 +129,7 @@ export function ProgramModal() {
                     focused && styles.btnFocused,
                   ]}
                   onPress={onReminder}
+                  disabled={busy}
                   testID="program-reminder-btn"
                 >
                   <Ionicons
