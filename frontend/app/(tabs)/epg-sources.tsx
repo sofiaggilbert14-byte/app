@@ -9,6 +9,7 @@ import { useStore } from "@/src/store";
 import { refreshSource, sourceDiagnostics, sourceStatus, subscribeSource, type SourceDiagnostics } from "@/src/source";
 import type { SourceStatus } from "@/src/api";
 import { fonts, radius, tvColors } from "@/src/theme";
+import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
 
 export default function EpgSourcesScreen() {
   const router = useRouter();
@@ -16,6 +17,13 @@ export default function EpgSourcesScreen() {
   const [status, setStatus] = useState<SourceStatus>(() => sourceStatus());
   const [diagnostics, setDiagnostics] = useState<SourceDiagnostics | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useTvBackHandler(
+    useCallback(() => {
+      router.replace("/settings" as any);
+      return true;
+    }, [router]),
+  );
 
   const load = useCallback(() => {
     setStatus(sourceStatus());

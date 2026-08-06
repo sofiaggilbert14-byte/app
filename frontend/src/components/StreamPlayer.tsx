@@ -21,6 +21,23 @@ const PREVIEW_RESUME_SETTLE_MS = 650;
 
 type FailureState = { failures: number[]; blockedUntil: number };
 const failureStateByKey = new Map<string, FailureState>();
+const MAX_FAILURE_KEYS = 64;
+
+function pruneFailureMap(now = Date.now()) {
+  for (const [key, state] of failureStateByKey) {
+    state.failures = state.failures.filter((ts) => now - ts <= FAILURE_WINDOW_MS);
+    if (state.blockedUntil <= now && state.failures.length === 0) {
+      failureStateByKey.delete(key);
+    } else {
+      failureStateByKey.set(key, state);
+    }
+  }
+  while (failureStateByKey.size > MAX_FAILURE_KEYS) {
+    const oldest = failureStateByKey.keys().next().value;
+    if (!oldest) break;
+    failureStateByKey.delete(oldest);
+  }
+}
 
 function failureKey(engine: Engine, uri: string): string {
   return `${engine}:${uri}`;
@@ -52,6 +69,7 @@ function recordFailure(engine: Engine, uri: string): void {
   state.failures.push(now);
   if (state.failures.length >= MAX_FAILURES_PER_WINDOW) state.blockedUntil = now + CIRCUIT_COOLDOWN_MS;
   failureStateByKey.set(key, state);
+  pruneFailureMap(now);
 }
 
 function recordStablePlayback(engine: Engine, uri: string): void {
@@ -220,7 +238,8 @@ function VlcStream({ uri: rawUri, onStatus: setStatus, style, engine }: EnginePr
         setStatus("playing");
       }}
       onError={fail}
-      onStopped={fail}
+      // Do not treat intentional stop/teardown (channel zap, unmount) as a stream failure.
+      // Counting onStopped here poisoned the circuit breaker on healthy channels.
     />
   );
 }
@@ -240,6 +259,10 @@ function ExpoStream({ uri: rawUri, onStatus: setStatus, style, engine }: EngineP
       mountedRef.current = false;
       try {
         player.pause();
+      } catch {}
+      // Drop the media item so weak TVs release decoder resources after guide previews.
+      try {
+        void player.replaceAsync(null as any);
       } catch {}
     };
   }, [player]);
@@ -271,6 +294,9 @@ function ExpoStream({ uri: rawUri, onStatus: setStatus, style, engine }: EngineP
       cancelled = true;
       try {
         player.pause();
+      } catch {}
+      try {
+        void player.replaceAsync(null as any);
       } catch {}
     };
   }, [blocked, engine, headers, kind, player, setBlocked, setStatus, uri]);
@@ -368,7 +394,7 @@ export function StreamPlayer({ uri, onStatus, style }: Props) {
   }, [initialEngine, setStatus, uri]);
 
   useEffect(() => {
-    if (forceVlc || stableRef.current || !isFocused || !guideScanSettled) return;
+    if (stableRef.current || !isFocused || !guideScanSettled) return;
     const timer = setTimeout(() => {
       if (stableRef.current || fallbackUsed) return;
       const alternate: Engine = engine === "vlc" ? "media3" : "vlc";
@@ -376,12 +402,13 @@ export function StreamPlayer({ uri, onStatus, style }: Props) {
         setStatus("error");
         return;
       }
+      // Forced VLC still gets one Media3 escape hatch after start timeout.
       setFallbackUsed(true);
       setEngine(alternate);
       setStatus("loading");
     }, ENGINE_START_TIMEOUT_MS);
     return () => clearTimeout(timer);
-  }, [engine, fallbackUsed, forceVlc, guideScanSettled, isFocused, setStatus, uri]);
+  }, [engine, fallbackUsed, guideScanSettled, isFocused, setStatus, uri]);
 
   const handleStatus = useCallback((status: StreamStatus) => {
     if (status === "playing") {

@@ -1,1 +1,3 @@
 Validate the latest perf/opt-fix settings and adaptive playback changes.
+
+# ci retrigger 20260806175114

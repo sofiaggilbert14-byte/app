@@ -10,9 +10,11 @@ import { reminderKey } from "@/src/utils/time";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 
 export function ProgramModal() {
-  const { activeProgram, closeProgram, addReminder, removeReminder, hasReminder } = useStore();
+  const { activeProgram, closeProgram, addReminder, removeReminder, hasReminder, reminders } = useStore();
   const router = useRouter();
   const [msg, setMsg] = React.useState<string | null>(null);
+  // Subscribe to reminders so Cancel/Remind label updates immediately after toggle.
+  void reminders;
 
   React.useEffect(() => {
     setMsg(null);
@@ -105,18 +107,18 @@ export function ProgramModal() {
                   style={({ focused }: any) => [
                     styles.btn,
                     styles.remindBtn,
-                    reminded && styles.remindActive,
+                    reminded && styles.remindCancel,
                     focused && styles.btnFocused,
                   ]}
                   onPress={onReminder}
                   testID="program-reminder-btn"
                 >
                   <Ionicons
-                    name={reminded ? "notifications" : "notifications-outline"}
+                    name={reminded ? "notifications-off" : "notifications-outline"}
                     size={16}
-                    color={reminded ? colors.brand : colors.onSurface}
+                    color={reminded ? "#FACC15" : colors.onSurface}
                   />
-                  <Text style={[styles.remindText, reminded && { color: colors.brand }]}>
+                  <Text style={[styles.remindText, reminded && styles.remindCancelText]}>
                     {reminded ? "Cancel reminder" : "Remind me"}
                   </Text>
                 </Pressable>
@@ -169,6 +171,7 @@ const styles = StyleSheet.create({
   watchBtn: { backgroundColor: colors.brand },
   watchText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 14 },
   remindBtn: { backgroundColor: colors.surfaceTertiary, borderWidth: 1, borderColor: colors.border },
-  remindActive: { borderColor: colors.brand },
+  remindCancel: { borderColor: "#FACC15", backgroundColor: "rgba(250,204,21,0.12)" },
   remindText: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 14 },
+  remindCancelText: { color: "#FACC15" },
 });

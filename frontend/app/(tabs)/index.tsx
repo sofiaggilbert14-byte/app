@@ -10,12 +10,14 @@ import { useStore } from "@/src/store";
 import { Channel } from "@/src/api";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
+import { useTvBackToGuide } from "@/src/hooks/use-tv-back-to-guide";
 
 function channelSort(a: Channel, b: Channel) {
   return (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" });
 }
 
 export default function LiveTvHomeScreen() {
+  useTvBackToGuide();
   const router = useRouter();
   const {
     channels,
@@ -25,6 +27,10 @@ export default function LiveTvHomeScreen() {
     addRecent,
     channelLogos,
     channelNumbers,
+    hardRefresh,
+    loading,
+    refreshing,
+    error,
   } = useStore();
   const [now, setNow] = useState(() => new Date());
 
@@ -86,7 +92,13 @@ export default function LiveTvHomeScreen() {
             <Text style={styles.pageTitle}>Home</Text>
           </View>
           <View style={styles.topRight}>
-            <Ionicons name="search-outline" size={16} color={tvColors.textMuted} />
+            <Pressable
+              onPress={() => router.replace("/search" as any)}
+              style={({ focused }: any) => [styles.searchHit, focused && styles.focused]}
+              testID="home-open-search"
+            >
+              <Ionicons name="search-outline" size={16} color={tvColors.textMuted} />
+            </Pressable>
             <Text style={styles.clock}>{fmtTime(now.toISOString())}</Text>
             <View style={styles.statusDot} />
           </View>
@@ -118,16 +130,28 @@ export default function LiveTvHomeScreen() {
             <View style={styles.heroProgressTrack}>
               <View style={[styles.heroProgressFill, { width: `${heroProgress}%` }]} />
             </View>
-            <Pressable
-              hasTVPreferredFocus
-              disabled={!heroChannel}
-              onPress={() => heroChannel && play(heroChannel)}
-              style={({ focused }: any) => [styles.primaryButton, focused && styles.focused]}
-              testID="home-continue-watching"
-            >
-              <Ionicons name="play" size={15} color="#fff" />
-              <Text style={styles.primaryButtonText}>Continue Watching</Text>
-            </Pressable>
+            {heroChannel ? (
+              <Pressable
+                onPress={() => play(heroChannel)}
+                style={({ focused }: any) => [styles.primaryButton, focused && styles.focused]}
+                testID="home-continue-watching"
+              >
+                <Ionicons name="play" size={15} color="#fff" />
+                <Text style={styles.primaryButtonText}>Continue Watching</Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                onPress={() => void hardRefresh()}
+                disabled={loading || refreshing}
+                style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
+                testID="home-reload-guide"
+              >
+                <Ionicons name="refresh-outline" size={14} color="#fff" />
+                <Text style={styles.secondaryButtonText}>
+                  {refreshing || loading ? "Loading…" : error ? "Retry guide load" : "Load channels"}
+                </Text>
+              </Pressable>
+            )}
           </View>
 
           <View style={styles.heroArtwork}>
@@ -196,6 +220,9 @@ const styles = StyleSheet.create({
   heroProgressFill: { height: 3, backgroundColor: tvColors.purpleBright },
   primaryButton: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 13, borderRadius: 6, backgroundColor: tvColors.purple, borderWidth: 2, borderColor: "transparent", marginTop: 11 },
   primaryButtonText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 10 },
+  secondaryButton: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 13, borderRadius: 6, backgroundColor: tvColors.panelRaised, borderWidth: 2, borderColor: "transparent", marginTop: 8 },
+  secondaryButtonText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 10 },
+  searchHit: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "transparent" },
   heroArtwork: { flex: 0.9, alignItems: "center", justifyContent: "center", gap: 8, overflow: "hidden" },
   heroGlow: { position: "absolute", width: 190, height: 190, borderRadius: 95, backgroundColor: "rgba(124,58,237,0.18)" },
   heroArtName: { color: "#fff", fontFamily: fonts.bold, fontSize: 12, maxWidth: "82%" },

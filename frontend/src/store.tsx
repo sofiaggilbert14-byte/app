@@ -346,6 +346,20 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => subscribeSource(() => refresh(true)), [refresh]);
 
+  // Keep the guide window rolling while the app stays open (silent, low frequency).
+  // Skip while a refresh is already running so weak Fire TVs don't hitch mid-surf.
+  const busyRef = useRef(false);
+  useEffect(() => {
+    busyRef.current = loading || refreshing;
+  }, [loading, refreshing]);
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (busyRef.current) return;
+      void refresh(true);
+    }, 60 * 60 * 1000);
+    return () => clearInterval(timer);
+  }, [refresh]);
+
   const openProgram = useCallback((program: Program, channel: Channel) => {
     if (!program || !channel || !channel.id || !program.start || Number.isNaN(Date.parse(program.start))) {
       return;

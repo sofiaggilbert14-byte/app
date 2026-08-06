@@ -22,15 +22,15 @@ import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { StreamPlayer, StreamStatus, vlcAvailable } from "@/src/components/StreamPlayer";
 import { useStore } from "@/src/store";
-import { fonts, radius, spacing, tvColors } from "@/src/theme";
+import { fonts, radius, tvColors } from "@/src/theme";
 import { addTvKeyListener } from "@/src/utils/tvRemote";
 import { getTvSafeInsets } from "@/src/utils/tvLayout";
+import { requestNativeFocus } from "@/src/utils/tvFocus";
 import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
 
 const CHANNEL_PREVIEW_DELAY_MS = 650;
 const STREAM_RETRY_MS = 3000;
 const SWITCH_NOTICE_MS = 1800;
-const TV_OVERLAY_HIDE_MS = 8000;
 
 function AutoScrollProgramDescription({ text, activeKey }: { text: string; activeKey: string }) {
   const translateY = useRef(new Animated.Value(0)).current;
@@ -81,7 +81,6 @@ export default function PlayerScreen() {
   const params = useLocalSearchParams<{ channelId: string }>();
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
-  const safe = getTvSafeInsets(width, height);
   const {
     channels,
     channelById,
@@ -90,6 +89,7 @@ export default function PlayerScreen() {
     autoRetryStreams,
     channelLogos,
     channelNumbers,
+    deviceLayoutMode,
   } = useStore();
 
   const [channelId, setChannelId] = useState(params.channelId);
@@ -106,9 +106,14 @@ export default function PlayerScreen() {
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const controlsRef = useRef(true);
   const generationRef = useRef(0);
+  const channelsButtonRef = useRef<any>(null);
 
   const isTV = Platform.OS !== "web" && Platform.isTV;
-  const overlayHideMs = isTV ? Math.min(playerControlsTimeoutMs, TV_OVERLAY_HIDE_MS) : playerControlsTimeoutMs;
+  const overlayHideMs = playerControlsTimeoutMs;
+  const safe = useMemo(
+    () => getTvSafeInsets(width, height, deviceLayoutMode),
+    [deviceLayoutMode, height, width],
+  );
   const channel = useMemo(() => channelById(channelId), [channelById, channelId]);
   const sortedChannels = useMemo(
     () => [...channels].sort((a, b) => (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" })),
@@ -147,8 +152,16 @@ export default function PlayerScreen() {
   const revealControls = useCallback(() => {
     controlsRef.current = true;
     setControls(true);
+    // Keep Retry focused during stream errors — don't steal focus to Channels.
+    if (status === "error" || !hasStream) {
+      if (hideTimer.current) clearTimeout(hideTimer.current);
+      return;
+    }
     scheduleHide();
-  }, [scheduleHide]);
+    if (isTV) {
+      requestAnimationFrame(() => requestNativeFocus(channelsButtonRef.current));
+    }
+  }, [hasStream, isTV, scheduleHide, status]);
 
   const changeChannel = useCallback((id: string, haptic = false) => {
     if (!id || id === channelId) return;
@@ -217,6 +230,13 @@ export default function PlayerScreen() {
   }, [scheduleHide, status]);
 
   useEffect(() => {
+    if (status !== "error" && hasStream) return;
+    if (hideTimer.current) clearTimeout(hideTimer.current);
+    controlsRef.current = true;
+    setControls(true);
+  }, [hasStream, status]);
+
+  useEffect(() => {
     if (!autoRetryStreams || !hasStream || status !== "error") return;
     if (retryTimer.current) clearTimeout(retryTimer.current);
     retryTimer.current = setTimeout(retryNow, STREAM_RETRY_MS);
@@ -263,7 +283,24 @@ export default function PlayerScreen() {
     <View style={styles.root}>
       <RNStatusBar hidden />
       {hasStream ? (
-        <ErrorBoundary fallback={() => null}>
+        <ErrorBoundary
+          onReset={() => setRetryToken((value) => value + 1)}
+          fallback={(reset) => (
+            <View style={styles.errorOverlay}>
+              <Ionicons name="warning-outline" size={32} color={tvColors.purpleSoft} />
+              <Text style={styles.errorTitle}>Player crashed</Text>
+              <Text style={styles.errorText}>The decoder hit an unexpected error. Retry keeps you on this channel.</Text>
+              <Pressable
+                hasTVPreferredFocus
+                onPress={reset}
+                style={({ focused }: any) => [styles.retry, focused && styles.focused]}
+              >
+                <Ionicons name="refresh" size={14} color="#fff" />
+                <Text style={styles.retryText}>Retry Player</Text>
+              </Pressable>
+            </View>
+          )}
+        >
           <StreamPlayer
             key={`${channelId}-${retryToken}`}
             uri={channel?.url || ""}
@@ -295,11 +332,24 @@ export default function PlayerScreen() {
           {hasStream ? <Text style={styles.errorText}>Attempt {Math.max(1, retryAttempt + 1)} · engine fallback remains active</Text> : null}
           {hasStream && !vlcAvailable ? <Text style={styles.errorText}>Playback requires the installed Android build.</Text> : null}
           {hasStream ? (
-            <Pressable onPress={retryNow} style={({ focused }: any) => [styles.retry, focused && styles.focused]}>
+            <Pressable
+              hasTVPreferredFocus
+              onPress={retryNow}
+              style={({ focused }: any) => [styles.retry, focused && styles.focused]}
+            >
               <Ionicons name="refresh" size={14} color="#fff" />
               <Text style={styles.retryText}>Retry Now</Text>
             </Pressable>
-          ) : null}
+          ) : (
+            <Pressable
+              hasTVPreferredFocus
+              onPress={stopAndExit}
+              style={({ focused }: any) => [styles.retry, focused && styles.focused]}
+            >
+              <Ionicons name="arrow-back" size={14} color="#fff" />
+              <Text style={styles.retryText}>Back to Guide</Text>
+            </Pressable>
+          )}
         </View>
       ) : null}
 
@@ -371,7 +421,11 @@ export default function PlayerScreen() {
                 <Ionicons name="information-circle-outline" size={15} color="#fff" />
                 <Text style={styles.controlLabel}>Guide</Text>
               </Pressable>
-              <Pressable onPress={() => setChannelsOpen((value) => !value)} style={({ focused }: any) => [styles.textControl, channelsOpen && styles.controlActive, focused && styles.focused]}>
+              <Pressable
+                ref={channelsButtonRef}
+                onPress={() => setChannelsOpen((value) => !value)}
+                style={({ focused }: any) => [styles.textControl, channelsOpen && styles.controlActive, focused && styles.focused]}
+              >
                 <Ionicons name="list" size={15} color="#fff" />
                 <Text style={styles.controlLabel}>Channels</Text>
               </Pressable>
@@ -404,7 +458,7 @@ export default function PlayerScreen() {
 
             {channelsOpen ? (
               <FlatList
-                data={sortedChannels}
+                data={streamChannels}
                 horizontal
                 keyExtractor={(item) => item.id}
                 initialNumToRender={8}

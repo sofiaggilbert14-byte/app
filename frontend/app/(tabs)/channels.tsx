@@ -7,8 +7,9 @@ import { PurpleTvShell } from "@/src/components/PurpleTvShell";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { Channel } from "@/src/api";
 import { useStore } from "@/src/store";
-import { fonts, radius, spacing, tvColors } from "@/src/theme";
+import { fonts, radius, tvColors } from "@/src/theme";
 import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
+import { useTvBackToGuide } from "@/src/hooks/use-tv-back-to-guide";
 
 function byName(a: Channel, b: Channel) {
   return (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" });
@@ -35,6 +36,8 @@ const ChannelListRow = memo(function ChannelListRow({
   return (
     <Pressable
       onPress={() => onPlay(channel)}
+      onLongPress={() => onFavorite(channel.id)}
+      delayLongPress={450}
       style={({ focused }: any) => [styles.row, focused && styles.focused]}
       testID={`purple-channel-${channel.id}`}
     >
@@ -51,21 +54,17 @@ const ChannelListRow = memo(function ChannelListRow({
       <Text style={styles.time}>
         {current ? `${fmtTime(current.start)}${current.stop ? ` - ${fmtTime(current.stop)}` : ""}` : "LIVE"}
       </Text>
-      <Pressable
-        focusable={false}
-        hitSlop={8}
-        onPress={() => onFavorite(channel.id)}
-        style={styles.heart}
-      >
+      <View style={styles.heart} pointerEvents="none">
         <Ionicons name={favorite ? "heart" : "heart-outline"} size={17} color={favorite ? tvColors.purpleBright : tvColors.textMuted} />
-      </Pressable>
+      </View>
     </Pressable>
   );
 });
 
 export default function ChannelsScreen() {
+  useTvBackToGuide();
   const router = useRouter();
-  const { channels, favorites, toggleFavorite, addRecent, channelLogos } = useStore();
+  const { channels, favorites, toggleFavorite, addRecent, channelLogos, hardRefresh, loading, refreshing, error } = useStore();
   const sorted = useMemo(() => [...channels].sort(byName), [channels]);
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
 
@@ -90,28 +89,52 @@ export default function ChannelsScreen() {
           </View>
           <View style={styles.headerRight}>
             <Text style={styles.count}>{sorted.length} channels</Text>
-            <Ionicons name="search-outline" size={16} color={tvColors.textMuted} />
+            <Pressable
+              onPress={() => router.replace("/search" as any)}
+              style={({ focused }: any) => [styles.searchHit, focused && styles.focused]}
+              testID="channels-open-search"
+            >
+              <Ionicons name="search-outline" size={16} color={tvColors.textMuted} />
+            </Pressable>
           </View>
         </View>
-        <FlatList
-          data={sorted}
-          keyExtractor={(item) => item.id}
-          initialNumToRender={12}
-          maxToRenderPerBatch={10}
-          windowSize={7}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.list}
-          renderItem={({ item, index }) => (
-            <ChannelListRow
-              channel={item}
-              number={index + 1}
-              favorite={favoriteSet.has(item.id)}
-              logos={channelLogos}
-              onPlay={play}
-              onFavorite={favorite}
-            />
-          )}
-        />
+        {sorted.length === 0 ? (
+          <View style={styles.empty}>
+            <Text style={styles.emptyTitle}>No channels loaded</Text>
+            <Text style={styles.emptyMessage}>
+              {error || "Reload your playlist or open Search once channels are available."}
+            </Text>
+            <Pressable
+              onPress={() => void hardRefresh()}
+              disabled={loading || refreshing}
+              style={({ focused }: any) => [styles.retryButton, focused && styles.focused]}
+              testID="channels-retry-load"
+            >
+              <Ionicons name="refresh-outline" size={14} color="#fff" />
+              <Text style={styles.retryText}>{refreshing || loading ? "Loading…" : "Retry load"}</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <FlatList
+            data={sorted}
+            keyExtractor={(item) => item.id}
+            initialNumToRender={12}
+            maxToRenderPerBatch={10}
+            windowSize={7}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.list}
+            renderItem={({ item, index }) => (
+              <ChannelListRow
+                channel={item}
+                number={index + 1}
+                favorite={favoriteSet.has(item.id)}
+                logos={channelLogos}
+                onPlay={play}
+                onFavorite={favorite}
+              />
+            )}
+          />
+        )}
       </View>
     </PurpleTvShell>
   );
@@ -124,6 +147,12 @@ const styles = StyleSheet.create({
   title: { color: "#fff", fontFamily: fonts.bold, fontSize: 18, marginTop: 2 },
   headerRight: { flexDirection: "row", alignItems: "center", gap: 12 },
   count: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 8.5 },
+  searchHit: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "transparent" },
+  empty: { flex: 1, alignItems: "flex-start", justifyContent: "center", gap: 8, paddingHorizontal: 4 },
+  emptyTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 14 },
+  emptyMessage: { color: tvColors.textMuted, fontFamily: fonts.regular, fontSize: 10, maxWidth: 420 },
+  retryButton: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 13, borderRadius: 6, backgroundColor: tvColors.purple, borderWidth: 2, borderColor: "transparent", marginTop: 6 },
+  retryText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 10 },
   list: { paddingTop: 7, paddingBottom: 20 },
   row: { minHeight: 54, flexDirection: "row", alignItems: "center", gap: 9, borderWidth: 2, borderColor: "transparent", borderBottomColor: tvColors.line, paddingHorizontal: 7, borderRadius: radius.sm },
   focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },

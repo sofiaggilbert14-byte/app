@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   BackHandler,
   Platform,
@@ -14,6 +14,10 @@ import * as Haptics from "expo-haptics";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { fonts, radius, spacing, tvColors } from "@/src/theme";
 import { getTvSafeInsets } from "@/src/utils/tvLayout";
+import { useStore } from "@/src/store";
+
+/** One-shot: first shell mount prefers the Live TV sidebar item at cold start. */
+let bootSidebarFocusPending = true;
 
 type Route =
   | "/"
@@ -83,7 +87,17 @@ export function PurpleTvShell({
 }) {
   const router = useRouter();
   const { width, height } = useWindowDimensions();
-  const safe = useMemo(() => getTvSafeInsets(width, height), [width, height]);
+  const { deviceLayoutMode } = useStore();
+  const safe = useMemo(
+    () => getTvSafeInsets(width, height, deviceLayoutMode),
+    [deviceLayoutMode, width, height],
+  );
+  const [bootSidebarFocus] = useState(() => {
+    if (!bootSidebarFocusPending) return false;
+    bootSidebarFocusPending = false;
+    return true;
+  });
+  const bootFocusConsumed = useRef(false);
 
   const navigate = useCallback(
     (route: Route) => {
@@ -116,9 +130,14 @@ export function PurpleTvShell({
         <View style={styles.nav}>
           {NAV.map((item) => {
             const selected = item.route === active;
+            const preferBootLiveTv = bootSidebarFocus && !bootFocusConsumed.current && item.route === "/";
             return (
               <Pressable
                 key={item.route}
+                hasTVPreferredFocus={preferBootLiveTv}
+                onFocus={() => {
+                  if (preferBootLiveTv) bootFocusConsumed.current = true;
+                }}
                 onPress={() => navigate(item.route)}
                 style={({ focused }: any) => [
                   styles.navRow,
@@ -169,7 +188,7 @@ export function PurpleTvShell({
       <FocusGuide
         key={`purple-content-${active}`}
         style={[styles.content, contentStyle]}
-        autoFocus
+        autoFocus={!bootSidebarFocus}
         trapFocusUp
         trapFocusDown
       >

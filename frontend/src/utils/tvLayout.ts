@@ -1,11 +1,24 @@
 import { Platform } from "react-native";
 
+export type DeviceLayoutMode = "auto" | "tv" | "mobile";
+
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
-export function getTvSafeInsets(width: number, height: number) {
-  if (Platform.OS === "web" || !Platform.isTV) {
+/** Resolve whether TV safe insets / living-room layout should apply. */
+export function shouldUseTvLayout(mode: DeviceLayoutMode = "auto"): boolean {
+  if (mode === "tv") return true;
+  if (mode === "mobile") return false;
+  return Platform.OS !== "web" && !!Platform.isTV;
+}
+
+export function getTvSafeInsets(
+  width: number,
+  height: number,
+  mode: DeviceLayoutMode = "auto",
+) {
+  if (!shouldUseTvLayout(mode)) {
     return { top: 0, right: 0, bottom: 0, left: 0 };
   }
 
@@ -21,4 +34,3 @@ export function getTvSafeInsets(width: number, height: number) {
     left: horizontal,
   };
 }
-

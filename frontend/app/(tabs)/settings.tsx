@@ -27,6 +27,7 @@ import {
   writeFavoritesBackup,
 } from "@/src/utils/favoritesBackup";
 import { fonts, radius, tvColors } from "@/src/theme";
+import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
 
 type Section = "general" | "player" | "remote" | "epg" | "appearance" | "backup" | "account" | "about";
 
@@ -78,6 +79,18 @@ export default function SettingsScreen() {
   const [busy, setBusy] = useState(false);
   const [backupStatus, setBackupStatus] = useState<string | null>(null);
 
+  useTvBackHandler(
+    useCallback(() => {
+      if (section) {
+        setBackupStatus(null);
+        setSection(null);
+        return true;
+      }
+      router.replace("/guide" as any);
+      return true;
+    }, [router, section]),
+  );
+
   const appVersion = Constants.expoConfig?.version || "2.0.0-purple";
   const versionCode = (Constants.expoConfig as any)?.android?.versionCode;
   const selected = useMemo(() => TILES.find((item) => item.id === section), [section]);
@@ -118,7 +131,7 @@ export default function SettingsScreen() {
   const backupFavorites = useCallback(async () => {
     if (busy) return;
     setBusy(true);
-    setBackupStatus("Choose a folder for the favorites backup…");
+    setBackupStatus("Saving favorites backup to app storage…");
     try {
       const raw = serializeFavoritesBackup(favorites, channels);
       const fileName = await writeFavoritesBackup(raw);
@@ -137,7 +150,7 @@ export default function SettingsScreen() {
       return;
     }
     setBusy(true);
-    setBackupStatus("Choose the folder that contains your CharmIPTV favorites backup…");
+    setBackupStatus("Looking for the newest CharmIPTV favorites backup…");
     try {
       const { fileName, raw } = await readLatestFavoritesBackup();
       const restored = resolveFavoritesBackup(raw, channels);
@@ -214,12 +227,16 @@ export default function SettingsScreen() {
                   options={[{ label: "Timeline", value: "cinematic" }, { label: "Compact", value: "compact" }]}
                   onChange={setGuideLayout}
                 />
-                <ChoiceRow<GuideDensity>
-                  label="Guide density"
-                  value={guideDensity}
-                  options={[{ label: "Comfortable", value: "large" }, { label: "Normal", value: "normal" }, { label: "Compact", value: "compact" }]}
-                  onChange={setGuideDensity}
-                />
+                {guideLayout === "cinematic" ? (
+                  <ChoiceRow<GuideDensity>
+                    label="Guide density"
+                    value={guideDensity}
+                    options={[{ label: "Comfortable", value: "large" }, { label: "Normal", value: "normal" }, { label: "Compact", value: "compact" }]}
+                    onChange={setGuideDensity}
+                  />
+                ) : (
+                  <Text style={styles.help}>Guide density applies to Timeline layout. Compact cards use a fixed size for TV readability.</Text>
+                )}
                 <ChoiceRow<SafePreviewMode>
                   label="Live preview"
                   value={safePreviewMode}
@@ -247,7 +264,7 @@ export default function SettingsScreen() {
                   onChange={setPlayerControlsTimeoutMs}
                 />
                 <ToggleRow label="Auto retry streams" value={autoRetryStreams} onChange={setAutoRetryStreams} />
-                <Text style={styles.help}>App Default chooses the best engine per stream. VLC can be forced for full-screen playback when available; the purple guide preview stays on its optimized default path.</Text>
+                <Text style={styles.help}>App Default chooses the best engine per stream. Forcing VLC still allows one automatic Media3 fallback if VLC cannot start. The purple guide preview stays on its optimized default path.</Text>
               </SettingsCard>
             ) : null}
 
@@ -278,7 +295,7 @@ export default function SettingsScreen() {
 
             {section === "backup" ? (
               <SettingsCard title="Backup & Restore" icon="cloud-download-outline">
-                <Text style={styles.help}>Favorites backups are portable JSON files stored in a folder you choose. They contain channel identity only—never stream URLs. Restore matches the current playlist and uses the current build&apos;s stream, logo and EPG data.</Text>
+                <Text style={styles.help}>Favorites backups are portable JSON files saved in app storage (TV-friendly; no folder picker required). They contain channel identity only—never stream URLs. Restore matches the current playlist and uses the current build&apos;s stream, logo and EPG data.</Text>
                 <View style={styles.backupActions}>
                   <Action label={busy ? "Working…" : "Back Up Favorites"} icon="save-outline" onPress={backupFavorites} disabled={busy} />
                   <Action label={busy ? "Working…" : "Restore Favorites"} icon="download-outline" onPress={restoreFavorites} disabled={busy} />

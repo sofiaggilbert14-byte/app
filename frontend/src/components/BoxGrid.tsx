@@ -1,15 +1,17 @@
-import React, { memo, useCallback, useEffect, useMemo, useRef } from "react";
-import { View, Text, StyleSheet, Pressable, useWindowDimensions, RefreshControl } from "react-native";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { View, Text, StyleSheet, Pressable, useWindowDimensions, RefreshControl, useTVEventHandler } from "react-native";
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, fonts, radius, spacing, tvColors } from "@/src/theme";
 import { Channel, Program } from "@/src/api";
 import { ChannelLogo } from "./ChannelLogo";
-import { nowNext, progressPct, fmtTime } from "@/src/utils/time";
+import { nowNext, progressPct, fmtTime, reminderKey } from "@/src/utils/time";
 import { useStore } from "@/src/store";
 
 const ACCENT = "#A855F7";
 const ACCENT_SOFT = "#E9D5FF";
+const REMINDER_BELL = "#FACC15";
+const GUIDE_ESCAPE_GUARD_MS = 220;
 
 type ChannelCardProps = {
   item: Channel;
@@ -22,8 +24,10 @@ type ChannelCardProps = {
   onChannelPress: (c: Channel) => void;
   onProgramPress: (p: Program, c: Channel) => void;
   onChannelFocus?: (c: Channel) => void;
+  onRowFocus?: (index: number) => void;
   toggleFavorite: (id: string) => void;
   preferInitialFocus?: boolean;
+  hasReminder?: boolean;
 };
 
 const ChannelCard = memo(function ChannelCard({
@@ -37,8 +41,10 @@ const ChannelCard = memo(function ChannelCard({
   onChannelPress,
   onProgramPress,
   onChannelFocus,
+  onRowFocus,
   toggleFavorite,
   preferInitialFocus = false,
+  hasReminder = false,
 }: ChannelCardProps) {
   const { current, next } = nowNext(item.programs, nowDate);
   const pct = progressPct(current, nowDate);
@@ -51,7 +57,10 @@ const ChannelCard = memo(function ChannelCard({
     if (next) onProgramPress(next, item);
   }, [item, next, onProgramPress]);
   const handleFavorite = useCallback(() => toggleFavorite(item.id), [item.id, toggleFavorite]);
-  const handleFocus = useCallback(() => onChannelFocus?.(item), [item, onChannelFocus]);
+  const handleFocus = useCallback(() => {
+    onRowFocus?.(index);
+    onChannelFocus?.(item);
+  }, [index, item, onChannelFocus, onRowFocus]);
 
   return (
     <View style={styles.cell}>
@@ -61,6 +70,8 @@ const ChannelCard = memo(function ChannelCard({
         onFocus={handleFocus}
         style={({ focused }: any) => [styles.card, focused && styles.cardFocused]}
         onPress={handleChannelPress}
+        onLongPress={handleFavorite}
+        delayLongPress={450}
         testID={`box-channel-${item.id}`}
       >
         <View style={styles.cardTop}>
@@ -70,13 +81,16 @@ const ChannelCard = memo(function ChannelCard({
             )}
             <ChannelLogo name={item.name} logo={item.logo} disabled={!showChannelLogos} size={40} />
           </View>
-          <Pressable focusable={false} hitSlop={8} onPress={handleFavorite} testID={`box-fav-${item.id}`}>
-            <Ionicons
-              name={favorite ? "heart" : "heart-outline"}
-              size={18}
-              color={favorite ? ACCENT : colors.onSurfaceTertiary}
-            />
-          </Pressable>
+          <View style={styles.cardBadges} pointerEvents="none">
+            {hasReminder ? <Ionicons name="notifications" size={16} color={REMINDER_BELL} /> : null}
+            <View testID={`box-fav-${item.id}`}>
+              <Ionicons
+                name={favorite ? "heart" : "heart-outline"}
+                size={18}
+                color={favorite ? ACCENT : colors.onSurfaceTertiary}
+              />
+            </View>
+          </View>
         </View>
 
         <Text numberOfLines={1} style={styles.chName}>{item.name}</Text>
@@ -110,26 +124,34 @@ export function BoxGrid({
   onChannelPress,
   onProgramPress,
   onChannelFocus,
+  onUpBoundary,
+  onFocusedRowChange,
   ListHeaderComponent,
   refreshing,
   onRefresh,
   showChannelNumbers = false,
   channelNumberById,
   showChannelLogos = true,
+  reminderKeys,
   resetToken = 0,
+  active = true,
 }: {
   channels: Channel[];
   now: string;
   onChannelPress: (c: Channel) => void;
   onProgramPress: (p: Program, c: Channel) => void;
   onChannelFocus?: (c: Channel) => void;
+  onUpBoundary?: () => void;
+  onFocusedRowChange?: (index: number) => void;
   ListHeaderComponent?: React.ReactElement;
   refreshing?: boolean;
   onRefresh?: () => void;
   showChannelNumbers?: boolean;
   channelNumberById?: Record<string, number>;
   showChannelLogos?: boolean;
+  reminderKeys?: ReadonlySet<string>;
   resetToken?: number;
+  active?: boolean;
 }) {
   const { width } = useWindowDimensions();
   const numColumns = width >= 1400 ? 6 : width >= 1150 ? 5 : width >= 900 ? 4 : width >= 600 ? 3 : 2;
@@ -137,32 +159,84 @@ export function BoxGrid({
   const { favorites, toggleFavorite } = useStore();
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
   const listRef = useRef<FlashListRef<Channel>>(null);
+  const focusedRowRef = useRef(0);
+  const lastReportedDeepRef = useRef(false);
+  const guideEscapeInFlight = useRef(false);
+  const escapeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [preferFirst, setPreferFirst] = useState(true);
+
+  const reportFocusedRow = useCallback(
+    (index: number) => {
+      const row = Math.floor(index / Math.max(1, numColumns));
+      focusedRowRef.current = row;
+      const deep = row > 0;
+      if (preferFirst && deep) setPreferFirst(false);
+      if (lastReportedDeepRef.current === deep) return;
+      lastReportedDeepRef.current = deep;
+      onFocusedRowChange?.(row);
+    },
+    [numColumns, onFocusedRowChange, preferFirst],
+  );
 
   useEffect(() => {
-    if (!resetToken) return;
+    setPreferFirst(true);
+    lastReportedDeepRef.current = false;
+    const clearPreferred = setTimeout(() => setPreferFirst(false), 900);
+    if (!resetToken) return () => clearTimeout(clearPreferred);
     try {
-      listRef.current?.scrollToIndex({ index: 0, animated: true, viewPosition: 0 });
+      listRef.current?.scrollToIndex({ index: 0, animated: false, viewPosition: 0 });
+      focusedRowRef.current = 0;
+      onFocusedRowChange?.(0);
     } catch {}
-  }, [resetToken]);
+    return () => clearTimeout(clearPreferred);
+  }, [onFocusedRowChange, resetToken]);
+
+  useEffect(
+    () => () => {
+      if (escapeTimer.current) clearTimeout(escapeTimer.current);
+    },
+    [],
+  );
+
+  useTVEventHandler(
+    useCallback(
+      (event) => {
+        if (!active || event?.eventType !== "up" || focusedRowRef.current > 0) return;
+        if (guideEscapeInFlight.current) return;
+        guideEscapeInFlight.current = true;
+        onUpBoundary?.();
+        if (escapeTimer.current) clearTimeout(escapeTimer.current);
+        escapeTimer.current = setTimeout(() => {
+          guideEscapeInFlight.current = false;
+        }, GUIDE_ESCAPE_GUARD_MS);
+      },
+      [active, onUpBoundary],
+    ),
+  );
 
   const renderItem = useCallback(
-    ({ item, index }: { item: Channel; index: number }) => (
-      <ChannelCard
-        item={item}
-        index={index}
-        nowDate={nowDate}
-        favorite={favoriteSet.has(item.id)}
-        showChannelNumbers={showChannelNumbers}
-        channelNumber={channelNumberById?.[item.id]}
-        showChannelLogos={showChannelLogos}
-        onChannelPress={onChannelPress}
-        onProgramPress={onProgramPress}
-        onChannelFocus={onChannelFocus}
-        toggleFavorite={toggleFavorite}
-        preferInitialFocus={index === 0}
-      />
-    ),
-    [channelNumberById, favoriteSet, nowDate, onChannelFocus, onChannelPress, onProgramPress, showChannelLogos, showChannelNumbers, toggleFavorite],
+    ({ item, index }: { item: Channel; index: number }) => {
+      const reminded = !!item.programs?.some((program) => reminderKeys?.has(reminderKey(item.id, program.start)));
+      return (
+        <ChannelCard
+          item={item}
+          index={index}
+          nowDate={nowDate}
+          favorite={favoriteSet.has(item.id)}
+          showChannelNumbers={showChannelNumbers}
+          channelNumber={channelNumberById?.[item.id]}
+          showChannelLogos={showChannelLogos}
+          onChannelPress={onChannelPress}
+          onProgramPress={onProgramPress}
+          onChannelFocus={onChannelFocus}
+          onRowFocus={reportFocusedRow}
+          toggleFavorite={toggleFavorite}
+          preferInitialFocus={preferFirst && index === 0}
+          hasReminder={reminded}
+        />
+      );
+    },
+    [channelNumberById, favoriteSet, nowDate, onChannelFocus, onChannelPress, onProgramPress, preferFirst, reminderKeys, reportFocusedRow, showChannelLogos, showChannelNumbers, toggleFavorite],
   );
 
   return (
@@ -210,6 +284,7 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
   },
   cardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  cardBadges: { flexDirection: "row", alignItems: "center", gap: 6 },
   logoNumberRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs, flex: 1 },
   channelNumber: { color: ACCENT_SOFT, fontFamily: fonts.bold, fontSize: 12, minWidth: 26, textAlign: "right" },
   chName: { color: "rgba(255,255,255,0.82)", fontFamily: fonts.semibold, fontSize: 12 },

@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -8,19 +8,28 @@ import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { Channel, Program } from "@/src/api";
 import { useStore } from "@/src/store";
 import { fonts, radius, tvColors } from "@/src/theme";
+import { useTvBackToGuide } from "@/src/hooks/use-tv-back-to-guide";
 
 const KEYS = ["Q","W","E","R","T","Y","U","I","O","P","A","S","D","F","G","H","J","K","L","Z","X","C","V","B","N","M"];
+const DIGITS = ["1","2","3","4","5","6","7","8","9","0"];
 const SUGGESTIONS = ["News", "Sports", "Movies", "Kids", "Discovery"];
 
 export default function SearchScreen() {
+  useTvBackToGuide();
   const router = useRouter();
   const { channels, addRecent, openProgram, channelLogos } = useStore();
   const [query, setQuery] = useState("");
+  const isTV = Platform.OS !== "web" && Platform.isTV;
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return { channels: [] as Channel[], programs: [] as { channel: Channel; program: Program }[] };
-    const channelMatches = channels.filter((channel) => channel.name.toLowerCase().includes(q)).slice(0, 18);
+    const channelMatches = channels
+      .filter((channel) => {
+        const haystack = `${channel.name || ""} ${channel.group || ""}`.toLowerCase();
+        return haystack.includes(q);
+      })
+      .slice(0, 18);
     const programs: { channel: Channel; program: Program }[] = [];
     const now = Date.now();
     for (const channel of channels) {
@@ -65,6 +74,10 @@ export default function SearchScreen() {
                 placeholderTextColor={tvColors.textMuted}
                 style={styles.input}
                 autoCorrect={false}
+                // On TV, keep focus on the custom keyboard so the IME doesn't steal D-pad.
+                showSoftInputOnFocus={!isTV}
+                editable={!isTV}
+                focusable={!isTV}
                 testID="search-input"
               />
               {query ? (
@@ -80,13 +93,24 @@ export default function SearchScreen() {
                   <Text style={styles.keyText}>{key}</Text>
                 </Pressable>
               ))}
+              {DIGITS.map((key) => (
+                <Pressable key={key} onPress={() => typeKey(key)} style={({ focused }: any) => [styles.key, focused && styles.focused]}>
+                  <Text style={styles.keyText}>{key}</Text>
+                </Pressable>
+              ))}
               <Pressable onPress={() => setQuery((value) => value.slice(0, -1))} style={({ focused }: any) => [styles.key, styles.wideKey, focused && styles.focused]}>
                 <Ionicons name="backspace-outline" size={14} color="#fff" />
               </Pressable>
               <Pressable onPress={() => setQuery((value) => `${value} `)} style={({ focused }: any) => [styles.key, styles.spaceKey, focused && styles.focused]}>
                 <Text style={styles.keyText}>Space</Text>
               </Pressable>
-              <Pressable style={({ focused }: any) => [styles.key, styles.searchKey, focused && styles.focused]}>
+              <Pressable
+                onPress={() => {
+                  void Haptics.selectionAsync().catch(() => undefined);
+                  setQuery((value) => value.trim());
+                }}
+                style={({ focused }: any) => [styles.key, styles.searchKey, focused && styles.focused]}
+              >
                 <Ionicons name="search" size={15} color="#fff" />
               </Pressable>
             </View>
@@ -95,7 +119,7 @@ export default function SearchScreen() {
           <View style={styles.resultsPanel}>
             {!query.trim() ? (
               <>
-                <Text style={styles.resultsTitle}>Recent Searches</Text>
+                <Text style={styles.resultsTitle}>Suggested</Text>
                 {SUGGESTIONS.map((item) => (
                   <Pressable key={item} onPress={() => setQuery(item)} style={({ focused }: any) => [styles.suggestion, focused && styles.focused]}>
                     <Text style={styles.suggestionText}>{item}</Text>

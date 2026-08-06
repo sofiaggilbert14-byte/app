@@ -123,6 +123,7 @@ export default function PurpleGuideScreen() {
     safePreviewMode,
     channelNumbers,
     channelLogos,
+    reminders,
   } = useStore();
 
   const [now, setNow] = useState(() => new Date().toISOString());
@@ -138,6 +139,9 @@ export default function PurpleGuideScreen() {
   const groupChangedAt = useRef(0);
   const bootRetryRef = useRef(0);
   const groupChipRefs = useRef(new Map<string, any>());
+  const trapGuideUpRef = useRef(false);
+  const lastFocusAtRef = useRef(0);
+  const reminderKeys = useMemo(() => new Set(reminders.map((item) => item.key)), [reminders]);
 
   // Aggressive recovery: if the guide is empty after load, retry without requiring Settings.
   useEffect(() => {
@@ -192,6 +196,16 @@ export default function PurpleGuideScreen() {
     return [...list].sort(byName);
   }, [channels, favorites, group, recent]);
 
+  // If Favorites/Recent (or a vanished category) becomes empty, fall back to All
+  // so the guide never leaves an unfocusable empty FlashList.
+  useEffect(() => {
+    if (!groups.includes(group)) {
+      setGroup("All");
+      setTrapGuideUp(false);
+      setResetToken((value) => value + 1);
+    }
+  }, [group, groups]);
+
   const channelNumberById = useMemo(() => {
     const result: Record<string, number> = {};
     [...channels].sort(byName).forEach((channel, index) => {
@@ -234,8 +248,17 @@ export default function PurpleGuideScreen() {
       if (metadataTimer.current) clearTimeout(metadataTimer.current);
       if (previewTimer.current) clearTimeout(previewTimer.current);
       const requestedId = channel.id;
-      const recentlyChangedGroup = Date.now() - groupChangedAt.current < 1800;
-      const delay = recentlyChangedGroup ? Math.max(previewDelay, 1300) : previewDelay;
+      const nowTs = Date.now();
+      const rapid = nowTs - lastFocusAtRef.current < 220;
+      lastFocusAtRef.current = nowTs;
+      const recentlyChangedGroup = nowTs - groupChangedAt.current < 1800;
+      const delay = recentlyChangedGroup
+        ? Math.max(previewDelay, 1300)
+        : rapid
+          ? Math.max(previewDelay, 1600)
+          : previewDelay;
+      // Defer rail/preview updates while the remote is repeating so the grid stays snappy.
+      const metadataDelay = rapid ? 360 : 160;
 
       metadataTimer.current = setTimeout(() => {
         setFocusedId(requestedId);
@@ -245,7 +268,7 @@ export default function PurpleGuideScreen() {
           return;
         }
         previewTimer.current = setTimeout(() => setPreviewId(requestedId), delay);
-      }, 120);
+      }, metadataDelay);
     },
     [previewDelay, safePreviewMode],
   );
@@ -273,11 +296,17 @@ export default function PurpleGuideScreen() {
   }, []);
 
   const onFocusedGuideRow = useCallback((index: number) => {
-    setTrapGuideUp(index > 0);
+    const next = index > 0;
+    if (trapGuideUpRef.current === next) return;
+    trapGuideUpRef.current = next;
+    setTrapGuideUp(next);
   }, []);
 
   const onGuideUpBoundary = useCallback(() => {
-    setTrapGuideUp(false);
+    if (trapGuideUpRef.current) {
+      trapGuideUpRef.current = false;
+      setTrapGuideUp(false);
+    }
     const chip = groupChipRefs.current.get(group);
     if (chip) requestNativeFocus(chip);
   }, [group]);
@@ -372,6 +401,22 @@ export default function PurpleGuideScreen() {
               <Text style={styles.retryText}>{refreshing ? "Reloading…" : "Reload guide"}</Text>
             </Pressable>
           </View>
+        ) : channels.length === 0 ? (
+          <View style={styles.center}>
+            <Ionicons name="tv-outline" size={32} color={tvColors.purpleSoft} />
+            <Text style={styles.centerText}>No channels in the current playlist yet.</Text>
+            <Pressable
+              hasTVPreferredFocus
+              focusable
+              disabled={refreshing}
+              onPress={() => void hardRefresh()}
+              style={({ focused }: any) => [styles.retryButton, focused && styles.focused]}
+              testID="purple-guide-retry-empty"
+            >
+              <Ionicons name="refresh-outline" size={14} color="#fff" />
+              <Text style={styles.retryText}>{refreshing ? "Loading…" : "Reload guide"}</Text>
+            </Pressable>
+          </View>
         ) : (
           <View style={styles.body}>
             <FocusGuide style={styles.gridPanel} autoFocus trapFocusUp={trapGuideUp} trapFocusDown trapFocusRight>
@@ -387,7 +432,11 @@ export default function PurpleGuideScreen() {
                   showChannelNumbers={channelNumbers}
                   channelNumberById={channelNumberById}
                   showChannelLogos={channelLogos}
+                  reminderKeys={reminderKeys}
                   resetToken={resetToken}
+                  active
+                  onUpBoundary={onGuideUpBoundary}
+                  onFocusedRowChange={onFocusedGuideRow}
                 />
               ) : (
                 <TimelineGrid
@@ -405,6 +454,7 @@ export default function PurpleGuideScreen() {
                   showChannelNumbers={channelNumbers}
                   channelNumberById={channelNumberById}
                   showChannelLogos={channelLogos}
+                  reminderKeys={reminderKeys}
                   resetToken={resetToken}
                   active
                   onUpBoundary={onGuideUpBoundary}

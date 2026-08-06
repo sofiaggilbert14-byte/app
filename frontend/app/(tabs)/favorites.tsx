@@ -9,6 +9,7 @@ import { Channel } from "@/src/api";
 import { useStore } from "@/src/store";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
+import { useTvBackToGuide } from "@/src/hooks/use-tv-back-to-guide";
 
 function byName(a: Channel, b: Channel) {
   return (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" });
@@ -31,7 +32,12 @@ const FavoriteRow = memo(function FavoriteRow({
   const current = nowNext(channel.programs, now).current;
   const progress = current ? progressPct(current, now) : 0;
   return (
-    <Pressable onPress={() => onPlay(channel)} style={({ focused }: any) => [styles.row, focused && styles.focused]}>
+    <Pressable
+      onPress={() => onPlay(channel)}
+      onLongPress={() => onRemove(channel.id)}
+      delayLongPress={450}
+      style={({ focused }: any) => [styles.row, focused && styles.focused]}
+    >
       <Text style={styles.number}>{number}</Text>
       <ChannelLogo name={channel.name} logo={channel.logo} disabled={!logos} size={30} />
       <Text numberOfLines={1} style={styles.name}>{channel.name}</Text>
@@ -40,14 +46,15 @@ const FavoriteRow = memo(function FavoriteRow({
         <View style={styles.track}><View style={[styles.fill, { width: `${progress}%` }]} /></View>
       </View>
       <Text style={styles.time}>{current ? `${fmtTime(current.start)}${current.stop ? ` - ${fmtTime(current.stop)}` : ""}` : "LIVE"}</Text>
-      <Pressable focusable={false} hitSlop={8} onPress={() => onRemove(channel.id)} style={styles.heart}>
+      <View style={styles.heart} pointerEvents="none">
         <Ionicons name="heart" size={17} color={tvColors.purpleBright} />
-      </Pressable>
+      </View>
     </Pressable>
   );
 });
 
 export default function FavoritesScreen() {
+  useTvBackToGuide();
   const router = useRouter();
   const { channels, favorites, toggleFavorite, addRecent, channelLogos } = useStore();
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
@@ -73,7 +80,7 @@ export default function FavoritesScreen() {
             <View style={styles.titleRow}>
               <Text style={styles.title}>All Favorites</Text>
               <Text numberOfLines={2} style={styles.addHint}>
-                Add channels from the TV Guide by long-pressing a channel or using the Favorite button.
+                Add or remove favorites by long-pressing a channel in the TV Guide, Channels list, or here.
               </Text>
             </View>
           </View>
@@ -99,7 +106,7 @@ export default function FavoritesScreen() {
           <View style={styles.empty}>
             <View style={styles.emptyIcon}><Ionicons name="heart-outline" size={28} color={tvColors.purpleSoft} /></View>
             <Text style={styles.emptyTitle}>No favorites yet</Text>
-            <Text style={styles.emptyText}>Long-press a guide channel or use the Favorite button to add one.</Text>
+            <Text style={styles.emptyText}>Long-press a channel in the guide or Channels list to add one.</Text>
             <Pressable onPress={() => router.replace("/guide" as any)} style={({ focused }: any) => [styles.guideButton, focused && styles.focused]}>
               <Text style={styles.guideText}>Open TV Guide</Text>
             </Pressable>

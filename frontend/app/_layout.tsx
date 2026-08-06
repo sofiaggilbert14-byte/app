@@ -1,4 +1,4 @@
-import { Stack, useRouter } from "expo-router";
+import { Stack, usePathname, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import * as Notifications from "expo-notifications";
 import { useEffect } from "react";
@@ -15,7 +15,11 @@ import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { PointerOverlay } from "@/src/components/PointerOverlay";
 import { TvCalibrationFrame, TvCalibrationProvider } from "@/src/tvCalibration";
 
-LogBox.ignoreAllLogs(true);
+// Keep real errors visible for TV QA; only silence known noisy module warnings.
+LogBox.ignoreLogs([
+  "SafeAreaView has been deprecated",
+  "Require cycle:",
+]);
 SplashScreen.preventAutoHideAsync();
 
 function NotificationRouter() {
@@ -32,29 +36,30 @@ function NotificationRouter() {
   return null;
 }
 
-function ReminderAutoSwitcher() {
-  const router = useRouter();
+function ReminderCleanup() {
+  const pathname = usePathname();
   const { reminders, removeReminder } = useStore();
 
   useEffect(() => {
     if (reminders.length === 0) return;
+    // Expire due reminders without hijacking an active player session.
+    // Notification tap handling (NotificationRouter) is the user-driven switch path.
     const check = () => {
       const now = Date.now();
-      const due = [...reminders]
-        .sort((a, b) => a.start.localeCompare(b.start))
-        .find((reminder) => {
-          const start = Date.parse(reminder.start);
-          const stop = reminder.stop ? Date.parse(reminder.stop) : start + 2 * 60 * 60 * 1000;
-          return Number.isFinite(start) && now >= start && now <= stop;
-        });
-      if (!due) return;
-      removeReminder(due.key).catch(() => {});
-      router.replace({ pathname: "/player", params: { channelId: due.channelId } });
+      for (const reminder of reminders) {
+        const start = Date.parse(reminder.start);
+        const stop = reminder.stop ? Date.parse(reminder.stop) : start + 2 * 60 * 60 * 1000;
+        if (!Number.isFinite(start)) continue;
+        if (now > stop) {
+          removeReminder(reminder.key).catch(() => {});
+        }
+      }
     };
     check();
-    const timer = setInterval(check, 15000);
+    // Slow interval — reminders are sparse; avoid wakeups on weak boxes.
+    const timer = setInterval(check, pathname?.startsWith("/player") ? 60000 : 30000);
     return () => clearInterval(timer);
-  }, [reminders, removeReminder, router]);
+  }, [pathname, reminders, removeReminder]);
 
   return null;
 }
@@ -80,7 +85,7 @@ export default function RootLayout() {
             <GuideProvider>
               <StatusBar style="light" />
               <NotificationRouter />
-              <ReminderAutoSwitcher />
+              <ReminderCleanup />
               <ErrorBoundary>
                 <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#070711" } }}>
                   <Stack.Screen name="(tabs)" />

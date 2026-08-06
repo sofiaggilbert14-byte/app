@@ -2,6 +2,7 @@ import React, { memo, useCallback, useMemo } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { PurpleTvShell } from "@/src/components/PurpleTvShell";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
@@ -51,13 +52,11 @@ export function PurpleChannelCollection({
 }) {
   const router = useRouter();
   const { width } = useWindowDimensions();
-  const { channels, addRecent, channelLogos } = useStore();
+  const { channels, addRecent, channelLogos, hardRefresh, loading, refreshing, error } = useStore();
   const columns = width >= 1500 ? 6 : width >= 1050 ? 5 : 4;
 
-  const items = useMemo(() => {
-    const matched = channels.filter(matcher);
-    return matched.length ? matched : channels.slice(0, 20);
-  }, [channels, matcher]);
+  const items = useMemo(() => channels.filter(matcher), [channels, matcher]);
+  const playlistEmpty = channels.length === 0;
 
   const play = useCallback((channel: Channel) => {
     void Haptics.selectionAsync().catch(() => undefined);
@@ -75,20 +74,54 @@ export function PurpleChannelCollection({
           </View>
           <Text style={styles.count}>{items.length} available channels</Text>
         </View>
-        <Text style={styles.section}>Available Now</Text>
-        <FlatList
-          key={columns}
-          data={items}
-          numColumns={columns}
-          keyExtractor={(item) => item.id}
-          initialNumToRender={columns * 2}
-          maxToRenderPerBatch={columns * 2}
-          windowSize={5}
-          showsVerticalScrollIndicator={false}
-          columnWrapperStyle={styles.row}
-          contentContainerStyle={styles.grid}
-          renderItem={({ item }) => <Card channel={item} logos={channelLogos} onPress={play} />}
-        />
+        {items.length ? (
+          <>
+            <Text style={styles.section}>Available Now</Text>
+            <FlatList
+              key={columns}
+              data={items}
+              numColumns={columns}
+              keyExtractor={(item) => item.id}
+              initialNumToRender={columns * 2}
+              maxToRenderPerBatch={columns * 2}
+              windowSize={5}
+              showsVerticalScrollIndicator={false}
+              columnWrapperStyle={styles.row}
+              contentContainerStyle={styles.grid}
+              renderItem={({ item }) => <Card channel={item} logos={channelLogos} onPress={play} />}
+            />
+          </>
+        ) : (
+          <View style={styles.empty}>
+            <Text style={styles.emptyTitle}>
+              {playlistEmpty ? (error ? "Guide failed to load" : "No channels loaded") : "No matching channels"}
+            </Text>
+            <Text style={styles.emptyText}>
+              {playlistEmpty
+                ? error || "Reload your playlist, then try again."
+                : `Nothing in the current playlist matched ${title.toLowerCase()}. Try the TV Guide or Channels list instead.`}
+            </Text>
+            {playlistEmpty ? (
+              <Pressable
+                hasTVPreferredFocus
+                onPress={() => void hardRefresh()}
+                disabled={loading || refreshing}
+                style={({ focused }: any) => [styles.emptyButton, focused && styles.focused]}
+              >
+                <Ionicons name="refresh-outline" size={14} color="#fff" />
+                <Text style={styles.emptyButtonText}>{refreshing || loading ? "Loading…" : "Retry load"}</Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                hasTVPreferredFocus
+                onPress={() => router.replace("/guide" as any)}
+                style={({ focused }: any) => [styles.emptyButton, focused && styles.focused]}
+              >
+                <Text style={styles.emptyButtonText}>Open TV Guide</Text>
+              </Pressable>
+            )}
+          </View>
+        )}
       </View>
     </PurpleTvShell>
   );
@@ -108,4 +141,21 @@ const styles = StyleSheet.create({
   name: { color: "#fff", fontFamily: fonts.semibold, fontSize: 9.5, lineHeight: 12, marginTop: 6, minHeight: 24 },
   program: { color: tvColors.textMuted, fontFamily: fonts.regular, fontSize: 7.5, marginTop: 2 },
   focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
+  empty: { flex: 1, alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 40 },
+  emptyTitle: { color: "#fff", fontFamily: fonts.semibold, fontSize: 14 },
+  emptyText: { color: tvColors.textMuted, fontFamily: fonts.regular, fontSize: 9, textAlign: "center", maxWidth: 420 },
+  emptyButton: {
+    minHeight: 32,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    justifyContent: "center",
+    paddingHorizontal: 14,
+    borderRadius: 5,
+    backgroundColor: tvColors.purple,
+    borderWidth: 2,
+    borderColor: "transparent",
+    marginTop: 4,
+  },
+  emptyButtonText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 9 },
 });

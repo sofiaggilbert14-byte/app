@@ -47,6 +47,21 @@ function timestampForFile(date = new Date()): string {
   return `${date.getFullYear()}${p(date.getMonth() + 1)}${p(date.getDate())}-${p(date.getHours())}${p(date.getMinutes())}${p(date.getSeconds())}`;
 }
 
+function localBackupDir(): string {
+  const root = FileSystem.documentDirectory || "";
+  return root ? `${root}favorites-backups/` : "";
+}
+
+async function ensureLocalBackupDir(): Promise<string> {
+  const dir = localBackupDir();
+  if (!dir) throw new Error("App storage is unavailable for favorites backup.");
+  const info = await FileSystem.getInfoAsync(dir);
+  if (!info.exists) {
+    await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+  }
+  return dir;
+}
+
 export function serializeFavoritesBackup(favoriteIds: string[], channels: Channel[]): string {
   const favoriteSet = new Set(favoriteIds);
   const favorites: FavoriteIdentity[] = channels
@@ -57,9 +72,6 @@ export function serializeFavoritesBackup(favoriteIds: string[], channels: Channe
       name: channel.name || "",
     }));
 
-  // Never persist stream URLs. If a favorite is temporarily absent from the
-  // playlist we can preserve its old ID as identity metadata, but restore will
-  // only accept it when a current, playable channel can be resolved.
   for (const id of favoriteIds) {
     if (!favorites.some((item) => item.id === id)) {
       favorites.push({ id, tvgId: "", name: "" });
@@ -119,16 +131,12 @@ export function resolveFavoritesBackup(raw: string, channels: Channel[]): Favori
     let reason: FavoritesRestoreUnavailable["reason"] = "not-found";
     let sawUnplayableCandidate = false;
 
-    // 1) Exact current channel ID.
     const exact = id ? byId.get(id) : undefined;
     if (exact) {
       if (playable(exact)) matched = exact;
       else sawUnplayableCandidate = true;
     }
 
-    // 2) Current playlist tvg-id. A duplicate tvg-id is accepted only when it
-    // resolves to exactly one playable current channel; otherwise it is
-    // ambiguous and we continue to the safer unique-name fallback.
     if (!matched && tvgId) {
       const candidates = byTvgId.get(tvgId) || [];
       const playableCandidates = candidates.filter(playable);
@@ -137,8 +145,6 @@ export function resolveFavoritesBackup(raw: string, channels: Channel[]): Favori
       else if (candidates.length) sawUnplayableCandidate = true;
     }
 
-    // 3) Normalized channel name, but only when that name is unique in the new
-    // playlist. We never guess between duplicate names.
     if (!matched && name) {
       const candidates = byName.get(name) || [];
       if (candidates.length === 1) {
@@ -150,8 +156,6 @@ export function resolveFavoritesBackup(raw: string, channels: Channel[]): Favori
     }
 
     if (matched) {
-      // Save the NEW build's current channel ID. The favorite therefore uses
-      // that channel's current stream URL, logo and EPG data automatically.
       restored.add(matched.id);
       continue;
     }
@@ -166,63 +170,71 @@ export function resolveFavoritesBackup(raw: string, channels: Channel[]): Favori
   return result;
 }
 
+async function readValidBackupCandidate(uri: string, name: string): Promise<{ fileName: string; raw: string } | null> {
+  try {
+    const raw = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.UTF8 });
+    const parsed = JSON.parse(raw) as Partial<FavoritesBackupV1>;
+    if (parsed?.format === FORMAT && parsed.version === VERSION && Array.isArray(parsed.favorites)) {
+      return { fileName: name, raw };
+    }
+  } catch {}
+  return null;
+}
+
+/** TV-friendly default: write into app documents (no SAF folder picker required). */
 export async function writeFavoritesBackup(raw: string): Promise<string> {
-  if (Platform.OS !== "android") {
+  if (Platform.OS === "web") {
     throw new Error("Portable favorites backup is currently available on Android/TV builds.");
   }
 
-  const permission = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
-  if (!permission.granted) throw new Error("Backup folder selection was cancelled.");
-
+  const dir = await ensureLocalBackupDir();
   const fileName = `${FILE_PREFIX}${timestampForFile()}${FILE_SUFFIX}`;
-  const fileUri = await FileSystem.StorageAccessFramework.createFileAsync(
-    permission.directoryUri,
-    fileName,
-    "application/json",
-  );
-  await FileSystem.writeAsStringAsync(fileUri, raw, { encoding: FileSystem.EncodingType.UTF8 });
+  const path = `${dir}${fileName}`;
+  await FileSystem.writeAsStringAsync(path, raw, { encoding: FileSystem.EncodingType.UTF8 });
   return fileName;
 }
 
+/** Restore newest valid local backup; falls back to SAF only if local store is empty. */
 export async function readLatestFavoritesBackup(): Promise<{ fileName: string; raw: string }> {
-  if (Platform.OS !== "android") {
+  if (Platform.OS === "web") {
     throw new Error("Portable favorites restore is currently available on Android/TV builds.");
   }
 
-  const permission = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
-  if (!permission.granted) throw new Error("Restore folder selection was cancelled.");
+  try {
+    const dir = await ensureLocalBackupDir();
+    const names = await FileSystem.readDirectoryAsync(dir);
+    const local = names
+      .filter((name) => name.includes(FILE_PREFIX) && name.toLowerCase().endsWith(FILE_SUFFIX))
+      .sort((a, b) => b.localeCompare(a));
+    for (const name of local) {
+      const hit = await readValidBackupCandidate(`${dir}${name}`, name);
+      if (hit) return hit;
+    }
+  } catch {}
 
-  const entries = await FileSystem.StorageAccessFramework.readDirectoryAsync(permission.directoryUri);
-  const candidates = entries
-    .map((uri) => {
-      let decoded = uri;
-      try {
-        decoded = decodeURIComponent(uri);
-      } catch {}
-      const tail = decoded.split("/").pop() || decoded;
-      return { uri, name: tail };
-    })
-    .filter(({ name }) => name.includes(FILE_PREFIX) && name.toLowerCase().endsWith(FILE_SUFFIX))
-    .sort((a, b) => b.name.localeCompare(a.name));
+  if (Platform.OS === "android" && FileSystem.StorageAccessFramework?.requestDirectoryPermissionsAsync) {
+    const permission = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+    if (!permission.granted) {
+      throw new Error("No local favorites backup found, and folder selection was cancelled.");
+    }
+    const entries = await FileSystem.StorageAccessFramework.readDirectoryAsync(permission.directoryUri);
+    const candidates = entries
+      .map((uri) => {
+        let decoded = uri;
+        try {
+          decoded = decodeURIComponent(uri);
+        } catch {}
+        const tail = decoded.split("/").pop() || decoded;
+        return { uri, name: tail };
+      })
+      .filter(({ name }) => name.includes(FILE_PREFIX) && name.toLowerCase().endsWith(FILE_SUFFIX))
+      .sort((a, b) => b.name.localeCompare(a.name));
 
-  if (!candidates.length) {
-    throw new Error("No CharmIPTV favorites backup was found in that folder.");
-  }
-
-  // Timestamped filenames sort newest-first. If a provider exposes a decorated
-  // URI name, payload validation still prevents importing an unrelated file.
-  let lastError: Error | null = null;
-  for (const candidate of candidates) {
-    try {
-      const raw = await FileSystem.readAsStringAsync(candidate.uri, { encoding: FileSystem.EncodingType.UTF8 });
-      const parsed = JSON.parse(raw) as Partial<FavoritesBackupV1>;
-      if (parsed?.format === FORMAT && parsed.version === VERSION && Array.isArray(parsed.favorites)) {
-        return { fileName: candidate.name, raw };
-      }
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error("Could not read favorites backup.");
+    for (const candidate of candidates) {
+      const hit = await readValidBackupCandidate(candidate.uri, candidate.name);
+      if (hit) return hit;
     }
   }
 
-  throw lastError || new Error("No valid CharmIPTV favorites backup was found in that folder.");
+  throw new Error("No CharmIPTV favorites backup was found. Create one with Back Up Favorites first.");
 }
