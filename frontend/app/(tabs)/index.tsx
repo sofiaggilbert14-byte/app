@@ -877,6 +877,12 @@ export default function GuideScreen() {
           // Visible behind the groups drawer; interactive after a group is opened.
           renderPurpleStyleGuide(drawerMode === null)
         )}
+        {drawerMode !== null && (
+          <View pointerEvents="none" style={styles.drawerGuideFooter}>
+            <Text style={styles.drawerGuideFooterCharm}>CharmIPTV</Text>
+            <Text style={styles.drawerGuideFooterText}>TV Guide</Text>
+          </View>
+        )}
       </View>
 
       {drawerMode && !mobileSafeGuide && (

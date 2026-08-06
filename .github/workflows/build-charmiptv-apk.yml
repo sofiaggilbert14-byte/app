@@ -7,12 +7,10 @@ on:
     branches:
       - main
       - release/rc1
-    paths:
-      - "frontend/**"
-      - ".github/workflows/build-charmiptv-apk.yml"
   push:
     branches:
       - release/rc1
+      - cursor/full-pass-polish-17d2
     paths:
       - "frontend/**"
       - ".github/workflows/build-charmiptv-apk.yml"
