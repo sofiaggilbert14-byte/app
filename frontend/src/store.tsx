@@ -340,6 +340,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
 
   // Re-load the rendered window when the user changes guide window hours.
   // Defer until interactions settle so Settings D-pad focus does not freeze.
+  // CI stamp: guide-hours deferral ships with RC1 APK rebuild.
   const guideWindowBootstrapped = useRef(false);
   useEffect(() => {
     if (!guideWindowBootstrapped.current) {

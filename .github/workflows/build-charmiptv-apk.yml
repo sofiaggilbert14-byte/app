@@ -1,3 +1,4 @@
+# Retrigger RC1 APK after #23 merge.
 name: Build CharmIPTV RC1 universal APK
 
 on:
