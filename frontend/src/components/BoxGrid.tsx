@@ -65,7 +65,13 @@ const ChannelCard = memo(function ChannelCard({
             {showChannelNumbers && (
               <Text style={styles.channelNumber}>{channelNumber || index + 1}</Text>
             )}
-            <ChannelLogo name={item.name} logo={item.logo} disabled={!showChannelLogos} size={40} />
+            <ChannelLogo
+              name={item.name}
+              logo={item.logo}
+              disabled={!showChannelLogos}
+              size={40}
+              favorite={favorite}
+            />
           </View>
           <Pressable focusable={false} hitSlop={8} onPress={handleFavorite} testID={`box-fav-${item.id}`}>
             <Ionicons
