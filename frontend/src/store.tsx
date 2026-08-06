@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Platform } from "react-native";
 import dayjs from "dayjs";
 import { storage } from "@/src/utils/storage";
 import { Channel, Program } from "@/src/api";
@@ -23,12 +24,14 @@ const CHANNEL_LOGOS_KEY = "gs_channel_logos";
 const DEVICE_LAYOUT_MODE_KEY = "gs_device_layout_mode";
 const PLAYER_TIMEOUT_KEY = "gs_player_timeout_ms";
 const AUTO_RETRY_KEY = "gs_auto_retry_streams";
-const GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 8);
+// Roadmap: moving 4-hour window. Cap at native MAX_QUERY_WINDOW (24h).
+const GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 4);
+const DEFAULT_SAFE_PREVIEW: SafePreviewMode = Platform.isTV ? "off" : "delayed";
 
 function readGuideWindowHours(value: string | undefined, fallback: number): number {
   const n = Number(value || fallback);
   if (!Number.isFinite(n)) return fallback;
-  return Math.min(48, Math.max(6, Math.round(n)));
+  return Math.min(24, Math.max(4, Math.round(n)));
 }
 
 export type GuideLayout = "cinematic" | "compact";
@@ -119,6 +122,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [selectedDate, setSelectedDateState] = useState(dayjs().format("YYYY-MM-DD"));
   const dateRef = useRef(selectedDate);
   const refreshRequestRef = useRef(0);
+  const remindersRef = useRef<Reminder[]>([]);
 
   const [favorites, setFavorites] = useState<string[]>([]);
   const [recent, setRecent] = useState<Channel[]>([]);
@@ -128,7 +132,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [pointerMode, setPointerModeState] = useState(false);
   const [guideLayout, setGuideLayoutState] = useState<GuideLayout>("cinematic");
   const [guideDensity, setGuideDensityState] = useState<GuideDensity>("normal");
-  const [safePreviewMode, setSafePreviewModeState] = useState<SafePreviewMode>("delayed");
+  const [safePreviewMode, setSafePreviewModeState] = useState<SafePreviewMode>(DEFAULT_SAFE_PREVIEW);
   const [channelNumbers, setChannelNumbersState] = useState(false);
   const [channelLogos, setChannelLogosState] = useState(true);
   const [deviceLayoutMode, setDeviceLayoutModeState] = useState<DeviceLayoutMode>("auto");
@@ -138,49 +142,53 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const channelMap = useMemo(() => new Map(channels.map((channel) => [channel.id, channel])), [channels]);
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
 
+  useEffect(() => {
+    remindersRef.current = reminders;
+  }, [reminders]);
+
   const setPointerMode = useCallback((v: boolean) => {
     setPointerModeState(v);
-    storage.setItem(PMODE_KEY, v);
+    void storage.setItem(PMODE_KEY, v).catch(() => {});
   }, []);
 
   const setGuideLayout = useCallback((v: GuideLayout) => {
     setGuideLayoutState(v);
-    storage.setItem(GUIDE_LAYOUT_KEY, v);
+    void storage.setItem(GUIDE_LAYOUT_KEY, v).catch(() => {});
   }, []);
 
   const setGuideDensity = useCallback((v: GuideDensity) => {
     setGuideDensityState(v);
-    storage.setItem(GUIDE_DENSITY_KEY, v);
+    void storage.setItem(GUIDE_DENSITY_KEY, v).catch(() => {});
   }, []);
 
   const setSafePreviewMode = useCallback((v: SafePreviewMode) => {
     setSafePreviewModeState(v);
-    storage.setItem(SAFE_PREVIEW_MODE_KEY, v);
+    void storage.setItem(SAFE_PREVIEW_MODE_KEY, v).catch(() => {});
   }, []);
 
   const setChannelNumbers = useCallback((v: boolean) => {
     setChannelNumbersState(v);
-    storage.setItem(CHANNEL_NUMBERS_KEY, v);
+    void storage.setItem(CHANNEL_NUMBERS_KEY, v).catch(() => {});
   }, []);
 
   const setChannelLogos = useCallback((v: boolean) => {
     setChannelLogosState(v);
-    storage.setItem(CHANNEL_LOGOS_KEY, v);
+    void storage.setItem(CHANNEL_LOGOS_KEY, v).catch(() => {});
   }, []);
 
   const setDeviceLayoutMode = useCallback((v: DeviceLayoutMode) => {
     setDeviceLayoutModeState(v);
-    storage.setItem(DEVICE_LAYOUT_MODE_KEY, v);
+    void storage.setItem(DEVICE_LAYOUT_MODE_KEY, v).catch(() => {});
   }, []);
 
   const setPlayerControlsTimeoutMs = useCallback((v: PlayerControlsTimeoutMs) => {
     setPlayerControlsTimeoutMsState(v);
-    storage.setItem(PLAYER_TIMEOUT_KEY, v);
+    void storage.setItem(PLAYER_TIMEOUT_KEY, v).catch(() => {});
   }, []);
 
   const setAutoRetryStreams = useCallback((v: boolean) => {
     setAutoRetryStreamsState(v);
-    storage.setItem(AUTO_RETRY_KEY, v);
+    void storage.setItem(AUTO_RETRY_KEY, v).catch(() => {});
   }, []);
 
   const refresh = useCallback(async (silent = false) => {
@@ -212,51 +220,96 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     (d: string) => {
       dateRef.current = d;
       setSelectedDateState(d);
-      refresh();
+      void refresh();
     },
     [refresh],
   );
 
   const hardRefresh = useCallback(async () => {
     setRefreshing(true);
+    setError(null);
     try {
       await refreshSource(true);
       await refresh(true);
-    } catch {}
-    setRefreshing(false);
+    } catch (e: any) {
+      setError(e?.message || "Failed to refresh guide");
+    } finally {
+      setRefreshing(false);
+    }
   }, [refresh]);
 
   useEffect(() => {
+    let cancelled = false;
     (async () => {
-      setFavorites((await storage.getItem<string[]>(FAV_KEY, [])) || []);
-      setRecent((await storage.getItem<Channel[]>(RECENT_KEY, [])) || []);
-      setLastChannelId(await storage.getItem<string | null>(LAST_CHANNEL_KEY, null));
-      setReminders((await storage.getItem<Reminder[]>(REM_KEY, [])) || []);
-      setPointerModeState((await storage.getItem<boolean>(PMODE_KEY, false)) || false);
-      setGuideLayoutState((await storage.getItem<GuideLayout>(GUIDE_LAYOUT_KEY, "cinematic")) || "cinematic");
-      setGuideDensityState((await storage.getItem<GuideDensity>(GUIDE_DENSITY_KEY, "normal")) || "normal");
-      setSafePreviewModeState((await storage.getItem<SafePreviewMode>(SAFE_PREVIEW_MODE_KEY, "delayed")) || "delayed");
-      setChannelNumbersState((await storage.getItem<boolean>(CHANNEL_NUMBERS_KEY, false)) || false);
-      setChannelLogosState((await storage.getItem<boolean>(CHANNEL_LOGOS_KEY, true)) ?? true);
-      setDeviceLayoutModeState((await storage.getItem<DeviceLayoutMode>(DEVICE_LAYOUT_MODE_KEY, "auto")) || "auto");
-      setPlayerControlsTimeoutMsState((await storage.getItem<PlayerControlsTimeoutMs>(PLAYER_TIMEOUT_KEY, 8000)) || 8000);
-      setAutoRetryStreamsState((await storage.getItem<boolean>(AUTO_RETRY_KEY, true)) ?? true);
-      requestNotificationPermission();
+      try {
+        const [
+          favs,
+          recentChannels,
+          lastId,
+          rem,
+          pmode,
+          layout,
+          density,
+          preview,
+          numbers,
+          logos,
+          deviceLayout,
+          timeout,
+          autoRetry,
+        ] = await Promise.all([
+          storage.getItem<string[]>(FAV_KEY, []),
+          storage.getItem<Channel[]>(RECENT_KEY, []),
+          storage.getItem<string | null>(LAST_CHANNEL_KEY, null),
+          storage.getItem<Reminder[]>(REM_KEY, []),
+          storage.getItem<boolean>(PMODE_KEY, false),
+          storage.getItem<GuideLayout>(GUIDE_LAYOUT_KEY, "cinematic"),
+          storage.getItem<GuideDensity>(GUIDE_DENSITY_KEY, "normal"),
+          storage.getItem<SafePreviewMode | null>(SAFE_PREVIEW_MODE_KEY, null),
+          storage.getItem<boolean>(CHANNEL_NUMBERS_KEY, false),
+          storage.getItem<boolean>(CHANNEL_LOGOS_KEY, true),
+          storage.getItem<DeviceLayoutMode>(DEVICE_LAYOUT_MODE_KEY, "auto"),
+          storage.getItem<PlayerControlsTimeoutMs>(PLAYER_TIMEOUT_KEY, 8000),
+          storage.getItem<boolean>(AUTO_RETRY_KEY, true),
+        ]);
+        if (cancelled) return;
+        setFavorites(favs || []);
+        setRecent(recentChannels || []);
+        setLastChannelId(lastId);
+        setReminders(rem || []);
+        setPointerModeState(pmode || false);
+        setGuideLayoutState(layout || "cinematic");
+        setGuideDensityState(density || "normal");
+        // Only restore an explicit user choice; otherwise keep the TV-safe default.
+        setSafePreviewModeState(preview || DEFAULT_SAFE_PREVIEW);
+        setChannelNumbersState(numbers || false);
+        setChannelLogosState(logos ?? true);
+        setDeviceLayoutModeState(deviceLayout || "auto");
+        setPlayerControlsTimeoutMsState(timeout || 8000);
+        setAutoRetryStreamsState(autoRetry ?? true);
+      } catch (e) {
+        console.warn("[GuideProvider] prefs load failed", e);
+      }
+
+      requestNotificationPermission().catch(() => {});
       // Launch paints the last-good on-device guide first. The background
       // check respects the 24-hour cache and does not download on every open.
-      await refresh();
-      void (async () => {
-        try {
-          await refreshSource(false);
-        } catch {}
-      })();
+      if (!cancelled) await refresh();
+      if (cancelled) return;
+      void refreshSource(false).catch((e) => {
+        console.warn("[GuideProvider] background refresh failed", e);
+      });
     })();
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Re-paint when the source finishes its staged load (channels first, then EPG)
   // or after a background refresh — reads from the in-memory cache, no network.
-  useEffect(() => subscribeSource(() => refresh(true)), [refresh]);
+  useEffect(() => subscribeSource(() => {
+    void refresh(true);
+  }), [refresh]);
 
   const channelById = useCallback((id: string) => channelMap.get(id), [channelMap]);
 
@@ -264,7 +317,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const toggleFavorite = useCallback((id: string) => {
     setFavorites((prev) => {
       const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
-      void storage.setItem(FAV_KEY, next);
+      void storage.setItem(FAV_KEY, next).catch(() => {});
       return next;
     });
   }, []);
@@ -283,17 +336,17 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       }
       if (!changed) return prev;
       const next = Array.from(nextSet);
-      void storage.setItem(FAV_KEY, next);
+      void storage.setItem(FAV_KEY, next).catch(() => {});
       return next;
     });
   }, []);
 
   const addRecent = useCallback((c: Channel) => {
     setLastChannelId(c.id);
-    storage.setItem(LAST_CHANNEL_KEY, c.id);
+    void storage.setItem(LAST_CHANNEL_KEY, c.id).catch(() => {});
     setRecent((prev) => {
       const next = [c, ...prev.filter((x) => x.id !== c.id)].slice(0, 15);
-      storage.setItem(RECENT_KEY, next);
+      void storage.setItem(RECENT_KEY, next).catch(() => {});
       return next;
     });
   }, []);
@@ -303,50 +356,51 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     [reminders],
   );
 
-  const addReminder = useCallback(
-    async (program: Program, channel: Channel) => {
-      const key = reminderKey(channel.id, program.start);
-      if (reminders.some((r) => r.key === key)) return true;
-      const granted = await requestNotificationPermission();
-      if (!granted) return false;
-      const id = await scheduleProgramReminder({
-        title: `${program.title} is starting`,
-        body: `On ${channel.name}. Tap to switch channel.`,
-        date: new Date(program.start),
-        data: { channelId: channel.id },
-      });
-      if (!id) return false;
-      const rem: Reminder = {
-        key,
-        notificationId: id,
-        channelId: channel.id,
-        channelName: channel.name,
-        programTitle: program.title,
-        start: program.start,
-        stop: program.stop,
-      };
-      setReminders((prev) => {
-        const next = [...prev, rem];
-        storage.setItem(REM_KEY, next);
-        return next;
-      });
-      return true;
-    },
-    [reminders],
-  );
+  const addReminder = useCallback(async (program: Program, channel: Channel) => {
+    const key = reminderKey(channel.id, program.start);
+    if (remindersRef.current.some((r) => r.key === key)) return true;
+    const granted = await requestNotificationPermission();
+    if (!granted) return false;
+    const id = await scheduleProgramReminder({
+      title: `${program.title} is starting`,
+      body: `On ${channel.name}. Tap to switch channel.`,
+      date: new Date(program.start),
+      data: { channelId: channel.id },
+    });
+    if (!id) return false;
+    const rem: Reminder = {
+      key,
+      notificationId: id,
+      channelId: channel.id,
+      channelName: channel.name,
+      programTitle: program.title,
+      start: program.start,
+      stop: program.stop,
+    };
+    setReminders((prev) => {
+      if (prev.some((r) => r.key === key)) return prev;
+      const next = [...prev, rem];
+      void storage.setItem(REM_KEY, next).catch(() => {});
+      return next;
+    });
+    return true;
+  }, []);
 
-  const removeReminder = useCallback(
-    async (key: string) => {
-      const rem = reminders.find((r) => r.key === key);
-      if (rem) await cancelReminder(rem.notificationId);
-      setReminders((prev) => {
-        const next = prev.filter((r) => r.key !== key);
-        storage.setItem(REM_KEY, next);
-        return next;
-      });
-    },
-    [reminders],
-  );
+  const removeReminder = useCallback(async (key: string) => {
+    const rem = remindersRef.current.find((r) => r.key === key);
+    if (rem) {
+      try {
+        await cancelReminder(rem.notificationId);
+      } catch (e) {
+        console.warn("[GuideProvider] cancelReminder failed", e);
+      }
+    }
+    setReminders((prev) => {
+      const next = prev.filter((r) => r.key !== key);
+      void storage.setItem(REM_KEY, next).catch(() => {});
+      return next;
+    });
+  }, []);
 
   const openProgram = useCallback((program: Program, channel: Channel) => {
     if (!program || !channel || !channel.id || !program.start || Number.isNaN(Date.parse(program.start))) {
@@ -365,51 +419,98 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   }, []);
   const closeProgram = useCallback(() => setActiveProgram(null), []);
 
-  const value: Store = {
-    channels,
-    windowStart,
-    windowEnd,
-    loading,
-    refreshing,
-    error,
-    refresh,
-    hardRefresh,
-    selectedDate,
-    setSelectedDate,
-    channelById,
-    favorites,
-    isFavorite,
-    toggleFavorite,
-    mergeFavorites,
-    recent,
-    lastChannelId,
-    addRecent,
-    reminders,
-    hasReminder,
-    addReminder,
-    removeReminder,
-    activeProgram,
-    openProgram,
-    closeProgram,
-    pointerMode,
-    setPointerMode,
-    guideLayout,
-    setGuideLayout,
-    guideDensity,
-    setGuideDensity,
-    safePreviewMode,
-    setSafePreviewMode,
-    channelNumbers,
-    setChannelNumbers,
-    channelLogos,
-    setChannelLogos,
-    deviceLayoutMode,
-    setDeviceLayoutMode,
-    playerControlsTimeoutMs,
-    setPlayerControlsTimeoutMs,
-    autoRetryStreams,
-    setAutoRetryStreams,
-  };
+  const value = useMemo<Store>(
+    () => ({
+      channels,
+      windowStart,
+      windowEnd,
+      loading,
+      refreshing,
+      error,
+      refresh,
+      hardRefresh,
+      selectedDate,
+      setSelectedDate,
+      channelById,
+      favorites,
+      isFavorite,
+      toggleFavorite,
+      mergeFavorites,
+      recent,
+      lastChannelId,
+      addRecent,
+      reminders,
+      hasReminder,
+      addReminder,
+      removeReminder,
+      activeProgram,
+      openProgram,
+      closeProgram,
+      pointerMode,
+      setPointerMode,
+      guideLayout,
+      setGuideLayout,
+      guideDensity,
+      setGuideDensity,
+      safePreviewMode,
+      setSafePreviewMode,
+      channelNumbers,
+      setChannelNumbers,
+      channelLogos,
+      setChannelLogos,
+      deviceLayoutMode,
+      setDeviceLayoutMode,
+      playerControlsTimeoutMs,
+      setPlayerControlsTimeoutMs,
+      autoRetryStreams,
+      setAutoRetryStreams,
+    }),
+    [
+      channels,
+      windowStart,
+      windowEnd,
+      loading,
+      refreshing,
+      error,
+      refresh,
+      hardRefresh,
+      selectedDate,
+      setSelectedDate,
+      channelById,
+      favorites,
+      isFavorite,
+      toggleFavorite,
+      mergeFavorites,
+      recent,
+      lastChannelId,
+      addRecent,
+      reminders,
+      hasReminder,
+      addReminder,
+      removeReminder,
+      activeProgram,
+      openProgram,
+      closeProgram,
+      pointerMode,
+      setPointerMode,
+      guideLayout,
+      setGuideLayout,
+      guideDensity,
+      setGuideDensity,
+      safePreviewMode,
+      setSafePreviewMode,
+      channelNumbers,
+      setChannelNumbers,
+      channelLogos,
+      setChannelLogos,
+      deviceLayoutMode,
+      setDeviceLayoutMode,
+      playerControlsTimeoutMs,
+      setPlayerControlsTimeoutMs,
+      autoRetryStreams,
+      setAutoRetryStreams,
+    ],
+  );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

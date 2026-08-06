@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -10,18 +10,21 @@ import {
   useWindowDimensions,
   LayoutChangeEvent,
   useTVEventHandler,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
 } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 import dayjs from "dayjs";
 import { colors, fonts } from "@/src/theme";
 import { Channel, Program } from "@/src/api";
-import { useStore } from "@/src/store";
 import { ChannelLogo } from "./ChannelLogo";
 
 const HEADER_H = 30;
 const GOLD = "#E3262E";
 const GOLD_SOFT = "#FFFFFF";
 const MINUTE_MS = 60_000;
+const SCROLL_VIEWPORT_THROTTLE_MS = 48;
+const H_OVERSCAN_PX = 420;
 
 function mins(a: string, b: string) {
   return dayjs(a).diff(dayjs(b), "minute");
@@ -42,7 +45,8 @@ type PreparedProgram = {
   key: string;
   left: number;
   width: number;
-  isLive: boolean;
+  startMs: number;
+  endMs: number;
   timeLabel: string;
 };
 
@@ -50,6 +54,136 @@ type PreparedRow = {
   channel: Channel;
   programs: PreparedProgram[];
 };
+
+type TimelineRowProps = {
+  row: PreparedRow;
+  index: number;
+  rowH: number;
+  logoW: number;
+  logoSize: number;
+  timelineWidth: number;
+  scrollX: Animated.Value;
+  nowMs: number;
+  visibleLeft: number;
+  visibleRight: number;
+  favorite: boolean;
+  showChannelNumbers: boolean;
+  channelNumber?: number;
+  showChannelLogos: boolean;
+  preferFirstChannel: boolean;
+  onPreferFirstConsumed: () => void;
+  onFocusRegion: (region: "channel" | "program") => void;
+  onProgramPress: (p: Program, c: Channel) => void;
+  onChannelPress: (c: Channel) => void;
+  onChannelFocus?: (c: Channel) => void;
+  onChannelLongPress?: (c: Channel) => void;
+};
+
+const TimelineRow = memo(function TimelineRow({
+  row,
+  index,
+  rowH,
+  logoW,
+  logoSize,
+  timelineWidth,
+  scrollX,
+  nowMs,
+  visibleLeft,
+  visibleRight,
+  favorite,
+  showChannelNumbers,
+  channelNumber,
+  showChannelLogos,
+  preferFirstChannel,
+  onPreferFirstConsumed,
+  onFocusRegion,
+  onProgramPress,
+  onChannelPress,
+  onChannelFocus,
+  onChannelLongPress,
+}: TimelineRowProps) {
+  const item = row.channel;
+  const visiblePrograms = useMemo(() => {
+    if (!row.programs.length) return row.programs;
+    // Keep cells that intersect the horizontal viewport (+ overscan). Focusable
+    // views dominate Fire Stick cost more than the geometry math itself.
+    return row.programs.filter((prepared) => {
+      const right = prepared.left + prepared.width;
+      return right >= visibleLeft && prepared.left <= visibleRight;
+    });
+  }, [row.programs, visibleLeft, visibleRight]);
+
+  return (
+    <View style={[styles.row, { height: rowH }]}>
+      <Animated.View style={[styles.logoCol, { width: logoW, height: rowH, transform: [{ translateX: scrollX }] }]}>
+        <Pressable
+          style={({ focused }: any) => [styles.logoCell, focused && styles.cellFocused]}
+          focusable
+          hasTVPreferredFocus={index === 0 && preferFirstChannel}
+          onFocus={() => {
+            onFocusRegion("channel");
+            if (index === 0 && preferFirstChannel) onPreferFirstConsumed();
+            onChannelFocus?.(item);
+          }}
+          onPress={() => onChannelPress(item)}
+          onLongPress={() => onChannelLongPress?.(item)}
+          testID={`epg-channel-${item.id}`}
+        >
+          {showChannelNumbers && (
+            <Text style={styles.channelNumber}>{channelNumber || index + 1}</Text>
+          )}
+          <ChannelLogo
+            name={item.name}
+            logo={item.logo}
+            disabled={!showChannelLogos}
+            size={logoSize}
+            favorite={favorite}
+          />
+          <Text numberOfLines={1} style={styles.logoName}>
+            {item.name}
+          </Text>
+        </Pressable>
+      </Animated.View>
+
+      <View style={{ width: timelineWidth, height: rowH }}>
+        {visiblePrograms.map((prepared, i) => {
+          const isLive = nowMs >= prepared.startMs && nowMs < prepared.endMs;
+          return (
+            <Pressable
+              key={prepared.key}
+              onFocus={() => {
+                onFocusRegion("program");
+                onChannelFocus?.(item);
+              }}
+              onPress={() => onProgramPress(prepared.program, item)}
+              onLongPress={() => onChannelLongPress?.(item)}
+              focusable
+              style={({ focused }: any) => [
+                styles.progCell,
+                { left: prepared.left, width: prepared.width },
+                isLive && styles.progLive,
+                focused && styles.cellFocused,
+              ]}
+              testID={`epg-prog-${item.id}-${i}`}
+            >
+              <Text numberOfLines={1} style={styles.progTitle}>
+                {prepared.program.title}
+              </Text>
+              <Text numberOfLines={1} style={styles.progTime}>
+                {prepared.timeLabel}
+              </Text>
+            </Pressable>
+          );
+        })}
+        {row.programs.length === 0 && (
+          <View style={[styles.progCell, { left: 0, width: timelineWidth - 6 }]}>
+            <Text style={styles.noData}>No guide data</Text>
+          </View>
+        )}
+      </View>
+    </View>
+  );
+});
 
 export function TimelineGrid({
   channels,
@@ -66,6 +200,7 @@ export function TimelineGrid({
   showChannelNumbers = false,
   channelNumberById,
   showChannelLogos = true,
+  favoriteIds,
   resetToken = 0,
   active = true,
   onLeftBoundary,
@@ -84,13 +219,16 @@ export function TimelineGrid({
   showChannelNumbers?: boolean;
   channelNumberById?: Record<string, number>;
   showChannelLogos?: boolean;
+  favoriteIds?: ReadonlySet<string> | string[];
   resetToken?: number;
   active?: boolean;
   onLeftBoundary?: () => void;
 }) {
   const { width } = useWindowDimensions();
-  const { favorites } = useStore();
-  const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
+  const favoriteSet = useMemo(() => {
+    if (!favoriteIds) return new Set<string>();
+    return favoriteIds instanceof Set ? favoriteIds : new Set(favoriteIds);
+  }, [favoriteIds]);
   const big = width >= 900;
   const ROW_H = density === "large" ? (big ? 60 : 56) : density === "compact" ? (big ? 42 : 40) : big ? 48 : 46;
   const LOGO_W = big ? 112 : 86;
@@ -99,10 +237,14 @@ export function TimelineGrid({
   const negScrollX = useMemo(() => Animated.multiply(scrollX, -1), [scrollX]);
   const [bodyH, setBodyH] = useState(0);
   const [bodyW, setBodyW] = useState(0);
+  const [scrollOffsetX, setScrollOffsetX] = useState(0);
   const listRef = useRef<any>(null);
   const horizontalRef = useRef<ScrollView>(null);
   const focusRegionRef = useRef<"channel" | "program">("program");
   const [preferFirstChannel, setPreferFirstChannel] = useState(false);
+  const lastViewportUpdateRef = useRef(0);
+  const pendingOffsetRef = useRef(0);
+  const viewportTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const totalMin = mins(windowEnd, windowStart);
   const longGuideWindow = totalMin >= 20 * 60;
@@ -111,6 +253,12 @@ export function TimelineGrid({
   const windowStartMs = useMemo(() => Date.parse(windowStart), [windowStart]);
   const windowEndMs = useMemo(() => Date.parse(windowEnd), [windowEnd]);
   const nowMs = useMemo(() => Date.parse(now), [now]);
+
+  // Keep roughly one viewport of overscan on each side so D-pad focus has
+  // adjacent Pressables while still dropping far-off cells on long windows.
+  const hOverscan = Math.max(H_OVERSCAN_PX, bodyW || width);
+  const visibleLeft = Math.max(0, scrollOffsetX - hOverscan);
+  const visibleRight = scrollOffsetX + Math.max(bodyW || width, 1) + hOverscan;
 
   const ticks = useMemo(() => {
     const out: { key: string; label: string; left: number }[] = [];
@@ -131,6 +279,7 @@ export function TimelineGrid({
     return out;
   }, [windowStart, windowEnd, windowStartMs, PX_PER_MIN]);
 
+  // Geometry only — do not rebuild when the minute clock ticks.
   const preparedRows = useMemo<PreparedRow[]>(() => {
     if (!Number.isFinite(windowStartMs) || !Number.isFinite(windowEndMs)) {
       return channels.map((channel) => ({ channel, programs: [] }));
@@ -149,13 +298,14 @@ export function TimelineGrid({
           key: `${channel.id}:${program.start}:${program.stop || "open"}:${program.title}`,
           left: ((visibleStart - windowStartMs) / MINUTE_MS) * PX_PER_MIN,
           width: Math.max(24, ((visibleEnd - visibleStart) / MINUTE_MS) * PX_PER_MIN - 3),
-          isLive: nowMs >= startMs && nowMs < endMs,
+          startMs,
+          endMs,
           timeLabel: formatTime(startMs),
         });
       }
       return { channel, programs };
     });
-  }, [channels, nowMs, PX_PER_MIN, windowEndMs, windowStartMs]);
+  }, [channels, PX_PER_MIN, windowEndMs, windowStartMs]);
 
   const nowOffset = Number.isFinite(nowMs) && Number.isFinite(windowStartMs)
     ? ((nowMs - windowStartMs) / MINUTE_MS) * PX_PER_MIN
@@ -169,7 +319,44 @@ export function TimelineGrid({
     const maxScroll = Math.max(0, LOGO_W + timelineWidth - viewportWidth);
     const target = Math.max(0, Math.min(maxScroll, nowOffset - usableTimelineWidth * 0.22));
     horizontalRef.current?.scrollTo({ x: target, animated: true });
+    setScrollOffsetX(target);
   }, [LOGO_W, bodyW, nowOffset, showNow, timelineWidth, width]);
+
+  const flushViewport = useCallback(() => {
+    setScrollOffsetX(pendingOffsetRef.current);
+    lastViewportUpdateRef.current = Date.now();
+  }, []);
+
+  const onHorizontalScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const x = event.nativeEvent.contentOffset.x;
+      scrollX.setValue(x);
+      pendingOffsetRef.current = x;
+      const elapsed = Date.now() - lastViewportUpdateRef.current;
+      if (elapsed >= SCROLL_VIEWPORT_THROTTLE_MS) {
+        if (viewportTimerRef.current) {
+          clearTimeout(viewportTimerRef.current);
+          viewportTimerRef.current = null;
+        }
+        flushViewport();
+        return;
+      }
+      if (!viewportTimerRef.current) {
+        viewportTimerRef.current = setTimeout(() => {
+          viewportTimerRef.current = null;
+          flushViewport();
+        }, SCROLL_VIEWPORT_THROTTLE_MS - elapsed);
+      }
+    },
+    [flushViewport, scrollX],
+  );
+
+  useEffect(
+    () => () => {
+      if (viewportTimerRef.current) clearTimeout(viewportTimerRef.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!resetToken) return;
@@ -177,8 +364,11 @@ export function TimelineGrid({
     try {
       horizontalRef.current?.scrollTo({ x: 0, animated: true });
       scrollX.setValue(0);
+      setScrollOffsetX(0);
       listRef.current?.scrollToIndex({ index: 0, animated: true, viewPosition: 0 });
-    } catch {}
+    } catch (e) {
+      console.warn("[TimelineGrid] reset scroll failed", e);
+    }
   }, [resetToken, scrollX]);
 
   useTVEventHandler(
@@ -190,6 +380,61 @@ export function TimelineGrid({
       },
       [active, onLeftBoundary],
     ),
+  );
+
+  const onFocusRegion = useCallback((region: "channel" | "program") => {
+    focusRegionRef.current = region;
+  }, []);
+
+  const onPreferFirstConsumed = useCallback(() => setPreferFirstChannel(false), []);
+
+  const renderItem = useCallback(
+    ({ item: row, index }: { item: PreparedRow; index: number }) => (
+      <TimelineRow
+        row={row}
+        index={index}
+        rowH={ROW_H}
+        logoW={LOGO_W}
+        logoSize={LOGO_SIZE}
+        timelineWidth={timelineWidth}
+        scrollX={scrollX}
+        nowMs={nowMs}
+        visibleLeft={visibleLeft}
+        visibleRight={visibleRight}
+        favorite={favoriteSet.has(row.channel.id)}
+        showChannelNumbers={showChannelNumbers}
+        channelNumber={channelNumberById?.[row.channel.id]}
+        showChannelLogos={showChannelLogos}
+        preferFirstChannel={preferFirstChannel}
+        onPreferFirstConsumed={onPreferFirstConsumed}
+        onFocusRegion={onFocusRegion}
+        onProgramPress={onProgramPress}
+        onChannelPress={onChannelPress}
+        onChannelFocus={onChannelFocus}
+        onChannelLongPress={onChannelLongPress}
+      />
+    ),
+    [
+      LOGO_SIZE,
+      LOGO_W,
+      ROW_H,
+      channelNumberById,
+      favoriteSet,
+      nowMs,
+      onChannelFocus,
+      onChannelLongPress,
+      onChannelPress,
+      onFocusRegion,
+      onPreferFirstConsumed,
+      onProgramPress,
+      preferFirstChannel,
+      scrollX,
+      showChannelLogos,
+      showChannelNumbers,
+      timelineWidth,
+      visibleLeft,
+      visibleRight,
+    ],
   );
 
   return (
@@ -235,7 +480,7 @@ export function TimelineGrid({
           nestedScrollEnabled
           showsHorizontalScrollIndicator={false}
           scrollEventThrottle={16}
-          onScroll={Animated.event([{ nativeEvent: { contentOffset: { x: scrollX } } }], { useNativeDriver: false })}
+          onScroll={onHorizontalScroll}
         >
           <View style={{ width: LOGO_W + timelineWidth, height: bodyH }}>
             {bodyH > 0 && (
@@ -243,7 +488,8 @@ export function TimelineGrid({
                 data={preparedRows}
                 ref={listRef}
                 keyExtractor={(row) => row.channel.id}
-                drawDistance={Math.max(720, ROW_H * 16)}
+                // Tighter draw budget on weak GPUs; still enough for fast D-pad.
+                drawDistance={Math.max(480, ROW_H * 10)}
                 // FlashList still virtualizes/recycles rows. Disabling RN's
                 // additional clipping layer prevents Android TV from detaching
                 // the currently focused transformed row during a fast D-pad scan.
@@ -255,76 +501,7 @@ export function TimelineGrid({
                     <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={GOLD} colors={[GOLD]} />
                   ) : undefined
                 }
-                renderItem={({ item: row, index }) => {
-                  const item = row.channel;
-                  return (
-                    <View style={[styles.row, { height: ROW_H }]}>
-                      <Animated.View style={[styles.logoCol, { width: LOGO_W, height: ROW_H, transform: [{ translateX: scrollX }] }]}>
-                        <Pressable
-                          style={({ focused }: any) => [styles.logoCell, focused && styles.cellFocused]}
-                          focusable
-                          hasTVPreferredFocus={index === 0 && preferFirstChannel}
-                          onFocus={() => {
-                            focusRegionRef.current = "channel";
-                            if (index === 0 && preferFirstChannel) setPreferFirstChannel(false);
-                            onChannelFocus?.(item);
-                          }}
-                          onPress={() => onChannelPress(item)}
-                          onLongPress={() => onChannelLongPress?.(item)}
-                          testID={`epg-channel-${item.id}`}
-                        >
-                          {showChannelNumbers && (
-                            <Text style={styles.channelNumber}>{channelNumberById?.[item.id] || index + 1}</Text>
-                          )}
-                          <ChannelLogo
-                            name={item.name}
-                            logo={item.logo}
-                            disabled={!showChannelLogos}
-                            size={LOGO_SIZE}
-                            favorite={favoriteSet.has(item.id)}
-                          />
-                          <Text numberOfLines={1} style={styles.logoName}>
-                            {item.name}
-                          </Text>
-                        </Pressable>
-                      </Animated.View>
-
-                      <View style={{ width: timelineWidth, height: ROW_H }}>
-                        {row.programs.map((prepared, i) => (
-                          <Pressable
-                            key={prepared.key}
-                            onFocus={() => {
-                              focusRegionRef.current = "program";
-                              onChannelFocus?.(item);
-                            }}
-                            onPress={() => onProgramPress(prepared.program, item)}
-                            onLongPress={() => onChannelLongPress?.(item)}
-                            focusable
-                            style={({ focused }: any) => [
-                              styles.progCell,
-                              { left: prepared.left, width: prepared.width },
-                              prepared.isLive && styles.progLive,
-                              focused && styles.cellFocused,
-                            ]}
-                            testID={`epg-prog-${item.id}-${i}`}
-                          >
-                            <Text numberOfLines={1} style={styles.progTitle}>
-                              {prepared.program.title}
-                            </Text>
-                            <Text numberOfLines={1} style={styles.progTime}>
-                              {prepared.timeLabel}
-                            </Text>
-                          </Pressable>
-                        ))}
-                        {row.programs.length === 0 && (
-                          <View style={[styles.progCell, { left: 0, width: timelineWidth - 6 }]}>
-                            <Text style={styles.noData}>No guide data</Text>
-                          </View>
-                        )}
-                      </View>
-                    </View>
-                  );
-                }}
+                renderItem={renderItem}
               />
             )}
             {showNow && bodyH > 0 && (

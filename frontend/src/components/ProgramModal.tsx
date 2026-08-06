@@ -8,15 +8,43 @@ import { colors, fonts, radius, spacing } from "@/src/theme";
 import { useStore } from "@/src/store";
 import { reminderKey } from "@/src/utils/time";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
+import { loadNativeChannelPrograms, nativeEpgAvailable } from "@/src/nativeEpg";
 
 export function ProgramModal() {
-  const { activeProgram, closeProgram, addReminder, removeReminder, hasReminder } = useStore();
+  const { activeProgram, closeProgram, addReminder, removeReminder, hasReminder, windowStart, windowEnd } = useStore();
   const router = useRouter();
   const [msg, setMsg] = React.useState<string | null>(null);
+  const [enrichedDesc, setEnrichedDesc] = React.useState<string>("");
 
   React.useEffect(() => {
     setMsg(null);
+    setEnrichedDesc("");
   }, [activeProgram]);
+
+  // Bulk guide loads omit descriptions for bridge size; hydrate on demand here.
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!activeProgram || activeProgram.program.desc || !nativeEpgAvailable) return;
+      const startMs = Date.parse(windowStart || activeProgram.program.start);
+      const endMs = Date.parse(windowEnd || activeProgram.program.stop || activeProgram.program.start);
+      if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return;
+      try {
+        const channelKey = activeProgram.channel.tvg_id || activeProgram.channel.id;
+        const programs = await loadNativeChannelPrograms(channelKey, startMs, endMs);
+        if (cancelled) return;
+        const match = programs.find(
+          (p) => p.start === activeProgram.program.start || p.title === activeProgram.program.title,
+        );
+        if (match?.desc) setEnrichedDesc(match.desc);
+      } catch (e) {
+        console.warn("[ProgramModal] description enrich failed", e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeProgram, windowStart, windowEnd]);
 
   // Close on the hardware / remote BACK button while the sheet is open.
   React.useEffect(() => {
@@ -35,6 +63,7 @@ export function ProgramModal() {
   const start = dayjs(program.start);
   const isFuture = start.isAfter(dayjs());
   const isLive = dayjs().isAfter(program.start) && program.stop && dayjs().isBefore(program.stop);
+  const description = program.desc || enrichedDesc;
 
   const watch = () => {
     void Haptics.selectionAsync().catch(() => {});
@@ -82,9 +111,9 @@ export function ProgramModal() {
               {isLive ? "  • LIVE" : ""}
             </Text>
             {!!program.category && <Text style={styles.category}>{program.category}</Text>}
-            {!!program.desc && (
+            {!!description && (
               <ScrollView style={styles.descBox} nestedScrollEnabled showsVerticalScrollIndicator>
-                <Text style={styles.desc}>{program.desc}</Text>
+                <Text style={styles.desc}>{description}</Text>
               </ScrollView>
             )}
 

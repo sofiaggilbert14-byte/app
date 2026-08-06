@@ -254,7 +254,7 @@ export default function SettingsScreen() {
                 <ChoiceRow label="Live preview" value={safePreviewMode} options={[
                   { label: "Normal", value: "on" as SafePreviewMode },
                   { label: "Delayed", value: "delayed" as SafePreviewMode },
-                  { label: "Off", value: "off" as SafePreviewMode },
+                  { label: "Off (recommended on TV)", value: "off" as SafePreviewMode },
                 ]} onChange={setSafePreviewMode} />
                 <ToggleRow label="Channel numbers" sub="Show lineup numbers beside channel logos." value={channelNumbers} onChange={setChannelNumbers} />
                 <ToggleRow label="Channel logos" sub="Show cached logos when available." value={channelLogos} onChange={setChannelLogos} />

@@ -173,13 +173,15 @@ export default function GuideScreen() {
     channelLogos,
     deviceLayoutMode,
   } = useStore();
+  const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
   const [now, setNow] = useState(() => new Date().toISOString());
   const shortScreen = height < 760;
   const mobileSafeGuide =
     deviceLayoutMode === "mobile" || (deviceLayoutMode === "auto" && Platform.OS !== "web" && !Platform.isTV);
   const compactGuide = guideLayout === "compact";
   const livePreviewEnabled = safePreviewMode !== "off";
-  const previewDelayMs = safePreviewMode === "delayed" ? 1200 : GUIDE_PREVIEW_FOCUS_DELAY_MS;
+  // Delayed mode waits longer on weak devices so D-pad scanning stays smooth.
+  const previewDelayMs = safePreviewMode === "delayed" ? 1500 : GUIDE_PREVIEW_FOCUS_DELAY_MS;
 
   const [category, setCategory] = useState<string>("All");
   const [focusedChannelId, setFocusedChannelId] = useState<string | null>(null);
@@ -202,6 +204,8 @@ export default function GuideScreen() {
         ? GUIDE_RAIL_WIDTH
         : 0;
 
+  const sortedChannels = useMemo(() => [...channels].sort(byChannelName), [channels]);
+
   const categories = useMemo(() => {
     const known = new Set(BASE_CATEGORIES);
     const extras = Array.from(new Set(channels.map((c) => c.group).filter(Boolean) as string[]))
@@ -210,31 +214,31 @@ export default function GuideScreen() {
     const allCategories = [...BASE_CATEGORIES, ...extras];
     return allCategories.filter((g) => {
       if (g === "All") return true;
-      if (g === "Favorites") return favorites.length > 0;
+      if (g === "Favorites") return favoriteSet.size > 0;
       if (g === "Recently Watched") return recent.length > 0;
       return channels.some((c) => categoryMatches(c, g));
     });
-  }, [channels, favorites.length, recent.length]);
+  }, [channels, favoriteSet, recent.length]);
 
   const filtered = useMemo(() => {
-    const list =
-      category === "All"
-        ? channels
-        : category === "Favorites"
-          ? channels.filter((c: Channel) => favorites.includes(c.id))
-          : category === "Recently Watched"
-            ? recent.map((c) => channels.find((live) => live.id === c.id) || c).filter(Boolean)
-          : channels.filter((c: Channel) => categoryMatches(c, category));
-    return [...list].sort(byChannelName);
-  }, [channels, category, favorites, recent]);
+    if (category === "All") return sortedChannels;
+    if (category === "Favorites") {
+      return sortedChannels.filter((c: Channel) => favoriteSet.has(c.id));
+    }
+    if (category === "Recently Watched") {
+      const liveById = new Map(channels.map((c) => [c.id, c]));
+      return recent.map((c) => liveById.get(c.id) || c).filter(Boolean) as Channel[];
+    }
+    return sortedChannels.filter((c: Channel) => categoryMatches(c, category));
+  }, [channels, category, favoriteSet, recent, sortedChannels]);
 
   const channelNumberById = useMemo(() => {
     const map: Record<string, number> = {};
-    [...channels].sort(byChannelName).forEach((channel, index) => {
+    sortedChannels.forEach((channel, index) => {
       map[channel.id] = index + 1;
     });
     return map;
-  }, [channels]);
+  }, [sortedChannels]);
 
   const previewChannel = useMemo(() => {
     const focused = focusedChannelId ? filtered.find((c) => c.id === focusedChannelId) : null;
@@ -526,7 +530,13 @@ export default function GuideScreen() {
                 style={StyleSheet.absoluteFill}
               />
               {previewPlayerVisible && (
-                <ErrorBoundary fallback={() => null}>
+                <ErrorBoundary
+                  fallback={(reset) => (
+                    <Pressable style={styles.previewCenter} onPress={reset} focusable={false}>
+                      <Text style={styles.previewChannelName}>Preview unavailable — OK in Settings to retry</Text>
+                    </Pressable>
+                  )}
+                >
                   <StreamPlayer
                     key={`guide-preview-${previewChannel.id}`}
                     uri={previewChannel.url}
@@ -620,29 +630,40 @@ export default function GuideScreen() {
             showChannelNumbers={channelNumbers}
             channelNumberById={channelNumberById}
             showChannelLogos={channelLogos}
+            favoriteIds={favoriteSet}
+            onToggleFavorite={toggleFavorite}
             resetToken={guideResetToken}
           />
+        ) : drawerMode === "groups" ? (
+          // Cold-start TV path opens on the groups drawer — defer the heavy
+          // timeline until a group is chosen so we do not prepare every row twice.
+          <View style={styles.center} testID="guide-groups-placeholder">
+            <Text style={styles.centerText}>Choose a channel group to open the guide</Text>
+          </View>
         ) : (
           <FocusGuide style={styles.timelineArea} autoFocus>
-            <TimelineGrid
-              channels={filtered}
-              windowStart={windowStart}
-              windowEnd={windowEnd}
-              now={now}
-              onChannelPress={openChannel}
-              onProgramPress={openProgram}
-              onChannelFocus={focusPreviewChannel}
-              onChannelLongPress={favoriteChannel}
-              refreshing={refreshing}
-              onRefresh={hardRefresh}
-              density={guideDensity}
-              showChannelNumbers={channelNumbers}
-              channelNumberById={channelNumberById}
-              showChannelLogos={channelLogos}
-              resetToken={guideResetToken}
-              active={drawerMode === null}
-              onLeftBoundary={returnToGroups}
-            />
+            <ErrorBoundary>
+              <TimelineGrid
+                channels={filtered}
+                windowStart={windowStart}
+                windowEnd={windowEnd}
+                now={now}
+                onChannelPress={openChannel}
+                onProgramPress={openProgram}
+                onChannelFocus={focusPreviewChannel}
+                onChannelLongPress={favoriteChannel}
+                refreshing={refreshing}
+                onRefresh={hardRefresh}
+                density={guideDensity}
+                showChannelNumbers={channelNumbers}
+                channelNumberById={channelNumberById}
+                showChannelLogos={channelLogos}
+                favoriteIds={favoriteSet}
+                resetToken={guideResetToken}
+                active={drawerMode === null}
+                onLeftBoundary={returnToGroups}
+              />
+            </ErrorBoundary>
           </FocusGuide>
         )}
         {drawerMode !== null && (

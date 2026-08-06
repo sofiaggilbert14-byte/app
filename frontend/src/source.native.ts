@@ -365,7 +365,7 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
   }
 }
 
-export async function loadGuide(startISO?: string, hours = 8, force = false): Promise<GuideResponse> {
+export async function loadGuide(startISO?: string, hours = 4, force = false): Promise<GuideResponse> {
   const parsed = force ? await refreshInternal(true) : await ensureLoaded();
   const now = dayjs();
   const winStart = startISO ? dayjs(startISO) : now.subtract(1, "hour");

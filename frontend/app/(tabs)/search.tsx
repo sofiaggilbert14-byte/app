@@ -1,13 +1,13 @@
-import React, { useMemo, useState } from "react";
+import React, { useDeferredValue, useMemo, useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
   Pressable,
   TextInput,
-  ScrollView,
   KeyboardAvoidingView,
 } from "react-native";
+import { FlashList } from "@shopify/flash-list";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -17,30 +17,58 @@ import { useStore } from "@/src/store";
 import { Channel, Program } from "@/src/api";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
 
+type SearchRow =
+  | { type: "section"; key: string; title: string }
+  | { type: "channel"; key: string; channel: Channel }
+  | { type: "program"; key: string; program: Program; channel: Channel }
+  | { type: "empty"; key: string; message: string };
+
 export default function SearchScreen() {
   const router = useRouter();
   const { channels, addRecent, openProgram, channelLogos, favorites } = useStore();
   const [q, setQ] = useState("");
+  const deferredQ = useDeferredValue(q);
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
 
-  const { chResults, progResults } = useMemo(() => {
-    const ql = q.toLowerCase().trim();
-    if (!ql) return { chResults: [], progResults: [] as { p: Program; c: Channel }[] };
+  const rows = useMemo<SearchRow[]>(() => {
+    const ql = deferredQ.toLowerCase().trim();
+    if (!ql) {
+      return [{ type: "empty", key: "hint", message: "Search channels and upcoming programs" }];
+    }
+
     const chResults = channels.filter((c) => c.name.toLowerCase().includes(ql)).slice(0, 40);
     const now = Date.now();
     const progResults: { p: Program; c: Channel }[] = [];
     for (const c of channels) {
       for (const p of c.programs || []) {
-        const end = p.stop ? new Date(p.stop).getTime() : new Date(p.start).getTime();
-        if (end < now) continue;
-        if (p.title.toLowerCase().includes(ql)) progResults.push({ p, c });
+        const end = p.stop ? Date.parse(p.stop) : Date.parse(p.start);
+        if (!Number.isFinite(end) || end < now) continue;
+        if ((p.title || "").toLowerCase().includes(ql)) progResults.push({ p, c });
         if (progResults.length >= 60) break;
       }
       if (progResults.length >= 60) break;
     }
     progResults.sort((a, b) => a.p.start.localeCompare(b.p.start));
-    return { chResults, progResults };
-  }, [q, channels]);
+
+    if (!chResults.length && !progResults.length) {
+      return [{ type: "empty", key: "none", message: `No results for “${deferredQ.trim()}”` }];
+    }
+
+    const next: SearchRow[] = [];
+    if (chResults.length) {
+      next.push({ type: "section", key: "ch-section", title: "Channels" });
+      for (const channel of chResults) {
+        next.push({ type: "channel", key: `ch-${channel.id}`, channel });
+      }
+    }
+    if (progResults.length) {
+      next.push({ type: "section", key: "prog-section", title: "Upcoming Programs" });
+      progResults.forEach(({ p, c }, i) => {
+        next.push({ type: "program", key: `prog-${c.id}-${p.start}-${i}`, program: p, channel: c });
+      });
+    }
+    return next;
+  }, [deferredQ, channels]);
 
   const play = (c: Channel) => {
     void Haptics.selectionAsync().catch(() => {});
@@ -74,25 +102,35 @@ export default function SearchScreen() {
         </View>
       </View>
 
-      <ScrollView
+      <FlashList
+        data={rows}
+        keyExtractor={(item) => item.key}
+        drawDistance={480}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 130 }}
-      >
-        {q.trim().length === 0 ? (
-          <View style={styles.empty}>
-            <Ionicons name="search" size={36} color={colors.onSurfaceTertiary} />
-            <Text style={styles.emptyText}>Search channels and upcoming programs</Text>
-          </View>
-        ) : chResults.length === 0 && progResults.length === 0 ? (
-          <View style={styles.empty}>
-            <Text style={styles.emptyText}>No results for “{q}”</Text>
-          </View>
-        ) : (
-          <>
-            {chResults.length > 0 && <Text style={styles.section}>Channels</Text>}
-            {chResults.map((c) => (
-              <Pressable key={c.id} style={({ focused }: any) => [styles.row, focused && styles.rowFocused]} onPress={() => play(c)} testID={`search-ch-${c.id}`}>
+        renderItem={({ item }) => {
+          if (item.type === "section") {
+            return <Text style={styles.section}>{item.title}</Text>;
+          }
+          if (item.type === "empty") {
+            return (
+              <View style={styles.empty}>
+                {item.key === "hint" ? (
+                  <Ionicons name="search" size={36} color={colors.onSurfaceTertiary} />
+                ) : null}
+                <Text style={styles.emptyText}>{item.message}</Text>
+              </View>
+            );
+          }
+          if (item.type === "channel") {
+            const c = item.channel;
+            return (
+              <Pressable
+                style={({ focused }: any) => [styles.row, focused && styles.rowFocused]}
+                onPress={() => play(c)}
+                testID={`search-ch-${c.id}`}
+              >
                 <ChannelLogo
                   name={c.name}
                   logo={c.logo}
@@ -103,34 +141,32 @@ export default function SearchScreen() {
                 <Text numberOfLines={1} style={styles.rowName}>{c.name}</Text>
                 <Ionicons name="play-circle" size={22} color={colors.brand} />
               </Pressable>
-            ))}
-
-            {progResults.length > 0 && <Text style={styles.section}>Upcoming Programs</Text>}
-            {progResults.map(({ p, c }, i) => (
-              <Pressable
-                key={`${c.id}-${i}`}
-                style={({ focused }: any) => [styles.row, focused && styles.rowFocused]}
-                onPress={() => openProgram(p, c)}
-                testID={`search-prog-${c.id}-${i}`}
-              >
-                <ChannelLogo
-                  name={c.name}
-                  logo={c.logo}
-                  disabled={!channelLogos}
-                  size={40}
-                  favorite={favoriteSet.has(c.id)}
-                />
-                <View style={{ flex: 1 }}>
-                  <Text numberOfLines={1} style={styles.rowName}>{p.title}</Text>
-                  <Text numberOfLines={1} style={styles.rowSub}>
-                    {c.name} · {dayjs(p.start).format("ddd h:mm A")}
-                  </Text>
-                </View>
-              </Pressable>
-            ))}
-          </>
-        )}
-      </ScrollView>
+            );
+          }
+          const { program: p, channel: c } = item;
+          return (
+            <Pressable
+              style={({ focused }: any) => [styles.row, focused && styles.rowFocused]}
+              onPress={() => openProgram(p, c)}
+              testID={`search-prog-${c.id}-${p.start}`}
+            >
+              <ChannelLogo
+                name={c.name}
+                logo={c.logo}
+                disabled={!channelLogos}
+                size={40}
+                favorite={favoriteSet.has(c.id)}
+              />
+              <View style={{ flex: 1 }}>
+                <Text numberOfLines={1} style={styles.rowName}>{p.title}</Text>
+                <Text numberOfLines={1} style={styles.rowSub}>
+                  {c.name} · {dayjs(p.start).format("ddd h:mm A")}
+                </Text>
+              </View>
+            </Pressable>
+          );
+        }}
+      />
     </KeyboardAvoidingView>
   );
 }

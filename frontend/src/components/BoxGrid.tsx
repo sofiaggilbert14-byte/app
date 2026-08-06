@@ -6,7 +6,6 @@ import { colors, fonts, radius, spacing } from "@/src/theme";
 import { Channel, Program } from "@/src/api";
 import { ChannelLogo } from "./ChannelLogo";
 import { nowNext, progressPct, fmtTime } from "@/src/utils/time";
-import { useStore } from "@/src/store";
 
 const GOLD = "#F6B73C";
 const GOLD_SOFT = "#FFE3A3";
@@ -119,6 +118,8 @@ export function BoxGrid({
   showChannelNumbers = false,
   channelNumberById,
   showChannelLogos = true,
+  favoriteIds,
+  onToggleFavorite,
   resetToken = 0,
 }: {
   channels: Channel[];
@@ -132,20 +133,25 @@ export function BoxGrid({
   showChannelNumbers?: boolean;
   channelNumberById?: Record<string, number>;
   showChannelLogos?: boolean;
+  favoriteIds: ReadonlySet<string> | string[];
+  onToggleFavorite: (id: string) => void;
   resetToken?: number;
 }) {
   const { width } = useWindowDimensions();
   const numColumns = width >= 1400 ? 6 : width >= 1150 ? 5 : width >= 900 ? 4 : width >= 600 ? 3 : 2;
   const nowDate = useMemo(() => new Date(now), [now]);
-  const { favorites, toggleFavorite } = useStore();
-  const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
+  const favoriteSet = useMemo(() => {
+    return favoriteIds instanceof Set ? favoriteIds : new Set(favoriteIds);
+  }, [favoriteIds]);
   const listRef = useRef<FlashListRef<Channel>>(null);
 
   useEffect(() => {
     if (!resetToken) return;
     try {
       listRef.current?.scrollToIndex({ index: 0, animated: true, viewPosition: 0 });
-    } catch {}
+    } catch (e) {
+      console.warn("[BoxGrid] reset scroll failed", e);
+    }
   }, [resetToken]);
 
   const renderItem = useCallback(
@@ -161,7 +167,7 @@ export function BoxGrid({
         onChannelPress={onChannelPress}
         onProgramPress={onProgramPress}
         onChannelFocus={onChannelFocus}
-        toggleFavorite={toggleFavorite}
+        toggleFavorite={onToggleFavorite}
       />
     ),
     [
@@ -171,9 +177,9 @@ export function BoxGrid({
       onChannelFocus,
       onChannelPress,
       onProgramPress,
+      onToggleFavorite,
       showChannelLogos,
       showChannelNumbers,
-      toggleFavorite,
     ],
   );
 

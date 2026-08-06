@@ -15,7 +15,7 @@ import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { PointerOverlay } from "@/src/components/PointerOverlay";
 import { TvCalibrationFrame, TvCalibrationProvider } from "@/src/tvCalibration";
 
-LogBox.ignoreAllLogs(true);
+LogBox.ignoreAllLogs(!__DEV__);
 SplashScreen.preventAutoHideAsync();
 
 function NotificationRouter() {
@@ -80,7 +80,9 @@ export default function RootLayout() {
             <GuideProvider>
               <StatusBar style="light" />
               <NotificationRouter />
-              <ReminderAutoSwitcher />
+              <ErrorBoundary>
+                <ReminderAutoSwitcher />
+              </ErrorBoundary>
               <ErrorBoundary>
                 <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#0F0F13" } }}>
                   <Stack.Screen name="(tabs)" />

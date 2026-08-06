@@ -23,7 +23,12 @@ type NativeRefreshResult = {
 
 type CharmEpgModule = {
   refresh(url: string): Promise<NativeRefreshResult>;
-  getWindow(startMs: number, endMs: number): Promise<NativeWindow>;
+  getWindow(
+    startMs: number,
+    endMs: number,
+    channelIds: string[],
+    includeDescriptions: boolean,
+  ): Promise<NativeWindow>;
   getCurrent(): Promise<NativeCurrent>;
   clear(): Promise<boolean>;
 };
@@ -47,22 +52,41 @@ export async function refreshNativeEpg(url: string): Promise<NativeRefreshResult
   return nativeModule.refresh(url);
 }
 
+/**
+ * Bulk guide paint: filter in native SQLite and skip description blobs so the
+ * bridge payload stays lean for large lineups on weak Android TV devices.
+ */
 export async function loadNativeEpgWindow(
   channelIds: string[],
   startMs: number,
   endMs: number,
+  options?: { includeDescriptions?: boolean },
 ): Promise<Record<string, Program[]>> {
   if (!nativeModule) return {};
-  const window = await nativeModule.getWindow(startMs, endMs);
+  const ids = Array.from(new Set(channelIds.filter(Boolean)));
+  if (!ids.length) return {};
+
+  const includeDescriptions = options?.includeDescriptions === true;
+  const window = await nativeModule.getWindow(startMs, endMs, ids, includeDescriptions);
   const result: Record<string, Program[]> = {};
 
-  for (const channelId of channelIds) {
-    if (!channelId || result[channelId]) continue;
+  for (const channelId of ids) {
     const programmes = window[channelId];
     if (!programmes?.length) continue;
     result[channelId] = programmes.map(toProgram);
   }
   return result;
+}
+
+/** Lazy description fetch for program modal / focused preview enrichment. */
+export async function loadNativeChannelPrograms(
+  channelId: string,
+  startMs: number,
+  endMs: number,
+): Promise<Program[]> {
+  if (!nativeModule || !channelId) return [];
+  const window = await nativeModule.getWindow(startMs, endMs, [channelId], true);
+  return (window[channelId] || []).map(toProgram);
 }
 
 export async function loadNativeCurrentPrograms(): Promise<Record<string, Program>> {

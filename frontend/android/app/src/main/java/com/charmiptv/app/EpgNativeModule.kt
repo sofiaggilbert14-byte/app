@@ -6,6 +6,7 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.WritableArray
 import org.xmlpull.v1.XmlPullParser
 import java.io.BufferedInputStream
@@ -83,7 +84,13 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   }
 
   @ReactMethod
-  fun getWindow(startMs: Double, endMs: Double, promise: Promise) {
+  fun getWindow(
+    startMs: Double,
+    endMs: Double,
+    channelIds: ReadableArray,
+    includeDescriptions: Boolean,
+    promise: Promise,
+  ) {
     queryExecutor.execute {
       try {
         val start = startMs.toLong()
@@ -91,12 +98,17 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         if (end <= start || end - start > MAX_QUERY_WINDOW_MS) {
           throw IllegalArgumentException("Invalid EPG query window")
         }
-        val programmes = database.queryWindow(start, end)
+        val ids = ArrayList<String>(channelIds.size())
+        for (i in 0 until channelIds.size()) {
+          val id = channelIds.getString(i)?.trim()
+          if (!id.isNullOrEmpty()) ids.add(id)
+        }
+        val programmes = database.queryWindow(start, end, ids, includeDescriptions)
         val grouped = Arguments.createMap()
         val channelArrays = HashMap<String, WritableArray>()
         for (program in programmes) {
           val array = channelArrays.getOrPut(program.channelId) { Arguments.createArray() }
-          array.pushMap(programToMap(program))
+          array.pushMap(programToMap(program, includeDescriptions))
         }
         for ((channelId, array) in channelArrays) {
           grouped.putArray(channelId, array)
@@ -163,11 +175,17 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     }
   }
 
-  private fun programToMap(program: NativeEpgProgram) = Arguments.createMap().apply {
+  private fun programToMap(
+    program: NativeEpgProgram,
+    includeDescriptions: Boolean = true,
+  ) = Arguments.createMap().apply {
     putString("channelId", program.channelId)
     putString("title", program.title)
-    if (program.description != null) putString("description", program.description)
-    else putNull("description")
+    if (includeDescriptions && program.description != null) {
+      putString("description", program.description)
+    } else {
+      putNull("description")
+    }
     putDouble("startMs", program.startMs.toDouble())
     putDouble("endMs", program.endMs.toDouble())
   }

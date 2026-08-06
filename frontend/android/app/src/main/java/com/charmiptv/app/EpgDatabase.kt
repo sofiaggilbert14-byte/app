@@ -118,20 +118,73 @@ internal class EpgDatabase(context: Context) :
     }
   }
 
-  fun queryWindow(startMs: Long, endMs: Long): List<NativeEpgProgram> {
+  /**
+   * Window reads are the guide hot path. Filter in SQLite when channel IDs are
+   * known, and skip description blobs unless a caller explicitly needs them
+   * (program modal / focused-channel enrichment) so the RN bridge stays small
+   * on Fire Stick-class devices.
+   */
+  fun queryWindow(
+    startMs: Long,
+    endMs: Long,
+    channelIds: Collection<String>? = null,
+    includeDescriptions: Boolean = true,
+  ): List<NativeEpgProgram> {
+    if (channelIds != null && channelIds.isEmpty()) return emptyList()
+
+    val columns = if (includeDescriptions) {
+      arrayOf("channel_id", "title", "description", "start_time", "end_time")
+    } else {
+      arrayOf("channel_id", "title", "start_time", "end_time")
+    }
+
+    if (channelIds == null) {
+      return queryWindowChunk(columns, "end_time > ? AND start_time < ?", arrayOf(startMs.toString(), endMs.toString()), includeDescriptions)
+    }
+
+    val result = ArrayList<NativeEpgProgram>()
+    val uniqueIds = channelIds.filter { it.isNotBlank() }.distinct()
+    if (uniqueIds.isEmpty()) return result
+
+    // SQLite defaults to a low bound on bound variables; chunk IN lists.
+    for (chunk in uniqueIds.chunked(CHANNEL_ID_CHUNK)) {
+      val placeholders = chunk.joinToString(",") { "?" }
+      val args = ArrayList<String>(chunk.size + 2).apply {
+        addAll(chunk)
+        add(startMs.toString())
+        add(endMs.toString())
+      }
+      result.addAll(
+        queryWindowChunk(
+          columns,
+          "channel_id IN ($placeholders) AND end_time > ? AND start_time < ?",
+          args.toTypedArray(),
+          includeDescriptions,
+        )
+      )
+    }
+    return result
+  }
+
+  private fun queryWindowChunk(
+    columns: Array<String>,
+    selection: String,
+    selectionArgs: Array<String>,
+    includeDescriptions: Boolean,
+  ): List<NativeEpgProgram> {
     val result = ArrayList<NativeEpgProgram>()
     readableDatabase.query(
       LIVE_TABLE,
-      arrayOf("channel_id", "title", "description", "start_time", "end_time"),
-      "end_time > ? AND start_time < ?",
-      arrayOf(startMs.toString(), endMs.toString()),
+      columns,
+      selection,
+      selectionArgs,
       null,
       null,
       "channel_id ASC, start_time ASC",
     ).use { cursor ->
       val channelColumn = cursor.getColumnIndexOrThrow("channel_id")
       val titleColumn = cursor.getColumnIndexOrThrow("title")
-      val descriptionColumn = cursor.getColumnIndexOrThrow("description")
+      val descriptionColumn = if (includeDescriptions) cursor.getColumnIndexOrThrow("description") else -1
       val startColumn = cursor.getColumnIndexOrThrow("start_time")
       val endColumn = cursor.getColumnIndexOrThrow("end_time")
       while (cursor.moveToNext()) {
@@ -139,7 +192,11 @@ internal class EpgDatabase(context: Context) :
           NativeEpgProgram(
             channelId = cursor.getString(channelColumn),
             title = cursor.getString(titleColumn),
-            description = if (cursor.isNull(descriptionColumn)) null else cursor.getString(descriptionColumn),
+            description = if (descriptionColumn >= 0 && !cursor.isNull(descriptionColumn)) {
+              cursor.getString(descriptionColumn)
+            } else {
+              null
+            },
             startMs = cursor.getLong(startColumn),
             endMs = cursor.getLong(endColumn),
           )
@@ -204,5 +261,6 @@ internal class EpgDatabase(context: Context) :
     private const val DATABASE_VERSION = 2
     private const val LIVE_TABLE = "epg_programmes"
     private const val STAGING_TABLE = "epg_programmes_staging"
+    private const val CHANNEL_ID_CHUNK = 400
   }
 }
