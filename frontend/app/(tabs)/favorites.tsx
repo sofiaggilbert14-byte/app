@@ -11,6 +11,7 @@ import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { nowNext, progressPct } from "@/src/utils/time";
 import { useTvBackToGuide } from "@/src/hooks/use-tv-back-to-guide";
 import { getTvSafeInsets } from "@/src/utils/tvLayout";
+import { formatChannelLabel } from "@/src/utils/channelLabel";
 
 const FAVORITE_GAP = spacing.sm;
 
@@ -50,7 +51,9 @@ function ChannelRow({
         favorite={favorite}
       />
       <View style={{ flex: 1 }}>
-        <Text numberOfLines={1} style={styles.rowName}>{channel.name}</Text>
+        <Text numberOfLines={1} style={styles.rowName}>
+          {formatChannelLabel(channel.name)}
+        </Text>
         <Text numberOfLines={1} style={styles.rowSub}>
           {current ? current.title : "No program info"}
         </Text>
@@ -101,17 +104,27 @@ function FavoriteChannelBlock({
             favorite
           />
         </View>
-        <Ionicons name="star" size={17} color={colors.warning} />
+        <Pressable
+          focusable
+          onPress={onUnfavorite}
+          hitSlop={8}
+          style={({ focused }: any) => [styles.favoriteStarBtn, focused && styles.favoriteStarFocused]}
+          testID={`favorite-star-${channel.id}`}
+        >
+          <Ionicons name="star" size={17} color={colors.warning} />
+        </Pressable>
       </View>
 
-      <Text numberOfLines={1} style={styles.favoriteName}>{channel.name}</Text>
+      <Text numberOfLines={1} style={styles.favoriteName}>
+        {formatChannelLabel(channel.name)}
+      </Text>
       <Text numberOfLines={2} style={styles.favoriteProgram}>
         {current?.title || "No program info"}
       </Text>
       <View style={styles.favoriteProgressTrack}>
         <View style={[styles.favoriteProgressFill, { width: `${pct}%` }]} />
       </View>
-      <Text numberOfLines={1} style={styles.favoriteHint}>OK to watch · Hold to unpin</Text>
+      <Text numberOfLines={1} style={styles.favoriteHint}>OK to watch · Hold or focus star to unpin</Text>
     </Pressable>
   );
 }
@@ -196,7 +209,10 @@ export default function FavoritesScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={styles.continueLabel}>Last channel</Text>
                 <Text numberOfLines={1} style={styles.continueName}>
-                  {channelNumbers ? `${channelNumberById[lastChannel.id] || ""} · ` : ""}{lastChannel.name}
+                  {formatChannelLabel(lastChannel.name, {
+                    number: channelNumberById[lastChannel.id],
+                    showNumber: channelNumbers,
+                  })}
                 </Text>
                 <Text numberOfLines={1} style={styles.rowSub}>
                   {nowNext(lastChannel.programs, new Date()).current?.title || "Tap to resume playback"}
@@ -244,11 +260,14 @@ export default function FavoritesScreen() {
               <View style={{ flex: 1 }}>
                 <Text numberOfLines={1} style={styles.rowName}>{r.programTitle}</Text>
                 <Text style={styles.rowSub}>
-                  {r.channelName} · {dayjs(r.start).format("ddd h:mm A")}
+                  {formatChannelLabel(r.channelName, {
+                    number: channelNumberById[r.channelId],
+                    showNumber: channelNumbers,
+                  })} · {dayjs(r.start).format("ddd h:mm A")}
                 </Text>
               </View>
               <Pressable
-                style={styles.switchBtn}
+                style={({ focused }: any) => [styles.switchBtn, focused && styles.rowFocused]}
                 onPress={() => {
                   const c = channelById(r.channelId);
                   if (c) play(c);
@@ -257,7 +276,12 @@ export default function FavoritesScreen() {
               >
                 <Ionicons name="play" size={14} color="#fff" />
               </Pressable>
-              <Pressable hitSlop={8} onPress={() => removeReminder(r.key)} testID={`reminder-remove-${r.key}`}>
+              <Pressable
+                hitSlop={8}
+                onPress={() => removeReminder(r.key)}
+                style={({ focused }: any) => [styles.reminderRemoveBtn, focused && styles.rowFocused]}
+                testID={`reminder-remove-${r.key}`}
+              >
                 <Ionicons name="trash-outline" size={18} color={colors.onSurfaceTertiary} />
               </Pressable>
             </View>
@@ -358,6 +382,16 @@ const styles = StyleSheet.create({
     fontSize: 11,
     textAlign: "right",
   },
+  favoriteStarBtn: {
+    borderRadius: radius.sm,
+    borderWidth: 2,
+    borderColor: "transparent",
+    padding: 2,
+  },
+  favoriteStarFocused: {
+    borderColor: colors.brand,
+    backgroundColor: "rgba(227,38,46,0.18)",
+  },
   favoriteName: { color: "rgba(255,255,255,0.86)", fontFamily: fonts.semibold, fontSize: 11.5 },
   favoriteProgram: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 12.5, minHeight: 32 },
   favoriteProgressTrack: {
@@ -384,7 +418,7 @@ const styles = StyleSheet.create({
   rowName: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 14 },
   channelNumber: { color: colors.brandSecondary, fontFamily: fonts.bold, fontSize: 13, minWidth: 34, textAlign: "right" },
   rowSub: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 12, marginTop: 2 },
-  rowFocused: { borderColor: "#fff", borderWidth: 2, backgroundColor: "#2a121b" },
+  rowFocused: { borderColor: colors.brand, borderWidth: 2, backgroundColor: "#2a121b" },
   reminderRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -413,6 +447,17 @@ const styles = StyleSheet.create({
     backgroundColor: colors.brand,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "transparent",
+  },
+  reminderRemoveBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "transparent",
   },
   empty: { alignItems: "center", gap: spacing.sm, paddingVertical: spacing.xl },
   emptyText: { color: colors.onSurfaceTertiary, fontFamily: fonts.medium, fontSize: 13 },

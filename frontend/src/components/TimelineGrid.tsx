@@ -14,14 +14,17 @@ import {
   NativeScrollEvent,
 } from "react-native";
 import { FlashList } from "@shopify/flash-list";
+import { Ionicons } from "@expo/vector-icons";
 import dayjs from "dayjs";
 import { colors, fonts } from "@/src/theme";
 import { Channel, Program } from "@/src/api";
 import { ChannelLogo } from "./ChannelLogo";
+import { reminderKey } from "@/src/utils/time";
 
 const HEADER_H = 30;
 const GOLD = "#E3262E";
 const GOLD_SOFT = "#FFFFFF";
+const REMINDER_BELL = "#FACC15";
 const MINUTE_MS = 60_000;
 const SCROLL_VIEWPORT_THROTTLE_MS = 48;
 const H_OVERSCAN_PX = 420;
@@ -71,6 +74,8 @@ type TimelineRowProps = {
   channelNumber?: number;
   showChannelLogos: boolean;
   preferFirstChannel: boolean;
+  interactive: boolean;
+  reminderKeys?: ReadonlySet<string>;
   onPreferFirstConsumed: () => void;
   onFocusRegion: (region: "channel" | "program") => void;
   onProgramPress: (p: Program, c: Channel) => void;
@@ -95,6 +100,8 @@ const TimelineRow = memo(function TimelineRow({
   channelNumber,
   showChannelLogos,
   preferFirstChannel,
+  interactive,
+  reminderKeys,
   onPreferFirstConsumed,
   onFocusRegion,
   onProgramPress,
@@ -118,8 +125,8 @@ const TimelineRow = memo(function TimelineRow({
       <Animated.View style={[styles.logoCol, { width: logoW, height: rowH, transform: [{ translateX: scrollX }] }]}>
         <Pressable
           style={({ focused }: any) => [styles.logoCell, focused && styles.cellFocused]}
-          focusable
-          hasTVPreferredFocus={index === 0 && preferFirstChannel}
+          focusable={interactive}
+          hasTVPreferredFocus={interactive && index === 0 && preferFirstChannel}
           onFocus={() => {
             onFocusRegion("channel");
             if (index === 0 && preferFirstChannel) onPreferFirstConsumed();
@@ -148,6 +155,7 @@ const TimelineRow = memo(function TimelineRow({
       <View style={{ width: timelineWidth, height: rowH }}>
         {visiblePrograms.map((prepared, i) => {
           const isLive = nowMs >= prepared.startMs && nowMs < prepared.endMs;
+          const hasReminder = !!reminderKeys?.has(reminderKey(item.id, prepared.program.start));
           return (
             <Pressable
               key={prepared.key}
@@ -157,15 +165,21 @@ const TimelineRow = memo(function TimelineRow({
               }}
               onPress={() => onProgramPress(prepared.program, item)}
               onLongPress={() => onChannelLongPress?.(item)}
-              focusable
+              focusable={interactive}
               style={({ focused }: any) => [
                 styles.progCell,
                 { left: prepared.left, width: prepared.width },
                 isLive && styles.progLive,
+                hasReminder && styles.progReminded,
                 focused && styles.cellFocused,
               ]}
               testID={`epg-prog-${item.id}-${i}`}
             >
+              {hasReminder ? (
+                <View style={styles.reminderBadge} pointerEvents="none">
+                  <Ionicons name="notifications" size={11} color={REMINDER_BELL} />
+                </View>
+              ) : null}
               <Text numberOfLines={1} style={styles.progTitle}>
                 {prepared.program.title}
               </Text>
@@ -201,6 +215,7 @@ export function TimelineGrid({
   channelNumberById,
   showChannelLogos = true,
   favoriteIds,
+  reminderKeys,
   resetToken = 0,
   active = true,
   onLeftBoundary,
@@ -220,6 +235,7 @@ export function TimelineGrid({
   channelNumberById?: Record<string, number>;
   showChannelLogos?: boolean;
   favoriteIds?: ReadonlySet<string> | string[];
+  reminderKeys?: ReadonlySet<string>;
   resetToken?: number;
   active?: boolean;
   onLeftBoundary?: () => void;
@@ -406,6 +422,8 @@ export function TimelineGrid({
         channelNumber={channelNumberById?.[row.channel.id]}
         showChannelLogos={showChannelLogos}
         preferFirstChannel={preferFirstChannel}
+        interactive={active}
+        reminderKeys={reminderKeys}
         onPreferFirstConsumed={onPreferFirstConsumed}
         onFocusRegion={onFocusRegion}
         onProgramPress={onProgramPress}
@@ -418,6 +436,7 @@ export function TimelineGrid({
       LOGO_SIZE,
       LOGO_W,
       ROW_H,
+      active,
       channelNumberById,
       favoriteSet,
       nowMs,
@@ -428,6 +447,7 @@ export function TimelineGrid({
       onPreferFirstConsumed,
       onProgramPress,
       preferFirstChannel,
+      reminderKeys,
       scrollX,
       showChannelLogos,
       showChannelNumbers,
@@ -443,12 +463,12 @@ export function TimelineGrid({
         <View style={[styles.corner, { width: LOGO_W }]}>
           <Text style={styles.cornerText}>{dayjs(windowStart).format("MMM D")}</Text>
           <Pressable
-            focusable
-            disabled={!showNow}
+            focusable={active}
+            disabled={!showNow || !active}
             onPress={jumpToNow}
             style={({ focused }: any) => [
               styles.nowButton,
-              !showNow && styles.nowButtonDisabled,
+              (!showNow || !active) && styles.nowButtonDisabled,
               focused && styles.nowButtonFocused,
             ]}
             testID="timeline-jump-now"
@@ -597,6 +617,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   progLive: { borderColor: "rgba(227,38,46,0.24)", backgroundColor: "rgba(72,31,34,0.42)" },
+  progReminded: { borderColor: "rgba(250,204,21,0.55)" },
+  reminderBadge: {
+    position: "absolute",
+    top: 3,
+    right: 4,
+    zIndex: 2,
+  },
   cellFocused: {
     borderColor: GOLD_SOFT,
     borderWidth: 2,

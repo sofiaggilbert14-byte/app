@@ -14,6 +14,7 @@ import {
   useTVEventHandler,
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
+import { useIsFocused } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -35,6 +36,8 @@ import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { StreamPlayer, StreamStatus } from "@/src/components/StreamPlayer";
 import { nowNext, progressPct, fmtTime } from "@/src/utils/time";
 import { getTvSafeInsets } from "@/src/utils/tvLayout";
+import { formatChannelLabel } from "@/src/utils/channelLabel";
+import { loadNativeChannelPrograms, nativeEpgAvailable } from "@/src/nativeEpg";
 import dayjs from "dayjs";
 
 type MenuRoute = "/" | "/favorites" | "/search" | "/settings";
@@ -149,6 +152,7 @@ function AutoScrollDescription({
 export default function GuideScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const isFocused = useIsFocused();
   const { width, height } = useWindowDimensions();
   const tvSafe = getTvSafeInsets(width, height);
   const {
@@ -167,13 +171,19 @@ export default function GuideScreen() {
     lastChannelId,
     toggleFavorite,
     guideLayout,
+    setGuideLayout,
     guideDensity,
     safePreviewMode,
     channelNumbers,
     channelLogos,
     deviceLayoutMode,
+    reminders,
   } = useStore();
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
+  const reminderKeys = useMemo(
+    () => new Set(reminders.map((reminder) => reminder.key)),
+    [reminders],
+  );
   const [now, setNow] = useState(() => new Date().toISOString());
   const shortScreen = height < 760;
   const mobileSafeGuide =
@@ -182,6 +192,9 @@ export default function GuideScreen() {
   const livePreviewEnabled = safePreviewMode !== "off";
   // Delayed mode waits longer on weak devices so D-pad scanning stays smooth.
   const previewDelayMs = safePreviewMode === "delayed" ? 1500 : GUIDE_PREVIEW_FOCUS_DELAY_MS;
+  // Keep the heavy guide mounted only while this tab is focused. Leaving it
+  // live under Settings caused freezes when guide hours / preview prefs changed.
+  const guideContentActive = isFocused || mobileSafeGuide;
 
   const [category, setCategory] = useState<string>("All");
   const [focusedChannelId, setFocusedChannelId] = useState<string | null>(null);
@@ -189,6 +202,8 @@ export default function GuideScreen() {
   const [previewStatus, setPreviewStatus] = useState<StreamStatus>("loading");
   const [drawerMode, setDrawerMode] = useState<GuideDrawerMode | null>(() => mobileSafeGuide ? null : "groups");
   const [guideResetToken, setGuideResetToken] = useState(0);
+  const [enrichedDesc, setEnrichedDesc] = useState("");
+  const wasFocusedRef = useRef(isFocused);
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date().toISOString()), 60_000);
     return () => clearInterval(timer);
@@ -254,8 +269,21 @@ export default function GuideScreen() {
   const previewProgress = progressPct(preview.current, new Date(now));
   const descriptionText =
     preview.current?.desc ||
+    enrichedDesc ||
     "Highlight a program in the guide to see its title, time, and description here. Press OK to watch the highlighted channel.";
   const descriptionKey = `${previewChannel?.id || "none"}:${preview.current?.start || ""}:${preview.current?.title || ""}`;
+  const previewLabelText =
+    safePreviewMode === "off"
+      ? "PREVIEW OFF"
+      : safePreviewMode === "delayed"
+        ? "DELAYED PREVIEW"
+        : "LIVE ACTIVE PREVIEW";
+  const previewChannelLabel = previewChannel
+    ? formatChannelLabel(previewChannel.name, {
+        number: channelNumberById[previewChannel.id],
+        showNumber: channelNumbers,
+      })
+    : "";
   const previewPlayerVisible =
     livePreviewEnabled &&
     !!previewChannel?.url &&
@@ -285,6 +313,36 @@ export default function GuideScreen() {
   useEffect(() => {
     setPreviewStatus("loading");
   }, [previewChannel?.id]);
+
+  useEffect(() => {
+    setEnrichedDesc("");
+  }, [previewChannel?.id]);
+
+  // Bulk guide loads omit descriptions; hydrate the focused preview on demand.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const current = preview.current;
+      if (!previewChannel || !current || current.desc || !nativeEpgAvailable) return;
+      const startMs = Date.parse(windowStart);
+      const endMs = Date.parse(windowEnd);
+      if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return;
+      try {
+        const channelKey = previewChannel.tvg_id || previewChannel.id;
+        const programs = await loadNativeChannelPrograms(channelKey, startMs, endMs);
+        if (cancelled) return;
+        const match = programs.find(
+          (p) => p.start === current.start || p.title === current.title,
+        );
+        if (match?.desc) setEnrichedDesc(match.desc);
+      } catch (e) {
+        console.warn("[Guide] description enrich failed", e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [previewChannel, preview, windowStart, windowEnd]);
 
   useEffect(() => {
     if (previewFocusTimer.current) clearTimeout(previewFocusTimer.current);
@@ -338,6 +396,8 @@ export default function GuideScreen() {
           setDrawerMode("groups");
         } else if (drawerMode === "groups") {
           setDrawerMode("rail");
+        } else if (drawerMode === "rail") {
+          setDrawerMode("groups");
         }
         void Haptics.selectionAsync().catch(() => {});
         return true;
@@ -345,6 +405,18 @@ export default function GuideScreen() {
       return () => sub.remove();
     }, [drawerMode, mobileSafeGuide]),
   );
+
+  // Returning from Settings/Search should land on the groups drawer with a
+  // stable preferred-focus target, never the skinny rail or a focus-less guide.
+  useEffect(() => {
+    const becameFocused = isFocused && !wasFocusedRef.current;
+    wasFocusedRef.current = isFocused;
+    if (!becameFocused || mobileSafeGuide) return;
+    if (drawerMode === "rail" || drawerMode === null) {
+      setDrawerMode("groups");
+      setGuideResetToken((value) => value + 1);
+    }
+  }, [drawerMode, isFocused, mobileSafeGuide]);
 
   const focusPreviewChannel = useCallback((c: Channel) => {
     // During a held D-pad scan, every new channel cancels this timer. Metadata,
@@ -383,22 +455,95 @@ export default function GuideScreen() {
 
   const goMenu = (route: MenuRoute) => {
     void Haptics.selectionAsync().catch(() => {});
-    setDrawerMode(null);
     if (route === "/") {
       setCategory("All");
       setFocusedChannelId(null);
       setPreviewStreamChannelId(null);
+      setGuideResetToken((value) => value + 1);
+      setDrawerMode(null);
       return;
     }
+    // Keep the groups drawer while visiting secondary tabs so Settings changes
+    // do not remount the interactive timeline underneath and steal focus.
+    if (!mobileSafeGuide) setDrawerMode("groups");
     router.push(route as any);
   };
 
   const exitApp = () => {
     void Haptics.selectionAsync().catch(() => {});
-    setDrawerMode(null);
+    if (!mobileSafeGuide) setDrawerMode("groups");
     if (Platform.OS !== "web") {
       BackHandler.exitApp();
     }
+  };
+
+  const openGroup = useCallback((nextCategory: string) => {
+    setCategory(nextCategory);
+    setFocusedChannelId(null);
+    setPreviewStreamChannelId(null);
+    setGuideResetToken((value) => value + 1);
+    setDrawerMode(null);
+  }, []);
+
+  const renderGuideGrid = (interactive: boolean) => {
+    if (compactGuide) {
+      return (
+        <View
+          style={styles.timelineArea}
+          pointerEvents={interactive ? "auto" : "none"}
+          focusable={false}
+          accessible={false}
+        >
+          <BoxGrid
+            channels={filtered}
+            now={now}
+            onChannelPress={openChannel}
+            onProgramPress={openProgram}
+            onChannelFocus={interactive ? focusPreviewChannel : undefined}
+            refreshing={refreshing}
+            onRefresh={hardRefresh}
+            density={guideDensity}
+            showChannelNumbers={channelNumbers}
+            channelNumberById={channelNumberById}
+            showChannelLogos={channelLogos}
+            favoriteIds={favoriteSet}
+            reminderKeys={reminderKeys}
+            onToggleFavorite={toggleFavorite}
+            resetToken={interactive ? guideResetToken : 0}
+          />
+        </View>
+      );
+    }
+
+    return (
+      <FocusGuide style={styles.timelineArea} autoFocus={interactive}>
+        <ErrorBoundary>
+          <View pointerEvents={interactive ? "auto" : "none"} focusable={false} accessible={false} style={{ flex: 1 }}>
+            <TimelineGrid
+              channels={filtered}
+              windowStart={windowStart}
+              windowEnd={windowEnd}
+              now={now}
+              onChannelPress={openChannel}
+              onProgramPress={openProgram}
+              onChannelFocus={interactive ? focusPreviewChannel : undefined}
+              onChannelLongPress={favoriteChannel}
+              refreshing={refreshing}
+              onRefresh={hardRefresh}
+              density={guideDensity}
+              showChannelNumbers={channelNumbers}
+              channelNumberById={channelNumberById}
+              showChannelLogos={channelLogos}
+              favoriteIds={favoriteSet}
+              reminderKeys={reminderKeys}
+              resetToken={interactive ? guideResetToken : 0}
+              active={interactive}
+              onLeftBoundary={interactive ? returnToGroups : undefined}
+            />
+          </View>
+        </ErrorBoundary>
+      </FocusGuide>
+    );
   };
 
   return (
@@ -434,12 +579,28 @@ export default function GuideScreen() {
             >
               <Ionicons name="refresh" size={23} color="#fff" />
             </Pressable>
-            <View style={[styles.viewToggle, styles.viewToggleActive]}>
+            <Pressable
+              onPress={() => setGuideLayout("cinematic")}
+              style={({ focused }: any) => [
+                styles.viewToggle,
+                guideLayout === "cinematic" && styles.viewToggleActive,
+                focused && styles.goldFocus,
+              ]}
+              testID="drawer-layout-list"
+            >
               <Ionicons name="list" size={22} color="#fff" />
-            </View>
-            <View style={styles.viewToggle}>
+            </Pressable>
+            <Pressable
+              onPress={() => setGuideLayout("compact")}
+              style={({ focused }: any) => [
+                styles.viewToggle,
+                guideLayout === "compact" && styles.viewToggleActive,
+                focused && styles.goldFocus,
+              ]}
+              testID="drawer-layout-grid"
+            >
               <Ionicons name="grid" size={19} color="#fff" />
-            </View>
+            </Pressable>
           </View>
         )}
 
@@ -550,7 +711,7 @@ export default function GuideScreen() {
                 style={StyleSheet.absoluteFill}
               />
               <View style={styles.previewLabel}>
-                <Text style={styles.previewLabelText}>LIVE ACTIVE PREVIEW</Text>
+                <Text style={styles.previewLabelText}>{previewLabelText}</Text>
               </View>
               <View style={[styles.previewCenter, previewPlayerVisible && styles.previewCenterOverlay]}>
                 {previewChannel ? (
@@ -564,9 +725,7 @@ export default function GuideScreen() {
                   <Ionicons name="tv-outline" size={compactGuide || shortScreen ? 30 : 42} color={GOLD_SOFT} />
                 )}
                 <Text numberOfLines={1} style={styles.previewChannelName}>
-                  {previewChannel
-                    ? `${channelNumbers ? `${channelNumberById[previewChannel.id] || ""} · ` : ""}${previewChannel.name}`
-                    : "Select a channel"}
+                  {previewChannelLabel || "Select a channel"}
                 </Text>
               </View>
               <View style={styles.liveBadge}>
@@ -578,7 +737,7 @@ export default function GuideScreen() {
             <View style={styles.detailsPanel}>
               <View style={styles.detailsHeader}>
                 <Text numberOfLines={1} style={styles.detailsLabel}>
-                  {previewChannel?.name || "LIVE TV"}
+                  {previewChannelLabel || "LIVE TV"}
                 </Text>
               </View>
               <Text numberOfLines={1} style={[styles.programTitle, compactGuide && styles.programTitleCompact]}>
@@ -601,7 +760,11 @@ export default function GuideScreen() {
 
         <EpgProgressBar />
 
-        {loading && channels.length === 0 ? (
+        {!guideContentActive ? (
+          <View style={styles.center} testID="guide-suspended">
+            <Text style={styles.centerText}>Guide paused</Text>
+          </View>
+        ) : loading && channels.length === 0 ? (
           <View style={styles.center}>
             <ActivityIndicator color={GOLD} size="large" />
             <Text style={styles.centerText}>Loading channels & guide...</Text>
@@ -627,50 +790,19 @@ export default function GuideScreen() {
             onProgramPress={openProgram}
             refreshing={refreshing}
             onRefresh={hardRefresh}
+            density={guideDensity}
             showChannelNumbers={channelNumbers}
             channelNumberById={channelNumberById}
             showChannelLogos={channelLogos}
             favoriteIds={favoriteSet}
+            reminderKeys={reminderKeys}
             onToggleFavorite={toggleFavorite}
             resetToken={guideResetToken}
           />
-        ) : drawerMode === "groups" ? (
-          // Cold-start TV path opens on the groups drawer — defer the heavy
-          // timeline until a group is chosen so we do not prepare every row twice.
-          <View style={styles.center} testID="guide-groups-placeholder">
-            <Text style={styles.centerText}>Choose a channel group to open the guide</Text>
-          </View>
         ) : (
-          <FocusGuide style={styles.timelineArea} autoFocus>
-            <ErrorBoundary>
-              <TimelineGrid
-                channels={filtered}
-                windowStart={windowStart}
-                windowEnd={windowEnd}
-                now={now}
-                onChannelPress={openChannel}
-                onProgramPress={openProgram}
-                onChannelFocus={focusPreviewChannel}
-                onChannelLongPress={favoriteChannel}
-                refreshing={refreshing}
-                onRefresh={hardRefresh}
-                density={guideDensity}
-                showChannelNumbers={channelNumbers}
-                channelNumberById={channelNumberById}
-                showChannelLogos={channelLogos}
-                favoriteIds={favoriteSet}
-                resetToken={guideResetToken}
-                active={drawerMode === null}
-                onLeftBoundary={returnToGroups}
-              />
-            </ErrorBoundary>
-          </FocusGuide>
-        )}
-        {drawerMode !== null && (
-          <View pointerEvents="none" style={styles.drawerGuideFooter}>
-            <Text style={styles.drawerGuideFooterCharm}>CharmIPTV</Text>
-            <Text style={styles.drawerGuideFooterText}>TV Guide</Text>
-          </View>
+          // Keep the channel guide visible behind the groups drawer (purple-style
+          // always-on guide), but only interactive once a group is chosen.
+          renderGuideGrid(drawerMode === null)
         )}
       </View>
 
@@ -679,14 +811,11 @@ export default function GuideScreen() {
           mode={drawerMode}
           groups={categories}
           selected={category}
-          onClose={() => setDrawerMode(null)}
-          onSelect={(nextCategory) => {
-            setCategory(nextCategory);
-            setFocusedChannelId(null);
-            setPreviewStreamChannelId(null);
+          onClose={() => {
             setGuideResetToken((value) => value + 1);
             setDrawerMode(null);
           }}
+          onSelect={openGroup}
           onNavigate={goMenu}
           onExit={exitApp}
         />

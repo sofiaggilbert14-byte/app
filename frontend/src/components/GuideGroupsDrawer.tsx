@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useMemo } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   Pressable,
   ScrollView,
@@ -151,6 +151,18 @@ export function GuideGroupsDrawer({
   const openFavorites = useCallback(() => onNavigate("/favorites"), [onNavigate]);
   const openSearch = useCallback(() => onNavigate("/search"), [onNavigate]);
   const openSettings = useCallback(() => onNavigate("/settings"), [onNavigate]);
+  const [preferGroupFocus, setPreferGroupFocus] = useState(true);
+  const [preferRailFocus, setPreferRailFocus] = useState(true);
+
+  useEffect(() => {
+    setPreferGroupFocus(true);
+    setPreferRailFocus(true);
+    const timer = setTimeout(() => {
+      setPreferGroupFocus(false);
+      setPreferRailFocus(false);
+    }, 900);
+    return () => clearTimeout(timer);
+  }, [mode, selected]);
 
   return (
     <View
@@ -185,12 +197,13 @@ export function GuideGroupsDrawer({
           <ScrollView contentContainerStyle={styles.groupList} showsVerticalScrollIndicator={false}>
             {groups.map((group, index) => {
               const active = group === selected;
+              const wantsPreferred = preferGroupFocus && (active || (index === 0 && selectedIndex < 0));
               return (
                 <GroupItem
                   key={group}
                   group={group}
                   active={active}
-                  hasPreferredFocus={active || (index === 0 && selectedIndex < 0)}
+                  hasPreferredFocus={wantsPreferred}
                   textInset={groupTextInset}
                   onSelect={onSelect}
                 />
@@ -209,9 +222,9 @@ export function GuideGroupsDrawer({
         <FocusGuide autoFocus trapFocusUp trapFocusDown trapFocusRight style={styles.rail}>
           <Text style={styles.railLogo}>C</Text>
           <View style={styles.railActions}>
-            <RailAction icon="heart" label="Favorites" onPress={openFavorites} />
+            <RailAction icon="heart" label="Favorites" preferred={preferRailFocus} onPress={openFavorites} />
             <RailAction icon="search" label="Search" onPress={openSearch} />
-            <RailAction icon="settings" label="Settings" preferred onPress={openSettings} />
+            <RailAction icon="settings" label="Settings" onPress={openSettings} />
             <RailAction icon="power" label="Power" onPress={onExit} />
           </View>
           <Text style={styles.railHint}>RIGHT</Text>

@@ -5,6 +5,7 @@ on:
   pull_request:
     branches:
       - main
+      - release/rc1
     paths:
       - "frontend/**"
       - ".github/workflows/build-charmiptv-apk.yml"
@@ -33,7 +34,7 @@ jobs:
     env:
       EXPO_PUBLIC_M3U_URL: ${{ vars.EXPO_PUBLIC_M3U_URL }}
       EXPO_PUBLIC_EPG_URL: ${{ vars.EXPO_PUBLIC_EPG_URL }}
-      EXPO_PUBLIC_GUIDE_WINDOW_HOURS: ${{ vars.EXPO_PUBLIC_GUIDE_WINDOW_HOURS || '8' }}
+      EXPO_PUBLIC_GUIDE_WINDOW_HOURS: ${{ vars.EXPO_PUBLIC_GUIDE_WINDOW_HOURS || '4' }}
       CMAKE_BUILD_PARALLEL_LEVEL: "1"
       CI: "1"
 

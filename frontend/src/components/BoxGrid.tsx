@@ -4,11 +4,23 @@ import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, fonts, radius, spacing } from "@/src/theme";
 import { Channel, Program } from "@/src/api";
+import type { GuideDensity } from "@/src/store";
 import { ChannelLogo } from "./ChannelLogo";
-import { nowNext, progressPct, fmtTime } from "@/src/utils/time";
+import { nowNext, progressPct, fmtTime, reminderKey } from "@/src/utils/time";
 
 const GOLD = "#F6B73C";
 const GOLD_SOFT = "#FFE3A3";
+const REMINDER_BELL = "#FACC15";
+
+function densityMetrics(density: GuideDensity) {
+  if (density === "large") {
+    return { padding: spacing.lg, minHeight: 156, logoSize: 48, starSize: 20, titleSize: 15, nameSize: 13 };
+  }
+  if (density === "compact") {
+    return { padding: spacing.sm, minHeight: 112, logoSize: 32, starSize: 16, titleSize: 12.5, nameSize: 11 };
+  }
+  return { padding: spacing.md, minHeight: 132, logoSize: 40, starSize: 18, titleSize: 14, nameSize: 12 };
+}
 
 type ChannelCardProps = {
   item: Channel;
@@ -18,6 +30,8 @@ type ChannelCardProps = {
   showChannelNumbers: boolean;
   channelNumber?: number;
   showChannelLogos: boolean;
+  density: GuideDensity;
+  hasReminder: boolean;
   onChannelPress: (c: Channel) => void;
   onProgramPress: (p: Program, c: Channel) => void;
   onChannelFocus?: (c: Channel) => void;
@@ -32,6 +46,8 @@ const ChannelCard = memo(function ChannelCard({
   showChannelNumbers,
   channelNumber,
   showChannelLogos,
+  density,
+  hasReminder,
   onChannelPress,
   onProgramPress,
   onChannelFocus,
@@ -39,6 +55,7 @@ const ChannelCard = memo(function ChannelCard({
 }: ChannelCardProps) {
   const { current, next } = nowNext(item.programs, nowDate);
   const pct = progressPct(current, nowDate);
+  const metrics = densityMetrics(density);
 
   const handleChannelPress = useCallback(() => onChannelPress(item), [item, onChannelPress]);
   const handleCurrentPress = useCallback(() => {
@@ -55,7 +72,11 @@ const ChannelCard = memo(function ChannelCard({
       <Pressable
         focusable
         onFocus={handleFocus}
-        style={({ focused }: any) => [styles.card, focused && styles.cardFocused]}
+        style={({ focused }: any) => [
+          styles.card,
+          { padding: metrics.padding, minHeight: metrics.minHeight },
+          focused && styles.cardFocused,
+        ]}
         onPress={handleChannelPress}
         testID={`box-channel-${item.id}`}
       >
@@ -68,24 +89,27 @@ const ChannelCard = memo(function ChannelCard({
               name={item.name}
               logo={item.logo}
               disabled={!showChannelLogos}
-              size={40}
+              size={metrics.logoSize}
               favorite={favorite}
             />
           </View>
-          <Pressable focusable={false} hitSlop={8} onPress={handleFavorite} testID={`box-fav-${item.id}`}>
-            <Ionicons
-              name={favorite ? "star" : "star-outline"}
-              size={18}
-              color={favorite ? colors.warning : colors.onSurfaceTertiary}
-            />
-          </Pressable>
+          <View style={styles.cardBadges} pointerEvents="box-none">
+            {hasReminder ? <Ionicons name="notifications" size={16} color={REMINDER_BELL} /> : null}
+            <Pressable focusable={false} hitSlop={8} onPress={handleFavorite} testID={`box-fav-${item.id}`}>
+              <Ionicons
+                name={favorite ? "star" : "star-outline"}
+                size={metrics.starSize}
+                color={favorite ? colors.warning : colors.onSurfaceTertiary}
+              />
+            </Pressable>
+          </View>
         </View>
 
-        <Text numberOfLines={1} style={styles.chName}>{item.name}</Text>
+        <Text numberOfLines={1} style={[styles.chName, { fontSize: metrics.nameSize }]}>{item.name}</Text>
 
         {current ? (
           <Pressable focusable={false} onPress={handleCurrentPress}>
-            <Text numberOfLines={2} style={styles.nowTitle}>{current.title}</Text>
+            <Text numberOfLines={2} style={[styles.nowTitle, { fontSize: metrics.titleSize }]}>{current.title}</Text>
             <View style={styles.progressTrack}>
               <View style={[styles.progressFill, { width: `${pct}%` }]} />
             </View>
@@ -118,7 +142,9 @@ export function BoxGrid({
   showChannelNumbers = false,
   channelNumberById,
   showChannelLogos = true,
+  density = "normal",
   favoriteIds,
+  reminderKeys,
   onToggleFavorite,
   resetToken = 0,
 }: {
@@ -133,7 +159,9 @@ export function BoxGrid({
   showChannelNumbers?: boolean;
   channelNumberById?: Record<string, number>;
   showChannelLogos?: boolean;
+  density?: GuideDensity;
   favoriteIds: ReadonlySet<string> | string[];
+  reminderKeys?: ReadonlySet<string>;
   onToggleFavorite: (id: string) => void;
   resetToken?: number;
 }) {
@@ -155,29 +183,38 @@ export function BoxGrid({
   }, [resetToken]);
 
   const renderItem = useCallback(
-    ({ item, index }: { item: Channel; index: number }) => (
-      <ChannelCard
-        item={item}
-        index={index}
-        nowDate={nowDate}
-        favorite={favoriteSet.has(item.id)}
-        showChannelNumbers={showChannelNumbers}
-        channelNumber={channelNumberById?.[item.id]}
-        showChannelLogos={showChannelLogos}
-        onChannelPress={onChannelPress}
-        onProgramPress={onProgramPress}
-        onChannelFocus={onChannelFocus}
-        toggleFavorite={onToggleFavorite}
-      />
-    ),
+    ({ item, index }: { item: Channel; index: number }) => {
+      const reminded = !!item.programs?.some((program) =>
+        reminderKeys?.has(reminderKey(item.id, program.start)),
+      );
+      return (
+        <ChannelCard
+          item={item}
+          index={index}
+          nowDate={nowDate}
+          favorite={favoriteSet.has(item.id)}
+          showChannelNumbers={showChannelNumbers}
+          channelNumber={channelNumberById?.[item.id]}
+          showChannelLogos={showChannelLogos}
+          density={density}
+          hasReminder={reminded}
+          onChannelPress={onChannelPress}
+          onProgramPress={onProgramPress}
+          onChannelFocus={onChannelFocus}
+          toggleFavorite={onToggleFavorite}
+        />
+      );
+    },
     [
       channelNumberById,
+      density,
       favoriteSet,
       nowDate,
       onChannelFocus,
       onChannelPress,
       onProgramPress,
       onToggleFavorite,
+      reminderKeys,
       showChannelLogos,
       showChannelNumbers,
     ],
@@ -228,6 +265,7 @@ const styles = StyleSheet.create({
     shadowRadius: 14,
   },
   cardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  cardBadges: { flexDirection: "row", alignItems: "center", gap: 6 },
   logoNumberRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs, flex: 1 },
   channelNumber: { color: GOLD_SOFT, fontFamily: fonts.bold, fontSize: 12, minWidth: 26, textAlign: "right" },
   chName: { color: "rgba(255,255,255,0.82)", fontFamily: fonts.semibold, fontSize: 12 },

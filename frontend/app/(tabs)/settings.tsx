@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -63,11 +63,12 @@ const SECTIONS: SettingsItem[] = [
   { id: "about", label: "About", icon: "information-circle-outline" },
 ];
 
+type GuideWindowHours = 4 | 6 | 8 | 12;
+
 export default function SettingsScreen() {
   const {
     channels,
     favorites,
-    toggleFavorite,
     refresh: refreshGuide,
     hardRefresh,
     refreshing,
@@ -89,6 +90,10 @@ export default function SettingsScreen() {
     setPlayerControlsTimeoutMs,
     autoRetryStreams,
     setAutoRetryStreams,
+    guideWindowHours,
+    setGuideWindowHours,
+    selectedDate,
+    setSelectedDate,
   } = useStore();
   const [playerEnginePreference, setPlayerEnginePreference] = usePlayerEnginePreference();
 
@@ -99,6 +104,7 @@ export default function SettingsScreen() {
   const [status, setStatus] = useState<SourceStatus | null>(null);
   const [diagnostics, setDiagnostics] = useState<SourceDiagnostics | null>(null);
   const [busy, setBusy] = useState(false);
+  const preferredAppliedRef = useRef(false);
   useTvBackToGuide();
 
   const appVersion = Constants.expoConfig?.version || "2.0.0-rc.1";
@@ -106,6 +112,11 @@ export default function SettingsScreen() {
   const heading = section === "home"
     ? "All Settings"
     : `${SECTIONS.find((item) => item.id === section)?.label || "Settings"} settings`;
+
+  const homePreferredFocus = section === "home" && !preferredAppliedRef.current;
+  useEffect(() => {
+    if (homePreferredFocus) preferredAppliedRef.current = true;
+  }, [homePreferredFocus]);
 
   const selectSection = useCallback((next: SettingsSection) => {
     void Haptics.selectionAsync().catch(() => undefined);
@@ -164,7 +175,7 @@ export default function SettingsScreen() {
         <Text style={styles.versionMark}>RC1</Text>
         <View style={[styles.nav, compact && styles.navCompact]}>
           <Pressable
-            hasTVPreferredFocus={section === "home"}
+            hasTVPreferredFocus={homePreferredFocus}
             onPress={() => selectSection("home")}
             style={({ focused }: any) => [
               styles.navItem,
@@ -180,7 +191,6 @@ export default function SettingsScreen() {
           {SECTIONS.map((item) => (
             <Pressable
               key={item.id}
-              hasTVPreferredFocus={section === item.id}
               onPress={() => selectSection(item.id)}
               style={({ focused }: any) => [
                 styles.navItem,
@@ -256,7 +266,36 @@ export default function SettingsScreen() {
                   { label: "Delayed", value: "delayed" as SafePreviewMode },
                   { label: "Off (recommended on TV)", value: "off" as SafePreviewMode },
                 ]} onChange={setSafePreviewMode} />
-                <ToggleRow label="Channel numbers" sub="Show lineup numbers beside channel logos." value={channelNumbers} onChange={setChannelNumbers} />
+                <ChoiceRow<GuideWindowHours>
+                  label="Guide window"
+                  value={(guideWindowHours === 6 || guideWindowHours === 8 || guideWindowHours === 12
+                    ? guideWindowHours
+                    : 4) as GuideWindowHours}
+                  options={[
+                    { label: "4 hours", value: 4 },
+                    { label: "6 hours", value: 6 },
+                    { label: "8 hours", value: 8 },
+                    { label: "12 hours", value: 12 },
+                  ]}
+                  onChange={setGuideWindowHours}
+                />
+                <ChoiceRow
+                  label="Browse day"
+                  value={
+                    selectedDate === dayjs().add(1, "day").format("YYYY-MM-DD") ? "tomorrow" : "today"
+                  }
+                  options={[
+                    { label: "Today", value: "today" },
+                    { label: "Tomorrow", value: "tomorrow" },
+                  ]}
+                  onChange={(value) => {
+                    setSelectedDate(
+                      value === "tomorrow"
+                        ? dayjs().add(1, "day").format("YYYY-MM-DD")
+                        : dayjs().format("YYYY-MM-DD"),
+                    );
+                  }}
+                />
                 <ToggleRow label="Channel logos" sub="Show cached logos when available." value={channelLogos} onChange={setChannelLogos} />
               </Card>
 
@@ -270,6 +309,8 @@ export default function SettingsScreen() {
                 <Stat label="Channels" value={String(status?.channel_count || 0)} />
                 <Stat label="Channels with EPG" value={String(status?.channels_with_epg || 0)} />
                 <Stat label="Cached programs" value={String(diagnostics?.programs || 0)} />
+                <Stat label="Cache age" value={diagnostics?.cacheAgeMinutes != null ? `${diagnostics.cacheAgeMinutes} min` : "—"} />
+                <Stat label="Guide window" value={`${guideWindowHours} hours`} />
                 <Stat label="Refresh active" value={diagnostics?.refreshInFlight ? "Yes" : "No"} />
                 <Stat label="Next refresh" value={diagnostics?.nextAutoRefresh ? dayjs(diagnostics.nextAutoRefresh).format("MMM D, h:mm A") : "—"} />
                 {diagnostics?.epgError ? <Text style={styles.error}>EPG: {diagnostics.epgError}</Text> : null}
@@ -297,7 +338,12 @@ export default function SettingsScreen() {
                 { label: "30 sec", value: 30000 },
                 { label: "60 sec", value: 60000 },
               ]} onChange={setPlayerControlsTimeoutMs} />
-              <ToggleRow label="Auto retry streams" sub="Reconnect automatically after a stream drop using the bounded recovery policy." value={autoRetryStreams} onChange={setAutoRetryStreams} />
+              <ToggleRow
+                label="Auto retry streams"
+                sub="Automatically reconnect after drops (up to 20 attempts, then pause for Retry Now). Circuit breaker may cool down for ~60s after repeated failures."
+                value={autoRetryStreams}
+                onChange={setAutoRetryStreams}
+              />
             </Card>
           )}
 
@@ -316,23 +362,14 @@ export default function SettingsScreen() {
                 { label: "TV", value: "tv" },
                 { label: "Mobile", value: "mobile" },
               ]} onChange={setDeviceLayoutMode} />
-              <ChoiceRow<GuideDensity> label="Guide density" value={guideDensity} options={[
-                { label: "Comfortable", value: "large" },
-                { label: "Normal", value: "normal" },
-                { label: "Compact", value: "compact" },
-              ]} onChange={setGuideDensity} />
               <TvCalibrationControls />
             </Card>
           )}
 
           {section === "accessibility" && (
             <Card>
-              <ToggleRow label="Always show channel numbers" sub="Adds a consistent numeric landmark to each guide row." value={channelNumbers} onChange={setChannelNumbers} />
-              <ChoiceRow<SafePreviewMode> label="Preview motion" value={safePreviewMode} options={[
-                { label: "Normal", value: "on" },
-                { label: "Reduced", value: "delayed" },
-                { label: "Off", value: "off" },
-              ]} onChange={setSafePreviewMode} />
+              <ToggleRow label="Channel numbers" sub="Adds a consistent numeric landmark to each guide row." value={channelNumbers} onChange={setChannelNumbers} />
+              <Text style={styles.sub}>Live preview options live under Guide settings.</Text>
             </Card>
           )}
 
@@ -343,7 +380,6 @@ export default function SettingsScreen() {
                   channels={channels}
                   favorites={favorites}
                   appVersion={appVersion}
-                  toggleFavorite={toggleFavorite}
                 />
               </Card>
               <Card>
@@ -362,12 +398,16 @@ export default function SettingsScreen() {
                 <Stat label="Version" value={`v${appVersion}${androidVersionCode ? ` (${androidVersionCode})` : ""}`} />
                 <Stat label="Platform" value={Platform.isTV ? "Android TV / Fire TV" : Platform.OS} />
                 <Stat label="Data mode" value={diagnostics?.mode || "—"} />
-                <Text style={styles.sub}>Native streaming XMLTV, indexed SQLite guide storage, bounded player recovery, and TV-first display calibration.</Text>
+                <Stat label="Guide window" value={`${guideWindowHours} hours`} />
+                <Stat label="Cache age" value={diagnostics?.cacheAgeMinutes != null ? `${diagnostics.cacheAgeMinutes} min` : "—"} />
+                <Text style={styles.sub}>
+                  Native streaming XMLTV, indexed SQLite guide storage, bounded player recovery, and TV-first display calibration. TV preview defaults to Off with a moving {guideWindowHours}-hour guide window (default 4h).
+                </Text>
               </Card>
               <Card>
                 <Text style={styles.cardTitle}>Guide maintenance</Text>
-                <Pressable style={({ focused }: any) => [styles.actionSecondary, focused && styles.focused]} onPress={async () => { await clearGuideCache(); loadStatus(); }}>
-                  <Ionicons name="trash-outline" size={18} color="#fff" />
+                <Pressable style={({ focused }: any) => [styles.actionSecondary, focused && styles.focused]} onPress={resetGuideData} disabled={busy}>
+                  {busy ? <ActivityIndicator color="#fff" /> : <Ionicons name="trash-outline" size={18} color="#fff" />}
                   <Text style={styles.actionText}>Clear Guide Cache</Text>
                 </Pressable>
                 <Pressable style={({ focused }: any) => [styles.action, focused && styles.focused]} onPress={resetGuideData} disabled={busy}>

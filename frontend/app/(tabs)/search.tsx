@@ -6,6 +6,7 @@ import {
   Pressable,
   TextInput,
   KeyboardAvoidingView,
+  useWindowDimensions,
 } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 import { useRouter } from "expo-router";
@@ -16,6 +17,9 @@ import { colors, fonts, radius, spacing } from "@/src/theme";
 import { useStore } from "@/src/store";
 import { Channel, Program } from "@/src/api";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
+import { useTvBackToGuide } from "@/src/hooks/use-tv-back-to-guide";
+import { getTvSafeInsets } from "@/src/utils/tvLayout";
+import { formatChannelLabel } from "@/src/utils/channelLabel";
 
 type SearchRow =
   | { type: "section"; key: string; title: string }
@@ -23,12 +27,30 @@ type SearchRow =
   | { type: "program"; key: string; program: Program; channel: Channel }
   | { type: "empty"; key: string; message: string };
 
+function byChannelName(a: Channel, b: Channel): number {
+  return (a.name || "").localeCompare(b.name || "", undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
 export default function SearchScreen() {
   const router = useRouter();
-  const { channels, addRecent, openProgram, channelLogos, favorites } = useStore();
+  const { width, height } = useWindowDimensions();
+  const tvSafe = getTvSafeInsets(width, height);
+  const { channels, addRecent, openProgram, channelLogos, favorites, channelNumbers } = useStore();
+  useTvBackToGuide();
   const [q, setQ] = useState("");
   const deferredQ = useDeferredValue(q);
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
+
+  const channelNumberById = useMemo(() => {
+    const map: Record<string, number> = {};
+    [...channels].sort(byChannelName).forEach((channel, index) => {
+      map[channel.id] = index + 1;
+    });
+    return map;
+  }, [channels]);
 
   const rows = useMemo<SearchRow[]>(() => {
     const ql = deferredQ.toLowerCase().trim();
@@ -77,7 +99,17 @@ export default function SearchScreen() {
   };
 
   return (
-    <KeyboardAvoidingView style={styles.container}>
+    <KeyboardAvoidingView
+      style={[
+        styles.container,
+        {
+          paddingTop: spacing.md + tvSafe.top,
+          paddingLeft: tvSafe.left,
+          paddingRight: tvSafe.right,
+          paddingBottom: tvSafe.bottom,
+        },
+      ]}
+    >
       <View style={{ paddingTop: spacing.md }}>
         <View style={styles.header}>
           <Text style={styles.brand}>Find anything</Text>
@@ -125,6 +157,7 @@ export default function SearchScreen() {
           }
           if (item.type === "channel") {
             const c = item.channel;
+            const channelNumber = channelNumbers ? channelNumberById[c.id] : undefined;
             return (
               <Pressable
                 style={({ focused }: any) => [styles.row, focused && styles.rowFocused]}
@@ -138,12 +171,15 @@ export default function SearchScreen() {
                   size={40}
                   favorite={favoriteSet.has(c.id)}
                 />
-                <Text numberOfLines={1} style={styles.rowName}>{c.name}</Text>
+                <Text numberOfLines={1} style={styles.rowName}>
+                  {formatChannelLabel(c.name, { number: channelNumber, showNumber: channelNumbers })}
+                </Text>
                 <Ionicons name="play-circle" size={22} color={colors.brand} />
               </Pressable>
             );
           }
           const { program: p, channel: c } = item;
+          const channelNumber = channelNumbers ? channelNumberById[c.id] : undefined;
           return (
             <Pressable
               style={({ focused }: any) => [styles.row, focused && styles.rowFocused]}
@@ -160,7 +196,7 @@ export default function SearchScreen() {
               <View style={{ flex: 1 }}>
                 <Text numberOfLines={1} style={styles.rowName}>{p.title}</Text>
                 <Text numberOfLines={1} style={styles.rowSub}>
-                  {c.name} · {dayjs(p.start).format("ddd h:mm A")}
+                  {formatChannelLabel(c.name, { number: channelNumber, showNumber: channelNumbers })} · {dayjs(p.start).format("ddd h:mm A")}
                 </Text>
               </View>
             </Pressable>

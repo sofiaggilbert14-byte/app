@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Platform } from "react-native";
+import { InteractionManager, Platform } from "react-native";
 import dayjs from "dayjs";
 import { storage } from "@/src/utils/storage";
 import { Channel, Program } from "@/src/api";
@@ -24,12 +24,13 @@ const CHANNEL_LOGOS_KEY = "gs_channel_logos";
 const DEVICE_LAYOUT_MODE_KEY = "gs_device_layout_mode";
 const PLAYER_TIMEOUT_KEY = "gs_player_timeout_ms";
 const AUTO_RETRY_KEY = "gs_auto_retry_streams";
+const GUIDE_WINDOW_KEY = "gs_guide_window_hours";
 // Roadmap: moving 4-hour window. Cap at native MAX_QUERY_WINDOW (24h).
-const GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 4);
+export const GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 4);
 const DEFAULT_SAFE_PREVIEW: SafePreviewMode = Platform.isTV ? "off" : "delayed";
 
-function readGuideWindowHours(value: string | undefined, fallback: number): number {
-  const n = Number(value || fallback);
+function readGuideWindowHours(value: string | number | undefined | null, fallback: number): number {
+  const n = Number(value ?? fallback);
   if (!Number.isFinite(n)) return fallback;
   return Math.min(24, Math.max(4, Math.round(n)));
 }
@@ -102,6 +103,8 @@ type Store = {
   setPlayerControlsTimeoutMs: (v: PlayerControlsTimeoutMs) => void;
   autoRetryStreams: boolean;
   setAutoRetryStreams: (v: boolean) => void;
+  guideWindowHours: number;
+  setGuideWindowHours: (h: 4 | 6 | 8 | 12) => void;
 };
 
 const Ctx = createContext<Store | null>(null);
@@ -136,8 +139,10 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [channelNumbers, setChannelNumbersState] = useState(false);
   const [channelLogos, setChannelLogosState] = useState(true);
   const [deviceLayoutMode, setDeviceLayoutModeState] = useState<DeviceLayoutMode>("auto");
-  const [playerControlsTimeoutMs, setPlayerControlsTimeoutMsState] = useState<PlayerControlsTimeoutMs>(8000);
+  const [playerControlsTimeoutMs, setPlayerControlsTimeoutMsState] = useState<PlayerControlsTimeoutMs>(15000);
   const [autoRetryStreams, setAutoRetryStreamsState] = useState(true);
+  const [guideWindowHours, setGuideWindowHoursState] = useState(GUIDE_WINDOW_HOURS);
+  const guideWindowHoursRef = useRef(guideWindowHours);
 
   const channelMap = useMemo(() => new Map(channels.map((channel) => [channel.id, channel])), [channels]);
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
@@ -145,6 +150,10 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     remindersRef.current = reminders;
   }, [reminders]);
+
+  useEffect(() => {
+    guideWindowHoursRef.current = guideWindowHours;
+  }, [guideWindowHours]);
 
   const setPointerMode = useCallback((v: boolean) => {
     setPointerModeState(v);
@@ -191,6 +200,16 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     void storage.setItem(AUTO_RETRY_KEY, v).catch(() => {});
   }, []);
 
+  const setGuideWindowHours = useCallback((h: 4 | 6 | 8 | 12) => {
+    const next = readGuideWindowHours(h, GUIDE_WINDOW_HOURS);
+    setGuideWindowHoursState((prev) => {
+      if (prev === next) return prev;
+      guideWindowHoursRef.current = next;
+      void storage.setItem(GUIDE_WINDOW_KEY, next).catch(() => {});
+      return next;
+    });
+  }, []);
+
   const refresh = useCallback(async (silent = false) => {
     const requestId = ++refreshRequestRef.current;
     if (!silent) setLoading(true);
@@ -201,7 +220,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       const start = isToday ? undefined : day.startOf("day").toISOString();
       // Keep only a moving guide window in rendered channel objects. The
       // source cache can retain more guide data without creating a huge TV UI.
-      const data = await loadGuide(start, GUIDE_WINDOW_HOURS);
+      const data = await loadGuide(start, guideWindowHoursRef.current);
       // Source notifications can arrive close together (playlist first, then
       // EPG). Never let an older, slower SQLite query replace newer rows.
       if (requestId !== refreshRequestRef.current) return;
@@ -256,6 +275,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
           deviceLayout,
           timeout,
           autoRetry,
+          windowHours,
         ] = await Promise.all([
           storage.getItem<string[]>(FAV_KEY, []),
           storage.getItem<Channel[]>(RECENT_KEY, []),
@@ -268,8 +288,9 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
           storage.getItem<boolean>(CHANNEL_NUMBERS_KEY, false),
           storage.getItem<boolean>(CHANNEL_LOGOS_KEY, true),
           storage.getItem<DeviceLayoutMode>(DEVICE_LAYOUT_MODE_KEY, "auto"),
-          storage.getItem<PlayerControlsTimeoutMs>(PLAYER_TIMEOUT_KEY, 8000),
+          storage.getItem<PlayerControlsTimeoutMs>(PLAYER_TIMEOUT_KEY, 15000),
           storage.getItem<boolean>(AUTO_RETRY_KEY, true),
+          storage.getItem<number | null>(GUIDE_WINDOW_KEY, null),
         ]);
         if (cancelled) return;
         setFavorites(favs || []);
@@ -284,8 +305,14 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
         setChannelNumbersState(numbers || false);
         setChannelLogosState(logos ?? true);
         setDeviceLayoutModeState(deviceLayout || "auto");
-        setPlayerControlsTimeoutMsState(timeout || 8000);
+        setPlayerControlsTimeoutMsState(timeout || 15000);
         setAutoRetryStreamsState(autoRetry ?? true);
+        // Env default first; persisted override wins when present (clamped 4–24).
+        if (windowHours != null) {
+          const resolved = readGuideWindowHours(windowHours, GUIDE_WINDOW_HOURS);
+          setGuideWindowHoursState(resolved);
+          guideWindowHoursRef.current = resolved;
+        }
       } catch (e) {
         console.warn("[GuideProvider] prefs load failed", e);
       }
@@ -310,6 +337,25 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => subscribeSource(() => {
     void refresh(true);
   }), [refresh]);
+
+  // Re-load the rendered window when the user changes guide window hours.
+  // Defer until interactions settle so Settings D-pad focus does not freeze.
+  const guideWindowBootstrapped = useRef(false);
+  useEffect(() => {
+    if (!guideWindowBootstrapped.current) {
+      guideWindowBootstrapped.current = true;
+      return;
+    }
+    let cancelled = false;
+    const task = InteractionManager.runAfterInteractions(() => {
+      if (cancelled) return;
+      void refresh(true);
+    });
+    return () => {
+      cancelled = true;
+      task.cancel?.();
+    };
+  }, [guideWindowHours, refresh]);
 
   const channelById = useCallback((id: string) => channelMap.get(id), [channelMap]);
 
@@ -464,6 +510,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setPlayerControlsTimeoutMs,
       autoRetryStreams,
       setAutoRetryStreams,
+      guideWindowHours,
+      setGuideWindowHours,
     }),
     [
       channels,
@@ -509,6 +557,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setPlayerControlsTimeoutMs,
       autoRetryStreams,
       setAutoRetryStreams,
+      guideWindowHours,
+      setGuideWindowHours,
     ],
   );
 

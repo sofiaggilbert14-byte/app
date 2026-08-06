@@ -29,7 +29,6 @@ type Props = {
   channels: Channel[];
   favorites: string[];
   appVersion: string;
-  toggleFavorite: (id: string) => void;
 };
 
 function normalizeKey(value: string | undefined): string {

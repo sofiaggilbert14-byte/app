@@ -8,7 +8,10 @@ import {
   refreshNativeEpg,
 } from "@/src/nativeEpg";
 
-export const API_BASE = "";
+// Exported for parity with source.ts / settings diagnostics. Native still
+// fetches direct M3U/EPG for Android TV reliability (EPG via CharmEpg), even
+// when EXPO_PUBLIC_CHARM_API_URL is set for future Cloudflare wiring.
+export const API_BASE = (process.env.EXPO_PUBLIC_CHARM_API_URL || "").replace(/\/$/, "");
 export const SOURCE_M3U =
   process.env.EXPO_PUBLIC_M3U_URL || "http://m3u4u.com/m3u/jwmzn1grpmu99585n721";
 export const SOURCE_EPG =
@@ -439,6 +442,7 @@ export async function sourceDiagnostics(): Promise<SourceDiagnostics> {
     } catch {}
   }
   return {
+    // Always "direct" on native: refresh path uses M3U + native EPG, not CF.
     mode: SOURCE_M3U ? "direct" : "unconfigured",
     cacheBytes,
     cacheAgeMinutes: MEM && MEM.ts > 0 ? Math.max(0, Math.round((Date.now() - MEM.ts) / 60000)) : null,

@@ -16,6 +16,7 @@ const FAILURE_WINDOW_MS = 60_000;
 const MAX_FAILURES_PER_WINDOW = 5;
 const CIRCUIT_COOLDOWN_MS = 60_000;
 const ENGINE_START_TIMEOUT_MS = 12_000;
+const FULLSCREEN_ENGINE_START_TIMEOUT_MS = 20_000;
 const RAPID_GUIDE_KEY_MS = 240;
 const PREVIEW_RESUME_SETTLE_MS = 650;
 
@@ -103,9 +104,16 @@ function parsePipeHeaders(rawUri: string): { uri: string; headers: Record<string
   for (const pair of pairs) {
     const equals = pair.indexOf("=");
     if (equals <= 0) continue;
-    const key = decodeURIComponent(pair.slice(0, equals)).trim();
-    const value = decodeURIComponent(pair.slice(equals + 1)).trim();
-    if (key && value) headers[key] = value;
+    try {
+      const key = decodeURIComponent(pair.slice(0, equals)).trim();
+      const value = decodeURIComponent(pair.slice(equals + 1)).trim();
+      if (key && value) headers[key] = value;
+    } catch {
+      // Malformed playlist header pairs must not take down playback.
+      const key = pair.slice(0, equals).trim();
+      const value = pair.slice(equals + 1).trim();
+      if (key && value) headers[key] = value;
+    }
   }
   return { uri, headers };
 }
@@ -150,7 +158,8 @@ function useCircuitCooldown(engine: Engine, uri: string, setStatus: (s: StreamSt
       return;
     }
 
-    setStatus("loading");
+    // Surface as error so the player keeps Retry / recovery UI visible during cooldown.
+    setStatus("error");
     const timer = setTimeout(() => {
       setBlocked(false);
       setStatus("error");
@@ -196,10 +205,8 @@ function VlcStream({ uri: rawUri, onStatus: setStatus, style, engine }: EnginePr
     recordFailure(engine, uri);
     if (isCircuitOpen(engine, uri)) {
       setBlocked(true);
-      setStatus("loading");
-    } else {
-      setStatus("error");
     }
+    setStatus("error");
   }, [engine, setBlocked, setStatus, uri]);
 
   if (blocked || !VLCPlayer) return null;
@@ -259,10 +266,8 @@ function ExpoStream({ uri: rawUri, onStatus: setStatus, style, engine }: EngineP
           recordFailure(engine, uri);
           if (isCircuitOpen(engine, uri)) {
             setBlocked(true);
-            setStatus("loading");
-          } else {
-            setStatus("error");
           }
+          setStatus("error");
         }
       }
     })();
@@ -287,10 +292,8 @@ function ExpoStream({ uri: rawUri, onStatus: setStatus, style, engine }: EngineP
         recordFailure(engine, uri);
         if (isCircuitOpen(engine, uri)) {
           setBlocked(true);
-          setStatus("loading");
-        } else {
-          setStatus("error");
         }
+        setStatus("error");
       }
     });
     return () => sub.remove();
@@ -367,6 +370,8 @@ export function StreamPlayer({ uri, onStatus, style }: Props) {
 
   useEffect(() => {
     if (forceVlc || stableRef.current || !isFocused || !guideScanSettled) return;
+    // Full-screen gets a longer grace period so slow IPTV buffers aren't abandoned.
+    const timeoutMs = isGuidePreview ? ENGINE_START_TIMEOUT_MS : FULLSCREEN_ENGINE_START_TIMEOUT_MS;
     const timer = setTimeout(() => {
       if (stableRef.current || fallbackUsed) return;
       const alternate: Engine = engine === "vlc" ? "media3" : "vlc";
@@ -377,9 +382,9 @@ export function StreamPlayer({ uri, onStatus, style }: Props) {
       setFallbackUsed(true);
       setEngine(alternate);
       setStatus("loading");
-    }, ENGINE_START_TIMEOUT_MS);
+    }, timeoutMs);
     return () => clearTimeout(timer);
-  }, [engine, fallbackUsed, forceVlc, guideScanSettled, isFocused, setStatus, uri]);
+  }, [engine, fallbackUsed, forceVlc, guideScanSettled, isFocused, isGuidePreview, setStatus, uri]);
 
   const handleStatus = useCallback((status: StreamStatus) => {
     if (status === "playing") {

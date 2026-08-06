@@ -24,12 +24,14 @@ import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { StreamPlayer, StreamStatus, vlcAvailable } from "@/src/components/StreamPlayer";
 import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { nowNext, fmtTime, progressPct } from "@/src/utils/time";
+import { formatChannelLabel } from "@/src/utils/channelLabel";
 import { addTvKeyListener } from "@/src/utils/tvRemote";
 import { getTvSafeInsets } from "@/src/utils/tvLayout";
 
 const CHANNEL_PREVIEW_DELAY_MS = 650;
 const SWITCH_NOTICE_MS = 2_500;
 const STREAM_RETRY_MS = 3_000;
+const MAX_AUTO_RETRIES = 20;
 const RED = "#E3222A";
 const RED_SOFT = "#FF5258";
 
@@ -94,9 +96,11 @@ export default function PlayerScreen() {
     autoRetryStreams,
     channelNumbers,
     channelLogos,
+    safePreviewMode,
   } = useStore();
 
   const [channelId, setChannelId] = useState(params.channelId);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const channel = useMemo(() => channelById(channelId), [channelId, channelById]);
   const streamChannels = useMemo(() => channels.filter((item) => !!item.url), [channels]);
   const streamIndex = useMemo(
@@ -180,16 +184,23 @@ export default function PlayerScreen() {
   };
 
   const previewChannel = (id: string) => {
+    if (safePreviewMode === "off") return;
     if (id === channelId) return;
     if (previewTimer.current) clearTimeout(previewTimer.current);
+    const delayMs = safePreviewMode === "delayed" ? 1500 : CHANNEL_PREVIEW_DELAY_MS;
     previewTimer.current = setTimeout(() => {
       changeChannel(id);
-    }, CHANNEL_PREVIEW_DELAY_MS);
+    }, delayMs);
   };
 
   useEffect(() => {
     controlsRef.current = controls;
   }, [controls]);
+
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   // Burn-in protection: auto-hide the controls (incl. the top channel name and
   // bottom channel list) shortly after the stream starts. Tap the screen
@@ -224,11 +235,11 @@ export default function PlayerScreen() {
     }
   }, [scheduleHide, status]);
 
-  // Keep trying forever when a stream drops. The user stays in control: Stop,
-  // Back, Guide, Search, or another channel will leave the stream and cancel
-  // the retry loop by unmounting this screen or changing channel.
+  // Auto-retry when a stream drops, capped so we don't loop forever.
+  // Stop, Back, Guide, Search, or another channel leaves and cancels retries.
   useEffect(() => {
     if (!autoRetryStreams || !hasStream || status !== "error") return;
+    if (reconnectAttempt >= MAX_AUTO_RETRIES) return;
     if (retryTimer.current) clearTimeout(retryTimer.current);
     retryTimer.current = setTimeout(() => {
       retryStreamNow();
@@ -236,7 +247,7 @@ export default function PlayerScreen() {
     return () => {
       if (retryTimer.current) clearTimeout(retryTimer.current);
     };
-  }, [autoRetryStreams, channelId, hasStream, retryStreamNow, status]);
+  }, [autoRetryStreams, channelId, hasStream, reconnectAttempt, retryStreamNow, status]);
 
   // On TV, any D-pad / remote key reveals the controls again, then re-arms the
   // auto-hide. Uses native TvRemoteKey events from the withTvRemote plugin.
@@ -283,16 +294,29 @@ export default function PlayerScreen() {
     return () => sub.remove();
   }, [controls, scheduleHide, stopAndExit]);
 
-  const playerNow = new Date();
+  const playerNow = new Date(nowMs);
   const { current, next } = nowNext(channel?.programs, playerNow);
   const programProgress = current ? progressPct(current, playerNow) : 0;
   const programDescriptionKey = `${channelId}:${current?.start || ""}:${current?.title || ""}`;
+  const autoRetryPaused = hasStream && status === "error" && reconnectAttempt >= MAX_AUTO_RETRIES;
 
   return (
     <View style={styles.container}>
       <RNStatusBar hidden />
       {hasStream && (
-        <ErrorBoundary fallback={() => null}>
+        <ErrorBoundary
+          fallback={(reset) => (
+            <Pressable
+              onPress={() => {
+                reset();
+                retryStreamNow();
+              }}
+              style={styles.centerOverlay}
+            >
+              <Text style={styles.errText}>Playback crashed — tap to retry</Text>
+            </Pressable>
+          )}
+        >
           <StreamPlayer
             key={`${channelId}-${retryToken}`}
             uri={channel?.url || ""}
@@ -307,10 +331,19 @@ export default function PlayerScreen() {
       {(!hasStream || status === "error") && (
         <View style={styles.centerOverlay}>
           <Ionicons name="warning-outline" size={40} color={colors.onSurfaceTertiary} />
-          <Text style={styles.errText}>{hasStream ? "Reconnecting to stream..." : "This channel has no stream"}</Text>
+          <Text style={styles.errText}>
+            {!hasStream
+              ? "This channel has no stream"
+              : autoRetryPaused
+                ? "Auto-retry paused — press Retry Now"
+                : "Reconnecting to stream..."}
+          </Text>
           {hasStream && (
             <Text style={styles.errHint}>
-              Attempt {Math.max(1, reconnectAttempt + 1)}. Press Back, Stop, Guide, or pick another channel to leave.
+              Attempt {Math.max(1, reconnectAttempt + 1)}
+              {autoRetryStreams ? ` (stops after ${MAX_AUTO_RETRIES} attempts)` : ""}.
+              {" "}If retries pause, wait a minute then Retry Now.
+              {" "}Press Back, Stop, Guide, or pick another channel to leave.
             </Text>
           )}
           {hasStream && !vlcAvailable && (
@@ -364,7 +397,12 @@ export default function PlayerScreen() {
             {channel && <ChannelLogo name={channel.name} logo={channel.logo} disabled={!channelLogos} size={58} />}
             <View style={styles.topChannelText}>
               <Text numberOfLines={1} style={styles.chTitle}>
-                {channel ? `${channel.name}${channelNumbers ? ` ${channelNumberById[channel.id] || ""}` : ""}` : "Channel"}
+                {channel
+                  ? formatChannelLabel(channel.name, {
+                      number: channelNumberById[channel.id],
+                      showNumber: channelNumbers,
+                    })
+                  : "Channel"}
               </Text>
               <Text numberOfLines={1} style={styles.chNow}>
                 {current ? <Text><Text style={styles.liveText}>Now: </Text>{current.title}</Text> : "Live channel"}
@@ -444,28 +482,6 @@ export default function PlayerScreen() {
               </Pressable>
               <Pressable
                 style={({ focused }: any) => [styles.mainBtn, focused && styles.ctrlFocused]}
-                onPress={() => {
-                  showSwitchNotice("Audio follows the live stream");
-                  scheduleHide();
-                }}
-                testID="player-audio-btn"
-              >
-                <Ionicons name="volume-high-outline" size={22} color="#fff" />
-                <Text style={styles.mainBtnText}>Audio</Text>
-              </Pressable>
-              <Pressable
-                style={({ focused }: any) => [styles.mainBtn, focused && styles.ctrlFocused]}
-                onPress={() => {
-                  showSwitchNotice("Captions follow the live stream");
-                  scheduleHide();
-                }}
-                testID="player-captions-btn"
-              >
-                <Ionicons name="logo-closed-captioning" size={22} color="#fff" />
-                <Text style={styles.mainBtnText}>Captions</Text>
-              </Pressable>
-              <Pressable
-                style={({ focused }: any) => [styles.mainBtn, focused && styles.ctrlFocused]}
                 onPress={() => stepStream(1)}
                 disabled={streamChannels.length < 2}
                 testID="player-next-btn"
@@ -485,7 +501,7 @@ export default function PlayerScreen() {
 
             {channelsOpen && (
               <FlatList
-                data={channels}
+                data={streamChannels}
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 keyExtractor={(c) => c.id}
@@ -497,7 +513,9 @@ export default function PlayerScreen() {
                 renderItem={({ item }) => (
                   <Pressable
                     onPress={() => surf(item.id)}
-                    onFocus={() => previewChannel(item.id)}
+                    onFocus={() => {
+                      if (safePreviewMode !== "off") previewChannel(item.id);
+                    }}
                     style={({ focused }: any) => [
                       styles.surfItem,
                       item.id === channelId && styles.surfActive,

@@ -11,9 +11,9 @@ import {
   replaceIndexedPrograms,
 } from "@/src/epgDb";
 
-// Developer source — fetched & parsed on-device (no backend needed).
-// Experimental is deliberately device-local: never select the Cloudflare JSON path.
-export const API_BASE = "";
+// When EXPO_PUBLIC_CHARM_API_URL is set, fetch Cloudflare Worker JSON
+// (/channels.json, /guide.json). Otherwise use direct M3U/EPG URLs.
+export const API_BASE = (process.env.EXPO_PUBLIC_CHARM_API_URL || "").replace(/\/$/, "");
 export const SOURCE_M3U =
   process.env.EXPO_PUBLIC_M3U_URL || "http://m3u4u.com/m3u/jwmzn1grpmu99585n721";
 export const SOURCE_EPG =
