@@ -14,6 +14,7 @@ import * as Haptics from "expo-haptics";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { fonts, radius, spacing, tvColors } from "@/src/theme";
 import { getTvSafeInsets } from "@/src/utils/tvLayout";
+import { reclaimGuideBottomFocusIfArmed } from "@/src/utils/tvGuideFocusLock";
 import { useStore } from "@/src/store";
 
 /** One-shot: first shell mount prefers the Live TV sidebar item at cold start. */
@@ -172,6 +173,10 @@ export function PurpleTvShell({
             <Pressable
               disabled={footerAction.disabled}
               onPress={footerAction.onPress}
+              onFocus={() => {
+                // Holding Down at the bottom of the guide must not stick on Reset/Exit.
+                if (active === "/guide") reclaimGuideBottomFocusIfArmed();
+              }}
               style={({ focused }: any) => [
                 styles.footerCompact,
                 footerAction.disabled && styles.footerDisabled,
@@ -185,6 +190,9 @@ export function PurpleTvShell({
           ) : null}
           <Pressable
             onPress={exit}
+            onFocus={() => {
+              if (active === "/guide") reclaimGuideBottomFocusIfArmed();
+            }}
             style={({ focused }: any) => [footerAction ? styles.footerCompact : styles.power, focused && styles.navRowFocused]}
             testID="purple-nav-power"
           >

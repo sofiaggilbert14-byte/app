@@ -1,5 +1,14 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, StyleSheet, Pressable, useWindowDimensions, RefreshControl, useTVEventHandler } from "react-native";
+import {
+  View,
+  Text,
+  StyleSheet,
+  Pressable,
+  useWindowDimensions,
+  RefreshControl,
+  useTVEventHandler,
+  findNodeHandle,
+} from "react-native";
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, fonts, radius, spacing, tvColors } from "@/src/theme";
@@ -7,11 +16,24 @@ import { Channel, Program } from "@/src/api";
 import { ChannelLogo } from "./ChannelLogo";
 import { nowNext, progressPct, fmtTime, reminderKey } from "@/src/utils/time";
 import { useStore } from "@/src/store";
+import { requestNativeFocus } from "@/src/utils/tvFocus";
+import { armGuideBottomFocusLock } from "@/src/utils/tvGuideFocusLock";
 
 const ACCENT = "#A855F7";
 const ACCENT_SOFT = "#E9D5FF";
 const REMINDER_BELL = "#FACC15";
 const GUIDE_ESCAPE_GUARD_MS = 220;
+
+function applyDownFocusLock(node: any, locked: boolean) {
+  if (!node) return;
+  const handle = findNodeHandle(node);
+  if (!handle) return;
+  try {
+    node.setNativeProps?.({ nextFocusDown: locked ? handle : -1 });
+  } catch {
+    /* optional on web */
+  }
+}
 
 type ChannelCardProps = {
   item: Channel;
@@ -25,9 +47,11 @@ type ChannelCardProps = {
   onProgramPress: (p: Program, c: Channel) => void;
   onChannelFocus?: (c: Channel) => void;
   onRowFocus?: (index: number) => void;
+  onFocusNode?: (node: unknown) => void;
   toggleFavorite: (id: string) => void;
   preferInitialFocus?: boolean;
   hasReminder?: boolean;
+  lockFocusDown?: boolean;
 };
 
 const ChannelCard = memo(function ChannelCard({
@@ -42,12 +66,27 @@ const ChannelCard = memo(function ChannelCard({
   onProgramPress,
   onChannelFocus,
   onRowFocus,
+  onFocusNode,
   toggleFavorite,
   preferInitialFocus = false,
   hasReminder = false,
+  lockFocusDown = false,
 }: ChannelCardProps) {
   const { current, next } = nowNext(item.programs, nowDate);
   const pct = progressPct(current, nowDate);
+  const cardRef = useRef<any>(null);
+
+  const setCardRef = useCallback(
+    (node: any) => {
+      cardRef.current = node;
+      applyDownFocusLock(node, lockFocusDown);
+    },
+    [lockFocusDown],
+  );
+
+  useEffect(() => {
+    applyDownFocusLock(cardRef.current, lockFocusDown);
+  }, [lockFocusDown]);
 
   const handleChannelPress = useCallback(() => onChannelPress(item), [item, onChannelPress]);
   const handleCurrentPress = useCallback(() => {
@@ -58,13 +97,15 @@ const ChannelCard = memo(function ChannelCard({
   }, [item, next, onProgramPress]);
   const handleFavorite = useCallback(() => toggleFavorite(item.id), [item.id, toggleFavorite]);
   const handleFocus = useCallback(() => {
+    onFocusNode?.(cardRef.current);
     onRowFocus?.(index);
     onChannelFocus?.(item);
-  }, [index, item, onChannelFocus, onRowFocus]);
+  }, [index, item, onChannelFocus, onFocusNode, onRowFocus]);
 
   return (
     <View style={styles.cell}>
       <Pressable
+        ref={setCardRef}
         focusable
         hasTVPreferredFocus={preferInitialFocus}
         onFocus={handleFocus}
@@ -160,12 +201,17 @@ export function BoxGrid({
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
   const listRef = useRef<FlashListRef<Channel>>(null);
   const focusedRowRef = useRef(0);
+  const focusedNodeRef = useRef<unknown>(null);
+  const lastRowIndexRef = useRef(0);
   const lastReportedDeepRef = useRef(false);
   const guideEscapeInFlight = useRef(false);
   const escapeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasClaimedFocusRef = useRef(false);
   const gridOwnsFocusRef = useRef(false);
   const [preferFirst, setPreferFirst] = useState(() => !hasClaimedFocusRef.current);
+  const rememberFocusNode = useCallback((node: unknown) => {
+    if (node) focusedNodeRef.current = node;
+  }, []);
 
   const reportFocusedRow = useCallback(
     (index: number) => {
@@ -206,10 +252,24 @@ export function BoxGrid({
     [],
   );
 
+  const lastRowIndex = Math.max(0, Math.floor((Math.max(channels.length, 1) - 1) / Math.max(1, numColumns)));
+  lastRowIndexRef.current = lastRowIndex;
+
   useTVEventHandler(
     useCallback(
       (event) => {
-        if (!active || event?.eventType !== "up" || focusedRowRef.current > 0) return;
+        if (!active) return;
+        const type = event?.eventType;
+        if (
+          type === "down" &&
+          gridOwnsFocusRef.current &&
+          focusedRowRef.current >= lastRowIndexRef.current
+        ) {
+          armGuideBottomFocusLock(focusedNodeRef.current);
+          requestNativeFocus(focusedNodeRef.current);
+          return;
+        }
+        if (type !== "up" || focusedRowRef.current > 0) return;
         if (!gridOwnsFocusRef.current || guideEscapeInFlight.current) return;
         guideEscapeInFlight.current = true;
         gridOwnsFocusRef.current = false;
@@ -226,6 +286,7 @@ export function BoxGrid({
   const renderItem = useCallback(
     ({ item, index }: { item: Channel; index: number }) => {
       const reminded = !!item.programs?.some((program) => reminderKeys?.has(reminderKey(item.id, program.start)));
+      const row = Math.floor(index / Math.max(1, numColumns));
       return (
         <ChannelCard
           item={item}
@@ -239,13 +300,15 @@ export function BoxGrid({
           onProgramPress={onProgramPress}
           onChannelFocus={onChannelFocus}
           onRowFocus={reportFocusedRow}
+          onFocusNode={rememberFocusNode}
           toggleFavorite={toggleFavorite}
           preferInitialFocus={preferFirst && index === 0}
           hasReminder={reminded}
+          lockFocusDown={row >= lastRowIndex}
         />
       );
     },
-    [channelNumberById, favoriteSet, nowDate, onChannelFocus, onChannelPress, onProgramPress, preferFirst, reminderKeys, reportFocusedRow, showChannelLogos, showChannelNumbers, toggleFavorite],
+    [channelNumberById, favoriteSet, lastRowIndex, nowDate, numColumns, onChannelFocus, onChannelPress, onProgramPress, preferFirst, reminderKeys, rememberFocusNode, reportFocusedRow, showChannelLogos, showChannelNumbers, toggleFavorite],
   );
 
   return (
@@ -257,6 +320,7 @@ export function BoxGrid({
         numColumns={numColumns}
         keyExtractor={(c) => c.id}
         drawDistance={360}
+        removeClippedSubviews={false}
         contentContainerStyle={{ paddingBottom: 130, paddingHorizontal: spacing.xs, paddingTop: spacing.xs }}
         ListHeaderComponent={ListHeaderComponent}
         showsVerticalScrollIndicator={false}

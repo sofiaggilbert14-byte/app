@@ -19,6 +19,8 @@ import { colors, fonts, tvColors } from "@/src/theme";
 import { Channel, Program } from "@/src/api";
 import { ChannelLogo } from "./ChannelLogo";
 import { reminderKey } from "@/src/utils/time";
+import { requestNativeFocus } from "@/src/utils/tvFocus";
+import { armGuideBottomFocusLock } from "@/src/utils/tvGuideFocusLock";
 
 const HEADER_H = 30;
 const ACCENT = "#8B5CF6";
@@ -29,6 +31,19 @@ const GUIDE_ESCAPE_GUARD_MS = 220;
 const RAPID_VERTICAL_MS = 280;
 const PAN_BUCKET_PX = 360;
 const HORIZONTAL_PAN_MS = 110;
+
+/** Pin Down on the last guide row so Fire TV can't leap to sidebar Exit. */
+function applyDownFocusLock(node: any, locked: boolean) {
+  if (!node) return;
+  const handle = findNodeHandle(node);
+  if (!handle) return;
+  try {
+    // -1 clears an explicit nextFocusDown after FlashList recycles the row upward.
+    node.setNativeProps?.({ nextFocusDown: locked ? handle : -1 });
+  } catch {
+    /* native props optional on web */
+  }
+}
 
 function mins(a: string, b: string) {
   return dayjs(a).diff(dayjs(b), "minute");
@@ -80,7 +95,9 @@ type TimelineRowProps = {
   onProgramPress: (program: Program, channel: Channel) => void;
   onProgramFocus: (program: PreparedProgram, channel: Channel, rowIndex: number) => void;
   onRowChannelFocus: (channel: Channel, rowIndex: number) => void;
+  onFocusNode?: (node: unknown) => void;
   preferInitialFocus?: boolean;
+  lockFocusDown?: boolean;
 };
 
 type ProgramCellProps = {
@@ -91,7 +108,9 @@ type ProgramCellProps = {
   preferInitialFocus: boolean;
   hasReminder: boolean;
   tvFocusable: boolean;
+  lockFocusDown: boolean;
   capturePreferred: (node: any) => void;
+  onFocusNode?: (node: unknown) => void;
   onProgramFocus: (program: PreparedProgram, channel: Channel) => void;
   onProgramPress: (program: Program, channel: Channel) => void;
   onChannelLongPress?: (channel: Channel) => void;
@@ -114,15 +133,32 @@ const ProgramCell = memo(function ProgramCell({
   preferInitialFocus,
   hasReminder,
   tvFocusable,
+  lockFocusDown,
   capturePreferred,
+  onFocusNode,
   onProgramFocus,
   onProgramPress,
   onChannelLongPress,
 }: ProgramCellProps) {
-  const handleProgramFocus = useCallback(
-    () => onProgramFocus(prepared, channel),
-    [onProgramFocus, prepared, channel],
+  const cellRef = useRef<any>(null);
+
+  const setRef = useCallback(
+    (node: any) => {
+      cellRef.current = node;
+      if (isPreferred) capturePreferred(node);
+      applyDownFocusLock(node, lockFocusDown);
+    },
+    [capturePreferred, isPreferred, lockFocusDown],
   );
+
+  useEffect(() => {
+    applyDownFocusLock(cellRef.current, lockFocusDown);
+  }, [lockFocusDown]);
+
+  const handleProgramFocus = useCallback(() => {
+    onFocusNode?.(cellRef.current);
+    onProgramFocus(prepared, channel);
+  }, [onFocusNode, onProgramFocus, prepared, channel]);
   const handleProgramPress = useCallback(
     () => onProgramPress(prepared.program, channel),
     [onProgramPress, prepared, channel],
@@ -135,7 +171,7 @@ const ProgramCell = memo(function ProgramCell({
   return (
     <Pressable
       key={prepared.key}
-      ref={isPreferred ? capturePreferred : undefined}
+      ref={setRef}
       onFocus={handleProgramFocus}
       onPress={handleProgramPress}
       onLongPress={handleChannelLongPress}
@@ -181,7 +217,9 @@ const TimelineRow = memo(function TimelineRow({
   onProgramPress,
   onProgramFocus,
   onRowChannelFocus,
+  onFocusNode,
   preferInitialFocus = false,
+  lockFocusDown = false,
 }: TimelineRowProps) {
   const item = row.channel;
   const preferred = row.programs.find((program) => program.isLive) || row.programs[0];
@@ -199,8 +237,28 @@ const TimelineRow = memo(function TimelineRow({
     } catch {}
   }, []);
 
+  const setLogoRef = useCallback(
+    (node: any) => {
+      logoPressableRef.current = node;
+      applyDownFocusLock(node, lockFocusDown);
+      if (preferredHandleRef.current) {
+        try {
+          node?.setNativeProps?.({ nextFocusRight: preferredHandleRef.current });
+        } catch {}
+      }
+    },
+    [lockFocusDown],
+  );
+
+  useEffect(() => {
+    applyDownFocusLock(logoPressableRef.current, lockFocusDown);
+  }, [lockFocusDown]);
+
   const handleChannelPress = useCallback(() => onChannelPress(item), [onChannelPress, item]);
-  const handleChannelFocus = useCallback(() => onRowChannelFocus(item, index), [onRowChannelFocus, item, index]);
+  const handleChannelFocus = useCallback(() => {
+    onFocusNode?.(logoPressableRef.current);
+    onRowChannelFocus(item, index);
+  }, [onFocusNode, onRowChannelFocus, item, index]);
   const handleChannelLongPress = useCallback(() => onChannelLongPress?.(item), [onChannelLongPress, item]);
   const handleProgramFocus = useCallback(
     (prepared: PreparedProgram, channel: Channel) => onProgramFocus(prepared, channel, index),
@@ -222,7 +280,7 @@ const TimelineRow = memo(function TimelineRow({
         ]}
       >
         <Pressable
-          ref={logoPressableRef}
+          ref={setLogoRef}
           style={({ focused }: any) => [styles.logoCell, focused && styles.logoCellFocused]}
           focusable
           hasTVPreferredFocus={preferInitialFocus && !preferred}
@@ -264,7 +322,9 @@ const TimelineRow = memo(function TimelineRow({
                 preferInitialFocus={preferInitialFocus}
                 hasReminder={!!reminderKeys?.has(reminderKey(item.id, prepared.program.start))}
                 tvFocusable={near || (preferInitialFocus && isPreferred)}
+                lockFocusDown={lockFocusDown}
                 capturePreferred={capturePreferred}
+                onFocusNode={onFocusNode}
                 onProgramFocus={handleProgramFocus}
                 onProgramPress={onProgramPress}
                 onChannelLongPress={onChannelLongPress}
@@ -345,6 +405,8 @@ export function TimelineGrid({
   const listRef = useRef<any>(null);
   const focusRegionRef = useRef<"channel" | "program">("program");
   const focusedRowRef = useRef(0);
+  const focusedNodeRef = useRef<unknown>(null);
+  const lastRowIndexRef = useRef(0);
   const gridOwnsFocusRef = useRef(false);
   const lastReportedDeepRef = useRef(false);
   const guideEscapeInFlight = useRef(false);
@@ -352,6 +414,9 @@ export function TimelineGrid({
   const scrollXRef = useRef(0);
   const lastAxisRef = useRef<"v" | "h" | null>(null);
   const lastAxisAtRef = useRef(0);
+  const rememberFocusNode = useCallback((node: unknown) => {
+    if (node) focusedNodeRef.current = node;
+  }, []);
 
   const reportFocusedRow = useCallback(
     (index: number) => {
@@ -495,6 +560,16 @@ export function TimelineGrid({
           onLeftBoundary?.();
           return;
         }
+        // Bottom of guide: keep focus in-grid. Holding Down must never land on Exit.
+        if (
+          type === "down" &&
+          gridOwnsFocusRef.current &&
+          focusedRowRef.current >= lastRowIndexRef.current
+        ) {
+          armGuideBottomFocusLock(focusedNodeRef.current);
+          requestNativeFocus(focusedNodeRef.current);
+          return;
+        }
         // Only escape when the grid currently owns focus — never yank chips/sidebar.
         if (type === "up" && focusedRowRef.current <= 0 && gridOwnsFocusRef.current) {
           if (guideEscapeInFlight.current) return;
@@ -560,6 +635,9 @@ export function TimelineGrid({
     [keepProgramVisible, preferFirstRow, reportFocusedRow],
   );
 
+  const lastRowIndex = Math.max(0, preparedRows.length - 1);
+  lastRowIndexRef.current = lastRowIndex;
+
   const renderRow = useCallback(
     ({ item: row, index }: { item: PreparedRow; index: number }) => (
       <TimelineRow
@@ -581,10 +659,12 @@ export function TimelineGrid({
         onProgramPress={onProgramPress}
         onProgramFocus={onRowProgramFocus}
         onRowChannelFocus={onRowChannelFocus}
+        onFocusNode={rememberFocusNode}
         preferInitialFocus={preferFirstRow && index === 0}
+        lockFocusDown={index >= lastRowIndex}
       />
     ),
-    [ROW_H, LOGO_W, LOGO_SIZE, timelineWidth, negScrollX, panBucket, programViewportW, showChannelNumbers, channelNumberById, showChannelLogos, reminderKeys, onChannelPress, onChannelLongPress, onProgramPress, onRowProgramFocus, onRowChannelFocus, preferFirstRow],
+    [ROW_H, LOGO_W, LOGO_SIZE, timelineWidth, negScrollX, panBucket, programViewportW, showChannelNumbers, channelNumberById, showChannelLogos, reminderKeys, onChannelPress, onChannelLongPress, onProgramPress, onRowProgramFocus, onRowChannelFocus, preferFirstRow, rememberFocusNode, lastRowIndex],
   );
 
   return (
