@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,7 +13,7 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import dayjs from "dayjs";
-import { PurpleTvShell } from "@/src/components/PurpleTvShell";
+import { PurpleTvShell, PURPLE_DRAWER_ANIMATION_MS, usePurpleTvDrawer } from "@/src/components/PurpleTvShell";
 import { TimelineGrid } from "@/src/components/TimelineGrid";
 import { BoxGrid } from "@/src/components/BoxGrid";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
@@ -57,6 +58,7 @@ function AutoScrollDescription({ text }: { text: string }) {
 
 export default function PurpleGuideScreen() {
   const router = useRouter();
+  const { drawerOpen } = usePurpleTvDrawer();
   const { width: screenWidth } = useWindowDimensions();
   const {
     channels,
@@ -96,6 +98,9 @@ export default function PurpleGuideScreen() {
   const rapidSurfUntilRef = useRef(0);
   const lastGuideFocusNodeRef = useRef<unknown>(null);
   const hadProgramModalRef = useRef(false);
+  const previousDrawerOpenRef = useRef(drawerOpen);
+  const headerTitleProgress = useRef(new Animated.Value(drawerOpen ? 1 : 0)).current;
+  const groupSlideX = useRef(new Animated.Value(0)).current;
   const [previewEpoch, setPreviewEpoch] = useState(0);
   const reminderKeys = useMemo(() => new Set(reminders.map((item) => item.key)), [reminders]);
   // Freeze grid reminder badges while the program sheet is open so Cancel/Remind
@@ -110,6 +115,27 @@ export default function PurpleGuideScreen() {
     const syncTimer = setTimeout(() => setGridReminderKeys(reminderKeys), 220);
     return () => clearTimeout(syncTimer);
   }, [activeProgram, reminderKeys]);
+
+  useEffect(() => {
+    if (previousDrawerOpenRef.current !== drawerOpen) {
+      groupSlideX.setValue(drawerOpen ? -140 : 140);
+      previousDrawerOpenRef.current = drawerOpen;
+    }
+    const animation = Animated.parallel([
+      Animated.timing(headerTitleProgress, {
+        toValue: drawerOpen ? 1 : 0,
+        duration: PURPLE_DRAWER_ANIMATION_MS,
+        useNativeDriver: true,
+      }),
+      Animated.timing(groupSlideX, {
+        toValue: 0,
+        duration: PURPLE_DRAWER_ANIMATION_MS,
+        useNativeDriver: true,
+      }),
+    ]);
+    animation.start();
+    return () => animation.stop();
+  }, [drawerOpen, groupSlideX, headerTitleProgress]);
 
   // After Remind/Cancel sheet closes, return focus to the guide cell — never Live TV.
   useEffect(() => {
@@ -311,7 +337,7 @@ export default function PurpleGuideScreen() {
 
   const onGuideUpBoundary = useCallback(() => {
     const chip = groupChipRefs.current.get(group);
-    if (chip) requestNativeFocus(chip);
+    if (chip) requestNativeFocusWithRetry(chip, [0, 40, 120]);
   }, [group]);
 
   const resetGuide = useCallback(() => {
@@ -341,31 +367,44 @@ export default function PurpleGuideScreen() {
     >
       <View style={styles.page}>
         <View style={styles.header}>
-          <View>
+          <Animated.View
+            pointerEvents={drawerOpen ? "auto" : "none"}
+            style={[styles.guideTitleBlock, { opacity: headerTitleProgress }]}
+          >
             <Text style={styles.kicker}>TV GUIDE</Text>
             <Text style={styles.title}>{group === "All" ? "All Channels" : group}</Text>
-          </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.groupRow}>
-            {groups.map((item) => (
-              <Pressable
-                key={item}
-                ref={(node) => {
-                  if (node) groupChipRefs.current.set(item, node);
-                  else groupChipRefs.current.delete(item);
-                }}
-                onPress={() => chooseGroup(item)}
-                style={({ focused }: any) => [
-                  styles.groupChip,
-                  group === item && styles.groupChipActive,
-                  focused && styles.focused,
-                ]}
-              >
-                <Text style={[styles.groupText, group === item && styles.groupTextActive]}>
-                  {item === "Recently Watched" ? "Recent" : item}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
+          </Animated.View>
+          <Animated.View
+            style={[
+              styles.groupScroller,
+              {
+                marginLeft: drawerOpen ? 140 : 0,
+                transform: [{ translateX: groupSlideX }],
+              },
+            ]}
+          >
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.groupRow}>
+              {groups.map((item) => (
+                <Pressable
+                  key={item}
+                  ref={(node) => {
+                    if (node) groupChipRefs.current.set(item, node);
+                    else groupChipRefs.current.delete(item);
+                  }}
+                  onPress={() => chooseGroup(item)}
+                  style={({ focused }: any) => [
+                    styles.groupChip,
+                    group === item && styles.groupChipActive,
+                    focused && styles.focused,
+                  ]}
+                >
+                  <Text style={[styles.groupText, group === item && styles.groupTextActive]}>
+                    {item === "Recently Watched" ? "Recent" : item}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </Animated.View>
         </View>
 
         <EpgProgressBar />
@@ -539,7 +578,9 @@ export default function PurpleGuideScreen() {
 
 const styles = StyleSheet.create({
   page: { flex: 1, padding: 12, gap: 5 },
-  header: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 10 },
+  header: { minHeight: 48, flexDirection: "row", alignItems: "center", position: "relative" },
+  guideTitleBlock: { position: "absolute", left: 0, width: 130 },
+  groupScroller: { flex: 1, minWidth: 0 },
   kicker: { color: tvColors.purpleSoft, fontFamily: fonts.semibold, fontSize: 7.5, letterSpacing: 1 },
   title: { color: "#fff", fontFamily: fonts.bold, fontSize: 17, marginTop: 1, minWidth: 120 },
   groupRow: { gap: 5, alignItems: "center", paddingHorizontal: 4 },

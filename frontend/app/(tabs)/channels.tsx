@@ -9,7 +9,6 @@ import { Channel } from "@/src/api";
 import { useStore } from "@/src/store";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
-import { useTvBackToGuide } from "@/src/hooks/use-tv-back-to-guide";
 
 function byName(a: Channel, b: Channel) {
   return (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" });
@@ -63,7 +62,6 @@ const ChannelListRow = memo(function ChannelListRow({
 });
 
 export default function ChannelsScreen() {
-  useTvBackToGuide();
   const router = useRouter();
   const { channels, favorites, toggleFavorite, addRecent, channelLogos, hardRefresh, loading, refreshing, error } = useStore();
   const sorted = useMemo(() => [...channels].sort(byName), [channels]);

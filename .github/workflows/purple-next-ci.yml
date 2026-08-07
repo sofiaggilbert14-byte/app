@@ -62,13 +62,20 @@ jobs:
           test -f "$APK"
           cp "$APK" android/app/build/outputs/apk/release/CharmIPTV-Purple-Next.apk
           sha256sum android/app/build/outputs/apk/release/CharmIPTV-Purple-Next.apk > android/app/build/outputs/apk/release/CharmIPTV-Purple-Next.apk.sha256
+          mkdir -p artifact/install artifact/evidence
+          cp android/app/build/outputs/apk/release/CharmIPTV-Purple-Next.apk artifact/install/
+          cp android/app/build/outputs/apk/release/CharmIPTV-Purple-Next.apk.sha256 artifact/evidence/
+          cp ci/phase1-benchmark.json artifact/evidence/
+          cp ci/phase2-guide-torture.json artifact/evidence/
       - uses: actions/upload-artifact@v4
         with:
-          name: CharmIPTV-Purple-Next-${{ github.sha }}
-          path: |
-            frontend/android/app/build/outputs/apk/release/CharmIPTV-Purple-Next.apk
-            frontend/android/app/build/outputs/apk/release/CharmIPTV-Purple-Next.apk.sha256
-            frontend/ci/phase1-benchmark.json
-            frontend/ci/phase2-guide-torture.json
+          name: CharmIPTV-Purple-Next-APK-${{ github.sha }}
+          path: frontend/artifact/install/CharmIPTV-Purple-Next.apk
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CharmIPTV-Purple-Next-Evidence-${{ github.sha }}
+          path: frontend/artifact/evidence/*
           if-no-files-found: error
           retention-days: 30

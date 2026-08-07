@@ -10,14 +10,12 @@ import { useStore } from "@/src/store";
 import { Channel } from "@/src/api";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
-import { useTvBackToGuide } from "@/src/hooks/use-tv-back-to-guide";
 
 function channelSort(a: Channel, b: Channel) {
   return (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" });
 }
 
 export default function LiveTvHomeScreen() {
-  useTvBackToGuide();
   const router = useRouter();
   const {
     channels,

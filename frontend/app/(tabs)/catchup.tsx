@@ -9,10 +9,8 @@ import { Channel } from "@/src/api";
 import { useStore } from "@/src/store";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { nowNext } from "@/src/utils/time";
-import { useTvBackToGuide } from "@/src/hooks/use-tv-back-to-guide";
 
 export default function CatchUpScreen() {
-  useTvBackToGuide();
   const router = useRouter();
   const { recent, channelById, addRecent, channelLogos } = useStore();
   const [now, setNow] = useState(() => new Date());

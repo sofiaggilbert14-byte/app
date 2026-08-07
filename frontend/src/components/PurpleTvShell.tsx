@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Animated,
   BackHandler,
   Platform,
   Pressable,
@@ -8,14 +9,16 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { fonts, radius, spacing, tvColors } from "@/src/theme";
 import { getTvSafeInsets } from "@/src/utils/tvLayout";
 import { reclaimGuideBottomFocusIfArmed } from "@/src/utils/tvGuideFocusLock";
+import { requestNativeFocusWithRetry } from "@/src/utils/tvFocus";
 import { useStore } from "@/src/store";
+import { evaluateDrawerBack } from "@/src/core/drawerNavigationPolicy";
 
 /** One-shot: first shell mount prefers the Live TV sidebar item at cold start. */
 let bootSidebarFocusPending = true;
@@ -58,6 +61,43 @@ const NAV: NavItem[] = [
 ];
 
 export const PURPLE_SIDEBAR_WIDTH = 156;
+export const PURPLE_DRAWER_ANIMATION_MS = 180;
+
+type DrawerContextValue = {
+  drawerOpen: boolean;
+  drawerProgress: Animated.Value;
+  openDrawer: () => void;
+  closeDrawer: () => void;
+};
+
+const DrawerContext = createContext<DrawerContextValue | null>(null);
+
+export function PurpleTvDrawerProvider({ children }: { children: React.ReactNode }) {
+  const [drawerOpen, setDrawerOpen] = useState(true);
+  const drawerProgress = useRef(new Animated.Value(1)).current;
+  const openDrawer = useCallback(() => setDrawerOpen(true), []);
+  const closeDrawer = useCallback(() => setDrawerOpen(false), []);
+  useEffect(() => {
+    const animation = Animated.timing(drawerProgress, {
+      toValue: drawerOpen ? 1 : 0,
+      duration: PURPLE_DRAWER_ANIMATION_MS,
+      useNativeDriver: true,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [drawerOpen, drawerProgress]);
+  const value = useMemo(
+    () => ({ drawerOpen, drawerProgress, openDrawer, closeDrawer }),
+    [closeDrawer, drawerOpen, drawerProgress, openDrawer],
+  );
+  return <DrawerContext.Provider value={value}>{children}</DrawerContext.Provider>;
+}
+
+export function usePurpleTvDrawer(): DrawerContextValue {
+  const value = useContext(DrawerContext);
+  if (!value) throw new Error("usePurpleTvDrawer must be used inside PurpleTvDrawerProvider");
+  return value;
+}
 
 function SmallBrand() {
   return (
@@ -87,8 +127,9 @@ export function PurpleTvShell({
   footerAction?: FooterAction;
 }) {
   const router = useRouter();
+  const { drawerOpen, drawerProgress, openDrawer, closeDrawer } = usePurpleTvDrawer();
   const { width, height } = useWindowDimensions();
-  const { deviceLayoutMode } = useStore();
+  const { deviceLayoutMode, activeProgram } = useStore();
   const safe = useMemo(
     () => getTvSafeInsets(width, height, deviceLayoutMode),
     [deviceLayoutMode, width, height],
@@ -99,9 +140,10 @@ export function PurpleTvShell({
     return true;
   });
   const bootFocusConsumed = useRef(false);
+  const navRefs = useRef(new Map<Route, unknown>());
   // Mount-once content autoFocus so child preferred-focus can stick after first paint.
   const [contentAutoFocus, setContentAutoFocus] = useState(
-    () => !bootSidebarFocus && active !== "/guide",
+    () => !drawerOpen && !bootSidebarFocus,
   );
   useEffect(() => {
     if (!contentAutoFocus) return;
@@ -109,19 +151,50 @@ export function PurpleTvShell({
     return () => clearTimeout(timer);
   }, [contentAutoFocus]);
 
+  useEffect(() => {
+    if (!drawerOpen) {
+      setContentAutoFocus(true);
+      return;
+    }
+
+    setContentAutoFocus(false);
+    return requestNativeFocusWithRetry(navRefs.current.get(active), [80, 180, 300]);
+  }, [active, drawerOpen]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS === "web") return;
+      const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+        const decision = evaluateDrawerBack({
+          drawerOpen,
+          blockingOverlayOpen: !!activeProgram,
+        });
+        if (decision === "pass-through") return false;
+        if (decision === "open-drawer") openDrawer();
+        return true;
+      });
+      return () => sub.remove();
+    }, [activeProgram, drawerOpen, openDrawer]),
+  );
+
   const navigate = useCallback(
     (route: Route) => {
-      if (route === active) return;
       void Haptics.selectionAsync().catch(() => undefined);
-      router.replace(route as any);
+      closeDrawer();
+      if (route !== active) router.replace(route as any);
     },
-    [active, router],
+    [active, closeDrawer, router],
   );
 
   const exit = useCallback(() => {
     void Haptics.selectionAsync().catch(() => undefined);
     if (Platform.OS !== "web") BackHandler.exitApp();
   }, []);
+
+  const drawerTranslateX = drawerProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-PURPLE_SIDEBAR_WIDTH, 0],
+  });
 
   return (
     <View
@@ -135,15 +208,31 @@ export function PurpleTvShell({
         },
       ]}
     >
-      <View style={styles.sidebar}>
-        <SmallBrand />
-        <View style={styles.nav}>
+      <View style={[styles.sidebarSlot, { width: drawerOpen ? PURPLE_SIDEBAR_WIDTH : 0 }]}>
+        <Animated.View
+          pointerEvents={drawerOpen ? "auto" : "none"}
+          style={[styles.sidebarMotion, { transform: [{ translateX: drawerTranslateX }] }]}
+        >
+          <FocusGuide
+            style={styles.sidebar}
+            trapFocusUp
+            trapFocusDown
+            trapFocusLeft
+            trapFocusRight
+          >
+            <SmallBrand />
+            <View style={styles.nav}>
           {NAV.map((item) => {
             const selected = item.route === active;
             const preferBootLiveTv = bootSidebarFocus && !bootFocusConsumed.current && item.route === "/";
             return (
               <Pressable
                 key={item.route}
+                ref={(node) => {
+                  if (node) navRefs.current.set(item.route, node);
+                  else navRefs.current.delete(item.route);
+                }}
+                focusable={drawerOpen}
                 hasTVPreferredFocus={preferBootLiveTv}
                 onFocus={() => {
                   if (preferBootLiveTv) bootFocusConsumed.current = true;
@@ -167,10 +256,11 @@ export function PurpleTvShell({
               </Pressable>
             );
           })}
-        </View>
-        <View style={[styles.sidebarFooter, footerAction && styles.sidebarFooterRow]}>
+            </View>
+            <View style={[styles.sidebarFooter, footerAction && styles.sidebarFooterRow]}>
           {footerAction ? (
             <Pressable
+              focusable={drawerOpen}
               disabled={footerAction.disabled}
               onPress={footerAction.onPress}
               onFocus={() => {
@@ -189,6 +279,7 @@ export function PurpleTvShell({
             </Pressable>
           ) : null}
           <Pressable
+            focusable={drawerOpen}
             onPress={exit}
             onFocus={() => {
               if (active === "/guide") reclaimGuideBottomFocusIfArmed();
@@ -199,7 +290,9 @@ export function PurpleTvShell({
             <Ionicons name="power-outline" size={14} color={tvColors.textMuted} />
             <Text numberOfLines={1} style={footerAction ? styles.footerCompactText : styles.powerText}>Exit</Text>
           </Pressable>
-        </View>
+            </View>
+          </FocusGuide>
+        </Animated.View>
       </View>
 
       <FocusGuide
@@ -221,9 +314,22 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     backgroundColor: tvColors.canvas,
+    overflow: "hidden",
+  },
+  sidebarSlot: {
+    height: "100%",
+    zIndex: 10,
+  },
+  sidebarMotion: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: PURPLE_SIDEBAR_WIDTH,
   },
   sidebar: {
     width: PURPLE_SIDEBAR_WIDTH,
+    height: "100%",
     backgroundColor: "#0A0916",
     borderRightWidth: 1,
     borderRightColor: tvColors.line,
