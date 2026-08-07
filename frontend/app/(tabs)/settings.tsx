@@ -152,11 +152,15 @@ export default function SettingsScreen() {
   const backupFavorites = useCallback(async () => {
     if (busy) return;
     setBusy(true);
-    setBackupStatus("Saving favorites backup to app storage…");
+    setBackupStatus("Saving favorites backup…");
     try {
       const raw = serializeFavoritesBackup(favorites, channels);
-      const fileName = await writeFavoritesBackup(raw);
-      setBackupStatus(`Saved ${favorites.length} favorite${favorites.length === 1 ? "" : "s"} to ${fileName}. Stream URLs are not stored.`);
+      const { fileName, portable } = await writeFavoritesBackup(raw);
+      setBackupStatus(
+        portable
+          ? `Exported ${favorites.length} favorite${favorites.length === 1 ? "" : "s"} to ${fileName} in your chosen folder (and kept a local copy). Stream URLs are not stored.`
+          : `Saved ${favorites.length} favorite${favorites.length === 1 ? "" : "s"} to ${fileName} in app storage. Choose a shared folder next time to make the backup portable. Stream URLs are not stored.`,
+      );
     } catch (error) {
       setBackupStatus(error instanceof Error ? error.message : "Favorites backup failed.");
     } finally {
@@ -317,7 +321,7 @@ export default function SettingsScreen() {
 
             {section === "backup" ? (
               <SettingsCard title="Backup & Restore" icon="cloud-download-outline">
-                <Text style={styles.help}>Favorites backups are portable JSON files saved in app storage (TV-friendly; no folder picker required). They contain channel identity only—never stream URLs. Restore matches the current playlist and uses the current build&apos;s stream, logo and EPG data.</Text>
+                <Text style={styles.help}>Favorites backups are portable JSON files. Back Up writes a local copy and offers a shared folder (Downloads / USB) via the system picker so you can move the file off this device. They contain channel identity only—never stream URLs. Restore matches the current playlist and uses the current build&apos;s stream, logo and EPG data.</Text>
                 <View style={styles.backupActions}>
                   <Action label={busy ? "Working…" : "Back Up Favorites"} icon="save-outline" onPress={backupFavorites} disabled={busy} />
                   <Action label={busy ? "Working…" : "Restore Favorites"} icon="download-outline" onPress={restoreFavorites} disabled={busy} />

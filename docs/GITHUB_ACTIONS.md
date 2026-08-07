@@ -27,7 +27,13 @@ Artifacts expire after seven days to conserve the GitHub Free storage quota.
 
 ## Signing
 
-The Closed Beta currently uses the generated Android debug keystore for a
-standalone, installable release build. Before public distribution, replace it
-with a permanent release keystore stored through encrypted GitHub secrets.
+Release builds use `signingConfigs.release`. When the upload keystore env vars
+are present (`CHARM_UPLOAD_STORE_FILE`, `CHARM_UPLOAD_STORE_PASSWORD`,
+`CHARM_UPLOAD_KEY_ALIAS`, `CHARM_UPLOAD_KEY_PASSWORD`), Gradle signs with that
+keystore. Otherwise CI falls back to the debug keystore for sideloadable
+artifacts only — replace it with a permanent release keystore before public
+distribution.
+
+Purple Next keeps applicationId `com.charmiptv.app.purple.next` so it can
+install beside stable builds without clobbering app data.
 

@@ -47,16 +47,44 @@ async function readValidBackupCandidate(uri: string, name: string): Promise<{ fi
   return null;
 }
 
-/** TV-friendly default: write into app documents (no SAF folder picker required). */
-export async function writeFavoritesBackup(raw: string): Promise<string> {
-  if (Platform.OS === "web") throw new Error("Portable favorites backup is currently available on Android/TV builds.");
+async function writeLocalBackup(raw: string, fileName: string): Promise<string> {
   const dir = await ensureLocalBackupDir();
-  const fileName = `${FILE_PREFIX}${timestampForFile()}${FILE_SUFFIX}`;
   await FileSystem.writeAsStringAsync(`${dir}${fileName}`, raw, { encoding: FileSystem.EncodingType.UTF8 });
   return fileName;
 }
 
-/** Restore newest valid local backup; falls back to SAF only if local store is empty. */
+/**
+ * Portable backup: always keep a local copy, then offer a user-chosen folder
+ * via Storage Access Framework so the JSON can leave app-private storage
+ * (USB / Downloads / shared folder) for restore on another device.
+ */
+export async function writeFavoritesBackup(raw: string): Promise<{ fileName: string; portable: boolean }> {
+  if (Platform.OS === "web") throw new Error("Portable favorites backup is currently available on Android/TV builds.");
+  const fileName = `${FILE_PREFIX}${timestampForFile()}${FILE_SUFFIX}`;
+  await writeLocalBackup(raw, fileName);
+
+  if (Platform.OS === "android" && FileSystem.StorageAccessFramework?.requestDirectoryPermissionsAsync) {
+    try {
+      const permission = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+      if (permission.granted) {
+        const uri = await FileSystem.StorageAccessFramework.createFileAsync(
+          permission.directoryUri,
+          fileName,
+          "application/json",
+        );
+        await FileSystem.writeAsStringAsync(uri, raw, { encoding: FileSystem.EncodingType.UTF8 });
+        return { fileName, portable: true };
+      }
+    } catch (error) {
+      // Local copy already succeeded; portable export is best-effort.
+      console.warn("CharmIPTV portable favorites export skipped", error);
+    }
+  }
+
+  return { fileName, portable: false };
+}
+
+/** Restore newest valid local backup; falls back to SAF folder pick if local store is empty. */
 export async function readLatestFavoritesBackup(): Promise<{ fileName: string; raw: string }> {
   if (Platform.OS === "web") throw new Error("Portable favorites restore is currently available on Android/TV builds.");
   try {

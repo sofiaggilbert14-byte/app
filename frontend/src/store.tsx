@@ -270,22 +270,9 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     });
   }, [persistRecent]);
 
-  // Drop orphan favorite/recent IDs after the playlist is loaded (playlist swap / stale KV).
-  useEffect(() => {
-    if (loading || channelByIdMap.size === 0) return;
-    setRecentIds((prev) => {
-      const next = prev.filter((id) => channelByIdMap.has(id));
-      if (next.length === prev.length) return prev;
-      persistRecent(next);
-      return next;
-    });
-    setFavorites((prev) => {
-      const next = prev.filter((id) => channelByIdMap.has(id));
-      if (next.length === prev.length) return prev;
-      persistFavorites(next);
-      return next;
-    });
-  }, [channelByIdMap, loading, persistFavorites, persistRecent]);
+  // Intentionally do NOT prune favorite/recent IDs when the playlist loads.
+  // A partial or temporary channel list must never wipe user favorites from KV.
+  // UI filters already hide IDs that are not in the current playlist.
 
   const hasReminder = useCallback((key: string) => remindersSet.has(key), [remindersSet]);
 

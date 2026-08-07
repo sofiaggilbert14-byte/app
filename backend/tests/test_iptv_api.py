@@ -179,6 +179,18 @@ class TestProxy:
         r = api.get(f"{BASE_URL}/api/proxy", params={"url": "/local/file"}, timeout=30)
         assert r.status_code == 400
 
+    def test_proxy_rejects_localhost(self, api):
+        r = api.get(f"{BASE_URL}/api/proxy", params={"url": "http://127.0.0.1/"}, timeout=30)
+        assert r.status_code == 400
+
+    def test_proxy_rejects_metadata_host(self, api):
+        r = api.get(
+            f"{BASE_URL}/api/proxy",
+            params={"url": "http://metadata.google.internal/"},
+            timeout=30,
+        )
+        assert r.status_code == 400
+
 
 
 # ---- Iteration 4: Admin Auth (case sensitive) ----

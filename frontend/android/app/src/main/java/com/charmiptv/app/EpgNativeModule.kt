@@ -6,6 +6,7 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.WritableArray
 import org.xmlpull.v1.XmlPullParser
 import java.io.BufferedInputStream
@@ -83,7 +84,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   }
 
   @ReactMethod
-  fun getWindow(startMs: Double, endMs: Double, promise: Promise) {
+  fun getWindow(startMs: Double, endMs: Double, channelIds: ReadableArray, promise: Promise) {
     queryExecutor.execute {
       try {
         val start = startMs.toLong()
@@ -91,7 +92,12 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         if (end <= start || end - start > MAX_QUERY_WINDOW_MS) {
           throw IllegalArgumentException("Invalid EPG query window")
         }
-        val programmes = database.queryWindow(start, end)
+        val ids = ArrayList<String>(channelIds.size())
+        for (i in 0 until channelIds.size()) {
+          val id = channelIds.getString(i)?.trim()
+          if (!id.isNullOrEmpty()) ids.add(id)
+        }
+        val programmes = database.queryWindow(start, end, ids)
         val grouped = Arguments.createMap()
         val channelArrays = HashMap<String, WritableArray>()
         for (program in programmes) {
@@ -217,7 +223,9 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
             "programme" -> {
               channelId = parser.getAttributeValue(null, "channel")?.trim()
               startMs = parseXmltvTime(parser.getAttributeValue(null, "start"))
-              endMs = parseXmltvTime(parser.getAttributeValue(null, "stop"))
+              // Match JS resolveXmltvStop: missing/invalid/absurd stop → +30 minutes.
+              val parsedStop = parseXmltvTime(parser.getAttributeValue(null, "stop"))
+              endMs = resolveProgrammeStop(startMs, parsedStop)
               keepProgram =
                 !channelId.isNullOrBlank() &&
                   startMs > 0L &&
@@ -302,6 +310,17 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     }
   }
 
+  private fun resolveProgrammeStop(startMs: Long, parsedStopMs: Long): Long {
+    if (startMs <= 0L) return 0L
+    if (
+      parsedStopMs > startMs &&
+      parsedStopMs - startMs <= MAX_PROGRAMME_DURATION_MS
+    ) {
+      return parsedStopMs
+    }
+    return startMs + DEFAULT_PROGRAMME_DURATION_MS
+  }
+
   private fun parseXmltvTime(raw: String?): Long {
     if (raw == null) return 0L
     val value = raw.trim()
@@ -377,5 +396,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     private const val GUIDE_WINDOW_MS = 24L * 60L * 60L * 1000L
     private const val MAX_QUERY_WINDOW_MS = 24L * 60L * 60L * 1000L
     private const val CURRENT_CACHE_REFRESH_MS = 30_000L
+    private const val DEFAULT_PROGRAMME_DURATION_MS = 30L * 60L * 1000L
+    private const val MAX_PROGRAMME_DURATION_MS = 24L * 60L * 60L * 1000L
   }
 }

@@ -122,23 +122,25 @@ class TvRemotePackage : ReactPackage {
 }
 
 // 1) Write the Kotlin module + package files into the app source dir.
+// ApplicationId may be a side-by-side suffix (e.g. *.purple.next) while Kotlin
+// sources stay under the Android namespace. Always write native modules there.
+const KOTLIN_NAMESPACE = "com.charmiptv.app";
+
 function withTvRemoteFiles(config) {
   return withDangerousMod(config, [
     "android",
     async (cfg) => {
-      const pkg = cfg.android?.package;
-      if (!pkg) return cfg;
       const dir = path.join(
         cfg.modRequest.platformProjectRoot,
         "app",
         "src",
         "main",
         "java",
-        ...pkg.split("."),
+        ...KOTLIN_NAMESPACE.split("."),
       );
       fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(path.join(dir, "TvRemoteModule.kt"), moduleKt(pkg));
-      fs.writeFileSync(path.join(dir, "TvRemotePackage.kt"), packageKt(pkg));
+      fs.writeFileSync(path.join(dir, "TvRemoteModule.kt"), moduleKt(KOTLIN_NAMESPACE));
+      fs.writeFileSync(path.join(dir, "TvRemotePackage.kt"), packageKt(KOTLIN_NAMESPACE));
       return cfg;
     },
   ]);

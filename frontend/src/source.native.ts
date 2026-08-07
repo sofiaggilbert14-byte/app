@@ -16,10 +16,10 @@ import {
 import { cleanupLegacyEpgArtifactsOnce } from "@/src/utils/legacyEpgCleanup";
 
 export const API_BASE = "";
-export const SOURCE_M3U =
-  process.env.EXPO_PUBLIC_M3U_URL || "http://m3u4u.com/m3u/jwmzn1grpmu99585n721";
-export const SOURCE_EPG =
-  process.env.EXPO_PUBLIC_EPG_URL || "http://m3u4u.com/epg/jwmzn1grpmu99585n721";
+/** Playlist URL — set via EXPO_PUBLIC_M3U_URL at build time. Never hardcode provider URLs. */
+export const SOURCE_M3U = (process.env.EXPO_PUBLIC_M3U_URL || "").trim();
+/** XMLTV URL — set via EXPO_PUBLIC_EPG_URL at build time. Never hardcode provider URLs. */
+export const SOURCE_EPG = (process.env.EXPO_PUBLIC_EPG_URL || "").trim();
 
 const TTL_MS = 24 * 60 * 60 * 1000;
 const PROGRESS_THROTTLE_MS = 150;
@@ -176,6 +176,9 @@ async function persistMeta(meta: NativeMeta): Promise<void> {
 }
 
 async function fetchPlaylist(): Promise<Channel[]> {
+  if (!SOURCE_M3U) {
+    throw new Error("Playlist URL is not configured. Set EXPO_PUBLIC_M3U_URL at build time.");
+  }
   const response = await fetch(https(SOURCE_M3U), {
     headers: { "User-Agent": "CharmIPTV/Experimental-v3" },
   });
@@ -243,6 +246,7 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
       emit();
 
       if (!nativeEpgAvailable) throw new Error("Native EPG engine is unavailable in this Android build");
+      if (!SOURCE_EPG) throw new Error("EPG URL is not configured. Set EXPO_PUBLIC_EPG_URL at build time.");
       setProgress({ phase: "downloading", ratio: 0.2, etaSeconds: null, message: null }, true);
       const epg = await refreshNativeEpg(https(SOURCE_EPG));
       setProgress({ phase: "caching", ratio: 0.9, etaSeconds: null }, true);

@@ -68,6 +68,7 @@ class MainActivity : ReactActivity() {
           ?.emit("TvRemoteKey", key)
       } catch (e: Throwable) {}
       if (TvRemoteModule.pointerActive) return true
+      if (TvRemoteModule.guideNavigationActive && (key == "UP" || key == "DOWN")) return true
     }
     return super.dispatchKeyEvent(event)
   }

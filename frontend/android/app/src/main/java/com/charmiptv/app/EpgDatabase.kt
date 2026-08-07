@@ -81,11 +81,17 @@ internal class EpgDatabase(context: Context) :
     }
   }
 
+  private fun countTable(table: String): Long {
+    readableDatabase.rawQuery("SELECT COUNT(*) FROM $table", null).use { cursor ->
+      return if (cursor.moveToFirst()) cursor.getLong(0) else 0L
+    }
+  }
+
   /**
    * Parse/network iteration happens outside a long SQLite transaction. Each
    * 1,000-row batch is committed to staging, then the final live-table swap is
    * deliberately tiny. Readers therefore keep the last-good guide throughout
-   * a slow XMLTV refresh and a failed refresh never destroys it.
+   * a slow XMLTV refresh and a failed/empty refresh never destroys it.
    */
   fun replaceBatches(batches: Sequence<List<NativeEpgProgram>>) {
     val db = writableDatabase
@@ -99,6 +105,18 @@ internal class EpgDatabase(context: Context) :
 
     for (batch in batches) {
       insertBatch(db, STAGING_TABLE, batch)
+    }
+
+    val stagingCount = countTable(STAGING_TABLE)
+    if (stagingCount <= 0L) {
+      db.beginTransaction()
+      try {
+        db.delete(STAGING_TABLE, null, null)
+        db.setTransactionSuccessful()
+      } finally {
+        db.endTransaction()
+      }
+      throw IllegalStateException("Refusing to replace live EPG with an empty feed")
     }
 
     db.beginTransaction()
@@ -118,35 +136,63 @@ internal class EpgDatabase(context: Context) :
     }
   }
 
-  fun queryWindow(startMs: Long, endMs: Long): List<NativeEpgProgram> {
+  fun queryWindow(startMs: Long, endMs: Long, channelIds: Collection<String>? = null): List<NativeEpgProgram> {
+    if (channelIds != null && channelIds.isEmpty()) return emptyList()
+
     val result = ArrayList<NativeEpgProgram>()
-    readableDatabase.query(
-      LIVE_TABLE,
-      arrayOf("channel_id", "title", "description", "start_time", "end_time"),
-      "end_time > ? AND start_time < ?",
-      arrayOf(startMs.toString(), endMs.toString()),
-      null,
-      null,
-      "channel_id ASC, start_time ASC",
-    ).use { cursor ->
-      val channelColumn = cursor.getColumnIndexOrThrow("channel_id")
-      val titleColumn = cursor.getColumnIndexOrThrow("title")
-      val descriptionColumn = cursor.getColumnIndexOrThrow("description")
-      val startColumn = cursor.getColumnIndexOrThrow("start_time")
-      val endColumn = cursor.getColumnIndexOrThrow("end_time")
-      while (cursor.moveToNext()) {
-        result.add(
-          NativeEpgProgram(
-            channelId = cursor.getString(channelColumn),
-            title = cursor.getString(titleColumn),
-            description = if (cursor.isNull(descriptionColumn)) null else cursor.getString(descriptionColumn),
-            startMs = cursor.getLong(startColumn),
-            endMs = cursor.getLong(endColumn),
-          )
-        )
-      }
+    if (channelIds == null) {
+      readableDatabase.query(
+        LIVE_TABLE,
+        arrayOf("channel_id", "title", "description", "start_time", "end_time"),
+        "end_time > ? AND start_time < ?",
+        arrayOf(startMs.toString(), endMs.toString()),
+        null,
+        null,
+        "channel_id ASC, start_time ASC",
+      ).use { cursor -> appendPrograms(cursor, result) }
+      return result
+    }
+
+    // SQLite binds ~999 variables; chunk large playlists safely.
+    for (chunk in channelIds.chunked(IN_CLAUSE_CHUNK)) {
+      if (chunk.isEmpty()) continue
+      val placeholders = chunk.joinToString(",") { "?" }
+      val args = ArrayList<String>(chunk.size + 2)
+      args.addAll(chunk)
+      args.add(startMs.toString())
+      args.add(endMs.toString())
+      readableDatabase.rawQuery(
+        """
+        SELECT channel_id, title, description, start_time, end_time
+        FROM $LIVE_TABLE
+        WHERE channel_id IN ($placeholders)
+          AND end_time > ?
+          AND start_time < ?
+        ORDER BY channel_id ASC, start_time ASC
+        """.trimIndent(),
+        args.toTypedArray(),
+      ).use { cursor -> appendPrograms(cursor, result) }
     }
     return result
+  }
+
+  private fun appendPrograms(cursor: android.database.Cursor, result: MutableList<NativeEpgProgram>) {
+    val channelColumn = cursor.getColumnIndexOrThrow("channel_id")
+    val titleColumn = cursor.getColumnIndexOrThrow("title")
+    val descriptionColumn = cursor.getColumnIndexOrThrow("description")
+    val startColumn = cursor.getColumnIndexOrThrow("start_time")
+    val endColumn = cursor.getColumnIndexOrThrow("end_time")
+    while (cursor.moveToNext()) {
+      result.add(
+        NativeEpgProgram(
+          channelId = cursor.getString(channelColumn),
+          title = cursor.getString(titleColumn),
+          description = if (cursor.isNull(descriptionColumn)) null else cursor.getString(descriptionColumn),
+          startMs = cursor.getLong(startColumn),
+          endMs = cursor.getLong(endColumn),
+        )
+      )
+    }
   }
 
   fun queryCurrent(nowMs: Long): List<NativeEpgProgram> {
@@ -194,15 +240,12 @@ internal class EpgDatabase(context: Context) :
     }
   }
 
-  fun count(): Long {
-    readableDatabase.rawQuery("SELECT COUNT(*) FROM $LIVE_TABLE", null).use { cursor ->
-      return if (cursor.moveToFirst()) cursor.getLong(0) else 0L
-    }
-  }
+  fun count(): Long = countTable(LIVE_TABLE)
 
   companion object {
     private const val DATABASE_VERSION = 2
     private const val LIVE_TABLE = "epg_programmes"
     private const val STAGING_TABLE = "epg_programmes_staging"
+    private const val IN_CLAUSE_CHUNK = 400
   }
 }

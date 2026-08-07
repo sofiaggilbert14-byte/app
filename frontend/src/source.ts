@@ -24,10 +24,10 @@ import {
  * that path downloads the full feed into memory and is unsafe on weak Fire TV boxes.
  */
 export const API_BASE = "";
-export const SOURCE_M3U =
-  process.env.EXPO_PUBLIC_M3U_URL || "http://m3u4u.com/m3u/jwmzn1grpmu99585n721";
-export const SOURCE_EPG =
-  process.env.EXPO_PUBLIC_EPG_URL || "http://m3u4u.com/epg/jwmzn1grpmu99585n721";
+/** Playlist URL — set via EXPO_PUBLIC_M3U_URL at build time. Never hardcode provider URLs. */
+export const SOURCE_M3U = (process.env.EXPO_PUBLIC_M3U_URL || "").trim();
+/** XMLTV URL — set via EXPO_PUBLIC_EPG_URL at build time. Never hardcode provider URLs. */
+export const SOURCE_EPG = (process.env.EXPO_PUBLIC_EPG_URL || "").trim();
 
 const TTL_MS = 24 * 60 * 60 * 1000; // refresh at most once a day
 // Channel metadata stays in one tiny atomic file. Programme rows live in the
@@ -64,9 +64,9 @@ function https(url: string): string {
   return url && url.startsWith("http://") ? "https://" + url.slice(7) : url;
 }
 
-// On the web preview, direct fetches to m3u4u.com are blocked by CORS. Route
-// web-only requests through the dev backend proxy (this environment only). The
-// shipped native app (APK / Expo Go) fetches directly with no proxy/backend.
+// On the web preview, direct playlist/EPG fetches are often blocked by CORS.
+// Route web-only requests through the dev backend proxy (this environment only).
+// The shipped native app (APK / Expo Go) fetches directly with no proxy/backend.
 const WEB_PROXY = `${process.env.EXPO_PUBLIC_BACKEND_URL || ""}/api/proxy?url=`;
 
 function resolveUrl(url: string): string {
@@ -81,8 +81,8 @@ async function fetchTextMaybeGzip(
   url: string,
   onDownload?: (ratio: number | null) => void,
 ): Promise<string> {
-  // Handles both plain and GZIP-compressed sources (m3u4u serves some feeds
-  // gzipped). Downloads the bytes reliably, then inflates only if gzip-magic.
+  // Handles both plain and GZIP-compressed sources. Downloads the bytes
+  // reliably, then inflates only if gzip-magic.
   const bytes = await fetchBytes(url, onDownload);
   return inflateIfGzip(bytes);
 }

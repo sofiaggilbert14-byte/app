@@ -3,10 +3,13 @@ import re
 import gzip
 import asyncio
 import logging
+import ipaddress
+import socket
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urljoin, urlparse
 
 import requests
 import jwt
@@ -250,12 +253,12 @@ def _do_refresh(m3u_url: str, epg_url: str):
     icons, programs = ({}, {})
     if epg_url:
         try:
-epg_text = _fetch(epg_url)
+            epg_text = _fetch(epg_url)
 
-if "<tv" not in epg_text[:1000]:
-    raise ValueError("EPG response is not valid XMLTV data")
+            if "<tv" not in epg_text[:1000]:
+                raise ValueError("EPG response is not valid XMLTV data")
 
-icons, programs = parse_xmltv(epg_text)
+            icons, programs = parse_xmltv(epg_text)
         except Exception as e:
             logger.warning("EPG fetch/parse failed: %s", e)
     # merge logos from EPG when M3U logo missing; force https so mobile/web can load them
@@ -337,26 +340,87 @@ async def root():
     return {"message": "GridStream IPTV API"}
 
 
+def _is_blocked_ip(address: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        return True
+    return bool(
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+    )
+
+
+def _assert_safe_proxy_url(url: str) -> str:
+    """Reject non-http(s) schemes and private/link-local destinations (SSRF)."""
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(status_code=400, detail="Invalid url")
+    host = (parsed.hostname or "").strip().lower()
+    if not host:
+        raise HTTPException(status_code=400, detail="Invalid url")
+    if host in {"localhost", "metadata.google.internal"} or host.endswith(".local"):
+        raise HTTPException(status_code=400, detail="Proxy destination is not allowed")
+
+    allowlist_raw = os.environ.get("PROXY_ALLOW_HOSTS", "").strip()
+    if allowlist_raw:
+        allowed = {h.strip().lower() for h in allowlist_raw.split(",") if h.strip()}
+        if host not in allowed:
+            raise HTTPException(status_code=400, detail="Proxy destination is not allowlisted")
+
+    try:
+        infos = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80))
+    except socket.gaierror as exc:
+        raise HTTPException(status_code=400, detail=f"Could not resolve host: {exc}") from exc
+
+    for info in infos:
+        sockaddr = info[4]
+        if sockaddr and _is_blocked_ip(str(sockaddr[0])):
+            raise HTTPException(status_code=400, detail="Proxy destination resolves to a private address")
+
+    return url
+
+
 @api_router.get("/proxy")
 async def proxy(url: str):
     """Web-preview-only CORS proxy. The shipped native app fetches directly and
-    never calls this — it exists so the browser preview can load m3u4u sources.
+    never calls this — it exists so the browser preview can load remote sources.
     Returns raw bytes with the upstream content-type so gzipped EPG data
-    (the /epg/ endpoint) survives the hop intact for client-side inflation."""
-    if not (url.startswith("http://") or url.startswith("https://")):
-        raise HTTPException(status_code=400, detail="Invalid url")
+    survives the hop intact for client-side inflation."""
+    safe_url = _assert_safe_proxy_url(url)
     try:
         r = requests.get(
-            url,
+            safe_url,
             timeout=45,
-            allow_redirects=True,
+            allow_redirects=False,
             headers={"User-Agent": "Mozilla/5.0 (GridStream)"},
         )
+        # Follow a bounded number of redirects only to re-validated hosts.
+        redirects = 0
+        while r.is_redirect and redirects < 3:
+            location = r.headers.get("Location")
+            if not location:
+                break
+            next_url = urljoin(safe_url, location)
+            safe_url = _assert_safe_proxy_url(next_url)
+            r = requests.get(
+                safe_url,
+                timeout=45,
+                allow_redirects=False,
+                headers={"User-Agent": "Mozilla/5.0 (GridStream)"},
+            )
+            redirects += 1
         r.raise_for_status()
         return Response(
             content=r.content,
             media_type=r.headers.get("Content-Type", "application/octet-stream"),
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Proxy fetch failed: {e}")
 

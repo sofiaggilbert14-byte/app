@@ -71,8 +71,8 @@ android {
         applicationId 'com.charmiptv.app.purple.next'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 3
-        versionName "2.1.0-next.3"
+        versionCode 4
+        versionName "2.1.0-rc.1"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
@@ -83,16 +83,31 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        release {
+            // Prefer a real upload keystore via gradle.properties / CI secrets:
+            //   CHARM_UPLOAD_STORE_FILE, CHARM_UPLOAD_STORE_PASSWORD,
+            //   CHARM_UPLOAD_KEY_ALIAS, CHARM_UPLOAD_KEY_PASSWORD
+            // Falls back to the debug keystore for local/CI sideload builds.
+            def storePath = System.getenv("CHARM_UPLOAD_STORE_FILE") ?: findProperty("CHARM_UPLOAD_STORE_FILE")
+            if (storePath) {
+                storeFile file(storePath)
+                storePassword System.getenv("CHARM_UPLOAD_STORE_PASSWORD") ?: findProperty("CHARM_UPLOAD_STORE_PASSWORD")
+                keyAlias System.getenv("CHARM_UPLOAD_KEY_ALIAS") ?: findProperty("CHARM_UPLOAD_KEY_ALIAS")
+                keyPassword System.getenv("CHARM_UPLOAD_KEY_PASSWORD") ?: findProperty("CHARM_UPLOAD_KEY_PASSWORD")
+            } else {
+                storeFile file('debug.keystore')
+                storePassword 'android'
+                keyAlias 'androiddebugkey'
+                keyPassword 'android'
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Test builds use the Android debug keystore so the universal APK
-            // is immediately sideloadable. Production signing can replace this
-            // without changing the package/ABI build path.
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.release
             def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
             shrinkResources enableShrinkResources.toBoolean()
             minifyEnabled enableMinifyInReleaseBuilds
