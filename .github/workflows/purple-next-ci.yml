@@ -24,8 +24,18 @@ jobs:
     defaults:
       run:
         working-directory: frontend
+    env:
+      EXPO_PUBLIC_M3U_URL: ${{ vars.EXPO_PUBLIC_M3U_URL }}
+      EXPO_PUBLIC_EPG_URL: ${{ vars.EXPO_PUBLIC_EPG_URL }}
+      EXPO_PUBLIC_GUIDE_WINDOW_HOURS: ${{ vars.EXPO_PUBLIC_GUIDE_WINDOW_HOURS || '8' }}
     steps:
       - uses: actions/checkout@v4
+      - name: Require playlist and EPG build variables
+        run: |
+          if [ -z "${EXPO_PUBLIC_M3U_URL}" ] || [ -z "${EXPO_PUBLIC_EPG_URL}" ]; then
+            echo "::error::Set repository Actions variables EXPO_PUBLIC_M3U_URL and EXPO_PUBLIC_EPG_URL before building."
+            exit 1
+          fi
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -56,6 +66,9 @@ jobs:
         env:
           CI: "1"
           GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx3g -Dorg.gradle.workers.max=2"
+          EXPO_PUBLIC_M3U_URL: ${{ env.EXPO_PUBLIC_M3U_URL }}
+          EXPO_PUBLIC_EPG_URL: ${{ env.EXPO_PUBLIC_EPG_URL }}
+          EXPO_PUBLIC_GUIDE_WINDOW_HOURS: ${{ env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS }}
       - name: Name and checksum APK
         run: |
           APK=android/app/build/outputs/apk/release/app-release.apk
