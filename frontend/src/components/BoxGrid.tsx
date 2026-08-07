@@ -18,6 +18,7 @@ import { nowNext, progressPct, fmtTime, reminderKey } from "@/src/utils/time";
 import { useStore } from "@/src/store";
 import { requestNativeFocus } from "@/src/utils/tvFocus";
 import { armGuideBottomFocusLock } from "@/src/utils/tvGuideFocusLock";
+import { evaluateGuideNavigation } from "@/src/core/guideNavigationPolicy";
 
 const ACCENT = "#A855F7";
 const ACCENT_SOFT = "#E9D5FF";
@@ -262,17 +263,20 @@ export function BoxGrid({
     useCallback(
       (event) => {
         if (!active) return;
-        const type = event?.eventType;
-        if (
-          type === "down" &&
-          gridOwnsFocusRef.current &&
-          focusedRowRef.current >= lastRowIndexRef.current
-        ) {
+        const decision = evaluateGuideNavigation({
+          active,
+          key: event?.eventType,
+          gridOwnsFocus: gridOwnsFocusRef.current,
+          focusRegion: "program",
+          focusedRow: focusedRowRef.current,
+          lastRow: lastRowIndexRef.current,
+        });
+        if (decision.boundary === "bottom-lock") {
           armGuideBottomFocusLock(focusedNodeRef.current);
           requestNativeFocus(focusedNodeRef.current);
           return;
         }
-        if (type !== "up" || focusedRowRef.current > 0) return;
+        if (decision.boundary !== "top-boundary") return;
         if (!gridOwnsFocusRef.current || guideEscapeInFlight.current) return;
         guideEscapeInFlight.current = true;
         gridOwnsFocusRef.current = false;

@@ -21,6 +21,8 @@ import { ChannelLogo } from "./ChannelLogo";
 import { reminderKey } from "@/src/utils/time";
 import { requestNativeFocus } from "@/src/utils/tvFocus";
 import { armGuideBottomFocusLock } from "@/src/utils/tvGuideFocusLock";
+import { CHANNEL_NAME_MAX_LINES, getGuideRailMetrics } from "@/src/core/guideLayoutPolicy";
+import { evaluateGuideNavigation } from "@/src/core/guideNavigationPolicy";
 
 const HEADER_H = 30;
 const ACCENT = "#8B5CF6";
@@ -79,6 +81,11 @@ type TimelineRowProps = {
   rowHeight: number;
   logoWidth: number;
   logoSize: number;
+  numberWidth: number;
+  nameFontSize: number;
+  nameLineHeight: number;
+  horizontalPadding: number;
+  itemGap: number;
   timelineWidth: number;
   /** Negated horizontal pan — applied only to the program track, never logos. */
   negScrollX: Animated.AnimatedMultiplication<number> | Animated.AnimatedInterpolation<number>;
@@ -207,6 +214,11 @@ const TimelineRow = memo(function TimelineRow({
   rowHeight,
   logoWidth,
   logoSize,
+  numberWidth,
+  nameFontSize,
+  nameLineHeight,
+  horizontalPadding,
+  itemGap,
   timelineWidth,
   negScrollX,
   panBucket,
@@ -286,7 +298,11 @@ const TimelineRow = memo(function TimelineRow({
       >
         <Pressable
           ref={setLogoRef}
-          style={({ focused }: any) => [styles.logoCell, focused && styles.logoCellFocused]}
+          style={({ focused }: any) => [
+            styles.logoCell,
+            { paddingHorizontal: horizontalPadding, gap: itemGap },
+            focused && styles.logoCellFocused,
+          ]}
           focusable
           // Prefer the channel logo (left edge) so Right from Live TV lands beside the sidebar,
           // not mid-timeline on the live show cell.
@@ -298,10 +314,19 @@ const TimelineRow = memo(function TimelineRow({
           testID={`epg-channel-${item.id}`}
         >
           {showChannelNumbers && (
-            <Text style={styles.channelNumber}>{channelNumberById?.[item.id] || index + 1}</Text>
+            <Text style={[styles.channelNumber, { width: numberWidth, minWidth: numberWidth }]}>
+              {channelNumberById?.[item.id] || index + 1}
+            </Text>
           )}
           <ChannelLogo name={item.name} logo={item.logo} disabled={!showChannelLogos} size={logoSize} />
-          <Text numberOfLines={1} style={styles.logoName}>{item.name}</Text>
+          <Text
+            numberOfLines={CHANNEL_NAME_MAX_LINES}
+            adjustsFontSizeToFit
+            minimumFontScale={0.82}
+            style={[styles.logoName, { fontSize: nameFontSize, lineHeight: nameLineHeight }]}
+          >
+            {item.name}
+          </Text>
         </Pressable>
       </View>
 
@@ -400,9 +425,10 @@ export const TimelineGrid = memo(function TimelineGrid({
 }) {
   const { width } = useWindowDimensions();
   const big = width >= 900;
-  const ROW_H = density === "large" ? (big ? 60 : 56) : density === "compact" ? (big ? 42 : 40) : big ? 48 : 46;
-  const LOGO_W = big ? 112 : 86;
-  const LOGO_SIZE = density === "large" ? (big ? 34 : 30) : density === "compact" ? (big ? 24 : 22) : big ? 28 : 26;
+  const railMetrics = getGuideRailMetrics(width, density, showChannelNumbers, showChannelLogos);
+  const ROW_H = railMetrics.rowHeight;
+  const LOGO_W = railMetrics.railWidth;
+  const LOGO_SIZE = railMetrics.logoSize;
   const scrollX = useRef(new Animated.Value(0)).current;
   const negScrollX = useMemo(() => Animated.multiply(scrollX, -1), [scrollX]);
   const panAnimRef = useRef<Animated.CompositeAnimation | null>(null);
@@ -565,7 +591,15 @@ export const TimelineGrid = memo(function TimelineGrid({
       (event) => {
         if (!active) return;
         const type = event?.eventType;
-        if (type === "up" || type === "down") {
+        const decision = evaluateGuideNavigation({
+          active,
+          key: type,
+          gridOwnsFocus: gridOwnsFocusRef.current,
+          focusRegion: focusRegionRef.current,
+          focusedRow: focusedRowRef.current,
+          lastRow: lastRowIndexRef.current,
+        });
+        if (decision.axis === "vertical") {
           lastAxisRef.current = "v";
           lastAxisAtRef.current = Date.now();
           // Keep every on-screen program focusable while holding Up/Down so FlashList
@@ -573,26 +607,24 @@ export const TimelineGrid = memo(function TimelineGrid({
           setDisableProgramCull(true);
           if (cullResumeTimer.current) clearTimeout(cullResumeTimer.current);
           cullResumeTimer.current = setTimeout(() => setDisableProgramCull(false), RAPID_VERTICAL_MS + 80);
-        } else if (type === "left" || type === "right") {
+        } else if (decision.axis === "horizontal") {
           lastAxisRef.current = "h";
           lastAxisAtRef.current = Date.now();
         }
-        if (type === "left" && focusRegionRef.current === "channel" && gridOwnsFocusRef.current) {
+        if (decision.boundary === "left-boundary") {
           onLeftBoundary?.();
           return;
         }
         // Bottom of guide: keep focus in-grid. Holding Down must never land on Exit.
         if (
-          type === "down" &&
-          gridOwnsFocusRef.current &&
-          focusedRowRef.current >= lastRowIndexRef.current
+          decision.boundary === "bottom-lock"
         ) {
           armGuideBottomFocusLock(focusedNodeRef.current);
           requestNativeFocus(focusedNodeRef.current);
           return;
         }
         // Only escape when the grid currently owns focus — never yank chips/sidebar.
-        if (type === "up" && focusedRowRef.current <= 0 && gridOwnsFocusRef.current) {
+        if (decision.boundary === "top-boundary") {
           if (guideEscapeInFlight.current) return;
           guideEscapeInFlight.current = true;
           gridOwnsFocusRef.current = false;
@@ -668,6 +700,11 @@ export const TimelineGrid = memo(function TimelineGrid({
         rowHeight={ROW_H}
         logoWidth={LOGO_W}
         logoSize={LOGO_SIZE}
+        numberWidth={railMetrics.numberWidth}
+        nameFontSize={railMetrics.nameFontSize}
+        nameLineHeight={railMetrics.nameLineHeight}
+        horizontalPadding={railMetrics.horizontalPadding}
+        itemGap={railMetrics.itemGap}
         timelineWidth={timelineWidth}
         negScrollX={negScrollX}
         panBucket={panBucket}
@@ -688,7 +725,7 @@ export const TimelineGrid = memo(function TimelineGrid({
         focusedProgramKey={focusedProgramKey}
       />
     ),
-    [ROW_H, LOGO_W, LOGO_SIZE, timelineWidth, negScrollX, panBucket, programViewportW, showChannelNumbers, channelNumberById, showChannelLogos, reminderKeys, onChannelPress, onChannelLongPress, onProgramPress, onRowProgramFocus, onRowChannelFocus, preferFirstRow, rememberFocusNode, lastRowIndex, disableProgramCull, focusedProgramKey],
+    [ROW_H, LOGO_W, LOGO_SIZE, railMetrics.numberWidth, railMetrics.nameFontSize, railMetrics.nameLineHeight, railMetrics.horizontalPadding, railMetrics.itemGap, timelineWidth, negScrollX, panBucket, programViewportW, showChannelNumbers, channelNumberById, showChannelLogos, reminderKeys, onChannelPress, onChannelLongPress, onProgramPress, onRowProgramFocus, onRowChannelFocus, preferFirstRow, rememberFocusNode, lastRowIndex, disableProgramCull, focusedProgramKey],
   );
 
   return (
@@ -793,8 +830,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-start",
-    paddingHorizontal: 6,
-    gap: 6,
     borderWidth: 2,
     borderColor: "transparent",
     backgroundColor: "#0A0916",
@@ -805,13 +840,12 @@ const styles = StyleSheet.create({
     backgroundColor: "#2E1065",
   },
   channelNumber: {
-    minWidth: 25,
     color: ACCENT_SOFT,
     fontFamily: fonts.bold,
     fontSize: 10,
     textAlign: "right",
   },
-  logoName: { color: "#fff", fontFamily: fonts.semibold, fontSize: 10.5, textAlign: "left", flex: 1 },
+  logoName: { color: "#fff", fontFamily: fonts.semibold, textAlign: "left", flex: 1, minWidth: 0 },
   timelineClip: {
     flex: 1,
     overflow: "hidden",

@@ -39,7 +39,7 @@ jobs:
       - uses: android-actions/setup-android@v3
       - name: Install dependencies deterministically
         run: npm ci --legacy-peer-deps --no-audit --no-fund
-      - name: Phase 1 regression tests
+      - name: Phase 1 and 2 regression tests
         run: npm test
       - name: Typecheck
         run: npm run typecheck
@@ -47,6 +47,8 @@ jobs:
         run: npm run lint
       - name: Record Phase 1 benchmark
         run: CHARM_BENCH_CHANNELS=20000 CHARM_BENCHMARK_OUTPUT=ci/phase1-benchmark.json npm run benchmark:phase1
+      - name: Run Phase 2 guide torture model
+        run: CHARM_TORTURE_CHANNELS=240 CHARM_TORTURE_CYCLES=25 CHARM_TORTURE_OUTPUT=ci/phase2-guide-torture.json npm run torture:guide
       - name: Build side-by-side Purple Next APK
         run: |
           chmod +x android/gradlew
@@ -67,5 +69,6 @@ jobs:
             frontend/android/app/build/outputs/apk/release/CharmIPTV-Purple-Next.apk
             frontend/android/app/build/outputs/apk/release/CharmIPTV-Purple-Next.apk.sha256
             frontend/ci/phase1-benchmark.json
+            frontend/ci/phase2-guide-torture.json
           if-no-files-found: error
           retention-days: 30

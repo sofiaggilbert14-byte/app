@@ -10,6 +10,7 @@
     "web": "expo start --web",
     "test": "node --experimental-strip-types ./tests/run-tests.mjs",
     "benchmark:phase1": "node --experimental-strip-types ./scripts/phase1-benchmark.mjs",
+    "torture:guide": "node --experimental-strip-types ./scripts/phase2-guide-torture.mjs",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit"
   },
