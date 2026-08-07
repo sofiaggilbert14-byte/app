@@ -80,6 +80,9 @@ export default function PlayerScreen() {
   const channelsOpenRef = useRef(false);
   const generationRef = useRef(0);
   const channelsButtonRef = useRef<any>(null);
+  const nextButtonRef = useRef<any>(null);
+  const prevButtonRef = useRef<any>(null);
+  const preferControlRef = useRef<"next" | "prev" | null>(null);
   const lastStripFocusAtRef = useRef(0);
   const rapidStripUntilRef = useRef(0);
   const pendingChannelIdRef = useRef(params.channelId);
@@ -231,6 +234,7 @@ export default function PlayerScreen() {
     const nextIndex = (base + direction + streamChannels.length) % streamChannels.length;
     const target = streamChannels[nextIndex];
     if (!target) return;
+    preferControlRef.current = direction > 0 ? "next" : "prev";
     // Debounced zap: UI + notice update now; decoder remounts only after settle.
     changeChannel(target.id, true);
   }, [changeChannel, streamChannels]);
@@ -278,6 +282,15 @@ export default function PlayerScreen() {
     },
     [],
   );
+
+  useEffect(() => {
+    // Keep focus on Next/Prev while zapping even if the stream errors and Retry appears.
+    if (!controls) return;
+    const which = preferControlRef.current;
+    if (!which) return;
+    const node = which === "next" ? nextButtonRef.current : prevButtonRef.current;
+    requestAnimationFrame(() => requestNativeFocus(node));
+  }, [channelId, controls, status, retryToken]);
 
   useEffect(() => {
     if (status === "playing") {
@@ -408,14 +421,15 @@ export default function PlayerScreen() {
       />
 
       {(!hasStream || status === "error") ? (
-        <View style={styles.errorOverlay}>
+        <View style={styles.errorOverlay} pointerEvents="box-none">
           <Ionicons name="warning-outline" size={32} color={tvColors.purpleSoft} />
           <Text style={styles.errorTitle}>{hasStream ? "Reconnecting stream…" : "No stream available"}</Text>
           {hasStream ? <Text style={styles.errorText}>Attempt {Math.max(1, retryAttempt + 1)} · engine fallback remains active</Text> : null}
           {hasStream && !vlcAvailable ? <Text style={styles.errorText}>Playback requires the installed Android build.</Text> : null}
           {hasStream ? (
             <Pressable
-              hasTVPreferredFocus
+              // Never steal focus from Next/Prev while controls are up during rapid zapping.
+              hasTVPreferredFocus={!controls}
               onPress={retryNow}
               style={({ focused }: any) => [styles.retry, focused && styles.focused]}
             >
@@ -424,7 +438,7 @@ export default function PlayerScreen() {
             </Pressable>
           ) : (
             <Pressable
-              hasTVPreferredFocus
+              hasTVPreferredFocus={!controls}
               onPress={stopAndExit}
               style={({ focused }: any) => [styles.retry, focused && styles.focused]}
             >
@@ -512,7 +526,12 @@ export default function PlayerScreen() {
                 <Text style={styles.controlLabel}>Channels</Text>
               </Pressable>
               <View style={styles.controlsSpacer} />
-              <Pressable disabled={streamChannels.length < 2} onPress={() => stepChannel(-1)} style={({ focused }: any) => [styles.iconControl, focused && styles.focused]}>
+              <Pressable
+                ref={prevButtonRef}
+                disabled={streamChannels.length < 2}
+                onPress={() => stepChannel(-1)}
+                style={({ focused }: any) => [styles.iconControl, focused && styles.focused]}
+              >
                 <Ionicons name="play-skip-back" size={18} color="#fff" />
               </Pressable>
               <Pressable
@@ -526,7 +545,12 @@ export default function PlayerScreen() {
               >
                 <Ionicons name="eye-off-outline" size={18} color="#fff" />
               </Pressable>
-              <Pressable disabled={streamChannels.length < 2} onPress={() => stepChannel(1)} style={({ focused }: any) => [styles.iconControl, focused && styles.focused]}>
+              <Pressable
+                ref={nextButtonRef}
+                disabled={streamChannels.length < 2}
+                onPress={() => stepChannel(1)}
+                style={({ focused }: any) => [styles.iconControl, focused && styles.focused]}
+              >
                 <Ionicons name="play-skip-forward" size={18} color="#fff" />
               </Pressable>
               <View style={styles.controlsSpacer} />

@@ -24,7 +24,7 @@ import { Channel } from "@/src/api";
 import { useStore } from "@/src/store";
 import { fonts, radius, spacing, tvColors } from "@/src/theme";
 import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
-import { requestNativeFocus } from "@/src/utils/tvFocus";
+import { requestNativeFocus, requestNativeFocusWithRetry } from "@/src/utils/tvFocus";
 
 const BASE_GROUPS = ["All", "Favorites", "Recently Watched", "Sports", "News", "Movies", "Kids", "Music"];
 
@@ -84,7 +84,7 @@ export default function PurpleGuideScreen() {
   const [group, setGroup] = useState("All");
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
-  const [previewStatus, setPreviewStatus] = useState<StreamStatus>("loading");
+  const [, setPreviewStatus] = useState<StreamStatus>("loading");
   const [resetToken, setResetToken] = useState(0);
   const metadataTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -93,14 +93,34 @@ export default function PurpleGuideScreen() {
   const groupChipRefs = useRef(new Map<string, any>());
   const lastFocusAtRef = useRef(0);
   const rapidSurfUntilRef = useRef(0);
+  const lastGuideFocusNodeRef = useRef<unknown>(null);
+  const hadProgramModalRef = useRef(false);
+  const [previewEpoch, setPreviewEpoch] = useState(0);
   const reminderKeys = useMemo(() => new Set(reminders.map((item) => item.key)), [reminders]);
   // Freeze grid reminder badges while the program sheet is open so Cancel/Remind
   // doesn't rebuild the FlashList under the modal (Fire TV crash / hitch source).
   const [gridReminderKeys, setGridReminderKeys] = useState(reminderKeys);
   useEffect(() => {
-    if (activeProgram) return;
-    setGridReminderKeys(reminderKeys);
+    if (activeProgram) {
+      hadProgramModalRef.current = true;
+      return;
+    }
+    // Delay badge sync so focus restore isn't competing with FlashList churn.
+    const syncTimer = setTimeout(() => setGridReminderKeys(reminderKeys), 220);
+    return () => clearTimeout(syncTimer);
   }, [activeProgram, reminderKeys]);
+
+  // After Remind/Cancel sheet closes, return focus to the guide cell — never Live TV.
+  useEffect(() => {
+    if (activeProgram) return;
+    if (!hadProgramModalRef.current) return;
+    hadProgramModalRef.current = false;
+    return requestNativeFocusWithRetry(lastGuideFocusNodeRef.current, [0, 40, 120, 280]);
+  }, [activeProgram]);
+
+  const onGuideFocusNode = useCallback((node: unknown) => {
+    if (node) lastGuideFocusNodeRef.current = node;
+  }, []);
 
   // One deferred recovery only — stacked hardRefresh on boot freezes focus on weak TVs.
   useEffect(() => {
@@ -200,10 +220,23 @@ export default function PurpleGuideScreen() {
   const previewVisible =
     safePreviewMode !== "off" &&
     !!previewChannel?.url &&
-    previewId === previewChannel.id &&
-    previewStatus !== "error";
+    previewId === previewChannel.id;
 
   const previewDelay = safePreviewMode === "delayed" ? 2200 : 1600;
+
+  const schedulePreview = useCallback((requestedId: string, delay: number, hasUrl: boolean) => {
+    if (safePreviewMode === "off" || !hasUrl) {
+      setPreviewId(null);
+      return;
+    }
+    if (previewTimer.current) clearTimeout(previewTimer.current);
+    previewTimer.current = setTimeout(() => {
+      // Break the sticky error latch — always remount the decoder for this tune.
+      setPreviewStatus("loading");
+      setPreviewEpoch((value) => value + 1);
+      setPreviewId(requestedId);
+    }, delay);
+  }, [safePreviewMode]);
 
   const detailsRailWidth = useMemo(() => {
     // The former rail used a 0.78 / 1.9 flex relationship, clamped to 228–340.
@@ -229,11 +262,7 @@ export default function PurpleGuideScreen() {
         metadataTimer.current = setTimeout(() => {
           if (Date.now() < rapidSurfUntilRef.current) return;
           setFocusedId(requestedId);
-          if (safePreviewMode === "off" || !channel.url) {
-            setPreviewId(null);
-            return;
-          }
-          previewTimer.current = setTimeout(() => setPreviewId(requestedId), previewDelay);
+          schedulePreview(requestedId, previewDelay, !!channel.url);
         }, 750);
         return;
       }
@@ -243,16 +272,10 @@ export default function PurpleGuideScreen() {
 
       metadataTimer.current = setTimeout(() => {
         setFocusedId((prev) => (prev === requestedId ? prev : requestedId));
-        if (safePreviewMode === "off" || !channel.url) {
-          setPreviewId(null);
-          return;
-        }
-        previewTimer.current = setTimeout(() => {
-          setPreviewId((prev) => (prev === requestedId ? prev : requestedId));
-        }, delay);
+        schedulePreview(requestedId, delay, !!channel.url);
       }, 180);
     },
-    [previewDelay, safePreviewMode],
+    [previewDelay, schedulePreview],
   );
 
   const play = useCallback(
@@ -413,6 +436,7 @@ export default function PurpleGuideScreen() {
                   active={!activeProgram}
                   onUpBoundary={onGuideUpBoundary}
                   onFocusedRowChange={onFocusedGuideRow}
+                  onGuideFocusNode={onGuideFocusNode}
                 />
               ) : (
                 <TimelineGrid
@@ -435,6 +459,7 @@ export default function PurpleGuideScreen() {
                   active={!activeProgram}
                   onUpBoundary={onGuideUpBoundary}
                   onFocusedRowChange={onFocusedGuideRow}
+                  onGuideFocusNode={onGuideFocusNode}
                 />
               )}
             </FocusGuide>
@@ -444,7 +469,7 @@ export default function PurpleGuideScreen() {
                 {previewVisible && previewChannel ? (
                   <ErrorBoundary fallback={() => null}>
                     <StreamPlayer
-                      key={`purple-guide-preview-${previewChannel.id}`}
+                      key={`purple-guide-preview-${previewChannel.id}-${previewEpoch}`}
                       uri={previewChannel.url}
                       onStatus={setPreviewStatus}
                       style={StyleSheet.absoluteFill}

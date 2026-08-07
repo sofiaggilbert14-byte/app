@@ -167,6 +167,7 @@ export function BoxGrid({
   onChannelFocus,
   onUpBoundary,
   onFocusedRowChange,
+  onGuideFocusNode,
   ListHeaderComponent,
   refreshing,
   onRefresh,
@@ -184,6 +185,7 @@ export function BoxGrid({
   onChannelFocus?: (c: Channel) => void;
   onUpBoundary?: () => void;
   onFocusedRowChange?: (index: number) => void;
+  onGuideFocusNode?: (node: unknown) => void;
   ListHeaderComponent?: React.ReactElement;
   refreshing?: boolean;
   onRefresh?: () => void;
@@ -211,7 +213,8 @@ export function BoxGrid({
   const [preferFirst, setPreferFirst] = useState(() => !hasClaimedFocusRef.current);
   const rememberFocusNode = useCallback((node: unknown) => {
     if (node) focusedNodeRef.current = node;
-  }, []);
+    onGuideFocusNode?.(node);
+  }, [onGuideFocusNode]);
 
   const reportFocusedRow = useCallback(
     (index: number) => {
