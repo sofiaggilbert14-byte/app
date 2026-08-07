@@ -45,8 +45,8 @@ async function openDatabase(): Promise<Database | null> {
         PRAGMA journal_mode = WAL;
         PRAGMA synchronous = NORMAL;
         PRAGMA temp_store = MEMORY;
-        PRAGMA cache_size = -16384;
-        PRAGMA mmap_size = 67108864;
+        PRAGMA cache_size = -8192;
+        PRAGMA mmap_size = 33554432;
         PRAGMA busy_timeout = 5000;
         PRAGMA wal_autocheckpoint = 1000;
         CREATE TABLE IF NOT EXISTS programs (
@@ -83,10 +83,8 @@ export async function replaceIndexedPrograms(
   const db = await openDatabase();
   const entries = Object.entries(programs);
   if (!db) {
-    return {
-      programCount: entries.reduce((total, [, list]) => total + list.length, 0),
-      channelCount: entries.filter(([, list]) => list.length > 0).length,
-    };
+    // Never report fake success — callers clear in-memory programs when indexed counts are > 0.
+    return { programCount: 0, channelCount: 0 };
   }
 
   const total = Math.max(1, entries.reduce((sum, [, list]) => sum + list.length, 0));

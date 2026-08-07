@@ -4,20 +4,27 @@ import { VideoView, useVideoPlayer } from "expo-video";
 import { usePathname } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
 import { addTvKeyListener } from "@/src/utils/tvRemote";
+import { forceStopAllStreams, registerStreamStop } from "@/src/utils/streamLifecycle";
 import { usePlayerEnginePreference } from "@/src/playerEnginePreference";
+import {
+  detectStreamKind,
+  parsePipeHeaders,
+  preferredEngine,
+  type Engine,
+} from "@/src/core/streamPolicy";
+import {
+  DECODER_RESUME_SETTLE_MS,
+  isRapidDirectionalScan,
+  routeAcceptsRapidScanKey,
+} from "@/src/core/guideRegressionPolicy";
 
 export type StreamStatus = "loading" | "playing" | "error";
-
-type Engine = "vlc" | "media3";
-type StreamKind = "hls" | "dash" | "progressive" | "rtsp" | "rtmp" | "transport" | "unknown";
 
 const USER_AGENT = "VLC/3.0.20 LibVLC/3.0.20";
 const FAILURE_WINDOW_MS = 60_000;
 const MAX_FAILURES_PER_WINDOW = 5;
 const CIRCUIT_COOLDOWN_MS = 60_000;
 const ENGINE_START_TIMEOUT_MS = 12_000;
-const RAPID_GUIDE_KEY_MS = 240;
-const PREVIEW_RESUME_SETTLE_MS = 650;
 
 type FailureState = { failures: number[]; blockedUntil: number };
 const failureStateByKey = new Map<string, FailureState>();
@@ -99,40 +106,6 @@ function useStatusTracker(onStatus: (status: StreamStatus) => void, resetKey: st
   }, [onStatus]);
 }
 
-function detectStreamKind(uri: string): StreamKind {
-  const lower = uri.toLowerCase();
-  const protocol = lower.split(":", 1)[0];
-  if (protocol === "rtsp") return "rtsp";
-  if (protocol === "rtmp" || protocol === "rtmps") return "rtmp";
-  if (/\.m3u8(?:$|[?#])/.test(lower) || lower.includes("format=m3u8") || lower.includes("type=hls")) return "hls";
-  if (/\.mpd(?:$|[?#])/.test(lower) || lower.includes("format=mpd") || lower.includes("type=dash")) return "dash";
-  if (/\.(?:ts|m2ts)(?:$|[?#])/.test(lower) || lower.includes("mpegts")) return "transport";
-  if (/\.(?:mp4|m4v|mov|webm|mkv|avi)(?:$|[?#])/.test(lower)) return "progressive";
-  return "unknown";
-}
-
-function parsePipeHeaders(rawUri: string): { uri: string; headers: Record<string, string> } {
-  const pipeIndex = rawUri.indexOf("|");
-  if (pipeIndex < 0) return { uri: rawUri, headers: { "User-Agent": USER_AGENT } };
-
-  const uri = rawUri.slice(0, pipeIndex);
-  const headers: Record<string, string> = { "User-Agent": USER_AGENT };
-  const pairs = rawUri.slice(pipeIndex + 1).split("&");
-  for (const pair of pairs) {
-    const equals = pair.indexOf("=");
-    if (equals <= 0) continue;
-    const key = decodeURIComponent(pair.slice(0, equals)).trim();
-    const value = decodeURIComponent(pair.slice(equals + 1)).trim();
-    if (key && value) headers[key] = value;
-  }
-  return { uri, headers };
-}
-
-function preferredEngine(kind: StreamKind): Engine {
-  if (kind === "hls" || kind === "dash" || kind === "progressive") return "media3";
-  return "vlc";
-}
-
 export const vlcAvailable = Platform.OS !== "web" && !!UIManager.getViewManagerConfig?.("RCTVLCPlayer");
 
 const VLCPlayer: any = vlcAvailable
@@ -144,6 +117,8 @@ type Props = {
   uri: string;
   onStatus: (s: StreamStatus) => void;
   style?: StyleProp<ViewStyle>;
+  /** Guide live preview uses lighter VLC buffers than fullscreen playback. */
+  mode?: "preview" | "full";
 };
 
 type EngineProps = Props & { engine: Engine };
@@ -179,18 +154,24 @@ function useCircuitCooldown(engine: Engine, uri: string, setStatus: (s: StreamSt
   return { blocked, setBlocked };
 }
 
-function VlcStream({ uri: rawUri, onStatus: setStatus, style, engine }: EngineProps) {
+function VlcStream({ uri: rawUri, onStatus: setStatus, style, engine, mode = "full" }: EngineProps) {
   const activeRef = useRef(true);
+  const playerRef = useRef<any>(null);
+  const [paused, setPaused] = useState(false);
   const { uri, headers } = useMemo(() => parsePipeHeaders(rawUri), [rawUri]);
   const { blocked, setBlocked } = useCircuitCooldown(engine, uri, setStatus);
   const referer = headers.Referer || headers.referer;
   const origin = headers.Origin || headers.origin;
   const userAgent = headers["User-Agent"] || headers["user-agent"] || USER_AGENT;
   const initOptions = useMemo(() => {
+    // Preview surfing on weak TVs: smaller buffers = faster teardown / less RAM.
+    const networkCaching = mode === "preview" ? 600 : 1400;
+    const liveCaching = mode === "preview" ? 600 : 1400;
+    const fileCaching = mode === "preview" ? 500 : 900;
     const options = [
-      "--network-caching=1400",
-      "--live-caching=1400",
-      "--file-caching=900",
+      `--network-caching=${networkCaching}`,
+      `--live-caching=${liveCaching}`,
+      `--file-caching=${fileCaching}`,
       "--clock-jitter=0",
       "--clock-synchro=0",
       "--http-reconnect",
@@ -200,14 +181,32 @@ function VlcStream({ uri: rawUri, onStatus: setStatus, style, engine }: EnginePr
     if (referer) options.push(`--http-referrer=${referer}`);
     if (origin) options.push(`--http-origin=${origin}`);
     return options;
-  }, [origin, referer, userAgent]);
+  }, [mode, origin, referer, userAgent]);
+
+  const hardStop = useCallback(() => {
+    activeRef.current = false;
+    setPaused(true);
+    try {
+      playerRef.current?.stopPlayer?.();
+    } catch {
+      /* native teardown best-effort */
+    }
+    try {
+      playerRef.current?.setNativeProps?.({ paused: true });
+    } catch {
+      /* optional */
+    }
+  }, []);
 
   useEffect(() => {
     activeRef.current = true;
+    setPaused(false);
+    const unregister = registerStreamStop(hardStop);
     return () => {
-      activeRef.current = false;
+      unregister();
+      hardStop();
     };
-  }, []);
+  }, [hardStop, uri]);
 
   const fail = useCallback(() => {
     if (!activeRef.current) return;
@@ -224,16 +223,18 @@ function VlcStream({ uri: rawUri, onStatus: setStatus, style, engine }: EnginePr
 
   return (
     <VLCPlayer
+      ref={playerRef}
       style={style}
       source={{ uri, initType: 2, initOptions }}
-      autoplay
+      paused={paused}
+      autoplay={!paused}
       autoAspectRatio
       resizeMode="contain"
       acceptInvalidCertificates
-      onOpen={() => activeRef.current && setStatus("loading")}
-      onBuffering={() => activeRef.current && setStatus("loading")}
+      onOpen={() => activeRef.current && !paused && setStatus("loading")}
+      onBuffering={() => activeRef.current && !paused && setStatus("loading")}
       onPlaying={() => {
-        if (!activeRef.current) return;
+        if (!activeRef.current || paused) return;
         recordStablePlayback(engine, uri);
         setStatus("playing");
       }}
@@ -253,24 +254,33 @@ function ExpoStream({ uri: rawUri, onStatus: setStatus, style, engine }: EngineP
     p.loop = false;
   });
 
+  const hardStop = useCallback(() => {
+    mountedRef.current = false;
+    try {
+      player.pause();
+    } catch {}
+    try {
+      (player as any).muted = true;
+    } catch {}
+    try {
+      void player.replaceAsync(null as any);
+    } catch {}
+  }, [player]);
+
   useEffect(() => {
     mountedRef.current = true;
+    const unregister = registerStreamStop(hardStop);
     return () => {
-      mountedRef.current = false;
-      try {
-        player.pause();
-      } catch {}
-      // Drop the media item so weak TVs release decoder resources after guide previews.
-      try {
-        void player.replaceAsync(null as any);
-      } catch {}
+      unregister();
+      hardStop();
     };
-  }, [player]);
+  }, [hardStop]);
 
   useEffect(() => {
     if (!uri || blocked) return;
 
     let cancelled = false;
+    mountedRef.current = true;
     setStatus("loading");
     (async () => {
       try {
@@ -335,12 +345,13 @@ function ExpoStream({ uri: rawUri, onStatus: setStatus, style, engine }: EngineP
   );
 }
 
-export function StreamPlayer({ uri, onStatus, style }: Props) {
+export function StreamPlayer({ uri, onStatus, style, mode }: Props) {
   const isFocused = useIsFocused();
   const pathname = usePathname();
   // Purple TV keeps the live preview on its dedicated /guide route rather
   // than the root dashboard used by perf/opt-fix.
   const isGuidePreview = pathname === "/guide";
+  const playbackMode = mode ?? (isGuidePreview ? "preview" : "full");
   // Player strip surfing also benefits from pausing decoder work while holding D-pad.
   const pauseOnRapidScan = isGuidePreview || pathname === "/player";
   const [playerEnginePreference] = usePlayerEnginePreference();
@@ -369,26 +380,38 @@ export function StreamPlayer({ uri, onStatus, style }: Props) {
 
     return addTvKeyListener((key) => {
       // Guide: all directions compete with list recycling. Player: only strip L/R zaps.
-      if (isGuidePreview) {
-        if (key !== "UP" && key !== "DOWN" && key !== "LEFT" && key !== "RIGHT") return;
-      } else if (key !== "LEFT" && key !== "RIGHT") {
-        return;
-      }
+      if (!routeAcceptsRapidScanKey(pathname, key)) return;
       const now = Date.now();
-      const rapid = now - lastDirectionalAt.current <= RAPID_GUIDE_KEY_MS;
+      const rapid = isRapidDirectionalScan(lastDirectionalAt.current, now);
       lastDirectionalAt.current = now;
 
       if (settleTimer.current) clearTimeout(settleTimer.current);
-      if (rapid) setGuideScanSettled(false);
+      if (rapid) {
+        // Tear down decoder immediately — unmount alone can leave VLC audio alive on Fire TV.
+        forceStopAllStreams();
+        setGuideScanSettled(false);
+      }
       settleTimer.current = setTimeout(() => {
         setGuideScanSettled(true);
-      }, PREVIEW_RESUME_SETTLE_MS);
+      }, DECODER_RESUME_SETTLE_MS);
     });
-  }, [isFocused, isGuidePreview, pauseOnRapidScan]);
+  }, [isFocused, isGuidePreview, pathname, pauseOnRapidScan]);
+
+  useEffect(() => {
+    // Blur unmounts the engine child (see render gate below); that child's cleanup
+    // hardStops itself. Do not forceStopAllStreams here — it can kill a newly
+    // mounted fullscreen player while the guide preview is blurring away.
+    if (!isFocused && settleTimer.current) {
+      clearTimeout(settleTimer.current);
+      settleTimer.current = null;
+    }
+  }, [isFocused]);
 
   useEffect(
     () => () => {
       if (settleTimer.current) clearTimeout(settleTimer.current);
+      // Child VlcStream/ExpoStream unregister + hardStop on their own unmount.
+      // Global forceStop is reserved for explicit zap / play() teardown.
     },
     [],
   );
@@ -441,7 +464,7 @@ export function StreamPlayer({ uri, onStatus, style }: Props) {
   if (!isFocused || !uri || (pauseOnRapidScan && !guideScanSettled)) return null;
 
   if (engine === "vlc") {
-    return <VlcStream key={`vlc:${uri}`} uri={uri} onStatus={handleStatus} style={style} engine="vlc" />;
+    return <VlcStream key={`vlc:${uri}`} uri={uri} onStatus={handleStatus} style={style} engine="vlc" mode={playbackMode} />;
   }
-  return <ExpoStream key={`media3:${uri}`} uri={uri} onStatus={handleStatus} style={style} engine="media3" />;
+  return <ExpoStream key={`media3:${uri}`} uri={uri} onStatus={handleStatus} style={style} engine="media3" mode={playbackMode} />;
 }

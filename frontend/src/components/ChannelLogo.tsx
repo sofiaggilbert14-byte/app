@@ -4,7 +4,7 @@ import { Image } from "expo-image";
 import { colors, fonts, radius } from "@/src/theme";
 
 const MAX_CONCURRENT_IMAGE_LOADS = 3;
-const MAX_URI_HISTORY = 1000;
+const MAX_URI_HISTORY = 256;
 const LOAD_SLOT_TIMEOUT_MS = 10000;
 
 type QueueEntry = {

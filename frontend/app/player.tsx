@@ -24,9 +24,11 @@ import { fonts, radius, tvColors } from "@/src/theme";
 import { addTvKeyListener } from "@/src/utils/tvRemote";
 import { getTvSafeInsets } from "@/src/utils/tvLayout";
 import { requestNativeFocus } from "@/src/utils/tvFocus";
+import { forceStopAllStreams } from "@/src/utils/streamLifecycle";
 import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
 
 const CHANNEL_PREVIEW_DELAY_MS = 650;
+const CHANNEL_ZAP_SETTLE_MS = 850;
 const STREAM_RETRY_MS = 3000;
 const SWITCH_NOTICE_MS = 1800;
 
@@ -66,17 +68,25 @@ export default function PlayerScreen() {
   const [notice, setNotice] = useState<string | null>(null);
   const [retryAttempt, setRetryAttempt] = useState(0);
   const [playerNow, setPlayerNow] = useState(() => new Date());
+  // Decoder is disarmed while rapid Next/Prev or strip surfing — prevents VLC pile-up / audio leaks.
+  const [decoderArmed, setDecoderArmed] = useState(true);
 
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const zapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const controlsRef = useRef(true);
   const channelsOpenRef = useRef(false);
   const generationRef = useRef(0);
   const channelsButtonRef = useRef<any>(null);
+  const nextButtonRef = useRef<any>(null);
+  const prevButtonRef = useRef<any>(null);
+  const preferControlRef = useRef<"next" | "prev" | null>(null);
   const lastStripFocusAtRef = useRef(0);
   const rapidStripUntilRef = useRef(0);
+  const pendingChannelIdRef = useRef(params.channelId);
+  const channelIdRef = useRef(params.channelId);
 
   const isTV = Platform.OS !== "web" && Platform.isTV;
   const overlayHideMs = playerControlsTimeoutMs;
@@ -90,7 +100,6 @@ export default function PlayerScreen() {
     [channels],
   );
   const streamChannels = useMemo(() => sortedChannels.filter((item) => !!item.url), [sortedChannels]);
-  const streamIndex = useMemo(() => streamChannels.findIndex((item) => item.id === channelId), [channelId, streamChannels]);
   const numberById = useMemo(() => {
     const result: Record<string, number> = {};
     sortedChannels.forEach((item, index) => { result[item.id] = index + 1; });
@@ -145,13 +154,30 @@ export default function PlayerScreen() {
     }
   }, [hasStream, isTV, scheduleHide, status]);
 
-  const changeChannel = useCallback((id: string, haptic = false) => {
-    if (!id || id === channelId) return;
+  const armDecoderAfterSettle = useCallback((delayMs: number) => {
+    if (zapTimer.current) clearTimeout(zapTimer.current);
+    zapTimer.current = setTimeout(() => {
+      // Commit pending channel and remount a single decoder only after surfing settles.
+      const pending = pendingChannelIdRef.current;
+      channelIdRef.current = pending;
+      setChannelId(pending);
+      setRetryAttempt(0);
+      setStatus("loading");
+      setDecoderArmed(true);
+      setRetryToken((value) => value + 1);
+    }, delayMs);
+  }, []);
+
+  const changeChannel = useCallback((id: string, haptic = false, opts?: { immediate?: boolean }) => {
+    if (!id) return;
     const target = channelById(id);
     if (!target) return;
     if (previewTimer.current) clearTimeout(previewTimer.current);
     if (retryTimer.current) clearTimeout(retryTimer.current);
     if (haptic) void Haptics.selectionAsync().catch(() => undefined);
+
+    pendingChannelIdRef.current = id;
+    channelIdRef.current = id;
     generationRef.current += 1;
     setRetryAttempt(0);
     setStatus("loading");
@@ -160,37 +186,66 @@ export default function PlayerScreen() {
     showNotice(`Switching to ${target.name}`);
     // Keep strip/card focus — do not reclaim Channels button.
     revealControls({ claimChannelsFocus: false });
-  }, [addRecent, channelById, channelId, revealControls, showNotice]);
+
+    if (opts?.immediate) {
+      forceStopAllStreams();
+      setDecoderArmed(true);
+      setRetryToken((value) => value + 1);
+      return;
+    }
+
+    // Tear down the live decoder before swapping — rapid Next/Prev was orphaning VLC audio.
+    forceStopAllStreams();
+    setDecoderArmed(false);
+    armDecoderAfterSettle(CHANNEL_ZAP_SETTLE_MS);
+  }, [addRecent, armDecoderAfterSettle, channelById, revealControls, showNotice]);
 
   const previewChannel = useCallback((id: string) => {
-    if (id === channelId) return;
+    if (id === pendingChannelIdRef.current) return;
     if (previewTimer.current) clearTimeout(previewTimer.current);
     const nowTs = Date.now();
     const rapid = nowTs - lastStripFocusAtRef.current < 240;
     lastStripFocusAtRef.current = nowTs;
-    if (rapid) rapidStripUntilRef.current = nowTs + 750;
-    // While holding Left/Right on the strip, delay decoder swaps hard.
+    if (rapid) rapidStripUntilRef.current = nowTs + 900;
+    pendingChannelIdRef.current = id;
+    setChannelId(id);
+    const target = channelById(id);
+    if (target) {
+      addRecent(target);
+      showNotice(`Switching to ${target.name}`);
+    }
+    forceStopAllStreams();
+    setDecoderArmed(false);
+    revealControls({ claimChannelsFocus: false });
     const delay = nowTs < rapidStripUntilRef.current || rapid
-      ? Math.max(CHANNEL_PREVIEW_DELAY_MS, 900)
+      ? Math.max(CHANNEL_PREVIEW_DELAY_MS, CHANNEL_ZAP_SETTLE_MS)
       : CHANNEL_PREVIEW_DELAY_MS;
     previewTimer.current = setTimeout(() => {
       if (Date.now() < rapidStripUntilRef.current) return;
-      changeChannel(id);
+      if (pendingChannelIdRef.current !== id) return;
+      armDecoderAfterSettle(40);
     }, delay);
-  }, [changeChannel, channelId]);
+  }, [addRecent, armDecoderAfterSettle, channelById, revealControls, showNotice]);
 
   const stepChannel = useCallback((direction: -1 | 1) => {
     if (streamChannels.length < 2) return;
-    const base = streamIndex >= 0 ? streamIndex : 0;
+    const currentId = pendingChannelIdRef.current || channelIdRef.current;
+    const base = Math.max(0, streamChannels.findIndex((item) => item.id === currentId));
     const nextIndex = (base + direction + streamChannels.length) % streamChannels.length;
     const target = streamChannels[nextIndex];
-    if (target) changeChannel(target.id, true);
-  }, [changeChannel, streamChannels, streamIndex]);
+    if (!target) return;
+    preferControlRef.current = direction > 0 ? "next" : "prev";
+    // Debounced zap: UI + notice update now; decoder remounts only after settle.
+    changeChannel(target.id, true);
+  }, [changeChannel, streamChannels]);
 
   const retryNow = useCallback(() => {
     if (!hasStream) return;
     if (retryTimer.current) clearTimeout(retryTimer.current);
+    if (zapTimer.current) clearTimeout(zapTimer.current);
     const generation = generationRef.current;
+    forceStopAllStreams();
+    setDecoderArmed(true);
     setStatus("loading");
     setRetryAttempt((value) => value + 1);
     showNotice(`Reconnecting ${channel?.name || "stream"}`);
@@ -213,10 +268,29 @@ export default function PlayerScreen() {
     return () => {
       if (hideTimer.current) clearTimeout(hideTimer.current);
       if (previewTimer.current) clearTimeout(previewTimer.current);
+      if (zapTimer.current) clearTimeout(zapTimer.current);
       if (retryTimer.current) clearTimeout(retryTimer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional cold-mount/retry only
   }, [retryToken]);
+
+  useEffect(
+    () => () => {
+      forceStopAllStreams();
+      if (zapTimer.current) clearTimeout(zapTimer.current);
+      if (previewTimer.current) clearTimeout(previewTimer.current);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    // Keep focus on Next/Prev while zapping even if the stream errors and Retry appears.
+    if (!controls) return;
+    const which = preferControlRef.current;
+    if (!which) return;
+    const node = which === "next" ? nextButtonRef.current : prevButtonRef.current;
+    requestAnimationFrame(() => requestNativeFocus(node));
+  }, [channelId, controls, status, retryToken]);
 
   useEffect(() => {
     if (status === "playing") {
@@ -259,7 +333,24 @@ export default function PlayerScreen() {
 
   const stopAndExit = useCallback(() => {
     void Haptics.selectionAsync().catch(() => undefined);
+    if (zapTimer.current) clearTimeout(zapTimer.current);
+    if (previewTimer.current) clearTimeout(previewTimer.current);
+    if (retryTimer.current) clearTimeout(retryTimer.current);
+    generationRef.current += 1;
+    setDecoderArmed(false);
+    forceStopAllStreams();
     router.back();
+  }, [router]);
+
+  const goGuide = useCallback(() => {
+    void Haptics.selectionAsync().catch(() => undefined);
+    if (zapTimer.current) clearTimeout(zapTimer.current);
+    if (previewTimer.current) clearTimeout(previewTimer.current);
+    if (retryTimer.current) clearTimeout(retryTimer.current);
+    generationRef.current += 1;
+    setDecoderArmed(false);
+    forceStopAllStreams();
+    router.replace("/guide" as any);
   }, [router]);
 
   useEffect(() => {
@@ -282,9 +373,13 @@ export default function PlayerScreen() {
   return (
     <View style={styles.root}>
       <RNStatusBar hidden />
-      {hasStream ? (
+      {hasStream && decoderArmed ? (
         <ErrorBoundary
-          onReset={() => setRetryToken((value) => value + 1)}
+          onReset={() => {
+            forceStopAllStreams();
+            setDecoderArmed(true);
+            setRetryToken((value) => value + 1);
+          }}
           fallback={(reset) => (
             <View style={styles.errorOverlay}>
               <Ionicons name="warning-outline" size={32} color={tvColors.purpleSoft} />
@@ -302,7 +397,7 @@ export default function PlayerScreen() {
           )}
         >
           <StreamPlayer
-            key={`${channelId}-${retryToken}`}
+            key={`play-${retryToken}`}
             uri={channel?.url || ""}
             onStatus={setStatus}
             style={StyleSheet.absoluteFill}
@@ -326,14 +421,15 @@ export default function PlayerScreen() {
       />
 
       {(!hasStream || status === "error") ? (
-        <View style={styles.errorOverlay}>
+        <View style={styles.errorOverlay} pointerEvents="box-none">
           <Ionicons name="warning-outline" size={32} color={tvColors.purpleSoft} />
           <Text style={styles.errorTitle}>{hasStream ? "Reconnecting stream…" : "No stream available"}</Text>
           {hasStream ? <Text style={styles.errorText}>Attempt {Math.max(1, retryAttempt + 1)} · engine fallback remains active</Text> : null}
           {hasStream && !vlcAvailable ? <Text style={styles.errorText}>Playback requires the installed Android build.</Text> : null}
           {hasStream ? (
             <Pressable
-              hasTVPreferredFocus
+              // Never steal focus from Next/Prev while controls are up during rapid zapping.
+              hasTVPreferredFocus={!controls}
               onPress={retryNow}
               style={({ focused }: any) => [styles.retry, focused && styles.focused]}
             >
@@ -342,7 +438,7 @@ export default function PlayerScreen() {
             </Pressable>
           ) : (
             <Pressable
-              hasTVPreferredFocus
+              hasTVPreferredFocus={!controls}
               onPress={stopAndExit}
               style={({ focused }: any) => [styles.retry, focused && styles.focused]}
             >
@@ -417,7 +513,7 @@ export default function PlayerScreen() {
             </View>
 
             <View style={styles.controlsRow}>
-              <Pressable onPress={() => router.replace("/guide" as any)} style={({ focused }: any) => [styles.textControl, focused && styles.focused]}>
+              <Pressable onPress={goGuide} style={({ focused }: any) => [styles.textControl, focused && styles.focused]}>
                 <Ionicons name="information-circle-outline" size={15} color="#fff" />
                 <Text style={styles.controlLabel}>Guide</Text>
               </Pressable>
@@ -430,7 +526,12 @@ export default function PlayerScreen() {
                 <Text style={styles.controlLabel}>Channels</Text>
               </Pressable>
               <View style={styles.controlsSpacer} />
-              <Pressable disabled={streamChannels.length < 2} onPress={() => stepChannel(-1)} style={({ focused }: any) => [styles.iconControl, focused && styles.focused]}>
+              <Pressable
+                ref={prevButtonRef}
+                disabled={streamChannels.length < 2}
+                onPress={() => stepChannel(-1)}
+                style={({ focused }: any) => [styles.iconControl, focused && styles.focused]}
+              >
                 <Ionicons name="play-skip-back" size={18} color="#fff" />
               </Pressable>
               <Pressable
@@ -444,7 +545,12 @@ export default function PlayerScreen() {
               >
                 <Ionicons name="eye-off-outline" size={18} color="#fff" />
               </Pressable>
-              <Pressable disabled={streamChannels.length < 2} onPress={() => stepChannel(1)} style={({ focused }: any) => [styles.iconControl, focused && styles.focused]}>
+              <Pressable
+                ref={nextButtonRef}
+                disabled={streamChannels.length < 2}
+                onPress={() => stepChannel(1)}
+                style={({ focused }: any) => [styles.iconControl, focused && styles.focused]}
+              >
                 <Ionicons name="play-skip-forward" size={18} color="#fff" />
               </Pressable>
               <View style={styles.controlsSpacer} />
@@ -469,7 +575,7 @@ export default function PlayerScreen() {
                 contentContainerStyle={styles.channelStrip}
                 renderItem={({ item }) => (
                   <Pressable
-                    onPress={() => changeChannel(item.id, true)}
+                    onPress={() => changeChannel(item.id, true, { immediate: true })}
                     onFocus={() => previewChannel(item.id)}
                     style={({ focused }: any) => [styles.channelCard, item.id === channelId && styles.channelCardActive, focused && styles.focused]}
                   >

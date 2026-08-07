@@ -8,6 +8,9 @@
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo start --android",
     "web": "expo start --web",
+    "test": "node --experimental-strip-types ./tests/run-tests.mjs",
+    "benchmark:phase1": "node --experimental-strip-types ./scripts/phase1-benchmark.mjs",
+    "torture:guide": "node --experimental-strip-types ./scripts/phase2-guide-torture.mjs",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit"
   },
@@ -15,6 +18,7 @@
     "@expo/metro-runtime": "6.1.2",
     "@expo/vector-icons": "15.1.1",
     "@gorhom/bottom-sheet": "5.2.14",
+    "@react-navigation/native": "7.3.15",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-tvos/config-tv": "0.1.6",
     "@shopify/flash-list": "2.0.2",

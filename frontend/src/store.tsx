@@ -1,9 +1,11 @@
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState, useMemo } from "react";
+import React, { createContext, startTransition, useCallback, useContext, useEffect, useRef, useState, useMemo } from "react";
 import dayjs from "dayjs";
 import { storage } from "@/src/utils/storage";
 import { Channel, Program } from "@/src/api";
 import { loadGuide, refreshSource, subscribeSource } from "@/src/source";
 import { reminderKey } from "@/src/utils/time";
+import { sanitizeFavoriteIds, toggleFavoriteId } from "@/src/utils/favoriteIds";
+import { pushRecentId, sanitizeRecentIds } from "@/src/utils/recentIds";
 import {
   cancelReminder,
   requestNotificationPermission,
@@ -67,7 +69,9 @@ type Store = {
   toggleFavorite: (id: string) => void;
   replaceFavorites: (ids: string[]) => void;
 
+  /** Resolved live channels for recent IDs (never fat persisted program payloads). */
   recent: Channel[];
+  recentIds: string[];
   lastChannelId: string | null;
   addRecent: (c: Channel) => void;
 
@@ -121,7 +125,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const refreshRequestRef = useRef(0);
 
   const [favorites, setFavorites] = useState<string[]>([]);
-  const [recent, setRecent] = useState<Channel[]>([]);
+  const [recentIds, setRecentIds] = useState<string[]>([]);
   const [lastChannelId, setLastChannelId] = useState<string | null>(null);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const remindersRef = useRef<Reminder[]>([]);
@@ -149,6 +153,16 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   }, [channels]);
 
   const favoritesSet = useMemo(() => new Set(favorites), [favorites]);
+
+  // Resolve recent IDs against the live channel list — never keep fat Channel+programs in KV.
+  const recent = useMemo(() => {
+    const out: Channel[] = [];
+    for (const id of recentIds) {
+      const channel = channelByIdMap.get(id);
+      if (channel) out.push(channel);
+    }
+    return out;
+  }, [channelByIdMap, recentIds]);
 
   const setPointerMode = useCallback((v: boolean) => {
     setPointerModeState(v);
@@ -198,34 +212,63 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const channelById = useCallback((id: string) => channelByIdMap.get(id), [channelByIdMap]);
 
   const isFavorite = useCallback((id: string) => favoritesSet.has(id), [favoritesSet]);
-  const toggleFavorite = useCallback((id: string) => {
-    setFavorites((prev) => {
-      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
-      storage.setItem(FAV_KEY, next);
-      return next;
-    });
+
+  // Debounce AsyncStorage writes — rapid long-press favorites were hitching Fire TV I/O.
+  const favoritesPersistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const favoritesPendingRef = useRef<string[] | null>(null);
+  const persistFavorites = useCallback((next: string[]) => {
+    favoritesPendingRef.current = next;
+    if (favoritesPersistTimer.current) clearTimeout(favoritesPersistTimer.current);
+    favoritesPersistTimer.current = setTimeout(() => {
+      const payload = favoritesPendingRef.current;
+      favoritesPendingRef.current = null;
+      if (payload) void storage.setItem(FAV_KEY, payload);
+    }, 450);
   }, []);
+
+  const toggleFavorite = useCallback((id: string) => {
+    startTransition(() => {
+      setFavorites((prev) => {
+        const next = toggleFavoriteId(prev, id);
+        if (next === prev) return prev;
+        persistFavorites(next);
+        return next;
+      });
+    });
+  }, [persistFavorites]);
 
   const replaceFavorites = useCallback((ids: string[]) => {
-    const next = Array.from(new Set(ids.filter(Boolean)));
-    setFavorites(next);
-    storage.setItem(FAV_KEY, next);
-  }, []);
+    const next = sanitizeFavoriteIds(ids);
+    startTransition(() => setFavorites(next));
+    persistFavorites(next);
+  }, [persistFavorites]);
 
   const recentPersistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recentPendingRef = useRef<string[] | null>(null);
+  const persistRecent = useCallback((next: string[]) => {
+    recentPendingRef.current = next;
+    if (recentPersistTimer.current) clearTimeout(recentPersistTimer.current);
+    recentPersistTimer.current = setTimeout(() => {
+      const payload = recentPendingRef.current;
+      recentPendingRef.current = null;
+      if (!payload) return;
+      void storage.setItem(RECENT_KEY, payload);
+      if (payload[0]) void storage.setItem(LAST_CHANNEL_KEY, payload[0]);
+    }, 450);
+  }, []);
+
   const addRecent = useCallback((c: Channel) => {
+    if (!c?.id) return;
     setLastChannelId(c.id);
-    setRecent((prev) => {
-      const next = [c, ...prev.filter((x) => x.id !== c.id)].slice(0, 15);
-      // Debounce AsyncStorage writes during rapid channel surfing.
-      if (recentPersistTimer.current) clearTimeout(recentPersistTimer.current);
-      recentPersistTimer.current = setTimeout(() => {
-        storage.setItem(LAST_CHANNEL_KEY, c.id);
-        storage.setItem(RECENT_KEY, next);
-      }, 450);
+    setRecentIds((prev) => {
+      const next = pushRecentId(prev, c.id);
+      if (next.length === prev.length && next.every((id, i) => id === prev[i])) {
+        return prev;
+      }
+      persistRecent(next);
       return next;
     });
-  }, []);
+  }, [persistRecent]);
 
   const hasReminder = useCallback((key: string) => remindersSet.has(key), [remindersSet]);
 
@@ -334,8 +377,19 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     (async () => {
-      setFavorites((await storage.getItem<string[]>(FAV_KEY, [])) || []);
-      setRecent((await storage.getItem<Channel[]>(RECENT_KEY, [])) || []);
+      const rawFavorites = await storage.getItem<unknown>(FAV_KEY, []);
+      const cleanedFavorites = sanitizeFavoriteIds(rawFavorites);
+      setFavorites(cleanedFavorites);
+      // Rewrite compacted ID-only list if older/fatter data was stored.
+      if (JSON.stringify(rawFavorites) !== JSON.stringify(cleanedFavorites)) {
+        void storage.setItem(FAV_KEY, cleanedFavorites);
+      }
+      const rawRecent = await storage.getItem<unknown>(RECENT_KEY, []);
+      const cleanedRecent = sanitizeRecentIds(rawRecent);
+      setRecentIds(cleanedRecent);
+      if (JSON.stringify(rawRecent) !== JSON.stringify(cleanedRecent)) {
+        void storage.setItem(RECENT_KEY, cleanedRecent);
+      }
       setLastChannelId(await storage.getItem<string | null>(LAST_CHANNEL_KEY, null));
       setReminders((await storage.getItem<Reminder[]>(REM_KEY, [])) || []);
       setPointerModeState((await storage.getItem<boolean>(PMODE_KEY, false)) || false);
@@ -371,6 +425,20 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => subscribeSource(() => refresh(true)), [refresh]);
+
+  useEffect(
+    () => () => {
+      if (favoritesPersistTimer.current) clearTimeout(favoritesPersistTimer.current);
+      if (favoritesPendingRef.current) void storage.setItem(FAV_KEY, favoritesPendingRef.current);
+      if (recentPersistTimer.current) clearTimeout(recentPersistTimer.current);
+      if (recentPendingRef.current) {
+        const payload = recentPendingRef.current;
+        void storage.setItem(RECENT_KEY, payload);
+        if (payload[0]) void storage.setItem(LAST_CHANNEL_KEY, payload[0]);
+      }
+    },
+    [],
+  );
 
   // Keep the guide window rolling while the app stays open (silent, low frequency).
   // Skip while a refresh is already running so weak Fire TVs don't hitch mid-surf.
@@ -422,6 +490,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       toggleFavorite,
       replaceFavorites,
       recent,
+      recentIds,
       lastChannelId,
       addRecent,
       reminders,
@@ -467,6 +536,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       toggleFavorite,
       replaceFavorites,
       recent,
+      recentIds,
       lastChannelId,
       addRecent,
       reminders,

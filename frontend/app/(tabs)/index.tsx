@@ -10,14 +10,12 @@ import { useStore } from "@/src/store";
 import { Channel } from "@/src/api";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
-import { useTvBackToGuide } from "@/src/hooks/use-tv-back-to-guide";
 
 function channelSort(a: Channel, b: Channel) {
   return (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" });
 }
 
 export default function LiveTvHomeScreen() {
-  useTvBackToGuide();
   const router = useRouter();
   const {
     channels,
@@ -49,7 +47,7 @@ export default function LiveTvHomeScreen() {
 
   const heroChannel = useMemo(() => {
     const last = lastChannelId ? channelById(lastChannelId) : null;
-    return last || recent.map((item) => channelById(item.id) || item).find(Boolean) || channels[0] || null;
+    return last || recent[0] || channels[0] || null;
   }, [channelById, channels, lastChannelId, recent]);
 
   const heroProgram = useMemo(
@@ -59,20 +57,9 @@ export default function LiveTvHomeScreen() {
   const heroProgress = heroProgram ? progressPct(heroProgram, now) : 0;
 
   const recentLive = useMemo(() => {
-    const seen = new Set<string>();
-    const list: Channel[] = [];
-    for (const item of recent) {
-      const live = channelById(item.id) || item;
-      if (!live || seen.has(live.id)) continue;
-      seen.add(live.id);
-      list.push(live);
-      if (list.length >= 6) break;
-    }
-    if (!list.length) {
-      for (const channel of channels.slice(0, 6)) list.push(channel);
-    }
-    return list;
-  }, [channelById, channels, recent]);
+    if (recent.length) return recent.slice(0, 6);
+    return channels.slice(0, 6);
+  }, [channels, recent]);
 
   const play = useCallback(
     (channel: Channel) => {

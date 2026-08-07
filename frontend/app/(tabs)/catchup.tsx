@@ -9,12 +9,10 @@ import { Channel } from "@/src/api";
 import { useStore } from "@/src/store";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { nowNext } from "@/src/utils/time";
-import { useTvBackToGuide } from "@/src/hooks/use-tv-back-to-guide";
 
 export default function CatchUpScreen() {
-  useTvBackToGuide();
   const router = useRouter();
-  const { recent, channelById, addRecent, channelLogos } = useStore();
+  const { recent, addRecent, channelLogos } = useStore();
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
@@ -25,17 +23,14 @@ export default function CatchUpScreen() {
   // Honest recent-live list only. This build has no timeshift/catch-up URLs yet,
   // so we never present live streams as replay content.
   const items = useMemo(() => {
-    const seen = new Set<string>();
     const out: Channel[] = [];
-    for (const item of recent) {
-      const channel = channelById(item.id) || item;
-      if (!channel?.url || seen.has(channel.id)) continue;
-      seen.add(channel.id);
+    for (const channel of recent) {
+      if (!channel?.url) continue;
       out.push(channel);
       if (out.length >= 12) break;
     }
     return out;
-  }, [channelById, recent]);
+  }, [recent]);
 
   const play = useCallback((channel: Channel) => {
     void Haptics.selectionAsync().catch(() => undefined);

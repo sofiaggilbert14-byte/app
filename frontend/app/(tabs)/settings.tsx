@@ -4,7 +4,7 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import Constants from "expo-constants";
-import { PurpleTvShell } from "@/src/components/PurpleTvShell";
+import { PurpleTvShell, usePurpleTvDrawer } from "@/src/components/PurpleTvShell";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { TvCalibrationControls } from "@/src/components/TvCalibrationControls";
 import {
@@ -49,6 +49,7 @@ const TILES: Tile[] = [
 ];
 
 export default function SettingsScreen() {
+  const { drawerOpen, openDrawer } = usePurpleTvDrawer();
   const router = useRouter();
   const {
     refresh,
@@ -102,9 +103,13 @@ export default function SettingsScreen() {
         setSection(null);
         return true;
       }
-      router.replace("/guide" as any);
+      if (!drawerOpen) {
+        openDrawer();
+        return true;
+      }
+      // Once open, the drawer keeps focus until the user chooses a destination.
       return true;
-    }, [router, section]),
+    }, [drawerOpen, openDrawer, section]),
   );
 
   const appVersion = Constants.expoConfig?.version || "2.0.0-purple";

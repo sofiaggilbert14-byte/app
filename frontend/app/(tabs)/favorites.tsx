@@ -9,7 +9,6 @@ import { Channel } from "@/src/api";
 import { useStore } from "@/src/store";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
-import { useTvBackToGuide } from "@/src/hooks/use-tv-back-to-guide";
 
 function byName(a: Channel, b: Channel) {
   return (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" });
@@ -55,7 +54,6 @@ const FavoriteRow = memo(function FavoriteRow({
 });
 
 export default function FavoritesScreen() {
-  useTvBackToGuide();
   const router = useRouter();
   const { channels, favorites, toggleFavorite, addRecent, channelLogos } = useStore();
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);

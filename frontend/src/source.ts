@@ -3,6 +3,7 @@ import { Platform } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
 import { DecodeUTF8, Gunzip } from "fflate";
 import type { Channel, Program, GuideResponse, SourceStatus } from "@/src/api";
+import { parseM3U, parseXmltvTime, resolveXmltvStop, streamType } from "@/src/core/sourceParsing";
 import {
   clearIndexedEpg,
   getIndexedEpgStats,
@@ -20,7 +21,6 @@ export const SOURCE_EPG =
   process.env.EXPO_PUBLIC_EPG_URL || "http://m3u4u.com/epg/jwmzn1grpmu99585n721";
 
 const TTL_MS = 24 * 60 * 60 * 1000; // refresh at most once a day
-const EXTINF_ATTR = /([a-zA-Z0-9-]+)="([^"]*)"/g;
 // Channel metadata stays in one tiny atomic file. Programme rows live in the
 // indexed SQLite database so startup and guide-window reads never parse a
 // multi-megabyte JSON cache.
@@ -50,13 +50,6 @@ function sortChannelsAlphabetically(channels: Channel[]): Channel[] {
 }
 
 let MEM: Parsed | null = null;
-
-function streamType(url: string): string {
-  const u = url.toLowerCase().split("?")[0];
-  if (u.endsWith(".m3u8")) return "hls";
-  if (u.endsWith(".ts")) return "ts";
-  return "unknown";
-}
 
 function https(url: string): string {
   return url && url.startsWith("http://") ? "https://" + url.slice(7) : url;
@@ -194,46 +187,6 @@ async function inflateIfGzip(
   return chunks.join("");
 }
 
-function parseM3U(text: string): Channel[] {
-  const lines = text.split(/\r?\n/);
-  const channels: Channel[] = [];
-  const used = new Set<string>();
-  let idx = 0;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line.startsWith("#EXTINF")) continue;
-    const attrs: Record<string, string> = {};
-    let m: RegExpExecArray | null;
-    EXTINF_ATTR.lastIndex = 0;
-    while ((m = EXTINF_ATTR.exec(line))) attrs[m[1]] = m[2];
-    const name = line.includes(",") ? line.slice(line.lastIndexOf(",") + 1).trim() : attrs["tvg-name"] || "Channel";
-    let url = "";
-    for (let j = i + 1; j < lines.length; j++) {
-      const nxt = lines[j].trim();
-      if (nxt && !nxt.startsWith("#")) {
-        url = nxt;
-        break;
-      }
-    }
-    const tvgId = (attrs["tvg-id"] || "").trim();
-    const base = tvgId || name.replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase();
-    let id = base;
-    if (used.has(id)) id = `${base}#${idx}`;
-    used.add(id);
-    channels.push({
-      id,
-      tvg_id: tvgId,
-      name,
-      logo: https((attrs["tvg-logo"] || "").trim()),
-      group: (attrs["group-title"] || "").trim(),
-      url,
-      stream_type: streamType(url),
-    });
-    idx++;
-  }
-  return channels;
-}
-
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
 function decodeEntities(s: string): string {
   if (s.indexOf("&") === -1) return s;
@@ -294,34 +247,6 @@ function nextTick(): Promise<void> {
 
 function normalizeGuideKey(value: string | undefined): string {
   return (value || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
-}
-
-function parseXmltvTime(s: string): string | null {
-  if (!s) return null;
-  // Format: YYYYMMDDHHMMSS ±HHMM (offset optional). Read positionally — no
-  // regex, no dayjs — so it stays cheap across hundreds of thousands of calls.
-  const t = s.trim();
-  if (t.length < 14) return null;
-  const y = +t.slice(0, 4);
-  const mo = +t.slice(4, 6);
-  const d = +t.slice(6, 8);
-  const h = +t.slice(8, 10);
-  const mi = +t.slice(10, 12);
-  const se = +t.slice(12, 14);
-  if (isNaN(y) || isNaN(mo) || isNaN(d) || isNaN(h) || isNaN(mi) || isNaN(se)) return null;
-  if (y < 2000 || y > 2100 || mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59 || se > 59) {
-    return null;
-  }
-  let ms = Date.UTC(y, mo - 1, d, h, mi, se);
-  const rest = t.slice(14).trim();
-  if (rest.length >= 5 && (rest[0] === "+" || rest[0] === "-")) {
-    const sign = rest[0] === "-" ? -1 : 1;
-    const oh = +rest.slice(1, 3);
-    const om = +rest.slice(3, 5);
-    if (!isNaN(oh) && !isNaN(om)) ms -= sign * (oh * 60 + om) * 60000;
-  }
-  if (isNaN(ms)) return null;
-  return new Date(ms).toISOString();
 }
 
 type Sink = {
@@ -395,11 +320,7 @@ async function parseXMLTV(
       const parsedStop = parseXmltvTime(xmlAttr(head, "stop"));
       if (!(parsedStop && Date.parse(parsedStop) < minStop)) {
         const body = xml.slice(gt + 1, e);
-        const startMs = Date.parse(start);
-        const parsedStopMs = parsedStop ? Date.parse(parsedStop) : NaN;
-        const stop = Number.isFinite(parsedStopMs) && parsedStopMs > startMs && parsedStopMs - startMs <= 24 * 3600 * 1000
-          ? parsedStop
-          : new Date(startMs + 30 * 60000).toISOString();
+        const stop = resolveXmltvStop(start, xmlAttr(head, "stop"));
         (programs[cid] = programs[cid] || []).push({
           title: xmlFirstTag(body, "title") || "No Title",
           desc: xmlFirstTag(body, "desc"),
@@ -479,11 +400,7 @@ async function parseXMLTVChunks(
         if (channelId && startIso && Date.parse(startIso) <= maxStart) {
           const parsedStop = parseXmltvTime(xmlAttr(head, "stop"));
           if (!(parsedStop && Date.parse(parsedStop) < minStop)) {
-            const startMs = Date.parse(startIso);
-            const parsedStopMs = parsedStop ? Date.parse(parsedStop) : NaN;
-            const stop = Number.isFinite(parsedStopMs) && parsedStopMs > startMs && parsedStopMs - startMs <= 24 * 3600 * 1000
-              ? parsedStop
-              : new Date(startMs + 30 * 60000).toISOString();
+            const stop = resolveXmltvStop(startIso, xmlAttr(head, "stop"));
             (programs[channelId] ||= []).push({
               title: xmlFirstTag(body, "title") || "No Title",
               desc: xmlFirstTag(body, "desc"),
@@ -927,14 +844,16 @@ function loadEpg(channels: Channel[], force = false): Promise<void> {
       const indexed = await persist((ratio) => {
         setProgress({ phase: "caching", ratio: 0.92 + ratio * 0.08, etaSeconds: null });
       });
-      // SQLite is now the source of truth. Drop the full in-memory programme
-      // map and repaint from the indexed visible-window query.
-      MEM = {
-        ...MEM,
-        programs: {},
-        epgProgramCount: indexed.programCount,
-        epgChannelCount: indexed.channelCount,
-      };
+      // SQLite is the source of truth only when indexing actually succeeded.
+      // If the DB is unavailable, keep the in-memory programme map so the guide stays populated.
+      if (indexed.programCount > 0) {
+        MEM = {
+          ...MEM,
+          programs: {},
+          epgProgramCount: indexed.programCount,
+          epgChannelCount: indexed.channelCount,
+        };
+      }
       emit();
       setProgress({ phase: "ready", ratio: 1, etaSeconds: 0 }, true);
     } catch (error) {
@@ -975,7 +894,7 @@ async function doFetchParse(): Promise<Parsed> {
   // Stage 1 (fast): parse the small M3U so the guide paints immediately, even
   // on low-power Android TV / Firestick boxes.
   const m3uText = await fetchTextMaybeGzip(SOURCE_M3U);
-  const channels = parseM3U(m3uText);
+  const channels = parseM3U(m3uText, https);
   const previous = MEM;
   MEM = {
     ts: Date.now(),
