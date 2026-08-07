@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -78,6 +78,22 @@ export default function SettingsScreen() {
   const [section, setSection] = useState<Section | null>(null);
   const [busy, setBusy] = useState(false);
   const [backupStatus, setBackupStatus] = useState<string | null>(null);
+  // Mount-once preferred focus — sticky hasTVPreferredFocus steals focus on re-render.
+  const [preferTileFocus, setPreferTileFocus] = useState(true);
+  const [preferBackFocus, setPreferBackFocus] = useState(false);
+
+  useEffect(() => {
+    if (!preferTileFocus) return;
+    const timer = setTimeout(() => setPreferTileFocus(false), 700);
+    return () => clearTimeout(timer);
+  }, [preferTileFocus]);
+
+  useEffect(() => {
+    if (!section) return;
+    setPreferBackFocus(true);
+    const timer = setTimeout(() => setPreferBackFocus(false), 700);
+    return () => clearTimeout(timer);
+  }, [section]);
 
   useTvBackHandler(
     useCallback(() => {
@@ -186,12 +202,12 @@ export default function SettingsScreen() {
         </View>
 
         {!section ? (
-          <FocusGuide style={styles.tileGridWrap} autoFocus trapFocusUp trapFocusDown>
+          <FocusGuide style={styles.tileGridWrap} trapFocusDown>
             <View style={styles.tileGrid}>
               {TILES.map((tile, index) => (
                 <Pressable
                   key={tile.id}
-                  hasTVPreferredFocus={index === 0}
+                  hasTVPreferredFocus={preferTileFocus && index === 0}
                   onPress={() => choose(tile.id)}
                   style={({ focused }: any) => [styles.tile, focused && styles.focused]}
                   testID={`settings-tile-${tile.id}`}
@@ -203,13 +219,14 @@ export default function SettingsScreen() {
             </View>
           </FocusGuide>
         ) : (
-          <FocusGuide style={styles.detailsWrap} autoFocus trapFocusUp trapFocusDown>
+          <FocusGuide style={styles.detailsWrap} trapFocusDown>
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.details}>
             <Pressable
-              hasTVPreferredFocus
+              hasTVPreferredFocus={preferBackFocus}
               onPress={() => {
                 void Haptics.selectionAsync().catch(() => undefined);
                 setBackupStatus(null);
+                setPreferTileFocus(true);
                 setSection(null);
               }}
               style={({ focused }: any) => [styles.backButton, focused && styles.focused]}

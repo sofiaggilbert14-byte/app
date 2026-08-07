@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useMemo } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
@@ -16,13 +16,15 @@ type CollectionRoute = "/movies" | "/series";
 const Card = memo(function Card({
   channel,
   logos,
+  now,
   onPress,
 }: {
   channel: Channel;
   logos: boolean;
+  now: Date;
   onPress: (channel: Channel) => void;
 }) {
-  const current = nowNext(channel.programs, new Date()).current;
+  const current = nowNext(channel.programs, now).current;
   return (
     <Pressable
       onPress={() => onPress(channel)}
@@ -54,6 +56,19 @@ export function PurpleChannelCollection({
   const { width } = useWindowDimensions();
   const { channels, addRecent, channelLogos, hardRefresh, loading, refreshing, error } = useStore();
   const columns = width >= 1500 ? 6 : width >= 1050 ? 5 : 4;
+  const [now, setNow] = useState(() => new Date());
+  const [preferEmptyFocus, setPreferEmptyFocus] = useState(true);
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!preferEmptyFocus) return;
+    const timer = setTimeout(() => setPreferEmptyFocus(false), 700);
+    return () => clearTimeout(timer);
+  }, [preferEmptyFocus]);
 
   const items = useMemo(() => channels.filter(matcher), [channels, matcher]);
   const playlistEmpty = channels.length === 0;
@@ -78,17 +93,19 @@ export function PurpleChannelCollection({
           <>
             <Text style={styles.section}>Available Now</Text>
             <FlatList
-              key={columns}
               data={items}
               numColumns={columns}
               keyExtractor={(item) => item.id}
               initialNumToRender={columns * 2}
               maxToRenderPerBatch={columns * 2}
               windowSize={5}
+              removeClippedSubviews={false}
               showsVerticalScrollIndicator={false}
               columnWrapperStyle={styles.row}
               contentContainerStyle={styles.grid}
-              renderItem={({ item }) => <Card channel={item} logos={channelLogos} onPress={play} />}
+              renderItem={({ item }) => (
+                <Card channel={item} logos={channelLogos} now={now} onPress={play} />
+              )}
             />
           </>
         ) : (
@@ -103,7 +120,7 @@ export function PurpleChannelCollection({
             </Text>
             {playlistEmpty ? (
               <Pressable
-                hasTVPreferredFocus
+                hasTVPreferredFocus={preferEmptyFocus}
                 onPress={() => void hardRefresh()}
                 disabled={loading || refreshing}
                 style={({ focused }: any) => [styles.emptyButton, focused && styles.focused]}
@@ -113,7 +130,7 @@ export function PurpleChannelCollection({
               </Pressable>
             ) : (
               <Pressable
-                hasTVPreferredFocus
+                hasTVPreferredFocus={preferEmptyFocus}
                 onPress={() => router.replace("/guide" as any)}
                 style={({ focused }: any) => [styles.emptyButton, focused && styles.focused]}
               >

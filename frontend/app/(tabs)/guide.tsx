@@ -1,8 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Animated,
-  Easing,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -45,58 +43,13 @@ function matches(channel: Channel, group: string) {
 }
 
 function AutoScrollDescription({ text }: { text: string }) {
-  const translateY = useRef(new Animated.Value(0)).current;
-  const [viewportHeight, setViewportHeight] = useState(0);
-  const [contentHeight, setContentHeight] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    let pauseTimer: ReturnType<typeof setTimeout> | null = null;
-    const overflow = Math.max(0, contentHeight - viewportHeight);
-
-    translateY.stopAnimation();
-    translateY.setValue(0);
-    if (overflow <= 2 || !viewportHeight || !contentHeight) return undefined;
-
-    const schedule = () => {
-      pauseTimer = setTimeout(() => {
-        if (cancelled) return;
-        const duration = Math.max(6500, Math.round((overflow / 14) * 1000));
-        Animated.timing(translateY, {
-          toValue: -overflow,
-          duration,
-          easing: Easing.linear,
-          useNativeDriver: true,
-        }).start(({ finished }) => {
-          if (cancelled || !finished) return;
-          // Jump back to the beginning, pause there, then repeat.
-          translateY.setValue(0);
-          schedule();
-        });
-      }, 3500);
-    };
-
-    schedule();
-    return () => {
-      cancelled = true;
-      if (pauseTimer) clearTimeout(pauseTimer);
-      translateY.stopAnimation();
-      translateY.setValue(0);
-    };
-  }, [contentHeight, text, translateY, viewportHeight]);
-
+  // Static copy during surfing — animated marquees were restarting on every focus
+  // rail update and hitching the JS thread on weak Fire TVs.
   return (
-    <View
-      style={styles.aboutViewport}
-      onLayout={(event) => setViewportHeight(event.nativeEvent.layout.height)}
-      pointerEvents="none"
-    >
-      <Animated.View
-        onLayout={(event) => setContentHeight(event.nativeEvent.layout.height)}
-        style={{ transform: [{ translateY }] }}
-      >
-        <Text style={styles.description}>{text}</Text>
-      </Animated.View>
+    <View style={styles.aboutViewport} pointerEvents="none">
+      <Text style={styles.description} numberOfLines={8}>
+        {text}
+      </Text>
     </View>
   );
 }
@@ -133,15 +86,13 @@ export default function PurpleGuideScreen() {
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewStatus, setPreviewStatus] = useState<StreamStatus>("loading");
   const [resetToken, setResetToken] = useState(0);
-  // First guide row starts focused; allow Up to reach group chips until focus moves deeper.
-  const [trapGuideUp, setTrapGuideUp] = useState(false);
   const metadataTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const groupChangedAt = useRef(0);
   const bootRetryRef = useRef(0);
   const groupChipRefs = useRef(new Map<string, any>());
-  const trapGuideUpRef = useRef(false);
   const lastFocusAtRef = useRef(0);
+  const rapidSurfUntilRef = useRef(0);
   const reminderKeys = useMemo(() => new Set(reminders.map((item) => item.key)), [reminders]);
   // Freeze grid reminder badges while the program sheet is open so Cancel/Remind
   // doesn't rebuild the FlashList under the modal (Fire TV crash / hitch source).
@@ -151,25 +102,18 @@ export default function PurpleGuideScreen() {
     setGridReminderKeys(reminderKeys);
   }, [activeProgram, reminderKeys]);
 
-  // Aggressive recovery: if the guide is empty after load, retry without requiring Settings.
+  // One deferred recovery only — stacked hardRefresh on boot freezes focus on weak TVs.
   useEffect(() => {
-    if (loading || refreshing) return;
-    if (channels.length > 0) return;
-    if (bootRetryRef.current >= 2) return;
+    if (loading || refreshing || channels.length > 0) return;
+    if (bootRetryRef.current >= 1) return;
     bootRetryRef.current += 1;
-    void hardRefresh();
+    const timer = setTimeout(() => void hardRefresh(), 5000);
+    return () => clearTimeout(timer);
   }, [loading, refreshing, channels.length, hardRefresh]);
 
+  // Live clock for the rail only — do not rebuild the guide geometry every minute.
   useEffect(() => {
-    if (loading || refreshing || !error || channels.length > 0) return;
-    if (bootRetryRef.current >= 2) return;
-    bootRetryRef.current += 1;
-    const timer = setTimeout(() => void hardRefresh(), 1500);
-    return () => clearTimeout(timer);
-  }, [loading, refreshing, error, channels.length, hardRefresh]);
-
-  useEffect(() => {
-    const timer = setInterval(() => setNow(new Date().toISOString()), 60_000);
+    const timer = setInterval(() => setNow(new Date().toISOString()), 5 * 60_000);
     return () => clearInterval(timer);
   }, []);
 
@@ -183,14 +127,20 @@ export default function PurpleGuideScreen() {
 
   const groups = useMemo(() => {
     const known = new Set(BASE_GROUPS);
-    const extras = Array.from(new Set(channels.map((c) => c.group).filter(Boolean) as string[]))
-      .filter((item) => !known.has(item))
-      .slice(0, 8);
+    const present = new Set<string>();
+    for (const channel of channels) {
+      for (const base of BASE_GROUPS) {
+        if (base === "All" || base === "Favorites" || base === "Recently Watched") continue;
+        if (matches(channel, base)) present.add(base);
+      }
+      if (channel.group && !known.has(channel.group)) present.add(channel.group);
+    }
+    const extras = Array.from(present).filter((item) => !known.has(item)).slice(0, 8);
     return [...BASE_GROUPS, ...extras].filter((item) => {
       if (item === "All") return true;
       if (item === "Favorites") return favorites.length > 0;
       if (item === "Recently Watched") return recent.length > 0;
-      return channels.some((channel) => matches(channel, item));
+      return present.has(item);
     });
   }, [channels, favorites.length, recent.length]);
 
@@ -201,6 +151,8 @@ export default function PurpleGuideScreen() {
     else if (group === "Recently Watched") {
       list = recent.map((item) => channels.find((c) => c.id === item.id) || item).filter(Boolean) as Channel[];
     } else list = channels.filter((c) => matches(c, group));
+    // Avoid copy-sort on the huge All list — channels are already name-stable enough for surfing.
+    if (group === "All") return list;
     return [...list].sort(byName);
   }, [channels, favorites, group, recent]);
 
@@ -209,7 +161,6 @@ export default function PurpleGuideScreen() {
   useEffect(() => {
     if (!groups.includes(group)) {
       setGroup("All");
-      setTrapGuideUp(false);
       setResetToken((value) => value + 1);
     }
   }, [group, groups]);
@@ -240,7 +191,7 @@ export default function PurpleGuideScreen() {
     previewId === previewChannel.id &&
     previewStatus !== "error";
 
-  const previewDelay = safePreviewMode === "delayed" ? 1500 : 950;
+  const previewDelay = safePreviewMode === "delayed" ? 2200 : 1600;
 
   const detailsRailWidth = useMemo(() => {
     // The former rail used a 0.78 / 1.9 flex relationship, clamped to 228–340.
@@ -257,26 +208,37 @@ export default function PurpleGuideScreen() {
       if (previewTimer.current) clearTimeout(previewTimer.current);
       const requestedId = channel.id;
       const nowTs = Date.now();
-      const rapid = nowTs - lastFocusAtRef.current < 220;
+      const rapid = nowTs - lastFocusAtRef.current < 240;
       lastFocusAtRef.current = nowTs;
+      if (rapid) rapidSurfUntilRef.current = nowTs + 700;
+
+      // While the user is holding/repeating directions: zero rail/preview work.
+      if (nowTs < rapidSurfUntilRef.current || rapid) {
+        metadataTimer.current = setTimeout(() => {
+          if (Date.now() < rapidSurfUntilRef.current) return;
+          setFocusedId(requestedId);
+          if (safePreviewMode === "off" || !channel.url) {
+            setPreviewId(null);
+            return;
+          }
+          previewTimer.current = setTimeout(() => setPreviewId(requestedId), previewDelay);
+        }, 750);
+        return;
+      }
+
       const recentlyChangedGroup = nowTs - groupChangedAt.current < 1800;
-      const delay = recentlyChangedGroup
-        ? Math.max(previewDelay, 1300)
-        : rapid
-          ? Math.max(previewDelay, 1600)
-          : previewDelay;
-      // Defer rail/preview updates while the remote is repeating so the grid stays snappy.
-      const metadataDelay = rapid ? 360 : 160;
+      const delay = recentlyChangedGroup ? Math.max(previewDelay, 1800) : previewDelay;
 
       metadataTimer.current = setTimeout(() => {
-        setFocusedId(requestedId);
-        setPreviewStatus("loading");
+        setFocusedId((prev) => (prev === requestedId ? prev : requestedId));
         if (safePreviewMode === "off" || !channel.url) {
           setPreviewId(null);
           return;
         }
-        previewTimer.current = setTimeout(() => setPreviewId(requestedId), delay);
-      }, metadataDelay);
+        previewTimer.current = setTimeout(() => {
+          setPreviewId((prev) => (prev === requestedId ? prev : requestedId));
+        }, delay);
+      }, 180);
     },
     [previewDelay, safePreviewMode],
   );
@@ -298,23 +260,20 @@ export default function PurpleGuideScreen() {
     setGroup(next);
     setFocusedId(null);
     setPreviewId(null);
-    setPreviewStatus("loading");
-    setTrapGuideUp(false);
+    // Scroll/filter reset only — never reclaim grid preferred focus (keeps chip focused).
     setResetToken((value) => value + 1);
+    // Re-assert focus on the chip the user pressed after the list swaps.
+    requestAnimationFrame(() => {
+      const chip = groupChipRefs.current.get(next);
+      if (chip) requestNativeFocus(chip);
+    });
   }, []);
 
-  const onFocusedGuideRow = useCallback((index: number) => {
-    const next = index > 0;
-    if (trapGuideUpRef.current === next) return;
-    trapGuideUpRef.current = next;
-    setTrapGuideUp(next);
+  const onFocusedGuideRow = useCallback((_index: number) => {
+    // Intentionally no-op for trapFocus toggling — flipping traps mid-surf freezes Fire TV focus.
   }, []);
 
   const onGuideUpBoundary = useCallback(() => {
-    if (trapGuideUpRef.current) {
-      trapGuideUpRef.current = false;
-      setTrapGuideUp(false);
-    }
     const chip = groupChipRefs.current.get(group);
     if (chip) requestNativeFocus(chip);
   }, [group]);
@@ -327,8 +286,6 @@ export default function PurpleGuideScreen() {
     setGroup("All");
     setFocusedId(null);
     setPreviewId(null);
-    setPreviewStatus("loading");
-    setTrapGuideUp(false);
     setResetToken((value) => value + 1);
     void hardRefresh();
   }, [hardRefresh]);
@@ -382,7 +339,6 @@ export default function PurpleGuideScreen() {
             <ActivityIndicator color={tvColors.purpleBright} size="large" />
             <Text style={styles.centerText}>Loading channels and guide…</Text>
             <Pressable
-              hasTVPreferredFocus
               focusable
               disabled={refreshing}
               onPress={() => void hardRefresh()}
@@ -398,7 +354,6 @@ export default function PurpleGuideScreen() {
             <Ionicons name="cloud-offline-outline" size={32} color={tvColors.purpleSoft} />
             <Text style={styles.centerText}>{error}</Text>
             <Pressable
-              hasTVPreferredFocus
               focusable
               disabled={refreshing}
               onPress={() => void hardRefresh()}
@@ -414,7 +369,6 @@ export default function PurpleGuideScreen() {
             <Ionicons name="tv-outline" size={32} color={tvColors.purpleSoft} />
             <Text style={styles.centerText}>No channels in the current playlist yet.</Text>
             <Pressable
-              hasTVPreferredFocus
               focusable
               disabled={refreshing}
               onPress={() => void hardRefresh()}
@@ -427,9 +381,9 @@ export default function PurpleGuideScreen() {
           </View>
         ) : (
           <View style={styles.body}>
-            {/* No autoFocus here — first program cell uses hasTVPreferredFocus so group chips
-                stay reachable without fighting a second focus owner (startup lag). */}
-            <FocusGuide style={styles.gridPanel} trapFocusUp={trapGuideUp} trapFocusDown trapFocusRight>
+            {/* No autoFocus / trapFocusUp — preferred focus is mount-once on row 0, and Up-escape
+                is gated inside the grid. Flipping traps mid-surf freezes Fire TV focus. */}
+            <FocusGuide style={styles.gridPanel} trapFocusDown trapFocusRight>
               {guideLayout === "compact" ? (
                 <BoxGrid
                   channels={filtered}

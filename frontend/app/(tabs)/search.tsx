@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -19,10 +19,23 @@ export default function SearchScreen() {
   const router = useRouter();
   const { channels, addRecent, openProgram, channelLogos } = useStore();
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [preferKeyFocus, setPreferKeyFocus] = useState(true);
   const isTV = Platform.OS !== "web" && Platform.isTV;
 
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(query), 180);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  useEffect(() => {
+    if (!preferKeyFocus) return;
+    const timer = setTimeout(() => setPreferKeyFocus(false), 700);
+    return () => clearTimeout(timer);
+  }, [preferKeyFocus]);
+
   const results = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = debouncedQuery.trim().toLowerCase();
     if (!q) return { channels: [] as Channel[], programs: [] as { channel: Channel; program: Program }[] };
     const channelMatches = channels
       .filter((channel) => {
@@ -42,7 +55,7 @@ export default function SearchScreen() {
       if (programs.length >= 24) break;
     }
     return { channels: channelMatches, programs };
-  }, [channels, query]);
+  }, [channels, debouncedQuery]);
 
   const play = useCallback((channel: Channel) => {
     void Haptics.selectionAsync().catch(() => undefined);
@@ -51,7 +64,6 @@ export default function SearchScreen() {
   }, [addRecent, router]);
 
   const typeKey = useCallback((key: string) => {
-    void Haptics.selectionAsync().catch(() => undefined);
     setQuery((value) => `${value}${key}`);
   }, []);
 
@@ -88,8 +100,13 @@ export default function SearchScreen() {
             </View>
 
             <View style={styles.keys}>
-              {KEYS.map((key) => (
-                <Pressable key={key} onPress={() => typeKey(key)} style={({ focused }: any) => [styles.key, focused && styles.focused]}>
+              {KEYS.map((key, index) => (
+                <Pressable
+                  key={key}
+                  hasTVPreferredFocus={preferKeyFocus && index === 0}
+                  onPress={() => typeKey(key)}
+                  style={({ focused }: any) => [styles.key, focused && styles.focused]}
+                >
                   <Text style={styles.keyText}>{key}</Text>
                 </Pressable>
               ))}
@@ -105,10 +122,7 @@ export default function SearchScreen() {
                 <Text style={styles.keyText}>Space</Text>
               </Pressable>
               <Pressable
-                onPress={() => {
-                  void Haptics.selectionAsync().catch(() => undefined);
-                  setQuery((value) => value.trim());
-                }}
+                onPress={() => setQuery((value) => value.trim())}
                 style={({ focused }: any) => [styles.key, styles.searchKey, focused && styles.focused]}
               >
                 <Ionicons name="search" size={15} color="#fff" />
@@ -117,7 +131,7 @@ export default function SearchScreen() {
           </View>
 
           <View style={styles.resultsPanel}>
-            {!query.trim() ? (
+            {!debouncedQuery.trim() ? (
               <>
                 <Text style={styles.resultsTitle}>Suggested</Text>
                 {SUGGESTIONS.map((item) => (
@@ -149,7 +163,7 @@ export default function SearchScreen() {
                 {!results.channels.length && !results.programs.length ? (
                   <View style={styles.noResults}>
                     <Ionicons name="search-outline" size={28} color={tvColors.purpleSoft} />
-                    <Text style={styles.noResultsText}>No matches for “{query}”</Text>
+                    <Text style={styles.noResultsText}>No matches for “{debouncedQuery}”</Text>
                   </View>
                 ) : null}
               </ScrollView>

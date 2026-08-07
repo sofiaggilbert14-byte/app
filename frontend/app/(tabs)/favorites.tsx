@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useMemo } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -19,16 +19,17 @@ const FavoriteRow = memo(function FavoriteRow({
   channel,
   number,
   logos,
+  now,
   onPlay,
   onRemove,
 }: {
   channel: Channel;
   number: number;
   logos: boolean;
+  now: Date;
   onPlay: (channel: Channel) => void;
   onRemove: (id: string) => void;
 }) {
-  const now = new Date();
   const current = nowNext(channel.programs, now).current;
   const progress = current ? progressPct(current, now) : 0;
   return (
@@ -59,6 +60,12 @@ export default function FavoritesScreen() {
   const { channels, favorites, toggleFavorite, addRecent, channelLogos } = useStore();
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
   const items = useMemo(() => [...channels].filter((c) => favoriteSet.has(c.id)).sort(byName), [channels, favoriteSet]);
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const play = useCallback((channel: Channel) => {
     void Haptics.selectionAsync().catch(() => undefined);
@@ -97,9 +104,10 @@ export default function FavoritesScreen() {
             initialNumToRender={12}
             maxToRenderPerBatch={10}
             windowSize={7}
+            removeClippedSubviews={false}
             contentContainerStyle={styles.list}
             renderItem={({ item, index }) => (
-              <FavoriteRow channel={item} number={index + 1} logos={channelLogos} onPlay={play} onRemove={remove} />
+              <FavoriteRow channel={item} number={index + 1} logos={channelLogos} now={now} onPlay={play} onRemove={remove} />
             )}
           />
         ) : (

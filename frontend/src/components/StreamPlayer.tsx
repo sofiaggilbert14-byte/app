@@ -341,6 +341,8 @@ export function StreamPlayer({ uri, onStatus, style }: Props) {
   // Purple TV keeps the live preview on its dedicated /guide route rather
   // than the root dashboard used by perf/opt-fix.
   const isGuidePreview = pathname === "/guide";
+  // Player strip surfing also benefits from pausing decoder work while holding D-pad.
+  const pauseOnRapidScan = isGuidePreview || pathname === "/player";
   const [playerEnginePreference] = usePlayerEnginePreference();
   const forceVlc = playerEnginePreference === "vlc" && vlcAvailable && !isGuidePreview;
   const [guideScanSettled, setGuideScanSettled] = useState(true);
@@ -360,13 +362,18 @@ export function StreamPlayer({ uri, onStatus, style }: Props) {
   const stableRef = useRef(false);
 
   useEffect(() => {
-    if (!isFocused || !isGuidePreview || Platform.OS === "web") {
+    if (!isFocused || !pauseOnRapidScan || Platform.OS === "web") {
       setGuideScanSettled(true);
       return;
     }
 
     return addTvKeyListener((key) => {
-      if (key !== "UP" && key !== "DOWN" && key !== "LEFT" && key !== "RIGHT") return;
+      // Guide: all directions compete with list recycling. Player: only strip L/R zaps.
+      if (isGuidePreview) {
+        if (key !== "UP" && key !== "DOWN" && key !== "LEFT" && key !== "RIGHT") return;
+      } else if (key !== "LEFT" && key !== "RIGHT") {
+        return;
+      }
       const now = Date.now();
       const rapid = now - lastDirectionalAt.current <= RAPID_GUIDE_KEY_MS;
       lastDirectionalAt.current = now;
@@ -377,7 +384,7 @@ export function StreamPlayer({ uri, onStatus, style }: Props) {
         setGuideScanSettled(true);
       }, PREVIEW_RESUME_SETTLE_MS);
     });
-  }, [isFocused, isGuidePreview]);
+  }, [isFocused, isGuidePreview, pauseOnRapidScan]);
 
   useEffect(
     () => () => {
@@ -428,11 +435,10 @@ export function StreamPlayer({ uri, onStatus, style }: Props) {
     setStatus(status);
   }, [engine, fallbackUsed, forceVlc, setStatus]);
 
-  // The purple guide keeps its live preview feature, but during a held D-pad
-  // scan the decoder is temporarily unmounted. It comes back automatically
-  // after the final key settles, preventing decoder/GPU work from competing
-  // with FlashList/Fabric focus recycling. Hidden routes also stop decoding.
-  if (!isFocused || !uri || (isGuidePreview && !guideScanSettled)) return null;
+  // During a held D-pad scan (guide preview or player strip) the decoder is
+  // temporarily unmounted. It comes back after the final key settles so
+  // decoder/GPU work doesn't compete with focus recycling. Hidden routes stop too.
+  if (!isFocused || !uri || (pauseOnRapidScan && !guideScanSettled)) return null;
 
   if (engine === "vlc") {
     return <VlcStream key={`vlc:${uri}`} uri={uri} onStatus={handleStatus} style={style} engine="vlc" />;

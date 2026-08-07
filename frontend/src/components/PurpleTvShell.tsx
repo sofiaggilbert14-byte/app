@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BackHandler,
   Platform,
@@ -98,6 +98,15 @@ export function PurpleTvShell({
     return true;
   });
   const bootFocusConsumed = useRef(false);
+  // Mount-once content autoFocus so child preferred-focus can stick after first paint.
+  const [contentAutoFocus, setContentAutoFocus] = useState(
+    () => !bootSidebarFocus && active !== "/guide",
+  );
+  useEffect(() => {
+    if (!contentAutoFocus) return;
+    const timer = setTimeout(() => setContentAutoFocus(false), 700);
+    return () => clearTimeout(timer);
+  }, [contentAutoFocus]);
 
   const navigate = useCallback(
     (route: Route) => {
@@ -186,12 +195,10 @@ export function PurpleTvShell({
       </View>
 
       <FocusGuide
-        key={`purple-content-${active}`}
         style={[styles.content, contentStyle]}
-        // Guide owns initial focus via hasTVPreferredFocus on the first program cell.
-        // Auto-focusing the whole content region races group chips and feels laggy on TV.
-        autoFocus={!bootSidebarFocus && active !== "/guide"}
-        trapFocusUp={active !== "/guide"}
+        // Do not remount on every route (key churn steals focus). Guide owns its own
+        // mount-once preferred focus; other screens get a short autoFocus pulse only.
+        autoFocus={contentAutoFocus}
         trapFocusDown
       >
         {children}

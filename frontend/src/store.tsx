@@ -212,12 +212,17 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     storage.setItem(FAV_KEY, next);
   }, []);
 
+  const recentPersistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const addRecent = useCallback((c: Channel) => {
     setLastChannelId(c.id);
-    storage.setItem(LAST_CHANNEL_KEY, c.id);
     setRecent((prev) => {
       const next = [c, ...prev.filter((x) => x.id !== c.id)].slice(0, 15);
-      storage.setItem(RECENT_KEY, next);
+      // Debounce AsyncStorage writes during rapid channel surfing.
+      if (recentPersistTimer.current) clearTimeout(recentPersistTimer.current);
+      recentPersistTimer.current = setTimeout(() => {
+        storage.setItem(LAST_CHANNEL_KEY, c.id);
+        storage.setItem(RECENT_KEY, next);
+      }, 450);
       return next;
     });
   }, []);
@@ -342,24 +347,25 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setDeviceLayoutModeState((await storage.getItem<DeviceLayoutMode>(DEVICE_LAYOUT_MODE_KEY, "auto")) || "auto");
       setPlayerControlsTimeoutMsState((await storage.getItem<PlayerControlsTimeoutMs>(PLAYER_TIMEOUT_KEY, 8000)) || 8000);
       setAutoRetryStreamsState((await storage.getItem<boolean>(AUTO_RETRY_KEY, true)) ?? true);
-      requestNotificationPermission();
 
-      // Fast paint from cache, then verify the source is healthy.
+      // Fast paint from cache only — never block first focus with permission dialogs
+      // or stacked source rebuilds (those freeze Fire TV focus on open).
       await refresh();
-      try {
-        const status = await refreshSource(false);
-        if (status.channel_count === 0 || status.error) {
-          await refreshSource(true);
-          await refresh(true);
-        }
-      } catch {
-        try {
-          await refreshSource(true);
-          await refresh(true);
-        } catch (bootError) {
-          console.warn("Guide bootstrap refresh failed:", bootError);
-        }
-      }
+
+      // Health check after the UI can accept D-pad input.
+      setTimeout(() => {
+        void (async () => {
+          try {
+            const status = await refreshSource(false);
+            if (status.channel_count === 0 || status.error) {
+              await refreshSource(true);
+              await refresh(true);
+            }
+          } catch {
+            // Leave the cached guide up; user can Retry from the guide screen.
+          }
+        })();
+      }, 4500);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

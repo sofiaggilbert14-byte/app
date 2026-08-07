@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -15,6 +15,12 @@ export default function CatchUpScreen() {
   useTvBackToGuide();
   const router = useRouter();
   const { recent, channelById, addRecent, channelLogos } = useStore();
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Honest recent-live list only. This build has no timeshift/catch-up URLs yet,
   // so we never present live streams as replay content.
@@ -57,7 +63,7 @@ export default function CatchUpScreen() {
         {items.length ? (
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.rows}>
             {items.map((channel, rowIndex) => {
-              const current = nowNext(channel.programs, new Date()).current;
+              const current = nowNext(channel.programs, now).current;
               return (
                 <Pressable
                   key={channel.id}

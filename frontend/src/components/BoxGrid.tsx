@@ -163,12 +163,15 @@ export function BoxGrid({
   const lastReportedDeepRef = useRef(false);
   const guideEscapeInFlight = useRef(false);
   const escapeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [preferFirst, setPreferFirst] = useState(true);
+  const hasClaimedFocusRef = useRef(false);
+  const gridOwnsFocusRef = useRef(false);
+  const [preferFirst, setPreferFirst] = useState(() => !hasClaimedFocusRef.current);
 
   const reportFocusedRow = useCallback(
     (index: number) => {
       const row = Math.floor(index / Math.max(1, numColumns));
       focusedRowRef.current = row;
+      gridOwnsFocusRef.current = true;
       const deep = row > 0;
       if (preferFirst && deep) setPreferFirst(false);
       if (lastReportedDeepRef.current === deep) return;
@@ -178,18 +181,23 @@ export function BoxGrid({
     [numColumns, onFocusedRowChange, preferFirst],
   );
 
+  // Mount-once preferred focus — group resets must not steal chip focus.
   useEffect(() => {
+    if (hasClaimedFocusRef.current) return;
+    hasClaimedFocusRef.current = true;
     setPreferFirst(true);
-    lastReportedDeepRef.current = false;
-    const clearPreferred = setTimeout(() => setPreferFirst(false), 900);
-    if (!resetToken) return () => clearTimeout(clearPreferred);
-    try {
-      listRef.current?.scrollToIndex({ index: 0, animated: false, viewPosition: 0 });
-      focusedRowRef.current = 0;
-      onFocusedRowChange?.(0);
-    } catch {}
+    const clearPreferred = setTimeout(() => setPreferFirst(false), 360);
     return () => clearTimeout(clearPreferred);
-  }, [onFocusedRowChange, resetToken]);
+  }, []);
+
+  useEffect(() => {
+    if (!resetToken) return;
+    lastReportedDeepRef.current = false;
+    focusedRowRef.current = 0;
+    try {
+      listRef.current?.scrollToOffset({ offset: 0, animated: false });
+    } catch {}
+  }, [resetToken]);
 
   useEffect(
     () => () => {
@@ -202,8 +210,9 @@ export function BoxGrid({
     useCallback(
       (event) => {
         if (!active || event?.eventType !== "up" || focusedRowRef.current > 0) return;
-        if (guideEscapeInFlight.current) return;
+        if (!gridOwnsFocusRef.current || guideEscapeInFlight.current) return;
         guideEscapeInFlight.current = true;
+        gridOwnsFocusRef.current = false;
         onUpBoundary?.();
         if (escapeTimer.current) clearTimeout(escapeTimer.current);
         escapeTimer.current = setTimeout(() => {
