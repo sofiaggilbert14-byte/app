@@ -97,7 +97,6 @@ export default function PlayerScreen() {
     [channels],
   );
   const streamChannels = useMemo(() => sortedChannels.filter((item) => !!item.url), [sortedChannels]);
-  const streamIndex = useMemo(() => streamChannels.findIndex((item) => item.id === channelId), [channelId, streamChannels]);
   const numberById = useMemo(() => {
     const result: Record<string, number> = {};
     sortedChannels.forEach((item, index) => { result[item.id] = index + 1; });
