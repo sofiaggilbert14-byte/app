@@ -23,11 +23,11 @@ test("source modules never hardcode provider playlist/EPG URLs", async () => {
   assert.match(native, /not configured for this build/);
 });
 
-test("Purple TV APK workflow injects playlist/EPG build variables", async () => {
+test("Purple TV APK workflow injects playlist/EPG from secrets", async () => {
   const workflow = await repoSource(".github/workflows/purple-tv-ui.yml");
-  assert.match(workflow, /EXPO_PUBLIC_M3U_URL: \$\{\{ vars\.EXPO_PUBLIC_M3U_URL \}\}/);
-  assert.match(workflow, /EXPO_PUBLIC_EPG_URL: \$\{\{ vars\.EXPO_PUBLIC_EPG_URL \}\}/);
-  assert.match(workflow, /Require playlist and EPG build variables/);
+  assert.match(workflow, /secrets\.M3U_URL/);
+  assert.match(workflow, /secrets\.EPG_URL/);
+  assert.match(workflow, /Require playlist and EPG build configuration/);
 });
 
 test("native EPG refuses empty live swaps and filters getWindow by channel ids", async () => {

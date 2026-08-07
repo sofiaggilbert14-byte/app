@@ -31,22 +31,23 @@ jobs:
       run:
         working-directory: frontend
     env:
-      # Baked into the JS bundle at assembleRelease — never hardcode provider URLs in git.
-      EXPO_PUBLIC_M3U_URL: ${{ vars.EXPO_PUBLIC_M3U_URL }}
-      EXPO_PUBLIC_EPG_URL: ${{ vars.EXPO_PUBLIC_EPG_URL }}
+      # Prefer repository secrets (M3U_URL / EPG_URL — same as charm-refresh).
+      # Optional vars.EXPO_PUBLIC_* remain as fallbacks for older Phoenix wiring.
+      EXPO_PUBLIC_M3U_URL: ${{ secrets.M3U_URL || vars.EXPO_PUBLIC_M3U_URL }}
+      EXPO_PUBLIC_EPG_URL: ${{ secrets.EPG_URL || vars.EXPO_PUBLIC_EPG_URL }}
       EXPO_PUBLIC_GUIDE_WINDOW_HOURS: ${{ vars.EXPO_PUBLIC_GUIDE_WINDOW_HOURS || '8' }}
 
     steps:
       - name: Checkout purple TV UI
         uses: actions/checkout@v4
 
-      - name: Require playlist and EPG build variables
+      - name: Require playlist and EPG build configuration
         run: |
           if [ -z "${EXPO_PUBLIC_M3U_URL}" ] || [ -z "${EXPO_PUBLIC_EPG_URL}" ]; then
-            echo "::error::Set repository Actions variables EXPO_PUBLIC_M3U_URL and EXPO_PUBLIC_EPG_URL (Settings → Secrets and variables → Actions → Variables). Without them the APK cannot load channels."
+            echo "::error::Missing playlist/EPG config. Set repository secrets M3U_URL and EPG_URL (Settings → Secrets and variables → Actions → Secrets), or variables EXPO_PUBLIC_M3U_URL / EXPO_PUBLIC_EPG_URL."
             exit 1
           fi
-          echo "Playlist/EPG build variables are present (values not printed)."
+          echo "Playlist/EPG build configuration is present (values not printed)."
 
       - name: Setup Node
         uses: actions/setup-node@v4

@@ -29,8 +29,8 @@ jobs:
       run:
         working-directory: frontend
     env:
-      EXPO_PUBLIC_M3U_URL: ${{ vars.EXPO_PUBLIC_M3U_URL }}
-      EXPO_PUBLIC_EPG_URL: ${{ vars.EXPO_PUBLIC_EPG_URL }}
+      EXPO_PUBLIC_M3U_URL: ${{ secrets.M3U_URL || vars.EXPO_PUBLIC_M3U_URL }}
+      EXPO_PUBLIC_EPG_URL: ${{ secrets.EPG_URL || vars.EXPO_PUBLIC_EPG_URL }}
       EXPO_PUBLIC_GUIDE_WINDOW_HOURS: ${{ vars.EXPO_PUBLIC_GUIDE_WINDOW_HOURS || '8' }}
       CMAKE_BUILD_PARALLEL_LEVEL: "1"
       CI: "1"
