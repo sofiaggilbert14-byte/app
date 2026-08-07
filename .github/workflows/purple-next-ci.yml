@@ -1,0 +1,71 @@
+name: Purple Next CI and APK
+
+on:
+  push:
+    branches:
+      - next/purple-production
+    paths:
+      - "frontend/**"
+      - "docs/**"
+      - ".github/workflows/purple-next-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: purple-next-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+      - name: Install dependencies deterministically
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Phase 1 regression tests
+        run: npm test
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Record Phase 1 benchmark
+        run: CHARM_BENCH_CHANNELS=20000 CHARM_BENCHMARK_OUTPUT=ci/phase1-benchmark.json npm run benchmark:phase1
+      - name: Build side-by-side Purple Next APK
+        run: |
+          chmod +x android/gradlew
+          ./android/gradlew -p android assembleRelease --no-daemon --stacktrace
+        env:
+          CI: "1"
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx3g -Dorg.gradle.workers.max=2"
+      - name: Name and checksum APK
+        run: |
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          test -f "$APK"
+          cp "$APK" android/app/build/outputs/apk/release/CharmIPTV-Purple-Next.apk
+          sha256sum android/app/build/outputs/apk/release/CharmIPTV-Purple-Next.apk > android/app/build/outputs/apk/release/CharmIPTV-Purple-Next.apk.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CharmIPTV-Purple-Next-${{ github.sha }}
+          path: |
+            frontend/android/app/build/outputs/apk/release/CharmIPTV-Purple-Next.apk
+            frontend/android/app/build/outputs/apk/release/CharmIPTV-Purple-Next.apk.sha256
+            frontend/ci/phase1-benchmark.json
+          if-no-files-found: error
+          retention-days: 30

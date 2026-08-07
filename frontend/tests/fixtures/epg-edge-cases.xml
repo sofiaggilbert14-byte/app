@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<tv>
+  <channel id="news.1"><display-name>News One</display-name></channel>
+  <programme channel="news.1" start="20260807100000 -0400" stop="20260807103000 -0400">
+    <title>Valid offset program</title>
+  </programme>
+  <programme channel="news.1" start="20260807103000 -0400">
+    <title>Missing stop</title>
+  </programme>
+  <programme channel="news.1" start="not-a-date" stop="20260807113000 -0400">
+    <title>Malformed start</title>
+  </programme>
+</tv>

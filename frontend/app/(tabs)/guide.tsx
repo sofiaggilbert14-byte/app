@@ -25,6 +25,7 @@ import { useStore } from "@/src/store";
 import { fonts, radius, spacing, tvColors } from "@/src/theme";
 import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
 import { requestNativeFocus, requestNativeFocusWithRetry } from "@/src/utils/tvFocus";
+import { MODAL_FOCUS_RETRY_DELAYS_MS } from "@/src/core/guideRegressionPolicy";
 
 const BASE_GROUPS = ["All", "Favorites", "Recently Watched", "Sports", "News", "Movies", "Kids", "Music"];
 
@@ -115,7 +116,7 @@ export default function PurpleGuideScreen() {
     if (activeProgram) return;
     if (!hadProgramModalRef.current) return;
     hadProgramModalRef.current = false;
-    return requestNativeFocusWithRetry(lastGuideFocusNodeRef.current, [0, 40, 120, 280]);
+    return requestNativeFocusWithRetry(lastGuideFocusNodeRef.current, [...MODAL_FOCUS_RETRY_DELAYS_MS]);
   }, [activeProgram]);
 
   const onGuideFocusNode = useCallback((node: unknown) => {

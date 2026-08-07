@@ -1,0 +1,7 @@
+﻿garbage-before-header
+#EXTINF:-1 tvg-id="missing-url",Missing URL
+#EXTVLCOPT:http-user-agent=Fixture
+#COMMENT
+#EXTINF:-1,Playable After Bad Record
+https://stream.example/working.m3u8
+#EXTINF broken-record

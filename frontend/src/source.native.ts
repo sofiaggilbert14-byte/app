@@ -1,6 +1,7 @@
 import dayjs from "dayjs";
 import * as FileSystem from "expo-file-system/legacy";
 import type { Channel, GuideResponse, SourceStatus } from "@/src/api";
+import { parseM3U } from "@/src/core/sourceParsing";
 import {
   clearNativeEpg,
   loadNativeEpgWindow,
@@ -20,7 +21,6 @@ const CACHE_ROOT = FileSystem.documentDirectory || "";
 const CHANNEL_CACHE = CACHE_ROOT ? `${CACHE_ROOT}charm_native_channels_v2.json` : "";
 const LEGACY_CHANNEL_CACHE = CACHE_ROOT ? `${CACHE_ROOT}charm_native_channels_v1.json` : "";
 const CHANNEL_CACHE_TMP = CHANNEL_CACHE ? `${CHANNEL_CACHE}.tmp` : "";
-const EXTINF_ATTR = /([a-zA-Z0-9-]+)="([^"]*)"/g;
 
 type NativeMeta = {
   ts: number;
@@ -120,13 +120,6 @@ function https(url: string): string {
   return url && url.startsWith("http://") ? `https://${url.slice(7)}` : url;
 }
 
-function streamType(url: string): string {
-  const clean = url.toLowerCase().split("?")[0];
-  if (clean.endsWith(".m3u8")) return "hls";
-  if (clean.endsWith(".ts")) return "ts";
-  return "unknown";
-}
-
 function normalizeGuideKey(value: string | undefined): string {
   return (value || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
@@ -135,56 +128,6 @@ function sortChannels(channels: Channel[]): Channel[] {
   return [...channels].sort((a, b) =>
     (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" }),
   );
-}
-
-function parseM3U(text: string): Channel[] {
-  const lines = text.split(/\r?\n/);
-  const channels: Channel[] = [];
-  const used = new Set<string>();
-  let index = 0;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line.startsWith("#EXTINF")) continue;
-
-    const attrs: Record<string, string> = {};
-    EXTINF_ATTR.lastIndex = 0;
-    let match: RegExpExecArray | null;
-    while ((match = EXTINF_ATTR.exec(line))) attrs[match[1]] = match[2];
-
-    const name = line.includes(",")
-      ? line.slice(line.lastIndexOf(",") + 1).trim()
-      : attrs["tvg-name"] || "Channel";
-
-    let url = "";
-    for (let j = i + 1; j < lines.length; j++) {
-      const next = lines[j].trim();
-      if (next && !next.startsWith("#")) {
-        url = next;
-        break;
-      }
-    }
-    if (!url) continue;
-
-    const tvgId = (attrs["tvg-id"] || "").trim();
-    const base = tvgId || name.replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase();
-    let id = base || `channel-${index}`;
-    if (used.has(id)) id = `${id}#${index}`;
-    used.add(id);
-
-    channels.push({
-      id,
-      tvg_id: tvgId,
-      name,
-      logo: (attrs["tvg-logo"] || "").trim(),
-      group: (attrs["group-title"] || "").trim(),
-      url,
-      stream_type: streamType(url),
-    });
-    index++;
-  }
-
-  return sortChannels(channels);
 }
 
 async function readMetaFile(path: string): Promise<NativeMeta | null> {
@@ -224,7 +167,7 @@ async function fetchPlaylist(): Promise<Channel[]> {
   });
   if (!response.ok) throw new Error(`M3U HTTP ${response.status}`);
   const text = await response.text();
-  const channels = parseM3U(text);
+  const channels = sortChannels(parseM3U(text));
   if (!channels.length) throw new Error("Playlist contained no channels");
   return channels;
 }

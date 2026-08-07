@@ -1,0 +1,18 @@
+{
+  "schema": "charmiptv-phase1-baseline-v1",
+  "recordedAt": "2026-08-07T10:56:45.335Z",
+  "runtime": "v24.14.0",
+  "platform": "win32-x64",
+  "inputs": {
+    "channelCount": 20000,
+    "playlistBytes": 2336677,
+    "xmltvTimestampIterations": 100000
+  },
+  "metrics": {
+    "playlistParseMs": 34.05,
+    "playlistParseChannelsPerSecond": 587325,
+    "playlistHeapDeltaBytes": 9673144,
+    "favoriteSanitizeMs": 0.38,
+    "xmltvTimestamp100kMs": 110.92
+  }
+}

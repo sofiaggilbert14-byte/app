@@ -6,19 +6,25 @@ import { useIsFocused } from "@react-navigation/native";
 import { addTvKeyListener } from "@/src/utils/tvRemote";
 import { forceStopAllStreams, registerStreamStop } from "@/src/utils/streamLifecycle";
 import { usePlayerEnginePreference } from "@/src/playerEnginePreference";
+import {
+  detectStreamKind,
+  parsePipeHeaders,
+  preferredEngine,
+  type Engine,
+} from "@/src/core/streamPolicy";
+import {
+  DECODER_RESUME_SETTLE_MS,
+  isRapidDirectionalScan,
+  routeAcceptsRapidScanKey,
+} from "@/src/core/guideRegressionPolicy";
 
 export type StreamStatus = "loading" | "playing" | "error";
-
-type Engine = "vlc" | "media3";
-type StreamKind = "hls" | "dash" | "progressive" | "rtsp" | "rtmp" | "transport" | "unknown";
 
 const USER_AGENT = "VLC/3.0.20 LibVLC/3.0.20";
 const FAILURE_WINDOW_MS = 60_000;
 const MAX_FAILURES_PER_WINDOW = 5;
 const CIRCUIT_COOLDOWN_MS = 60_000;
 const ENGINE_START_TIMEOUT_MS = 12_000;
-const RAPID_GUIDE_KEY_MS = 240;
-const PREVIEW_RESUME_SETTLE_MS = 650;
 
 type FailureState = { failures: number[]; blockedUntil: number };
 const failureStateByKey = new Map<string, FailureState>();
@@ -98,40 +104,6 @@ function useStatusTracker(onStatus: (status: StreamStatus) => void, resetKey: st
       console.warn("CharmIPTV stream status listener failed", error);
     }
   }, [onStatus]);
-}
-
-function detectStreamKind(uri: string): StreamKind {
-  const lower = uri.toLowerCase();
-  const protocol = lower.split(":", 1)[0];
-  if (protocol === "rtsp") return "rtsp";
-  if (protocol === "rtmp" || protocol === "rtmps") return "rtmp";
-  if (/\.m3u8(?:$|[?#])/.test(lower) || lower.includes("format=m3u8") || lower.includes("type=hls")) return "hls";
-  if (/\.mpd(?:$|[?#])/.test(lower) || lower.includes("format=mpd") || lower.includes("type=dash")) return "dash";
-  if (/\.(?:ts|m2ts)(?:$|[?#])/.test(lower) || lower.includes("mpegts")) return "transport";
-  if (/\.(?:mp4|m4v|mov|webm|mkv|avi)(?:$|[?#])/.test(lower)) return "progressive";
-  return "unknown";
-}
-
-function parsePipeHeaders(rawUri: string): { uri: string; headers: Record<string, string> } {
-  const pipeIndex = rawUri.indexOf("|");
-  if (pipeIndex < 0) return { uri: rawUri, headers: { "User-Agent": USER_AGENT } };
-
-  const uri = rawUri.slice(0, pipeIndex);
-  const headers: Record<string, string> = { "User-Agent": USER_AGENT };
-  const pairs = rawUri.slice(pipeIndex + 1).split("&");
-  for (const pair of pairs) {
-    const equals = pair.indexOf("=");
-    if (equals <= 0) continue;
-    const key = decodeURIComponent(pair.slice(0, equals)).trim();
-    const value = decodeURIComponent(pair.slice(equals + 1)).trim();
-    if (key && value) headers[key] = value;
-  }
-  return { uri, headers };
-}
-
-function preferredEngine(kind: StreamKind): Engine {
-  if (kind === "hls" || kind === "dash" || kind === "progressive") return "media3";
-  return "vlc";
 }
 
 export const vlcAvailable = Platform.OS !== "web" && !!UIManager.getViewManagerConfig?.("RCTVLCPlayer");
@@ -401,13 +373,9 @@ export function StreamPlayer({ uri, onStatus, style }: Props) {
 
     return addTvKeyListener((key) => {
       // Guide: all directions compete with list recycling. Player: only strip L/R zaps.
-      if (isGuidePreview) {
-        if (key !== "UP" && key !== "DOWN" && key !== "LEFT" && key !== "RIGHT") return;
-      } else if (key !== "LEFT" && key !== "RIGHT") {
-        return;
-      }
+      if (!routeAcceptsRapidScanKey(pathname, key)) return;
       const now = Date.now();
-      const rapid = now - lastDirectionalAt.current <= RAPID_GUIDE_KEY_MS;
+      const rapid = isRapidDirectionalScan(lastDirectionalAt.current, now);
       lastDirectionalAt.current = now;
 
       if (settleTimer.current) clearTimeout(settleTimer.current);
@@ -418,9 +386,9 @@ export function StreamPlayer({ uri, onStatus, style }: Props) {
       }
       settleTimer.current = setTimeout(() => {
         setGuideScanSettled(true);
-      }, PREVIEW_RESUME_SETTLE_MS);
+      }, DECODER_RESUME_SETTLE_MS);
     });
-  }, [isFocused, isGuidePreview, pauseOnRapidScan]);
+  }, [isFocused, isGuidePreview, pathname, pauseOnRapidScan]);
 
   useEffect(() => {
     if (!isFocused) forceStopAllStreams();
