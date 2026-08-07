@@ -8,6 +8,12 @@ import {
   nativeEpgAvailable,
   refreshNativeEpg,
 } from "@/src/nativeEpg";
+import {
+  buildXmltvMatchIndexes,
+  formatNativeEpgError,
+  matchPlaylistChannelToXmltv,
+} from "@/src/core/epgMatching";
+import { cleanupLegacyEpgArtifactsOnce } from "@/src/utils/legacyEpgCleanup";
 
 export const API_BASE = "";
 export const SOURCE_M3U =
@@ -41,9 +47,11 @@ export type EpgProgress = {
   phase: LoadPhase;
   ratio: number;
   etaSeconds: number | null;
+  /** Present on error (and cleared on successful phases). */
+  message?: string | null;
 };
 
-let progress: EpgProgress = { phase: "idle", ratio: 0, etaSeconds: null };
+let progress: EpgProgress = { phase: "idle", ratio: 0, etaSeconds: null, message: null };
 const progressListeners = new Set<(value: EpgProgress) => void>();
 let lastProgressEmit = 0;
 let progressTimer: ReturnType<typeof setTimeout> | null = null;
@@ -74,7 +82,17 @@ export function subscribeProgress(listener: (value: EpgProgress) => void): () =>
 
 function setProgress(next: Partial<EpgProgress>, force = false): void {
   const previousPhase = progress.phase;
-  progress = { ...progress, ...next };
+  progress = {
+    ...progress,
+    ...next,
+    // Clear stale error copy whenever we leave the error phase unless caller sets message.
+    message:
+      next.message !== undefined
+        ? next.message
+        : next.phase && next.phase !== "error"
+          ? null
+          : progress.message,
+  };
   const phaseChanged = progress.phase !== previousPhase;
   const terminal = progress.phase === "ready" || progress.phase === "error" || progress.ratio >= 1;
   const elapsed = Date.now() - lastProgressEmit;
@@ -118,10 +136,6 @@ export function subscribeSource(listener: () => void): () => void {
 
 function https(url: string): string {
   return url && url.startsWith("http://") ? `https://${url.slice(7)}` : url;
-}
-
-function normalizeGuideKey(value: string | undefined): string {
-  return (value || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
 function sortChannels(channels: Channel[]): Channel[] {
@@ -173,6 +187,9 @@ async function fetchPlaylist(): Promise<Channel[]> {
 }
 
 async function ensureLoaded(): Promise<NativeMeta> {
+  // Best-effort once per install: drop superseded JS/expo EPG files (never v3 native DB).
+  void cleanupLegacyEpgArtifactsOnce();
+
   if (MEM && MEM.channels.length > 0) return MEM;
   const cached = await readChannelCache();
   if (cached) {
@@ -180,6 +197,10 @@ async function ensureLoaded(): Promise<NativeMeta> {
       return refreshInternal(true);
     }
     MEM = cached;
+    if (cached.epgError) {
+      lastSourceError = cached.epgError;
+      setProgress({ phase: "error", ratio: 0, etaSeconds: null, message: cached.epgError }, true);
+    }
     if (cached.ts <= 0) void refreshInternal(false);
     return cached;
   }
@@ -222,49 +243,25 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
       emit();
 
       if (!nativeEpgAvailable) throw new Error("Native EPG engine is unavailable in this Android build");
-      setProgress({ phase: "downloading", ratio: 0.2, etaSeconds: null }, true);
+      setProgress({ phase: "downloading", ratio: 0.2, etaSeconds: null, message: null }, true);
       const epg = await refreshNativeEpg(https(SOURCE_EPG));
       setProgress({ phase: "caching", ratio: 0.9, etaSeconds: null }, true);
 
       const epgLogos = epg.channelLogos || {};
       const epgNames = epg.channelNames || {};
-      const idsWithPrograms = new Set(epg.channelIdsWithPrograms || []);
-      const xmltvIdByNormalizedId = new Map<string, string>();
-      const xmltvIdByNormalizedName = new Map<string, string>();
-
-      for (const id of new Set([...Object.keys(epgLogos), ...Object.keys(epgNames), ...idsWithPrograms])) {
-        const key = normalizeGuideKey(id);
-        if (key && !xmltvIdByNormalizedId.has(key)) xmltvIdByNormalizedId.set(key, id);
-      }
-      for (const [id, name] of Object.entries(epgNames)) {
-        const key = normalizeGuideKey(name);
-        if (key && !xmltvIdByNormalizedName.has(key)) xmltvIdByNormalizedName.set(key, id);
-      }
+      const indexes = buildXmltvMatchIndexes({
+        channelIds: new Set([
+          ...Object.keys(epgLogos),
+          ...Object.keys(epgNames),
+          ...(epg.channelIdsWithPrograms || []),
+        ]),
+        channelNames: epgNames,
+        idsWithPrograms: epg.channelIdsWithPrograms || [],
+      });
 
       let matchedChannels = 0;
       const matchedChannelsWithLogos = MEM.channels.map((channel) => {
-        const tvgId = channel.tvg_id || "";
-        const exactProgramId = idsWithPrograms.has(tvgId)
-          ? tvgId
-          : idsWithPrograms.has(channel.id)
-            ? channel.id
-            : "";
-        const normalizedIdMatch =
-          xmltvIdByNormalizedId.get(normalizeGuideKey(tvgId)) ||
-          xmltvIdByNormalizedId.get(normalizeGuideKey(channel.id)) ||
-          "";
-        const nameMatch = xmltvIdByNormalizedName.get(normalizeGuideKey(channel.name)) || "";
-
-        const sourceId =
-          exactProgramId ||
-          (normalizedIdMatch && idsWithPrograms.has(normalizedIdMatch) ? normalizedIdMatch : "") ||
-          (nameMatch && idsWithPrograms.has(nameMatch) ? nameMatch : "");
-        const logoId =
-          (epgLogos[tvgId] ? tvgId : "") ||
-          (epgLogos[channel.id] ? channel.id : "") ||
-          (normalizedIdMatch && epgLogos[normalizedIdMatch] ? normalizedIdMatch : "") ||
-          (nameMatch && epgLogos[nameMatch] ? nameMatch : "");
-
+        const { sourceId, logoId } = matchPlaylistChannelToXmltv(channel, indexes, epgLogos);
         if (sourceId) matchedChannels++;
         const xmltvLogo = logoId ? (epgLogos[logoId] || "").trim() : "";
         const nextLogo = xmltvLogo || channel.logo || "";
@@ -287,12 +284,12 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
         void FileSystem.deleteAsync(LEGACY_CHANNEL_CACHE, { idempotent: true }).catch(() => undefined);
       }
       emit();
-      setProgress({ phase: "ready", ratio: 1, etaSeconds: 0 }, true);
+      setProgress({ phase: "ready", ratio: 1, etaSeconds: 0, message: null }, true);
       return MEM;
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Source refresh failed";
+      const message = formatNativeEpgError(error);
       lastSourceError = message;
-      setProgress({ phase: "error", ratio: 0, etaSeconds: null }, true);
+      setProgress({ phase: "error", ratio: 0, etaSeconds: null, message }, true);
       if (MEM) {
         MEM = { ...MEM, epgError: message };
         await persistMeta(MEM).catch(() => undefined);
@@ -303,7 +300,7 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
         MEM = { ...cached, epgError: message };
         return MEM;
       }
-      throw error;
+      throw error instanceof Error ? error : new Error(message);
     }
   })();
 
@@ -410,5 +407,7 @@ export async function clearGuideCache(): Promise<void> {
   if (CHANNEL_CACHE) await FileSystem.deleteAsync(CHANNEL_CACHE, { idempotent: true }).catch(() => undefined);
   if (CHANNEL_CACHE_TMP) await FileSystem.deleteAsync(CHANNEL_CACHE_TMP, { idempotent: true }).catch(() => undefined);
   if (LEGACY_CHANNEL_CACHE) await FileSystem.deleteAsync(LEGACY_CHANNEL_CACHE, { idempotent: true }).catch(() => undefined);
+  void cleanupLegacyEpgArtifactsOnce();
+  setProgress({ phase: "idle", ratio: 0, etaSeconds: null, message: null }, true);
   emit();
 }

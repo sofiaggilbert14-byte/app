@@ -14,9 +14,10 @@ function fmtEta(s: number | null): string {
 
 /**
  * Thin status bar under the guide header showing live EPG download → parse
- * progress with an ETA. Auto-hides once the guide is ready.
+ * progress with an ETA. Auto-hides once the guide is ready. On error, shows
+ * the concrete guide failure message (channels remain usable).
  */
-const INITIAL_PROGRESS: EpgProgress = { phase: "idle", ratio: 0, etaSeconds: null };
+const INITIAL_PROGRESS: EpgProgress = { phase: "idle", ratio: 0, etaSeconds: null, message: null };
 
 export function EpgProgressBar() {
   // Keep high-frequency progress updates out of the shared guide context.
@@ -33,7 +34,7 @@ export function EpgProgressBar() {
       }),
     [],
   );
-  const { phase, ratio, etaSeconds } = epgProgress;
+  const { phase, ratio, etaSeconds, message } = epgProgress;
   const w = useRef(new Animated.Value(0)).current;
 
   const visible =
@@ -53,7 +54,7 @@ export function EpgProgressBar() {
 
   const isErr = phase === "error";
   const label = isErr
-    ? "Guide unavailable — showing channels only"
+    ? message || "Guide unavailable — showing channels only"
     : phase === "channels"
       ? "Channels ready — loading guide"
       : phase === "downloading"
@@ -71,7 +72,7 @@ export function EpgProgressBar() {
   return (
     <View style={styles.wrap} testID="epg-progress-bar">
       <View style={styles.row}>
-        <Text style={[styles.label, isErr && styles.err]} numberOfLines={1}>
+        <Text style={[styles.label, isErr && styles.err]} numberOfLines={isErr ? 2 : 1}>
           {label}
         </Text>
         {!isErr && (
@@ -105,7 +106,7 @@ const styles = StyleSheet.create({
     flex: 1,
     marginRight: 8,
   },
-  err: { color: colors.onSurfaceTertiary },
+  err: { color: colors.error },
   meta: { color: colors.onSurfaceTertiary, fontFamily: fonts.medium, fontSize: 11 },
   track: {
     height: 4,

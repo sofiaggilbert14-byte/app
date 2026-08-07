@@ -67,7 +67,7 @@ export default function EpgSourcesScreen() {
             title="Primary XMLTV Guide"
             subtitle="Managed by CharmIPTV · locked source"
             enabled
-            status={status.error ? "Cached fallback active" : "Active"}
+            status={status.error ? "Guide error — see health" : "Active"}
           />
           <SourceRow
             title="Playlist Channel Map"
@@ -77,9 +77,9 @@ export default function EpgSourcesScreen() {
           />
           <SourceRow
             title="Native EPG Cache"
-            subtitle="24-hour optimized on-device guide window"
+            subtitle="Streamed XMLTV on-device (Android) · no JS fallback on TV"
             enabled
-            status={`${diagnostics?.programs || 0} cached programs`}
+            status={status.error ? "Unavailable" : `${diagnostics?.programs || 0} cached programs`}
           />
           <SourceRow
             title="Automatic Refresh"
@@ -95,7 +95,11 @@ export default function EpgSourcesScreen() {
           <Info label="Refresh in progress" value={diagnostics?.refreshInFlight ? "Yes" : "No"} />
           <Info label="Last refresh" value={status.last_refresh ? dayjs(status.last_refresh).format("MMM D, h:mm A") : "Not yet"} />
           <Info label="Cache age" value={diagnostics?.cacheAgeMinutes != null ? `${diagnostics.cacheAgeMinutes} min` : "—"} />
-          {diagnostics?.epgError ? <Text style={styles.error}>{diagnostics.epgError}</Text> : null}
+          {diagnostics?.epgError || status.error ? (
+            <Text style={styles.error} testID="epg-sources-error">
+              {diagnostics?.epgError || status.error}
+            </Text>
+          ) : null}
         </View>
 
         <Pressable disabled={busy} onPress={refreshAll} style={({ focused }: any) => [styles.refresh, busy && styles.disabled, focused && styles.focused]}>

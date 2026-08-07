@@ -5,6 +5,11 @@ import { DecodeUTF8, Gunzip } from "fflate";
 import type { Channel, Program, GuideResponse, SourceStatus } from "@/src/api";
 import { parseM3U, parseXmltvTime, resolveXmltvStop, streamType } from "@/src/core/sourceParsing";
 import {
+  buildXmltvMatchIndexes,
+  formatNativeEpgError,
+  matchPlaylistChannelToXmltv,
+} from "@/src/core/epgMatching";
+import {
   clearIndexedEpg,
   getIndexedEpgStats,
   getIndexedEpgStorageBytes,
@@ -12,8 +17,12 @@ import {
   replaceIndexedPrograms,
 } from "@/src/epgDb";
 
-// Developer source — fetched & parsed on-device (no backend needed).
-// Experimental is deliberately device-local: never select the Cloudflare JSON path.
+/**
+ * WEB / non-native source path.
+ * Fire TV / Android APK resolves `@/src/source` → `source.native.ts` (Kotlin streamed XMLTV).
+ * Do not import this file from native code paths, and do not add a JS XMLTV fallback on TV —
+ * that path downloads the full feed into memory and is unsafe on weak Fire TV boxes.
+ */
 export const API_BASE = "";
 export const SOURCE_M3U =
   process.env.EXPO_PUBLIC_M3U_URL || "http://m3u4u.com/m3u/jwmzn1grpmu99585n721";
@@ -245,10 +254,6 @@ function nextTick(): Promise<void> {
   return new Promise((r) => setTimeout(r, 0));
 }
 
-function normalizeGuideKey(value: string | undefined): string {
-  return (value || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
-}
-
 type Sink = {
   icons?: Record<string, string>;
   channelNames?: Record<string, string>;
@@ -470,8 +475,9 @@ export type EpgProgress = {
   phase: LoadPhase;
   ratio: number; // 0..1 across the whole EPG step (download + parse)
   etaSeconds: number | null;
+  message?: string | null;
 };
-let progress: EpgProgress = { phase: "idle", ratio: 0, etaSeconds: null };
+let progress: EpgProgress = { phase: "idle", ratio: 0, etaSeconds: null, message: null };
 let progressListeners: ((p: EpgProgress) => void)[] = [];
 export function subscribeProgress(fn: (p: EpgProgress) => void): () => void {
   progressListeners.push(fn);
@@ -805,28 +811,20 @@ function loadEpg(channels: Channel[], force = false): Promise<void> {
 
       setProgress({ phase: "indexing", ratio: 0.9, etaSeconds: null }, true);
       await nextTick();
-      const programIdByKey = new Map<string, string>();
-      for (const id of Object.keys(programs)) {
-        const key = normalizeGuideKey(id);
-        if (key && !programIdByKey.has(key)) programIdByKey.set(key, id);
-      }
-      const programIdByName = new Map<string, string>();
-      for (const [id, name] of Object.entries(channelNames)) {
-        const key = normalizeGuideKey(name);
-        if (key && programs[id]?.length && !programIdByName.has(key)) programIdByName.set(key, id);
-      }
+      const indexes = buildXmltvMatchIndexes({
+        channelIds: Object.keys(programs),
+        channelNames,
+        idsWithPrograms: Object.keys(programs).filter((id) => programs[id]?.length),
+      });
 
       let matchedChannels = 0;
       for (const channel of channels) {
-        const sourceId =
-          (channel.tvg_id && programs[channel.tvg_id]?.length ? channel.tvg_id : "") ||
-          programIdByKey.get(normalizeGuideKey(channel.tvg_id)) ||
-          programIdByName.get(normalizeGuideKey(channel.name)) ||
-          "";
+        const { sourceId, logoId } = matchPlaylistChannelToXmltv(channel, indexes, icons);
         if (!sourceId || !programs[sourceId]?.length) continue;
         channel.tvg_id = sourceId;
         matchedChannels++;
-        if (!channel.logo && icons[sourceId]) channel.logo = icons[sourceId];
+        if (!channel.logo && logoId && icons[logoId]) channel.logo = icons[logoId];
+        else if (!channel.logo && icons[sourceId]) channel.logo = icons[sourceId];
       }
       if (!matchedChannels) throw new Error("EPG loaded, but its channel IDs did not match the playlist");
 
@@ -857,12 +855,12 @@ function loadEpg(channels: Channel[], force = false): Promise<void> {
       emit();
       setProgress({ phase: "ready", ratio: 1, etaSeconds: 0 }, true);
     } catch (error) {
-      lastSourceError = error instanceof Error ? error.message : "EPG refresh failed";
+      lastSourceError = formatNativeEpgError(error);
       if (MEM) {
         MEM = { ...MEM, epgAttemptTs: attemptTs, epgError: lastSourceError };
         await persist().catch(() => undefined);
       }
-      setProgress({ phase: "error", ratio: 0, etaSeconds: null }, true);
+      setProgress({ phase: "error", ratio: 0, etaSeconds: null, message: lastSourceError }, true);
       emit();
     } finally {
       epgLoading = false;
