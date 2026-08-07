@@ -283,6 +283,9 @@ export function BoxGrid({
     ),
   );
 
+  const favoriteSetRef = useRef(favoriteSet);
+  favoriteSetRef.current = favoriteSet;
+
   const renderItem = useCallback(
     ({ item, index }: { item: Channel; index: number }) => {
       const reminded = !!item.programs?.some((program) => reminderKeys?.has(reminderKey(item.id, program.start)));
@@ -292,7 +295,7 @@ export function BoxGrid({
           item={item}
           index={index}
           nowDate={nowDate}
-          favorite={favoriteSet.has(item.id)}
+          favorite={favoriteSetRef.current.has(item.id)}
           showChannelNumbers={showChannelNumbers}
           channelNumber={channelNumberById?.[item.id]}
           showChannelLogos={showChannelLogos}
@@ -308,7 +311,7 @@ export function BoxGrid({
         />
       );
     },
-    [channelNumberById, favoriteSet, lastRowIndex, nowDate, numColumns, onChannelFocus, onChannelPress, onProgramPress, preferFirst, reminderKeys, rememberFocusNode, reportFocusedRow, showChannelLogos, showChannelNumbers, toggleFavorite],
+    [channelNumberById, lastRowIndex, nowDate, numColumns, onChannelFocus, onChannelPress, onProgramPress, preferFirst, reminderKeys, rememberFocusNode, reportFocusedRow, showChannelLogos, showChannelNumbers, toggleFavorite],
   );
 
   return (
@@ -319,6 +322,8 @@ export function BoxGrid({
         ref={listRef}
         numColumns={numColumns}
         keyExtractor={(c) => c.id}
+        // Re-render visible hearts when favorites change without recreating renderItem.
+        extraData={favorites}
         drawDistance={360}
         removeClippedSubviews={false}
         contentContainerStyle={{ paddingBottom: 130, paddingHorizontal: spacing.xs, paddingTop: spacing.xs }}

@@ -342,7 +342,7 @@ const TimelineRow = memo(function TimelineRow({
   );
 });
 
-export function TimelineGrid({
+export const TimelineGrid = memo(function TimelineGrid({
   channels,
   windowStart,
   windowEnd,
@@ -721,7 +721,7 @@ export function TimelineGrid({
       </View>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   wrap: { flex: 1, overflow: "hidden" },

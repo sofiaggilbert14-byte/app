@@ -125,6 +125,7 @@ export default function ChannelsScreen() {
           <FlatList
             data={sorted}
             keyExtractor={(item) => item.id}
+            extraData={favorites}
             initialNumToRender={12}
             maxToRenderPerBatch={10}
             windowSize={7}

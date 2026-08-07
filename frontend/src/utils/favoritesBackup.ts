@@ -84,7 +84,8 @@ export function serializeFavoritesBackup(favoriteIds: string[], channels: Channe
     exportedAt: new Date().toISOString(),
     favorites,
   };
-  return `${JSON.stringify(payload, null, 2)}\n`;
+  // Compact JSON — favorites backups are ID metadata only; pretty-print wastes space.
+  return JSON.stringify(payload);
 }
 
 function addGrouped(map: Map<string, Channel[]>, key: string, channel: Channel) {

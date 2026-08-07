@@ -144,17 +144,29 @@ export default function PurpleGuideScreen() {
     });
   }, [channels, favorites.length, recent.length]);
 
+  const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
+
   const filtered = useMemo(() => {
-    let list: Channel[];
-    if (group === "All") list = channels;
-    else if (group === "Favorites") list = channels.filter((c) => favorites.includes(c.id));
-    else if (group === "Recently Watched") {
-      list = recent.map((item) => channels.find((c) => c.id === item.id) || item).filter(Boolean) as Channel[];
-    } else list = channels.filter((c) => matches(c, group));
-    // Avoid copy-sort on the huge All list — channels are already name-stable enough for surfing.
-    if (group === "All") return list;
-    return [...list].sort(byName);
-  }, [channels, favorites, group, recent]);
+    // All: return the same channels ref so favorite toggles do not rebuild TimelineGrid geometry.
+    if (group === "All") return channels;
+    if (group === "Favorites") {
+      return channels.filter((c) => favoriteSet.has(c.id)).sort(byName);
+    }
+    if (group === "Recently Watched") {
+      const list = recent
+        .map((item) => channels.find((c) => c.id === item.id) || item)
+        .filter(Boolean) as Channel[];
+      return list.sort(byName);
+    }
+    return channels.filter((c) => matches(c, group)).sort(byName);
+  }, [channels, favoriteSet, group, recent]);
+
+  const onChannelLongPress = useCallback(
+    (channel: Channel) => {
+      toggleFavorite(channel.id);
+    },
+    [toggleFavorite],
+  );
 
   // If Favorites/Recent (or a vanished category) becomes empty, fall back to All
   // so the guide never leaves an unfocusable empty FlashList.
@@ -411,7 +423,7 @@ export default function PurpleGuideScreen() {
                   onChannelPress={play}
                   onProgramPress={openProgram}
                   onChannelFocus={onFocusChannel}
-                  onChannelLongPress={(channel) => toggleFavorite(channel.id)}
+                  onChannelLongPress={onChannelLongPress}
                   refreshing={refreshing}
                   onRefresh={hardRefresh}
                   density={guideDensity}
@@ -483,7 +495,7 @@ export default function PurpleGuideScreen() {
                     style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
                   >
                     <Ionicons
-                      name={previewChannel && favorites.includes(previewChannel.id) ? "heart" : "heart-outline"}
+                      name={previewChannel && favoriteSet.has(previewChannel.id) ? "heart" : "heart-outline"}
                       size={12}
                       color={tvColors.purpleSoft}
                     />

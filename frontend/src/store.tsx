@@ -1,9 +1,10 @@
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState, useMemo } from "react";
+import React, { createContext, startTransition, useCallback, useContext, useEffect, useRef, useState, useMemo } from "react";
 import dayjs from "dayjs";
 import { storage } from "@/src/utils/storage";
 import { Channel, Program } from "@/src/api";
 import { loadGuide, refreshSource, subscribeSource } from "@/src/source";
 import { reminderKey } from "@/src/utils/time";
+import { sanitizeFavoriteIds, toggleFavoriteId } from "@/src/utils/favoriteIds";
 import {
   cancelReminder,
   requestNotificationPermission,
@@ -198,19 +199,36 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const channelById = useCallback((id: string) => channelByIdMap.get(id), [channelByIdMap]);
 
   const isFavorite = useCallback((id: string) => favoritesSet.has(id), [favoritesSet]);
-  const toggleFavorite = useCallback((id: string) => {
-    setFavorites((prev) => {
-      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
-      storage.setItem(FAV_KEY, next);
-      return next;
-    });
+
+  // Debounce AsyncStorage writes — rapid long-press favorites were hitching Fire TV I/O.
+  const favoritesPersistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const favoritesPendingRef = useRef<string[] | null>(null);
+  const persistFavorites = useCallback((next: string[]) => {
+    favoritesPendingRef.current = next;
+    if (favoritesPersistTimer.current) clearTimeout(favoritesPersistTimer.current);
+    favoritesPersistTimer.current = setTimeout(() => {
+      const payload = favoritesPendingRef.current;
+      favoritesPendingRef.current = null;
+      if (payload) void storage.setItem(FAV_KEY, payload);
+    }, 450);
   }, []);
 
+  const toggleFavorite = useCallback((id: string) => {
+    startTransition(() => {
+      setFavorites((prev) => {
+        const next = toggleFavoriteId(prev, id);
+        if (next === prev) return prev;
+        persistFavorites(next);
+        return next;
+      });
+    });
+  }, [persistFavorites]);
+
   const replaceFavorites = useCallback((ids: string[]) => {
-    const next = Array.from(new Set(ids.filter(Boolean)));
-    setFavorites(next);
-    storage.setItem(FAV_KEY, next);
-  }, []);
+    const next = sanitizeFavoriteIds(ids);
+    startTransition(() => setFavorites(next));
+    persistFavorites(next);
+  }, [persistFavorites]);
 
   const recentPersistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const addRecent = useCallback((c: Channel) => {
@@ -334,7 +352,13 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     (async () => {
-      setFavorites((await storage.getItem<string[]>(FAV_KEY, [])) || []);
+      const rawFavorites = await storage.getItem<unknown>(FAV_KEY, []);
+      const cleanedFavorites = sanitizeFavoriteIds(rawFavorites);
+      setFavorites(cleanedFavorites);
+      // Rewrite compacted ID-only list if older/fatter data was stored.
+      if (JSON.stringify(rawFavorites) !== JSON.stringify(cleanedFavorites)) {
+        void storage.setItem(FAV_KEY, cleanedFavorites);
+      }
       setRecent((await storage.getItem<Channel[]>(RECENT_KEY, [])) || []);
       setLastChannelId(await storage.getItem<string | null>(LAST_CHANNEL_KEY, null));
       setReminders((await storage.getItem<Reminder[]>(REM_KEY, [])) || []);
@@ -371,6 +395,14 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => subscribeSource(() => refresh(true)), [refresh]);
+
+  useEffect(
+    () => () => {
+      if (favoritesPersistTimer.current) clearTimeout(favoritesPersistTimer.current);
+      if (favoritesPendingRef.current) void storage.setItem(FAV_KEY, favoritesPendingRef.current);
+    },
+    [],
+  );
 
   // Keep the guide window rolling while the app stays open (silent, low frequency).
   // Skip while a refresh is already running so weak Fire TVs don't hitch mid-surf.
