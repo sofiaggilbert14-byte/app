@@ -211,8 +211,8 @@ export default function PurpleGuideScreen() {
       return channels.filter((c) => favoriteSet.has(c.id)).sort(byName);
     }
     if (group === "Recently Watched") {
-      // recent is already resolved Channel[] from ID-only storage.
-      return [...recent].sort(byName);
+      // Keep recency order from recentIds (do not alpha-sort).
+      return recent;
     }
     return channels.filter((c) => matches(c, group)).sort(byName);
   }, [channels, favoriteSet, group, recent]);

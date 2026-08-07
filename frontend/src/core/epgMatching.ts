@@ -41,7 +41,9 @@ export type PlaylistXmltvMatch = {
 
 /**
  * Resolve a playlist channel to an XMLTV channel id (and optional logo id).
- * Prefer exact programme-bearing ids, then normalized id, then display-name.
+ * Programme matches require an id known to carry programmes (strict).
+ * Empty `idsWithPrograms` → no programme `sourceId` (avoids false matches).
+ * Logos may still resolve from channel metadata alone.
  */
 export function matchPlaylistChannelToXmltv(
   channel: Pick<Channel, "id" | "tvg_id" | "name">,
@@ -51,13 +53,11 @@ export function matchPlaylistChannelToXmltv(
   const tvgId = (channel.tvg_id || "").trim();
   const { idByNormalizedId, idByNormalizedName, idsWithPrograms } = indexes;
 
-  const exactProgramId = idsWithPrograms.size
-    ? idsWithPrograms.has(tvgId)
-      ? tvgId
-      : idsWithPrograms.has(channel.id)
-        ? channel.id
-        : ""
-    : tvgId || "";
+  const exactProgramId = idsWithPrograms.has(tvgId)
+    ? tvgId
+    : idsWithPrograms.has(channel.id)
+      ? channel.id
+      : "";
 
   const normalizedIdMatch =
     idByNormalizedId.get(normalizeGuideKey(tvgId)) ||
@@ -65,11 +65,10 @@ export function matchPlaylistChannelToXmltv(
     "";
   const nameMatch = idByNormalizedName.get(normalizeGuideKey(channel.name)) || "";
 
-  const sourceId = idsWithPrograms.size
-    ? exactProgramId ||
-      (normalizedIdMatch && idsWithPrograms.has(normalizedIdMatch) ? normalizedIdMatch : "") ||
-      (nameMatch && idsWithPrograms.has(nameMatch) ? nameMatch : "")
-    : exactProgramId || normalizedIdMatch || nameMatch || "";
+  const sourceId =
+    exactProgramId ||
+    (normalizedIdMatch && idsWithPrograms.has(normalizedIdMatch) ? normalizedIdMatch : "") ||
+    (nameMatch && idsWithPrograms.has(nameMatch) ? nameMatch : "");
 
   const logoId =
     (logos[tvgId] ? tvgId : "") ||

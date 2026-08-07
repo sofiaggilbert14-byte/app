@@ -270,6 +270,23 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     });
   }, [persistRecent]);
 
+  // Drop orphan favorite/recent IDs after the playlist is loaded (playlist swap / stale KV).
+  useEffect(() => {
+    if (loading || channelByIdMap.size === 0) return;
+    setRecentIds((prev) => {
+      const next = prev.filter((id) => channelByIdMap.has(id));
+      if (next.length === prev.length) return prev;
+      persistRecent(next);
+      return next;
+    });
+    setFavorites((prev) => {
+      const next = prev.filter((id) => channelByIdMap.has(id));
+      if (next.length === prev.length) return prev;
+      persistFavorites(next);
+      return next;
+    });
+  }, [channelByIdMap, loading, persistFavorites, persistRecent]);
+
   const hasReminder = useCallback((key: string) => remindersSet.has(key), [remindersSet]);
 
   const addReminder = useCallback(async (program: Program, channel: Channel) => {

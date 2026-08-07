@@ -30,7 +30,7 @@ const ACCENT_SOFT = "#F5F3FF";
 const REMINDER_BELL = "#FACC15";
 const MINUTE_MS = 60_000;
 const GUIDE_ESCAPE_GUARD_MS = 220;
-const RAPID_VERTICAL_MS = 650;
+const RAPID_VERTICAL_MS = 520;
 const PAN_BUCKET_PX = 360;
 const HORIZONTAL_PAN_MS = 110;
 
@@ -126,10 +126,17 @@ type ProgramCellProps = {
   onChannelLongPress?: (channel: Channel) => void;
 };
 
-function programNearViewport(prepared: PreparedProgram, panBucket: number, viewportW: number) {
+function programNearViewport(
+  prepared: PreparedProgram,
+  panBucket: number,
+  viewportW: number,
+  expand = 1,
+) {
   // Keep runway around the current pan bucket so Left/Right still finds neighbors,
   // without leaving the entire multi-hour timeline focusable (that lags TV focus search).
-  const pad = Math.max(PAN_BUCKET_PX, viewportW > 0 ? viewportW : 280);
+  // During vertical surf we expand the pad instead of making every cell focusable.
+  const base = Math.max(PAN_BUCKET_PX, viewportW > 0 ? viewportW : 280);
+  const pad = base * Math.max(1, expand);
   const left = Math.max(0, panBucket - pad);
   const right = panBucket + Math.max(viewportW, 280) + pad;
   return prepared.left < right && prepared.left + prepared.width > left;
@@ -342,7 +349,12 @@ const TimelineRow = memo(function TimelineRow({
           ]}
         >
           {row.programs.map((prepared, programIndex) => {
-            const near = programNearViewport(prepared, panBucket, programViewportW);
+            const near = programNearViewport(
+              prepared,
+              panBucket,
+              programViewportW,
+              disableProgramCull ? 2.25 : 1,
+            );
             const isPreferred = prepared.key === preferred?.key;
             const keepFocused = focusedProgramKey === prepared.key;
             return (
@@ -354,7 +366,7 @@ const TimelineRow = memo(function TimelineRow({
                 isPreferred={isPreferred}
                 preferInitialFocus={false}
                 hasReminder={!!reminderKeys?.has(reminderKey(item.id, prepared.program.start))}
-                tvFocusable={disableProgramCull || near || keepFocused}
+                tvFocusable={near || keepFocused}
                 lockFocusDown={lockFocusDown}
                 capturePreferred={capturePreferred}
                 onFocusNode={onFocusNode}

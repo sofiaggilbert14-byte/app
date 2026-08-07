@@ -245,7 +245,7 @@ function VlcStream({ uri: rawUri, onStatus: setStatus, style, engine, mode = "fu
   );
 }
 
-function ExpoStream({ uri: rawUri, onStatus: setStatus, style, engine }: EngineProps) {
+function ExpoStream({ uri: rawUri, onStatus: setStatus, style, engine, mode = "full" }: EngineProps) {
   const mountedRef = useRef(true);
   const { uri, headers } = useMemo(() => parsePipeHeaders(rawUri), [rawUri]);
   const kind = useMemo(() => detectStreamKind(uri), [uri]);
@@ -254,6 +254,17 @@ function ExpoStream({ uri: rawUri, onStatus: setStatus, style, engine }: EngineP
     p.loop = false;
   });
 
+  useEffect(() => {
+    // Bound Media3 RAM: preview surfing uses a smaller forward buffer than fullscreen.
+    try {
+      player.bufferOptions =
+        mode === "preview"
+          ? { preferredForwardBufferDuration: 0.6, maxBufferBytes: 6 * 1024 * 1024 }
+          : { preferredForwardBufferDuration: 2, maxBufferBytes: 48 * 1024 * 1024 };
+    } catch {
+      /* older native builds may ignore bufferOptions */
+    }
+  }, [mode, player]);
   const hardStop = useCallback(() => {
     mountedRef.current = false;
     try {
