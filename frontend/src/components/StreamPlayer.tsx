@@ -4,6 +4,7 @@ import { VideoView, useVideoPlayer } from "expo-video";
 import { usePathname } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
 import { addTvKeyListener } from "@/src/utils/tvRemote";
+import { forceStopAllStreams, registerStreamStop } from "@/src/utils/streamLifecycle";
 import { usePlayerEnginePreference } from "@/src/playerEnginePreference";
 
 export type StreamStatus = "loading" | "playing" | "error";
@@ -181,6 +182,8 @@ function useCircuitCooldown(engine: Engine, uri: string, setStatus: (s: StreamSt
 
 function VlcStream({ uri: rawUri, onStatus: setStatus, style, engine }: EngineProps) {
   const activeRef = useRef(true);
+  const playerRef = useRef<any>(null);
+  const [paused, setPaused] = useState(false);
   const { uri, headers } = useMemo(() => parsePipeHeaders(rawUri), [rawUri]);
   const { blocked, setBlocked } = useCircuitCooldown(engine, uri, setStatus);
   const referer = headers.Referer || headers.referer;
@@ -202,12 +205,30 @@ function VlcStream({ uri: rawUri, onStatus: setStatus, style, engine }: EnginePr
     return options;
   }, [origin, referer, userAgent]);
 
+  const hardStop = useCallback(() => {
+    activeRef.current = false;
+    setPaused(true);
+    try {
+      playerRef.current?.stopPlayer?.();
+    } catch {
+      /* native teardown best-effort */
+    }
+    try {
+      playerRef.current?.setNativeProps?.({ paused: true });
+    } catch {
+      /* optional */
+    }
+  }, []);
+
   useEffect(() => {
     activeRef.current = true;
+    setPaused(false);
+    const unregister = registerStreamStop(hardStop);
     return () => {
-      activeRef.current = false;
+      unregister();
+      hardStop();
     };
-  }, []);
+  }, [hardStop, uri]);
 
   const fail = useCallback(() => {
     if (!activeRef.current) return;
@@ -224,16 +245,18 @@ function VlcStream({ uri: rawUri, onStatus: setStatus, style, engine }: EnginePr
 
   return (
     <VLCPlayer
+      ref={playerRef}
       style={style}
       source={{ uri, initType: 2, initOptions }}
-      autoplay
+      paused={paused}
+      autoplay={!paused}
       autoAspectRatio
       resizeMode="contain"
       acceptInvalidCertificates
-      onOpen={() => activeRef.current && setStatus("loading")}
-      onBuffering={() => activeRef.current && setStatus("loading")}
+      onOpen={() => activeRef.current && !paused && setStatus("loading")}
+      onBuffering={() => activeRef.current && !paused && setStatus("loading")}
       onPlaying={() => {
-        if (!activeRef.current) return;
+        if (!activeRef.current || paused) return;
         recordStablePlayback(engine, uri);
         setStatus("playing");
       }}
@@ -253,24 +276,33 @@ function ExpoStream({ uri: rawUri, onStatus: setStatus, style, engine }: EngineP
     p.loop = false;
   });
 
+  const hardStop = useCallback(() => {
+    mountedRef.current = false;
+    try {
+      player.pause();
+    } catch {}
+    try {
+      (player as any).muted = true;
+    } catch {}
+    try {
+      void player.replaceAsync(null as any);
+    } catch {}
+  }, [player]);
+
   useEffect(() => {
     mountedRef.current = true;
+    const unregister = registerStreamStop(hardStop);
     return () => {
-      mountedRef.current = false;
-      try {
-        player.pause();
-      } catch {}
-      // Drop the media item so weak TVs release decoder resources after guide previews.
-      try {
-        void player.replaceAsync(null as any);
-      } catch {}
+      unregister();
+      hardStop();
     };
-  }, [player]);
+  }, [hardStop]);
 
   useEffect(() => {
     if (!uri || blocked) return;
 
     let cancelled = false;
+    mountedRef.current = true;
     setStatus("loading");
     (async () => {
       try {
@@ -379,16 +411,25 @@ export function StreamPlayer({ uri, onStatus, style }: Props) {
       lastDirectionalAt.current = now;
 
       if (settleTimer.current) clearTimeout(settleTimer.current);
-      if (rapid) setGuideScanSettled(false);
+      if (rapid) {
+        // Tear down decoder immediately — unmount alone can leave VLC audio alive on Fire TV.
+        forceStopAllStreams();
+        setGuideScanSettled(false);
+      }
       settleTimer.current = setTimeout(() => {
         setGuideScanSettled(true);
       }, PREVIEW_RESUME_SETTLE_MS);
     });
   }, [isFocused, isGuidePreview, pauseOnRapidScan]);
 
+  useEffect(() => {
+    if (!isFocused) forceStopAllStreams();
+  }, [isFocused]);
+
   useEffect(
     () => () => {
       if (settleTimer.current) clearTimeout(settleTimer.current);
+      forceStopAllStreams();
     },
     [],
   );

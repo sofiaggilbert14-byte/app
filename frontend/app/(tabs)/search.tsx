@@ -19,6 +19,7 @@ export default function SearchScreen() {
   const router = useRouter();
   const { channels, addRecent, openProgram, channelLogos } = useStore();
   const [query, setQuery] = useState("");
+  const [cursor, setCursor] = useState(0);
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [preferKeyFocus, setPreferKeyFocus] = useState(true);
   const isTV = Platform.OS !== "web" && Platform.isTV;
@@ -33,6 +34,11 @@ export default function SearchScreen() {
     const timer = setTimeout(() => setPreferKeyFocus(false), 700);
     return () => clearTimeout(timer);
   }, [preferKeyFocus]);
+
+  // Keep cursor in range if query is replaced (suggestions / clear).
+  useEffect(() => {
+    setCursor((value) => Math.max(0, Math.min(value, query.length)));
+  }, [query]);
 
   const results = useMemo(() => {
     const q = debouncedQuery.trim().toLowerCase();
@@ -63,9 +69,34 @@ export default function SearchScreen() {
     router.push({ pathname: "/player", params: { channelId: channel.id } });
   }, [addRecent, router]);
 
-  const typeKey = useCallback((key: string) => {
-    setQuery((value) => `${value}${key}`);
+  const replaceQuery = useCallback((next: string) => {
+    setQuery(next);
+    setCursor(next.length);
   }, []);
+
+  const insertAtCursor = useCallback((chunk: string) => {
+    setQuery((value) => {
+      const at = Math.max(0, Math.min(cursor, value.length));
+      return `${value.slice(0, at)}${chunk}${value.slice(at)}`;
+    });
+    setCursor((value) => value + chunk.length);
+  }, [cursor]);
+
+  const backspaceAtCursor = useCallback(() => {
+    setQuery((value) => {
+      const at = Math.max(0, Math.min(cursor, value.length));
+      if (at <= 0) return value;
+      return `${value.slice(0, at - 1)}${value.slice(at)}`;
+    });
+    setCursor((value) => Math.max(0, value - 1));
+  }, [cursor]);
+
+  const moveCursor = useCallback((delta: -1 | 1) => {
+    setCursor((value) => Math.max(0, Math.min(query.length, value + delta)));
+  }, [query.length]);
+
+  const before = query.slice(0, cursor);
+  const after = query.slice(cursor);
 
   return (
     <PurpleTvShell active="/search">
@@ -79,21 +110,40 @@ export default function SearchScreen() {
           <View style={styles.keyboardPanel}>
             <View style={styles.searchBox}>
               <Ionicons name="search" size={15} color={tvColors.textMuted} />
-              <TextInput
-                value={query}
-                onChangeText={setQuery}
-                placeholder="Search…"
-                placeholderTextColor={tvColors.textMuted}
-                style={styles.input}
-                autoCorrect={false}
-                // On TV, keep focus on the custom keyboard so the IME doesn't steal D-pad.
-                showSoftInputOnFocus={!isTV}
-                editable={!isTV}
-                focusable={!isTV}
-                testID="search-input"
-              />
+              {isTV ? (
+                <View style={styles.caretField} testID="search-input">
+                  {!query ? (
+                    <Text style={styles.placeholder}>Search…</Text>
+                  ) : (
+                    <Text numberOfLines={1} style={styles.caretText}>
+                      <Text style={styles.caretText}>{before}</Text>
+                      <Text style={styles.caret}>|</Text>
+                      <Text style={styles.caretText}>{after}</Text>
+                    </Text>
+                  )}
+                </View>
+              ) : (
+                <TextInput
+                  value={query}
+                  onChangeText={(value) => {
+                    setQuery(value);
+                    setCursor(value.length);
+                  }}
+                  onSelectionChange={(event) => {
+                    setCursor(event.nativeEvent.selection.start);
+                  }}
+                  placeholder="Search…"
+                  placeholderTextColor={tvColors.textMuted}
+                  style={styles.input}
+                  autoCorrect={false}
+                  showSoftInputOnFocus
+                  editable
+                  focusable
+                  testID="search-input"
+                />
+              )}
               {query ? (
-                <Pressable onPress={() => setQuery("")} hitSlop={8}>
+                <Pressable onPress={() => replaceQuery("")} hitSlop={8}>
                   <Ionicons name="close-circle" size={15} color={tvColors.textMuted} />
                 </Pressable>
               ) : null}
@@ -104,25 +154,43 @@ export default function SearchScreen() {
                 <Pressable
                   key={key}
                   hasTVPreferredFocus={preferKeyFocus && index === 0}
-                  onPress={() => typeKey(key)}
+                  onPress={() => insertAtCursor(key)}
                   style={({ focused }: any) => [styles.key, focused && styles.focused]}
                 >
                   <Text style={styles.keyText}>{key}</Text>
                 </Pressable>
               ))}
               {DIGITS.map((key) => (
-                <Pressable key={key} onPress={() => typeKey(key)} style={({ focused }: any) => [styles.key, focused && styles.focused]}>
+                <Pressable key={key} onPress={() => insertAtCursor(key)} style={({ focused }: any) => [styles.key, focused && styles.focused]}>
                   <Text style={styles.keyText}>{key}</Text>
                 </Pressable>
               ))}
-              <Pressable onPress={() => setQuery((value) => value.slice(0, -1))} style={({ focused }: any) => [styles.key, styles.wideKey, focused && styles.focused]}>
+              <Pressable
+                onPress={() => moveCursor(-1)}
+                style={({ focused }: any) => [styles.key, styles.navKey, focused && styles.focused]}
+                testID="search-cursor-left"
+              >
+                <Ionicons name="arrow-back" size={14} color="#fff" />
+              </Pressable>
+              <Pressable
+                onPress={() => moveCursor(1)}
+                style={({ focused }: any) => [styles.key, styles.navKey, focused && styles.focused]}
+                testID="search-cursor-right"
+              >
+                <Ionicons name="arrow-forward" size={14} color="#fff" />
+              </Pressable>
+              <Pressable
+                onPress={backspaceAtCursor}
+                style={({ focused }: any) => [styles.key, styles.wideKey, focused && styles.focused]}
+                testID="search-backspace"
+              >
                 <Ionicons name="backspace-outline" size={14} color="#fff" />
               </Pressable>
-              <Pressable onPress={() => setQuery((value) => `${value} `)} style={({ focused }: any) => [styles.key, styles.spaceKey, focused && styles.focused]}>
+              <Pressable onPress={() => insertAtCursor(" ")} style={({ focused }: any) => [styles.key, styles.spaceKey, focused && styles.focused]}>
                 <Text style={styles.keyText}>Space</Text>
               </Pressable>
               <Pressable
-                onPress={() => setQuery((value) => value.trim())}
+                onPress={() => replaceQuery(query.trim())}
                 style={({ focused }: any) => [styles.key, styles.searchKey, focused && styles.focused]}
               >
                 <Ionicons name="search" size={15} color="#fff" />
@@ -135,7 +203,7 @@ export default function SearchScreen() {
               <>
                 <Text style={styles.resultsTitle}>Suggested</Text>
                 {SUGGESTIONS.map((item) => (
-                  <Pressable key={item} onPress={() => setQuery(item)} style={({ focused }: any) => [styles.suggestion, focused && styles.focused]}>
+                  <Pressable key={item} onPress={() => replaceQuery(item)} style={({ focused }: any) => [styles.suggestion, focused && styles.focused]}>
                     <Text style={styles.suggestionText}>{item}</Text>
                   </Pressable>
                 ))}
@@ -184,8 +252,13 @@ const styles = StyleSheet.create({
   keyboardPanel: { flex: 1.15, maxWidth: 520 },
   searchBox: { height: 42, flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderColor: tvColors.lineStrong, borderRadius: radius.sm, paddingHorizontal: 10, backgroundColor: tvColors.panel },
   input: { flex: 1, color: "#fff", fontFamily: fonts.regular, fontSize: 11, padding: 0 },
+  caretField: { flex: 1, minWidth: 0, justifyContent: "center" },
+  caretText: { color: "#fff", fontFamily: fonts.regular, fontSize: 11 },
+  caret: { color: tvColors.purpleBright, fontFamily: fonts.bold, fontSize: 12 },
+  placeholder: { color: tvColors.textMuted, fontFamily: fonts.regular, fontSize: 11 },
   keys: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 10 },
   key: { width: 42, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 5, borderWidth: 2, borderColor: "transparent", backgroundColor: tvColors.panelRaised },
+  navKey: { backgroundColor: "rgba(124,58,237,0.35)" },
   wideKey: { width: 58 },
   spaceKey: { width: 110 },
   searchKey: { backgroundColor: tvColors.purple, width: 52 },
