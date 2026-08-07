@@ -8,6 +8,7 @@ import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { Channel, Program } from "@/src/api";
 import { useStore } from "@/src/store";
 import { fonts, radius, tvColors } from "@/src/theme";
+import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 
 const KEYS = ["Q","W","E","R","T","Y","U","I","O","P","A","S","D","F","G","H","J","K","L","Z","X","C","V","B","N","M"];
 const DIGITS = ["1","2","3","4","5","6","7","8","9","0"];
@@ -64,7 +65,7 @@ export default function SearchScreen() {
   const play = useCallback((channel: Channel) => {
     void Haptics.selectionAsync().catch(() => undefined);
     addRecent(channel);
-    router.push({ pathname: "/player", params: { channelId: channel.id } });
+    openFullscreenPlayer(router, channel.id);
   }, [addRecent, router]);
 
   const replaceQuery = useCallback((next: string) => {

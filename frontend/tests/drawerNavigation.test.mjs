@@ -40,7 +40,7 @@ test("guide tabs reclaim the left edge and top-row Up restores the active tab", 
   assert.match(guide, /onUpBoundary=\{onGuideUpBoundary\}/);
   assert.match(guide, /onLeftBoundary=\{onGuideLeftBoundary\}/);
   assert.match(guide, /openDrawer\(\)/);
-  assert.match(guide, /forceStopAllStreams\(\)/);
+  assert.match(guide, /openFullscreenPlayer/);
   assert.match(guide, /drawerWasOpenForFocusRef/);
   assert.match(guide, /requestNativeFocusWithRetry\(lastGuideFocusNodeRef\.current, \[80, 180, 300\]\)/);
 });

@@ -8,6 +8,7 @@ import { colors, fonts, radius, spacing } from "@/src/theme";
 import { useStore } from "@/src/store";
 import { reminderKey } from "@/src/utils/time";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
+import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 
 export function ProgramModal() {
   const { activeProgram, closeProgram, addReminder, removeReminder, reminders } = useStore();
@@ -55,7 +56,7 @@ export function ProgramModal() {
   const watch = () => {
     void Haptics.selectionAsync().catch(() => {});
     closeProgram();
-    router.push({ pathname: "/player", params: { channelId: channel.id } });
+    openFullscreenPlayer(router, channel.id);
   };
 
   const onReminder = () => {

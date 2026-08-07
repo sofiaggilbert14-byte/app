@@ -26,7 +26,7 @@ import { useStore } from "@/src/store";
 import { fonts, radius, spacing, tvColors } from "@/src/theme";
 import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
 import { requestNativeFocus, requestNativeFocusWithRetry } from "@/src/utils/tvFocus";
-import { forceStopAllStreams } from "@/src/utils/streamLifecycle";
+import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 import { MODAL_FOCUS_RETRY_DELAYS_MS } from "@/src/core/guideRegressionPolicy";
 
 const BASE_GROUPS = ["All", "Favorites", "Recently Watched", "Sports", "News", "Movies", "Kids", "Music"];
@@ -321,9 +321,8 @@ export default function PurpleGuideScreen() {
       if (metadataTimer.current) clearTimeout(metadataTimer.current);
       if (previewTimer.current) clearTimeout(previewTimer.current);
       setPreviewId(null);
-      forceStopAllStreams();
       addRecent(channel);
-      router.push({ pathname: "/player", params: { channelId: channel.id } });
+      openFullscreenPlayer(router, channel.id);
     },
     [addRecent, router],
   );
@@ -534,6 +533,7 @@ export default function PurpleGuideScreen() {
                       uri={previewChannel.url}
                       onStatus={setPreviewStatus}
                       mode="preview"
+                      sessionRole="preview"
                       style={StyleSheet.absoluteFill}
                     />
                   </ErrorBoundary>

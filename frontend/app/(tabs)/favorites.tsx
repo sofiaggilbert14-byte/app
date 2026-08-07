@@ -9,6 +9,7 @@ import { Channel } from "@/src/api";
 import { useStore } from "@/src/store";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
+import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 
 function byName(a: Channel, b: Channel) {
   return (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" });
@@ -68,7 +69,7 @@ export default function FavoritesScreen() {
   const play = useCallback((channel: Channel) => {
     void Haptics.selectionAsync().catch(() => undefined);
     addRecent(channel);
-    router.push({ pathname: "/player", params: { channelId: channel.id } });
+    openFullscreenPlayer(router, channel.id);
   }, [addRecent, router]);
 
   const remove = useCallback((id: string) => {

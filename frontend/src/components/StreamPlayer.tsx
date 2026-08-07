@@ -4,14 +4,23 @@ import { VideoView, useVideoPlayer } from "expo-video";
 import { usePathname } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
 import { addTvKeyListener } from "@/src/utils/tvRemote";
-import { forceStopAllStreams, registerStreamStop } from "@/src/utils/streamLifecycle";
 import { usePlayerEnginePreference } from "@/src/playerEnginePreference";
 import {
+  alternateEngine,
   detectStreamKind,
   parsePipeHeaders,
   preferredEngine,
   type Engine,
 } from "@/src/core/streamPolicy";
+import {
+  beginSession,
+  isSessionCurrent,
+  pauseSessionDecoders,
+  registerSessionStop,
+  setSessionPhase,
+  type SessionFailReason,
+  type SessionRole,
+} from "@/src/core/playbackSession";
 import {
   DECODER_RESUME_SETTLE_MS,
   isRapidDirectionalScan,
@@ -20,7 +29,6 @@ import {
 
 export type StreamStatus = "loading" | "playing" | "error";
 
-const USER_AGENT = "VLC/3.0.20 LibVLC/3.0.20";
 const FAILURE_WINDOW_MS = 60_000;
 const MAX_FAILURES_PER_WINDOW = 5;
 const CIRCUIT_COOLDOWN_MS = 60_000;
@@ -88,18 +96,21 @@ function recordStablePlayback(engine: Engine, uri: string): void {
   failureStateByKey.set(key, state);
 }
 
-function useStatusTracker(onStatus: (status: StreamStatus) => void, resetKey: string) {
+function useStatusTracker(
+  onStatus: (status: StreamStatus, reason?: SessionFailReason | null) => void,
+  resetKey: string,
+) {
   const lastRef = useRef<StreamStatus | null>(null);
 
   useEffect(() => {
     lastRef.current = null;
   }, [resetKey]);
 
-  return useCallback((status: StreamStatus) => {
-    if (lastRef.current === status) return;
+  return useCallback((status: StreamStatus, reason?: SessionFailReason | null) => {
+    if (lastRef.current === status && reason === undefined) return;
     lastRef.current = status;
     try {
-      onStatus(status);
+      onStatus(status, reason);
     } catch (error) {
       console.warn("CharmIPTV stream status listener failed", error);
     }
@@ -115,15 +126,21 @@ const VLCPlayer: any = vlcAvailable
 
 type Props = {
   uri: string;
-  onStatus: (s: StreamStatus) => void;
+  onStatus: (s: StreamStatus, reason?: SessionFailReason | null) => void;
   style?: StyleProp<ViewStyle>;
   /** Guide live preview uses lighter VLC buffers than fullscreen playback. */
   mode?: "preview" | "full";
+  /** Explicit session owner. Defaults from mode. */
+  sessionRole?: SessionRole;
 };
 
-type EngineProps = Props & { engine: Engine };
+type EngineProps = Props & {
+  engine: Engine;
+  sessionRole: SessionRole;
+  sessionGeneration: number;
+};
 
-function useCircuitCooldown(engine: Engine, uri: string, setStatus: (s: StreamStatus) => void) {
+function useCircuitCooldown(engine: Engine, uri: string, setStatus: (s: StreamStatus, reason?: SessionFailReason | null) => void) {
   const [blocked, setBlocked] = useState(() => isCircuitOpen(engine, uri));
 
   useEffect(() => {
@@ -139,14 +156,14 @@ function useCircuitCooldown(engine: Engine, uri: string, setStatus: (s: StreamSt
 
     if (remaining <= 0) {
       setBlocked(false);
-      setStatus("error");
+      setStatus("error", "circuit-open");
       return;
     }
 
-    setStatus("loading");
+    setStatus("loading", "circuit-open");
     const timer = setTimeout(() => {
       setBlocked(false);
-      setStatus("error");
+      setStatus("error", "circuit-open");
     }, remaining + 25);
     return () => clearTimeout(timer);
   }, [blocked, engine, setStatus, uri]);
@@ -154,7 +171,15 @@ function useCircuitCooldown(engine: Engine, uri: string, setStatus: (s: StreamSt
   return { blocked, setBlocked };
 }
 
-function VlcStream({ uri: rawUri, onStatus: setStatus, style, engine, mode = "full" }: EngineProps) {
+function VlcStream({
+  uri: rawUri,
+  onStatus: setStatus,
+  style,
+  engine,
+  mode = "full",
+  sessionRole,
+  sessionGeneration,
+}: EngineProps) {
   const activeRef = useRef(true);
   const playerRef = useRef<any>(null);
   const [paused, setPaused] = useState(false);
@@ -162,9 +187,8 @@ function VlcStream({ uri: rawUri, onStatus: setStatus, style, engine, mode = "fu
   const { blocked, setBlocked } = useCircuitCooldown(engine, uri, setStatus);
   const referer = headers.Referer || headers.referer;
   const origin = headers.Origin || headers.origin;
-  const userAgent = headers["User-Agent"] || headers["user-agent"] || USER_AGENT;
+  const userAgent = headers["User-Agent"] || headers["user-agent"] || "VLC/3.0.20 LibVLC/3.0.20";
   const initOptions = useMemo(() => {
-    // Preview surfing on weak TVs: smaller buffers = faster teardown / less RAM.
     const networkCaching = mode === "preview" ? 600 : 1400;
     const liveCaching = mode === "preview" ? 600 : 1400;
     const fileCaching = mode === "preview" ? 500 : 900;
@@ -182,6 +206,14 @@ function VlcStream({ uri: rawUri, onStatus: setStatus, style, engine, mode = "fu
     if (origin) options.push(`--http-origin=${origin}`);
     return options;
   }, [mode, origin, referer, userAgent]);
+
+  const emit = useCallback(
+    (status: StreamStatus, reason?: SessionFailReason | null) => {
+      if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
+      setStatus(status, reason);
+    },
+    [sessionGeneration, sessionRole, setStatus],
+  );
 
   const hardStop = useCallback(() => {
     activeRef.current = false;
@@ -201,23 +233,24 @@ function VlcStream({ uri: rawUri, onStatus: setStatus, style, engine, mode = "fu
   useEffect(() => {
     activeRef.current = true;
     setPaused(false);
-    const unregister = registerStreamStop(hardStop);
+    const unregister = registerSessionStop(sessionRole, sessionGeneration, hardStop);
     return () => {
       unregister();
       hardStop();
     };
-  }, [hardStop, uri]);
+  }, [hardStop, sessionGeneration, sessionRole, uri]);
 
   const fail = useCallback(() => {
     if (!activeRef.current) return;
+    if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
     recordFailure(engine, uri);
     if (isCircuitOpen(engine, uri)) {
       setBlocked(true);
-      setStatus("loading");
+      emit("loading", "circuit-open");
     } else {
-      setStatus("error");
+      emit("error", "stream-error");
     }
-  }, [engine, setBlocked, setStatus, uri]);
+  }, [emit, engine, sessionGeneration, sessionRole, setBlocked, uri]);
 
   if (blocked || !VLCPlayer) return null;
 
@@ -231,21 +264,28 @@ function VlcStream({ uri: rawUri, onStatus: setStatus, style, engine, mode = "fu
       autoAspectRatio
       resizeMode="contain"
       acceptInvalidCertificates
-      onOpen={() => activeRef.current && !paused && setStatus("loading")}
-      onBuffering={() => activeRef.current && !paused && setStatus("loading")}
+      onOpen={() => activeRef.current && !paused && emit("loading")}
+      onBuffering={() => activeRef.current && !paused && emit("loading")}
       onPlaying={() => {
         if (!activeRef.current || paused) return;
+        if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
         recordStablePlayback(engine, uri);
-        setStatus("playing");
+        emit("playing");
       }}
       onError={fail}
-      // Do not treat intentional stop/teardown (channel zap, unmount) as a stream failure.
-      // Counting onStopped here poisoned the circuit breaker on healthy channels.
     />
   );
 }
 
-function ExpoStream({ uri: rawUri, onStatus: setStatus, style, engine, mode = "full" }: EngineProps) {
+function ExpoStream({
+  uri: rawUri,
+  onStatus: setStatus,
+  style,
+  engine,
+  mode = "full",
+  sessionRole,
+  sessionGeneration,
+}: EngineProps) {
   const mountedRef = useRef(true);
   const { uri, headers } = useMemo(() => parsePipeHeaders(rawUri), [rawUri]);
   const kind = useMemo(() => detectStreamKind(uri), [uri]);
@@ -254,8 +294,15 @@ function ExpoStream({ uri: rawUri, onStatus: setStatus, style, engine, mode = "f
     p.loop = false;
   });
 
+  const emit = useCallback(
+    (status: StreamStatus, reason?: SessionFailReason | null) => {
+      if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
+      setStatus(status, reason);
+    },
+    [sessionGeneration, sessionRole, setStatus],
+  );
+
   useEffect(() => {
-    // Bound Media3 RAM: preview surfing uses a smaller forward buffer than fullscreen.
     try {
       player.bufferOptions =
         mode === "preview"
@@ -265,6 +312,7 @@ function ExpoStream({ uri: rawUri, onStatus: setStatus, style, engine, mode = "f
       /* older native builds may ignore bufferOptions */
     }
   }, [mode, player]);
+
   const hardStop = useCallback(() => {
     mountedRef.current = false;
     try {
@@ -280,32 +328,35 @@ function ExpoStream({ uri: rawUri, onStatus: setStatus, style, engine, mode = "f
 
   useEffect(() => {
     mountedRef.current = true;
-    const unregister = registerStreamStop(hardStop);
+    const unregister = registerSessionStop(sessionRole, sessionGeneration, hardStop);
     return () => {
       unregister();
       hardStop();
     };
-  }, [hardStop]);
+  }, [hardStop, sessionGeneration, sessionRole]);
 
   useEffect(() => {
     if (!uri || blocked) return;
+    if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
 
     let cancelled = false;
     mountedRef.current = true;
-    setStatus("loading");
+    emit("loading");
     (async () => {
       try {
         const contentType = kind === "hls" ? "hls" : kind === "dash" ? "dash" : "progressive";
         await player.replaceAsync({ uri, headers, contentType });
-        if (!cancelled && mountedRef.current) player.play();
+        if (!cancelled && mountedRef.current && isSessionCurrent(sessionRole, sessionGeneration)) {
+          player.play();
+        }
       } catch {
-        if (!cancelled && mountedRef.current) {
+        if (!cancelled && mountedRef.current && isSessionCurrent(sessionRole, sessionGeneration)) {
           recordFailure(engine, uri);
           if (isCircuitOpen(engine, uri)) {
             setBlocked(true);
-            setStatus("loading");
+            emit("loading", "circuit-open");
           } else {
-            setStatus("error");
+            emit("error", "stream-error");
           }
         }
       }
@@ -320,28 +371,29 @@ function ExpoStream({ uri: rawUri, onStatus: setStatus, style, engine, mode = "f
         void player.replaceAsync(null as any);
       } catch {}
     };
-  }, [blocked, engine, headers, kind, player, setBlocked, setStatus, uri]);
+  }, [blocked, emit, engine, headers, kind, player, sessionGeneration, sessionRole, setBlocked, uri]);
 
   useEffect(() => {
     const sub = player.addListener("statusChange", ({ status, error }) => {
       if (!mountedRef.current || blocked) return;
+      if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
       if (status === "readyToPlay") {
         recordStablePlayback(engine, uri);
-        setStatus("playing");
+        emit("playing");
       } else if (status === "loading") {
-        setStatus("loading");
+        emit("loading");
       } else if (error || status === "error") {
         recordFailure(engine, uri);
         if (isCircuitOpen(engine, uri)) {
           setBlocked(true);
-          setStatus("loading");
+          emit("loading", "circuit-open");
         } else {
-          setStatus("error");
+          emit("error", "stream-error");
         }
       }
     });
     return () => sub.remove();
-  }, [blocked, engine, player, setBlocked, setStatus, uri]);
+  }, [blocked, emit, engine, player, sessionGeneration, sessionRole, setBlocked, uri]);
 
   if (blocked) return null;
 
@@ -356,22 +408,21 @@ function ExpoStream({ uri: rawUri, onStatus: setStatus, style, engine, mode = "f
   );
 }
 
-export function StreamPlayer({ uri, onStatus, style, mode }: Props) {
+export function StreamPlayer({ uri, onStatus, style, mode, sessionRole }: Props) {
   const isFocused = useIsFocused();
   const pathname = usePathname();
-  // Purple TV keeps the live preview on its dedicated /guide route rather
-  // than the root dashboard used by perf/opt-fix.
   const isGuidePreview = pathname === "/guide";
   const playbackMode = mode ?? (isGuidePreview ? "preview" : "full");
-  // Player strip surfing also benefits from pausing decoder work while holding D-pad.
-  const pauseOnRapidScan = isGuidePreview || pathname === "/player";
+  const role: SessionRole = sessionRole ?? (playbackMode === "preview" ? "preview" : "fullscreen");
+  const pauseOnRapidScan = role === "preview" || pathname === "/player";
   const [playerEnginePreference] = usePlayerEnginePreference();
-  const forceVlc = playerEnginePreference === "vlc" && vlcAvailable && !isGuidePreview;
+  const forceVlc = playerEnginePreference === "vlc" && vlcAvailable && role !== "preview";
   const [guideScanSettled, setGuideScanSettled] = useState(true);
   const lastDirectionalAt = useRef(0);
   const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [sessionGeneration, setSessionGeneration] = useState(0);
 
-  const setStatus = useStatusTracker(onStatus, uri);
+  const setStatus = useStatusTracker(onStatus, `${role}:${uri}`);
   const cleanUri = useMemo(() => parsePipeHeaders(uri).uri, [uri]);
   const kind = useMemo(() => detectStreamKind(cleanUri), [cleanUri]);
   const initialEngine = useMemo(() => {
@@ -390,7 +441,6 @@ export function StreamPlayer({ uri, onStatus, style, mode }: Props) {
     }
 
     return addTvKeyListener((key) => {
-      // Guide: all directions compete with list recycling. Player: only strip L/R zaps.
       if (!routeAcceptsRapidScanKey(pathname, key)) return;
       const now = Date.now();
       const rapid = isRapidDirectionalScan(lastDirectionalAt.current, now);
@@ -398,20 +448,17 @@ export function StreamPlayer({ uri, onStatus, style, mode }: Props) {
 
       if (settleTimer.current) clearTimeout(settleTimer.current);
       if (rapid) {
-        // Tear down decoder immediately — unmount alone can leave VLC audio alive on Fire TV.
-        forceStopAllStreams();
+        // Pause only this role — never tear down the sibling session.
+        pauseSessionDecoders(role);
         setGuideScanSettled(false);
       }
       settleTimer.current = setTimeout(() => {
         setGuideScanSettled(true);
       }, DECODER_RESUME_SETTLE_MS);
     });
-  }, [isFocused, isGuidePreview, pathname, pauseOnRapidScan]);
+  }, [isFocused, pathname, pauseOnRapidScan, role]);
 
   useEffect(() => {
-    // Blur unmounts the engine child (see render gate below); that child's cleanup
-    // hardStops itself. Do not forceStopAllStreams here — it can kill a newly
-    // mounted fullscreen player while the guide preview is blurring away.
     if (!isFocused && settleTimer.current) {
       clearTimeout(settleTimer.current);
       settleTimer.current = null;
@@ -421,61 +468,98 @@ export function StreamPlayer({ uri, onStatus, style, mode }: Props) {
   useEffect(
     () => () => {
       if (settleTimer.current) clearTimeout(settleTimer.current);
-      // Child VlcStream/ExpoStream unregister + hardStop on their own unmount.
-      // Global forceStop is reserved for explicit zap / play() teardown.
     },
     [],
   );
 
   useEffect(() => {
+    // New URI / engine preference → new generation for this role only.
+    const generation = beginSession(role);
+    setSessionGeneration(generation);
+    setSessionPhase(role, generation, "preparing");
     stableRef.current = false;
     setFallbackUsed(false);
     setEngine(initialEngine);
     setStatus("loading");
-  }, [initialEngine, setStatus, uri]);
+  }, [initialEngine, role, setStatus, uri]);
 
   useEffect(() => {
-    if (stableRef.current || !isFocused || !guideScanSettled) return;
+    if (stableRef.current || !isFocused || !guideScanSettled || !sessionGeneration) return;
     const timer = setTimeout(() => {
       if (stableRef.current || fallbackUsed) return;
-      const alternate: Engine = engine === "vlc" ? "media3" : "vlc";
-      if (alternate === "vlc" && !vlcAvailable) {
-        setStatus("error");
+      if (!isSessionCurrent(role, sessionGeneration)) return;
+      const alternate = alternateEngine(engine, vlcAvailable);
+      if (!alternate) {
+        setSessionPhase(role, sessionGeneration, "failed", "start-timeout");
+        setStatus("error", "start-timeout");
         return;
       }
-      // Forced VLC still gets one Media3 escape hatch after start timeout.
       setFallbackUsed(true);
       setEngine(alternate);
-      setStatus("loading");
+      setSessionPhase(role, sessionGeneration, "recovering", "start-timeout");
+      setStatus("loading", "start-timeout");
     }, ENGINE_START_TIMEOUT_MS);
     return () => clearTimeout(timer);
-  }, [engine, fallbackUsed, guideScanSettled, isFocused, setStatus, uri]);
+  }, [engine, fallbackUsed, guideScanSettled, isFocused, role, sessionGeneration, setStatus, uri]);
 
-  const handleStatus = useCallback((status: StreamStatus) => {
-    if (status === "playing") {
-      stableRef.current = true;
-      setStatus("playing");
-      return;
-    }
-    if (status === "error" && !forceVlc && !fallbackUsed) {
-      const alternate: Engine = engine === "vlc" ? "media3" : "vlc";
-      if (alternate !== "vlc" || vlcAvailable) {
-        setFallbackUsed(true);
-        setEngine(alternate);
-        setStatus("loading");
+  const handleStatus = useCallback(
+    (status: StreamStatus, reason?: SessionFailReason | null) => {
+      if (!isSessionCurrent(role, sessionGeneration)) return;
+
+      if (status === "playing") {
+        stableRef.current = true;
+        setSessionPhase(role, sessionGeneration, "playing");
+        setStatus("playing");
         return;
       }
-    }
-    setStatus(status);
-  }, [engine, fallbackUsed, forceVlc, setStatus]);
+      if (status === "error" && !forceVlc && !fallbackUsed) {
+        const alternate = alternateEngine(engine, vlcAvailable);
+        if (alternate) {
+          setFallbackUsed(true);
+          setEngine(alternate);
+          setSessionPhase(role, sessionGeneration, "recovering", "engine-swap");
+          setStatus("loading", "engine-swap");
+          return;
+        }
+      }
+      if (status === "error") {
+        setSessionPhase(role, sessionGeneration, "failed", reason ?? "stream-error");
+      } else if (status === "loading" && reason) {
+        setSessionPhase(role, sessionGeneration, "recovering", reason);
+      } else if (status === "loading") {
+        setSessionPhase(role, sessionGeneration, "preparing");
+      }
+      setStatus(status, reason);
+    },
+    [engine, fallbackUsed, forceVlc, role, sessionGeneration, setStatus],
+  );
 
-  // During a held D-pad scan (guide preview or player strip) the decoder is
-  // temporarily unmounted. It comes back after the final key settles so
-  // decoder/GPU work doesn't compete with focus recycling. Hidden routes stop too.
-  if (!isFocused || !uri || (pauseOnRapidScan && !guideScanSettled)) return null;
+  if (!isFocused || !uri || (pauseOnRapidScan && !guideScanSettled) || !sessionGeneration) return null;
 
   if (engine === "vlc") {
-    return <VlcStream key={`vlc:${uri}`} uri={uri} onStatus={handleStatus} style={style} engine="vlc" mode={playbackMode} />;
+    return (
+      <VlcStream
+        key={`vlc:${uri}:${sessionGeneration}`}
+        uri={uri}
+        onStatus={handleStatus}
+        style={style}
+        engine="vlc"
+        mode={playbackMode}
+        sessionRole={role}
+        sessionGeneration={sessionGeneration}
+      />
+    );
   }
-  return <ExpoStream key={`media3:${uri}`} uri={uri} onStatus={handleStatus} style={style} engine="media3" mode={playbackMode} />;
+  return (
+    <ExpoStream
+      key={`media3:${uri}:${sessionGeneration}`}
+      uri={uri}
+      onStatus={handleStatus}
+      style={style}
+      engine="media3"
+      mode={playbackMode}
+      sessionRole={role}
+      sessionGeneration={sessionGeneration}
+    />
+  );
 }

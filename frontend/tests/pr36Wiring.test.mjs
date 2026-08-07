@@ -23,7 +23,7 @@ test("PR #36 rapid-surf and player focus protections remain present", async () =
   assert.match(player, /preferControlRef/);
   assert.match(player, /which === "next" \? nextButtonRef\.current : prevButtonRef\.current/);
   assert.match(player, /requestNativeFocus\(node\)/);
-  assert.match(player, /forceStopAllStreams/);
+  assert.match(player, /stopFullscreenSession/);
 });
 
 test("favorite storage remains ID-only and bounded", async () => {

@@ -10,6 +10,7 @@ import { useStore } from "@/src/store";
 import { Channel } from "@/src/api";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
+import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 
 function channelSort(a: Channel, b: Channel) {
   return (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" });
@@ -65,7 +66,7 @@ export default function LiveTvHomeScreen() {
     (channel: Channel) => {
       void Haptics.selectionAsync().catch(() => undefined);
       addRecent(channel);
-      router.push({ pathname: "/player", params: { channelId: channel.id } });
+      openFullscreenPlayer(router, channel.id);
     },
     [addRecent, router],
   );

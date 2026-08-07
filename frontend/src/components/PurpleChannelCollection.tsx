@@ -10,6 +10,7 @@ import { Channel } from "@/src/api";
 import { useStore } from "@/src/store";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { nowNext } from "@/src/utils/time";
+import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 
 type CollectionRoute = "/movies" | "/series";
 
@@ -76,7 +77,7 @@ export function PurpleChannelCollection({
   const play = useCallback((channel: Channel) => {
     void Haptics.selectionAsync().catch(() => undefined);
     addRecent(channel);
-    router.push({ pathname: "/player", params: { channelId: channel.id } });
+    openFullscreenPlayer(router, channel.id);
   }, [addRecent, router]);
 
   return (

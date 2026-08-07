@@ -78,9 +78,10 @@ test("timeline uses the approved two-line rail and shared torture-tested navigat
 });
 
 test("guide session keeps preview, modal, refresh, and route-loop safety wiring", async () => {
-  const [guide, player, programModal] = await Promise.all([
+  const [guide, streamPlayer, playerRoute, programModal] = await Promise.all([
     readFile(join(root, "app/(tabs)/guide.tsx"), "utf8"),
     readFile(join(root, "src/components/StreamPlayer.tsx"), "utf8"),
+    readFile(join(root, "app/player.tsx"), "utf8"),
     readFile(join(root, "src/components/ProgramModal.tsx"), "utf8"),
   ]);
   assert.match(guide, /previewId === previewChannel\.id/);
@@ -88,10 +89,12 @@ test("guide session keeps preview, modal, refresh, and route-loop safety wiring"
   assert.match(guide, /if \(previewTimer\.current\) clearTimeout\(previewTimer\.current\)/);
   assert.match(guide, /active=\{!activeProgram\}/);
   assert.match(guide, /refreshing=\{refreshing\}/);
-  assert.match(guide, /forceStopAllStreams\(\)/);
-  // Blur must not globally force-stop (kills newly mounted fullscreen); zap/play still do.
-  assert.doesNotMatch(player, /if \(!isFocused\) forceStopAllStreams\(\)/);
-  assert.match(player, /forceStopAllStreams\(\)/);
-  assert.match(player, /pauseOnRapidScan && !guideScanSettled/);
+  assert.match(guide, /openFullscreenPlayer/);
+  // Blur must not globally force-stop (kills newly mounted fullscreen); zap/play use role-scoped stops.
+  assert.doesNotMatch(streamPlayer, /if \(!isFocused\) forceStopAllStreams\(\)/);
+  assert.doesNotMatch(streamPlayer, /forceStopAllStreams\(\)/);
+  assert.match(streamPlayer, /pauseSessionDecoders\(role\)/);
+  assert.match(streamPlayer, /pauseOnRapidScan && !guideScanSettled/);
+  assert.match(playerRoute, /stopFullscreenSession/);
   assert.match(programModal, /hardwareBackPress/);
 });

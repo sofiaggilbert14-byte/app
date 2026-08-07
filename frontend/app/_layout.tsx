@@ -14,6 +14,7 @@ import { ProgramModal } from "@/src/components/ProgramModal";
 import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { PointerOverlay } from "@/src/components/PointerOverlay";
 import { TvCalibrationFrame, TvCalibrationProvider } from "@/src/tvCalibration";
+import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 
 // Keep real errors visible for TV QA; only silence known noisy module warnings.
 LogBox.ignoreLogs([
@@ -28,7 +29,7 @@ function NotificationRouter() {
     const sub = Notifications.addNotificationResponseReceivedListener((resp) => {
       const channelId = resp.notification.request.content.data?.channelId as string | undefined;
       if (channelId) {
-        router.push({ pathname: "/player", params: { channelId } });
+        openFullscreenPlayer(router, channelId);
       }
     });
     return () => sub.remove();

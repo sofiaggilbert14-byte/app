@@ -24,13 +24,23 @@ import { fonts, radius, tvColors } from "@/src/theme";
 import { addTvKeyListener } from "@/src/utils/tvRemote";
 import { getTvSafeInsets } from "@/src/utils/tvLayout";
 import { requestNativeFocus } from "@/src/utils/tvFocus";
-import { forceStopAllStreams } from "@/src/utils/streamLifecycle";
+import { stopFullscreenSession, stopAllPlaybackSessions, type SessionFailReason } from "@/src/core/playbackSession";
 import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
 
 const CHANNEL_PREVIEW_DELAY_MS = 650;
 const CHANNEL_ZAP_SETTLE_MS = 850;
 const STREAM_RETRY_MS = 3000;
 const SWITCH_NOTICE_MS = 1800;
+
+const FAIL_REASON_LABEL: Record<SessionFailReason, string> = {
+  "start-timeout": "start timeout — trying alternate engine",
+  "engine-swap": "switched playback engine",
+  "circuit-open": "temporarily paused after repeated failures",
+  "stream-error": "stream error",
+  "user-stop": "stopped",
+  superseded: "replaced",
+  crashed: "player crash",
+};
 
 function AutoScrollProgramDescription({ text }: { text: string; activeKey: string }) {
   // Static copy — animated marquees hitch the JS thread during channel surfing.
@@ -62,6 +72,7 @@ export default function PlayerScreen() {
 
   const [channelId, setChannelId] = useState(params.channelId);
   const [status, setStatus] = useState<StreamStatus>("loading");
+  const [failReason, setFailReason] = useState<SessionFailReason | null>(null);
   const [retryToken, setRetryToken] = useState(0);
   const [controls, setControls] = useState(true);
   const [channelsOpen, setChannelsOpen] = useState(false);
@@ -163,6 +174,7 @@ export default function PlayerScreen() {
       setChannelId(pending);
       setRetryAttempt(0);
       setStatus("loading");
+      setFailReason(null);
       setDecoderArmed(true);
       setRetryToken((value) => value + 1);
     }, delayMs);
@@ -181,6 +193,7 @@ export default function PlayerScreen() {
     generationRef.current += 1;
     setRetryAttempt(0);
     setStatus("loading");
+    setFailReason(null);
     setChannelId(id);
     addRecent(target);
     showNotice(`Switching to ${target.name}`);
@@ -188,14 +201,14 @@ export default function PlayerScreen() {
     revealControls({ claimChannelsFocus: false });
 
     if (opts?.immediate) {
-      forceStopAllStreams();
+      stopFullscreenSession();
       setDecoderArmed(true);
       setRetryToken((value) => value + 1);
       return;
     }
 
-    // Tear down the live decoder before swapping — rapid Next/Prev was orphaning VLC audio.
-    forceStopAllStreams();
+    // Tear down the live fullscreen decoder before swapping — rapid Next/Prev was orphaning VLC audio.
+    stopFullscreenSession();
     setDecoderArmed(false);
     armDecoderAfterSettle(CHANNEL_ZAP_SETTLE_MS);
   }, [addRecent, armDecoderAfterSettle, channelById, revealControls, showNotice]);
@@ -214,7 +227,7 @@ export default function PlayerScreen() {
       addRecent(target);
       showNotice(`Switching to ${target.name}`);
     }
-    forceStopAllStreams();
+    stopFullscreenSession();
     setDecoderArmed(false);
     revealControls({ claimChannelsFocus: false });
     const delay = nowTs < rapidStripUntilRef.current || rapid
@@ -244,9 +257,10 @@ export default function PlayerScreen() {
     if (retryTimer.current) clearTimeout(retryTimer.current);
     if (zapTimer.current) clearTimeout(zapTimer.current);
     const generation = generationRef.current;
-    forceStopAllStreams();
+    stopFullscreenSession();
     setDecoderArmed(true);
     setStatus("loading");
+    setFailReason(null);
     setRetryAttempt((value) => value + 1);
     showNotice(`Reconnecting ${channel?.name || "stream"}`);
     requestAnimationFrame(() => {
@@ -276,7 +290,7 @@ export default function PlayerScreen() {
 
   useEffect(
     () => () => {
-      forceStopAllStreams();
+      stopFullscreenSession();
       if (zapTimer.current) clearTimeout(zapTimer.current);
       if (previewTimer.current) clearTimeout(previewTimer.current);
     },
@@ -338,7 +352,7 @@ export default function PlayerScreen() {
     if (retryTimer.current) clearTimeout(retryTimer.current);
     generationRef.current += 1;
     setDecoderArmed(false);
-    forceStopAllStreams();
+    stopFullscreenSession();
     router.back();
   }, [router]);
 
@@ -349,7 +363,7 @@ export default function PlayerScreen() {
     if (retryTimer.current) clearTimeout(retryTimer.current);
     generationRef.current += 1;
     setDecoderArmed(false);
-    forceStopAllStreams();
+    stopFullscreenSession();
     router.replace("/guide" as any);
   }, [router]);
 
@@ -376,7 +390,7 @@ export default function PlayerScreen() {
       {hasStream && decoderArmed ? (
         <ErrorBoundary
           onReset={() => {
-            forceStopAllStreams();
+            stopAllPlaybackSessions("crashed");
             setDecoderArmed(true);
             setRetryToken((value) => value + 1);
           }}
@@ -399,7 +413,12 @@ export default function PlayerScreen() {
           <StreamPlayer
             key={`play-${retryToken}`}
             uri={channel?.url || ""}
-            onStatus={setStatus}
+            sessionRole="fullscreen"
+            onStatus={(next, reason) => {
+              setStatus(next);
+              if (reason !== undefined) setFailReason(reason);
+              if (next === "playing") setFailReason(null);
+            }}
             style={StyleSheet.absoluteFill}
           />
         </ErrorBoundary>
@@ -424,7 +443,12 @@ export default function PlayerScreen() {
         <View style={styles.errorOverlay} pointerEvents="box-none">
           <Ionicons name="warning-outline" size={32} color={tvColors.purpleSoft} />
           <Text style={styles.errorTitle}>{hasStream ? "Reconnecting stream…" : "No stream available"}</Text>
-          {hasStream ? <Text style={styles.errorText}>Attempt {Math.max(1, retryAttempt + 1)} · engine fallback remains active</Text> : null}
+          {hasStream ? (
+            <Text style={styles.errorText}>
+              Attempt {Math.max(1, retryAttempt + 1)}
+              {failReason ? ` · ${FAIL_REASON_LABEL[failReason]}` : " · recovering"}
+            </Text>
+          ) : null}
           {hasStream && !vlcAvailable ? <Text style={styles.errorText}>Playback requires the installed Android build.</Text> : null}
           {hasStream ? (
             <Pressable

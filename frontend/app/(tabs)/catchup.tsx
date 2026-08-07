@@ -9,6 +9,7 @@ import { Channel } from "@/src/api";
 import { useStore } from "@/src/store";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { nowNext } from "@/src/utils/time";
+import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 
 export default function CatchUpScreen() {
   const router = useRouter();
@@ -35,7 +36,7 @@ export default function CatchUpScreen() {
   const play = useCallback((channel: Channel) => {
     void Haptics.selectionAsync().catch(() => undefined);
     addRecent(channel);
-    router.push({ pathname: "/player", params: { channelId: channel.id } });
+    openFullscreenPlayer(router, channel.id);
   }, [addRecent, router]);
 
   return (
