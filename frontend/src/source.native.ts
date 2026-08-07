@@ -177,7 +177,7 @@ async function persistMeta(meta: NativeMeta): Promise<void> {
 
 async function fetchPlaylist(): Promise<Channel[]> {
   if (!SOURCE_M3U) {
-    throw new Error("Playlist URL is not configured. Set EXPO_PUBLIC_M3U_URL at build time.");
+    throw new Error("Playlist is not configured for this build (missing EXPO_PUBLIC_M3U_URL).");
   }
   const response = await fetch(https(SOURCE_M3U), {
     headers: { "User-Agent": "CharmIPTV/Experimental-v3" },
@@ -246,7 +246,7 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
       emit();
 
       if (!nativeEpgAvailable) throw new Error("Native EPG engine is unavailable in this Android build");
-      if (!SOURCE_EPG) throw new Error("EPG URL is not configured. Set EXPO_PUBLIC_EPG_URL at build time.");
+      if (!SOURCE_EPG) throw new Error("EPG is not configured for this build (missing EXPO_PUBLIC_EPG_URL).");
       setProgress({ phase: "downloading", ratio: 0.2, etaSeconds: null, message: null }, true);
       const epg = await refreshNativeEpg(https(SOURCE_EPG));
       setProgress({ phase: "caching", ratio: 0.9, etaSeconds: null }, true);

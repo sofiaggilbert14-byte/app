@@ -10,9 +10,19 @@ The JavaScript bundle is packaged in the APK, so Metro is not required.
 2. In GitHub, open **Settings > Secrets and variables > Actions > Variables**.
 3. Create the repository variable `EXPO_PUBLIC_CHARM_API_URL` containing the
    Worker URL without a trailing slash.
+4. For **direct-fetch** Purple TV / Purple Next APKs, set repository **secrets**
+   (preferred, same as charm-refresh):
+   - `M3U_URL` — playlist URL
+   - `EPG_URL` — XMLTV / EPG URL
 
-Do not put raw M3U or EPG credentials in an `EXPO_PUBLIC_*` variable. Values
-with that prefix are compiled into the APK and can be inspected by users.
+   Optional fallbacks (Actions **variables**): `EXPO_PUBLIC_M3U_URL`,
+   `EXPO_PUBLIC_EPG_URL`, and `EXPO_PUBLIC_GUIDE_WINDOW_HOURS` (default `8`).
+
+   These are compiled into the APK at build time. The Purple TV and Purple Next
+   workflows fail fast if neither secrets nor variables are present.
+
+Do not commit raw M3U or EPG URLs into the repository. Keep them in Actions
+secrets (or variables) and inject them only during CI builds.
 
 ## Build and download
 
