@@ -10,9 +10,14 @@ import {
 
 test("stream classification selects the expected first engine and fallback", () => {
   assert.equal(detectStreamKind("https://x/live.m3u8?token=1"), "hls");
+  assert.equal(detectStreamKind("https://x/manifest.mpd"), "dash");
+  assert.equal(detectStreamKind("https://cdn/hls/playlist.m3u8"), "hls");
+  assert.equal(detectStreamKind("srt://contribute:9000"), "srt");
   assert.equal(detectStreamKind("rtsp://x/live"), "rtsp");
   assert.equal(preferredEngine("hls"), "media3");
+  assert.equal(preferredEngine("dash"), "media3");
   assert.equal(preferredEngine("transport"), "vlc");
+  assert.equal(preferredEngine("srt"), "vlc");
   assert.equal(alternateEngine("media3", false), null);
   assert.equal(alternateEngine("vlc", false), "media3");
 });

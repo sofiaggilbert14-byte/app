@@ -17,6 +17,7 @@ export type SessionFailReason =
   | "engine-swap"
   | "circuit-open"
   | "stream-error"
+  | "silent-audio"
   | "user-stop"
   | "superseded"
   | "crashed";
@@ -48,6 +49,9 @@ function invokeStops(role: SessionRole): void {
       /* native teardown best-effort */
     }
   }
+  // A stop callback belongs to the decoder generation that just ended. Keeping
+  // it registered lets later channel loads fire stale native teardown twice.
+  state.stops.clear();
 }
 
 /** Start (or replace) a session for this role. Returns the generation token. */
@@ -132,9 +136,6 @@ export function stopSession(
 /** Invoke stop callbacks without bumping generation (rapid-scan pause). */
 export function pauseSessionDecoders(role: SessionRole): void {
   invokeStops(role);
-  // Drop registrations after invoke so a paused-but-still-mounted caller cannot
-  // double-fire stale stops; remount/registerSessionStop re-arms cleanly.
-  roles[role].stops.clear();
 }
 
 /** Guide → player handoff: kill preview only so fullscreen can allocate safely. */

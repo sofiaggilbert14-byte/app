@@ -24,6 +24,8 @@ export type GuideResponse = {
   end: string;
   now: string;
   channels: Channel[];
+  /** Normalized programme map keyed by playlist channel id (preferred over channel.programs). */
+  programsByChannelId?: Record<string, Program[]>;
 };
 
 export type SourceStatus = {

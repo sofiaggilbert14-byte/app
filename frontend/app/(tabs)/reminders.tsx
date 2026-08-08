@@ -8,23 +8,18 @@ import { useStore } from "@/src/store";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
-import { usePurpleTvDrawer } from "@/src/components/PurpleTvShell";
 import { fmtDayTime } from "@/src/utils/time";
 
 export default function RemindersScreen() {
   const router = useRouter();
-  const { drawerOpen, openDrawer } = usePurpleTvDrawer();
   const { reminders, removeReminder, channelById, clock24h } = useStore();
   void clock24h;
 
   useTvBackHandler(
     useCallback(() => {
-      if (!drawerOpen) {
-        openDrawer();
-        return true;
-      }
-      return true;
-    }, [drawerOpen, openDrawer]),
+      // Defer to PurpleTvShell — single Back must never open the drawer.
+      return false;
+    }, []),
   );
 
   const upcoming = useMemo(

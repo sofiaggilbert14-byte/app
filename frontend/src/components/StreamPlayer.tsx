@@ -1,13 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Platform, UIManager, StyleProp, ViewStyle } from "react-native";
+import { AppState, Platform, UIManager, StyleProp, ViewStyle } from "react-native";
 import { VideoView, useVideoPlayer } from "expo-video";
 import { usePathname } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
-import { addTvKeyListener } from "@/src/utils/tvRemote";
 import { usePlayerEnginePreference } from "@/src/playerEnginePreference";
 import {
   alternateEngine,
   detectStreamKind,
+  media3ContentType,
   parsePipeHeaders,
   preferredEngine,
   type Engine,
@@ -15,17 +15,11 @@ import {
 import {
   beginSession,
   isSessionCurrent,
-  pauseSessionDecoders,
   registerSessionStop,
   setSessionPhase,
   type SessionFailReason,
   type SessionRole,
 } from "@/src/core/playbackSession";
-import {
-  DECODER_RESUME_SETTLE_MS,
-  isRapidDirectionalScan,
-  routeAcceptsRapidScanKey,
-} from "@/src/core/guideRegressionPolicy";
 
 export type StreamStatus = "loading" | "playing" | "error";
 
@@ -45,9 +39,12 @@ const NON_CIRCUIT_REASONS = new Set<SessionFailReason>([
   "start-timeout",
   "engine-swap",
   "circuit-open",
+  "silent-audio",
   "user-stop",
   "superseded",
 ]);
+/** After Media3 reports playing, wait this long for audio tracks before VLC swap. */
+const SILENT_AUDIO_GRACE_MS = 2200;
 
 function pruneFailureMap(now = Date.now()) {
   for (const [key, state] of failureStateByKey) {
@@ -142,6 +139,8 @@ function useStatusTracker(
   resetKey: string,
 ) {
   const lastRef = useRef<StreamStatus | null>(null);
+  const onStatusRef = useRef(onStatus);
+  onStatusRef.current = onStatus;
 
   useEffect(() => {
     lastRef.current = null;
@@ -151,11 +150,11 @@ function useStatusTracker(
     if (lastRef.current === status && reason === undefined) return;
     lastRef.current = status;
     try {
-      onStatus(status, reason);
+      onStatusRef.current(status, reason);
     } catch (error) {
       console.warn("CharmIPTV stream status listener failed", error);
     }
-  }, [onStatus]);
+  }, []);
 }
 
 export const vlcAvailable = Platform.OS !== "web" && !!UIManager.getViewManagerConfig?.("RCTVLCPlayer");
@@ -216,7 +215,8 @@ function useCircuitCooldown(
       return;
     }
 
-    setStatus("loading", "circuit-open");
+    // Surface the cooldown as an error overlay instead of a silent black player.
+    setStatus("error", "circuit-open");
     const timer = setTimeout(() => {
       setBlocked(false);
       setStatus("loading");
@@ -242,16 +242,15 @@ function VlcStream({
   const activeRef = useRef(true);
   const tearingDownRef = useRef(false);
   const playerRef = useRef<any>(null);
-  const [paused, setPaused] = useState(false);
   const { uri, headers } = useMemo(() => parsePipeHeaders(rawUri), [rawUri]);
   const { blocked, setBlocked } = useCircuitCooldown(sessionRole, engine, uri, setStatus);
   const referer = headers.Referer || headers.referer;
   const origin = headers.Origin || headers.origin;
   const userAgent = headers["User-Agent"] || headers["user-agent"] || "VLC/3.0.20 LibVLC/3.0.20";
   const initOptions = useMemo(() => {
-    const networkCaching = mode === "preview" ? 600 : 1400;
-    const liveCaching = mode === "preview" ? 600 : 1400;
-    const fileCaching = mode === "preview" ? 500 : 900;
+    const networkCaching = mode === "preview" ? 1000 : 1800;
+    const liveCaching = mode === "preview" ? 1000 : 1800;
+    const fileCaching = mode === "preview" ? 700 : 1100;
     const options = [
       `--network-caching=${networkCaching}`,
       `--live-caching=${liveCaching}`,
@@ -266,6 +265,13 @@ function VlcStream({
     if (origin) options.push(`--http-origin=${origin}`);
     return options;
   }, [mode, origin, referer, userAgent]);
+  const mediaOptions = useMemo(
+    () =>
+      Object.entries(headers)
+        .filter(([key]) => !/^(?:user-agent|referer|origin)$/i.test(key))
+        .map(([key, value]) => `:http-header=${key}: ${value}`),
+    [headers],
+  );
 
   const emit = useCallback(
     (status: StreamStatus, reason?: SessionFailReason | null) => {
@@ -278,7 +284,9 @@ function VlcStream({
   const hardStop = useCallback(() => {
     tearingDownRef.current = true;
     activeRef.current = false;
-    setPaused(true);
+    // Soft-stop while mounted. A destructive `clear` releases LibVLC but leaves
+    // the same React native view/source in place, producing a permanent black
+    // surface until a remount.
     try {
       playerRef.current?.stopPlayer?.();
     } catch {
@@ -287,14 +295,13 @@ function VlcStream({
     try {
       playerRef.current?.setNativeProps?.({ paused: true });
     } catch {
-      /* optional */
+      /* native teardown best-effort */
     }
   }, []);
 
   useEffect(() => {
     activeRef.current = true;
     tearingDownRef.current = false;
-    setPaused(false);
     const unregister = registerSessionStop(sessionRole, sessionGeneration, hardStop);
     return () => {
       unregister();
@@ -320,9 +327,9 @@ function VlcStream({
     <VLCPlayer
       ref={playerRef}
       style={style}
-      source={{ uri, initType: 2, initOptions }}
-      paused={paused}
-      autoplay={!paused}
+      source={{ uri, initType: 2, initOptions, mediaOptions }}
+      paused={false}
+      autoplay
       autoAspectRatio
       resizeMode="contain"
       acceptInvalidCertificates
@@ -337,10 +344,10 @@ function VlcStream({
           : [];
         onTracksAvailable?.({ audio, text });
       }}
-      onOpen={() => activeRef.current && !tearingDownRef.current && !paused && emit("loading")}
-      onBuffering={() => activeRef.current && !tearingDownRef.current && !paused && emit("loading")}
+      onOpen={() => activeRef.current && !tearingDownRef.current && emit("loading")}
+      onBuffering={() => activeRef.current && !tearingDownRef.current && emit("loading")}
       onPlaying={() => {
-        if (!activeRef.current || tearingDownRef.current || paused) return;
+        if (!activeRef.current || tearingDownRef.current) return;
         if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
         recordStablePlayback(sessionRole, engine, uri);
         emit("playing");
@@ -361,6 +368,8 @@ function ExpoStream({
 }: EngineProps) {
   const mountedRef = useRef(true);
   const tearingDownRef = useRef(false);
+  const loadIdRef = useRef(0);
+  const replaceQueueRef = useRef<Promise<void>>(Promise.resolve());
   const { uri, headers } = useMemo(() => parsePipeHeaders(rawUri), [rawUri]);
   const kind = useMemo(() => detectStreamKind(uri), [uri]);
   const { blocked, setBlocked } = useCircuitCooldown(sessionRole, engine, uri, setStatus);
@@ -380,26 +389,29 @@ function ExpoStream({
     try {
       player.bufferOptions =
         mode === "preview"
-          ? { preferredForwardBufferDuration: 0.6, maxBufferBytes: 6 * 1024 * 1024 }
-          : { preferredForwardBufferDuration: 2, maxBufferBytes: 32 * 1024 * 1024 };
+          ? { preferredForwardBufferDuration: 1.2, maxBufferBytes: 12 * 1024 * 1024 }
+          : { preferredForwardBufferDuration: 3, maxBufferBytes: 48 * 1024 * 1024 };
     } catch {
       /* older native builds may ignore bufferOptions */
     }
   }, [mode, player]);
 
   const hardStop = useCallback(() => {
+    loadIdRef.current += 1;
     tearingDownRef.current = true;
     mountedRef.current = false;
     try {
       player.pause();
     } catch {}
-    try {
-      (player as any).muted = true;
-    } catch {}
-    try {
-      void player.replaceAsync(null as any);
-    } catch {}
-  }, [player]);
+    if (mode === "preview") {
+      void player.replaceAsync(null as any).catch(() => undefined);
+    } else {
+      replaceQueueRef.current = replaceQueueRef.current
+        .catch(() => undefined)
+        .then(() => player.replaceAsync(null as any))
+        .catch(() => undefined);
+    }
+  }, [mode, player]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -416,19 +428,34 @@ function ExpoStream({
     if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
 
     let cancelled = false;
+    const loadId = ++loadIdRef.current;
     mountedRef.current = true;
     tearingDownRef.current = false;
     emit("loading");
     (async () => {
       try {
-        const contentType = kind === "hls" ? "hls" : kind === "dash" ? "dash" : "progressive";
-        await player.replaceAsync({ uri, headers, contentType });
+        const contentType = media3ContentType(kind);
+        const load = mode === "preview"
+          ? player.replaceAsync({ uri, headers, contentType })
+          : replaceQueueRef.current
+              .catch(() => undefined)
+              .then(async () => {
+                if (cancelled || loadId !== loadIdRef.current) return;
+                await player.replaceAsync({ uri, headers, contentType });
+              });
+        if (mode !== "preview") replaceQueueRef.current = load.catch(() => undefined);
+        await load;
         if (
           !cancelled &&
+          loadId === loadIdRef.current &&
           mountedRef.current &&
           !tearingDownRef.current &&
           isSessionCurrent(sessionRole, sessionGeneration)
         ) {
+          try {
+            player.muted = false;
+            player.volume = 1;
+          } catch {}
           player.play();
         }
       } catch {
@@ -451,13 +478,19 @@ function ExpoStream({
 
     return () => {
       cancelled = true;
+      loadIdRef.current += 1;
       tearingDownRef.current = true;
       try {
         player.pause();
       } catch {}
-      try {
-        void player.replaceAsync(null as any);
-      } catch {}
+      if (mode === "preview") {
+        void player.replaceAsync(null as any).catch(() => undefined);
+      } else {
+        replaceQueueRef.current = replaceQueueRef.current
+          .catch(() => undefined)
+          .then(() => player.replaceAsync(null as any))
+          .catch(() => undefined);
+      }
     };
   }, [blocked, emit, engine, headers, kind, player, sessionGeneration, sessionRole, setBlocked, uri]);
 
@@ -483,6 +516,47 @@ function ExpoStream({
     return () => sub.remove();
   }, [blocked, emit, engine, player, sessionGeneration, sessionRole, setBlocked, uri]);
 
+  // Media3 can paint video while failing to expose/decode audio (AC-3 etc.).
+  // If no audio track appears after a short grace, soft-fail so StreamPlayer swaps to VLC.
+  useEffect(() => {
+    if (blocked || mode === "preview") return;
+    let cancelled = false;
+    let sawAudio = false;
+    const markAudio = () => {
+      try {
+        const tracks = (player as { availableAudioTracks?: unknown[] }).availableAudioTracks;
+        if (Array.isArray(tracks) && tracks.length > 0) sawAudio = true;
+        const selected = (player as { audioTrack?: unknown }).audioTrack;
+        if (selected) sawAudio = true;
+      } catch {
+        /* older expo-video builds */
+      }
+    };
+    markAudio();
+    let trackSub: { remove: () => void } | null = null;
+    try {
+      trackSub = player.addListener("availableAudioTracksChange", () => {
+        markAudio();
+      }) as { remove: () => void };
+    } catch {
+      trackSub = null;
+    }
+    const timer = setTimeout(() => {
+      if (cancelled || !mountedRef.current || tearingDownRef.current) return;
+      if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
+      markAudio();
+      if (sawAudio) return;
+      emit("error", "silent-audio");
+    }, SILENT_AUDIO_GRACE_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      try {
+        trackSub?.remove();
+      } catch {}
+    };
+  }, [blocked, emit, mode, player, sessionGeneration, sessionRole, uri]);
+
   if (blocked) return null;
 
   return (
@@ -490,8 +564,8 @@ function ExpoStream({
       style={style}
       player={player}
       contentFit="contain"
+      surfaceType={Platform.OS === "android" ? "textureView" : undefined}
       nativeControls={false}
-      allowsFullscreen
     />
   );
 }
@@ -511,15 +585,15 @@ export function StreamPlayer({
   const isGuidePreview = pathname === "/guide";
   const playbackMode = mode ?? (isGuidePreview ? "preview" : "full");
   const role: SessionRole = sessionRole ?? (playbackMode === "preview" ? "preview" : "fullscreen");
-  // Player route owns zap/strip pause itself — avoid dual rapid-scan controllers.
-  const pauseOnRapidScan = role === "preview";
+  // RN may report null/unknown AppState during initial bridge startup. Treat
+  // anything except an explicit background/inactive event as active.
+  const [appActive, setAppActive] = useState(
+    () => AppState.currentState !== "background" && AppState.currentState !== "inactive",
+  );
+  const playbackFocused = isFocused && appActive;
   const [playerEnginePreference] = usePlayerEnginePreference();
   const forceVlc = playerEnginePreference === "vlc" && vlcAvailable && role !== "preview";
-  const [guideScanSettled, setGuideScanSettled] = useState(true);
-  const lastDirectionalAt = useRef(0);
-  const rapidBurstRef = useRef(0);
-  const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [sessionGeneration, setSessionGeneration] = useState(0);
+  const [session, setSession] = useState({ key: "", generation: 0 });
 
   const setStatus = useStatusTracker(onStatus, `${role}:${uri}`);
   const cleanUri = useMemo(() => parsePipeHeaders(uri).uri, [uri]);
@@ -535,73 +609,30 @@ export function StreamPlayer({
   const startTimeoutMs = role === "preview" ? PREVIEW_START_TIMEOUT_MS : FULLSCREEN_START_TIMEOUT_MS;
 
   useEffect(() => {
-    if (!isFocused || !pauseOnRapidScan || Platform.OS === "web") {
-      setGuideScanSettled(true);
-      rapidBurstRef.current = 0;
-      return;
-    }
-
-    return addTvKeyListener((key) => {
-      if (!routeAcceptsRapidScanKey(pathname, key)) return;
-      const now = Date.now();
-      const rapid = isRapidDirectionalScan(lastDirectionalAt.current, now);
-      lastDirectionalAt.current = now;
-
-      if (settleTimer.current) clearTimeout(settleTimer.current);
-      if (rapid) {
-        rapidBurstRef.current += 1;
-        // Require a sustained burst before tearing down the decoder — a single
-        // quick key pair was thrashing preview/fullscreen and poisoning play.
-        if (rapidBurstRef.current >= 2) {
-          pauseSessionDecoders(role);
-          setGuideScanSettled(false);
-        }
-      } else {
-        rapidBurstRef.current = 0;
-      }
-      settleTimer.current = setTimeout(() => {
-        rapidBurstRef.current = 0;
-        setGuideScanSettled(true);
-      }, DECODER_RESUME_SETTLE_MS);
+    const sub = AppState.addEventListener("change", (state) => {
+      setAppActive(state !== "background" && state !== "inactive");
     });
-  }, [isFocused, pathname, pauseOnRapidScan, role]);
+    return () => sub.remove();
+  }, []);
 
-  useEffect(() => {
-    if (!isFocused && settleTimer.current) {
-      clearTimeout(settleTimer.current);
-      settleTimer.current = null;
-    }
-  }, [isFocused]);
-
-  useEffect(
-    () => () => {
-      if (settleTimer.current) clearTimeout(settleTimer.current);
-    },
-    [],
-  );
-
+  const sessionKey = `${role}:${uri}:${initialEngine}`;
   useEffect(() => {
     const generation = beginSession(role);
-    setSessionGeneration(generation);
+    setSession({ key: sessionKey, generation });
     setSessionPhase(role, generation, "preparing");
     stableRef.current = false;
     setFallbackUsed(false);
     setEngine(initialEngine);
     setStatus("loading");
-  }, [initialEngine, role, setStatus, uri]);
+  }, [initialEngine, role, sessionKey, setStatus, uri]);
+
+  // URI changes render no child until beginSession has invalidated/released the
+  // previous decoder. This avoids mounting newUri:oldGeneration and immediately
+  // remounting it again when the generation effect runs.
+  const sessionGeneration = session.key === sessionKey ? session.generation : 0;
 
   useEffect(() => {
-    if (stableRef.current || !isFocused || !guideScanSettled || !sessionGeneration) return;
-    // Preview: one engine only — no swap thrash while surfing the guide.
-    if (role === "preview") {
-      const timer = setTimeout(() => {
-        if (stableRef.current || !isSessionCurrent(role, sessionGeneration)) return;
-        setSessionPhase(role, sessionGeneration, "failed", "start-timeout");
-        setStatus("error", "start-timeout");
-      }, startTimeoutMs);
-      return () => clearTimeout(timer);
-    }
-
+    if (stableRef.current || !playbackFocused || !sessionGeneration) return;
     const timer = setTimeout(() => {
       if (stableRef.current || fallbackUsed) return;
       if (!isSessionCurrent(role, sessionGeneration)) return;
@@ -617,7 +648,7 @@ export function StreamPlayer({
       setStatus("loading", "start-timeout");
     }, startTimeoutMs);
     return () => clearTimeout(timer);
-  }, [engine, fallbackUsed, guideScanSettled, isFocused, role, sessionGeneration, setStatus, startTimeoutMs, uri]);
+  }, [engine, fallbackUsed, playbackFocused, role, sessionGeneration, setStatus, startTimeoutMs, uri]);
 
   const handleStatus = useCallback(
     (status: StreamStatus, reason?: SessionFailReason | null) => {
@@ -629,14 +660,17 @@ export function StreamPlayer({
         setStatus("playing");
         return;
       }
-      // Preview stays on the first engine — logo fallback is better than swap flicker.
-      if (status === "error" && role === "fullscreen" && !forceVlc && !fallbackUsed) {
+      // One alternate-engine attempt handles HLS/codec differences / silent audio
+      // between Media3 and VLC for both preview and fullscreen.
+      if (status === "error" && !forceVlc && !fallbackUsed) {
         const alternate = alternateEngine(engine, vlcAvailable);
         if (alternate) {
           setFallbackUsed(true);
           setEngine(alternate);
-          setSessionPhase(role, sessionGeneration, "recovering", "engine-swap");
-          setStatus("loading", "engine-swap");
+          const swapReason: SessionFailReason =
+            reason === "silent-audio" ? "silent-audio" : "engine-swap";
+          setSessionPhase(role, sessionGeneration, "recovering", swapReason);
+          setStatus("loading", swapReason);
           return;
         }
       }
@@ -652,12 +686,12 @@ export function StreamPlayer({
     [engine, fallbackUsed, forceVlc, role, sessionGeneration, setStatus],
   );
 
-  if (!isFocused || !uri || (pauseOnRapidScan && !guideScanSettled) || !sessionGeneration) return null;
+  if (!playbackFocused || !uri || !sessionGeneration) return null;
 
   if (engine === "vlc") {
     return (
       <VlcStream
-        key={`vlc:${uri}:${sessionGeneration}`}
+        key={`vlc:${uri}`}
         uri={uri}
         onStatus={handleStatus}
         style={style}
@@ -673,7 +707,7 @@ export function StreamPlayer({
   }
   return (
     <ExpoStream
-      key={`media3:${uri}:${sessionGeneration}`}
+      key={`media3:${uri}`}
       uri={uri}
       onStatus={handleStatus}
       style={style}

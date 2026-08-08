@@ -170,6 +170,11 @@ test("Android source path stays native-only (no JS XMLTV inflate/parse)", async 
   assert.doesNotMatch(native, /parseXMLTV|inflateToTextChunks|from "fflate"|epgDb/);
   assert.match(native, /Native EPG engine is unavailable/);
   assert.match(native, /Never mutate EMPTY_PROGRAMS/);
+  // Weak-stick memory: bounded programme cache + no full-playlist warm emit hitch.
+  assert.match(native, /MAX_PROGRAMME_WINDOW_KEYS = 700/);
+  assert.match(native, /HUGE_PLAYLIST_MATCH_THRESHOLD = 400/);
+  assert.match(native, /trimProgrammeWindowCache/);
+  assert.match(native, /Intentionally no emit\(\)/);
 });
 
 test("web source path documents no TV JS fallback and uses shared matching", async () => {
@@ -186,17 +191,20 @@ test("native EPG engine strengthens migrate, next-stop, recovery, rare vacuum", 
     readFile(join(root, "android/app/src/main/java/com/charmiptv/app/EpgDatabase.kt"), "utf8"),
     readFile(join(root, "android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt"), "utf8"),
   ]);
-  assert.match(db, /DATABASE_VERSION = 3/);
+  assert.match(db, /DATABASE_VERSION = 4/);
   assert.match(db, /Additive only/);
   assert.match(db, /inferMissingStopsFromNextProgram/);
   assert.match(db, /ensureHealthy/);
   assert.match(db, /maybeIncrementalVacuum/);
   assert.match(db, /category TEXT/);
+  assert.match(db, /playlist_epg_matches/);
+  assert.match(db, /queryGuideWindow/);
   assert.doesNotMatch(db, /DROP TABLE IF EXISTS \$LIVE_TABLE[\s\S]*onUpgrade/);
   assert.match(mod, /MIN_VACUUM_DELETED_ROWS/);
   assert.match(mod, /guideEpoch/);
   assert.match(mod, /ensureHealthy/);
   assert.match(mod, /"category"/);
+  assert.match(mod, /queryGuideWindow/);
 });
 
 test("edge-case XMLTV fixture covers missing stop + malformed start", async () => {

@@ -30,6 +30,7 @@ import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
 const CHANNEL_PREVIEW_DELAY_MS = 650;
 const CHANNEL_ZAP_SETTLE_MS = 850;
 const STREAM_RETRY_MS = 3000;
+const MAX_AUTO_STREAM_RETRIES = 4;
 const SWITCH_NOTICE_MS = 1800;
 
 const FAIL_REASON_LABEL: Record<SessionFailReason, string> = {
@@ -37,6 +38,7 @@ const FAIL_REASON_LABEL: Record<SessionFailReason, string> = {
   "engine-swap": "switched playback engine",
   "circuit-open": "temporarily paused after repeated failures",
   "stream-error": "stream error",
+  "silent-audio": "no audio on Media3 — switching to VLC",
   "user-stop": "stopped",
   superseded: "replaced",
   crashed: "player crash",
@@ -292,22 +294,32 @@ export default function PlayerScreen() {
     changeChannel(target.id, true);
   }, [changeChannel, streamChannels]);
 
-  const retryNow = useCallback(() => {
+  const restartStream = useCallback((clearCircuit: boolean) => {
     if (!hasStream) return;
     if (retryTimer.current) clearTimeout(retryTimer.current);
     if (zapTimer.current) clearTimeout(zapTimer.current);
     const generation = generationRef.current;
-    clearFullscreenCircuit(channel?.url);
+    // Only a deliberate Retry button clears the breaker. Auto retry must honor
+    // accumulated failures or a bad source remounts native decoders forever.
+    if (clearCircuit) clearFullscreenCircuit(channel?.url);
     pauseSessionDecoders("fullscreen");
-    setDecoderArmed(true);
+    // Force a real native-view remount. Keeping a stopped VLC view mounted with
+    // the same source is a black-screen dead end on Fire TV.
+    setDecoderArmed(false);
     setStatus("loading");
     setFailReason(null);
     setRetryAttempt((value) => value + 1);
     showNotice(`Reconnecting ${channel?.name || "stream"}`);
+    setRetryToken((value) => value + 1);
     requestAnimationFrame(() => {
-      if (generation === generationRef.current) setRetryToken((value) => value + 1);
+      if (generation === generationRef.current) setDecoderArmed(true);
     });
   }, [channel?.name, channel?.url, hasStream, showNotice]);
+
+  const retryNow = useCallback(() => {
+    setRetryAttempt(0);
+    restartStream(true);
+  }, [restartStream]);
 
   useEffect(() => {
     controlsRef.current = controls;
@@ -363,12 +375,14 @@ export default function PlayerScreen() {
 
   useEffect(() => {
     if (!autoRetryStreams || !hasStream || status !== "error") return;
+    if (retryAttempt >= MAX_AUTO_STREAM_RETRIES) return;
     if (retryTimer.current) clearTimeout(retryTimer.current);
-    retryTimer.current = setTimeout(retryNow, STREAM_RETRY_MS);
+    const delay = STREAM_RETRY_MS * Math.min(4, 2 ** retryAttempt);
+    retryTimer.current = setTimeout(() => restartStream(false), delay);
     return () => {
       if (retryTimer.current) clearTimeout(retryTimer.current);
     };
-  }, [autoRetryStreams, hasStream, retryNow, status]);
+  }, [autoRetryStreams, hasStream, restartStream, retryAttempt, status]);
 
   useEffect(() => {
     if (!isTV) return;
@@ -396,6 +410,15 @@ export default function PlayerScreen() {
     stopFullscreenSession();
     router.back();
   }, [router]);
+
+  const handleStreamStatus = useCallback(
+    (next: StreamStatus, reason?: SessionFailReason | null) => {
+      setStatus(next);
+      if (reason !== undefined) setFailReason(reason);
+      if (next === "playing") setFailReason(null);
+    },
+    [],
+  );
 
   const goGuide = useCallback(() => {
     void Haptics.selectionAsync().catch(() => undefined);
@@ -471,11 +494,7 @@ export default function PlayerScreen() {
               setAudioTracks(tracks.audio.filter((t) => Number.isFinite(t.id)));
               setTextTracks(tracks.text.filter((t) => Number.isFinite(t.id)));
             }}
-            onStatus={(next, reason) => {
-              setStatus(next);
-              if (reason !== undefined) setFailReason(reason);
-              if (next === "playing") setFailReason(null);
-            }}
+            onStatus={handleStreamStatus}
             style={StyleSheet.absoluteFill}
           />
         </ErrorBoundary>

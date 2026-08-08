@@ -81,6 +81,13 @@ export function setManualEpgRemaps(_remaps: Record<string, string>): void {
 export function setViewportGuideChannelIds(_ids: string[] | null): void {
   /* native-only */
 }
+export async function loadGuideProgramsForChannelIds(
+  _channelIds: string[],
+  _startISO?: string,
+  _hours = 12,
+): Promise<Record<string, Program[]>> {
+  return {};
+}
 export async function refreshEpgOnly(): Promise<SourceStatus> {
   return refreshSource(true);
 }

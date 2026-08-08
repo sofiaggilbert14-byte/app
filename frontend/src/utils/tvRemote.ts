@@ -36,11 +36,13 @@ export function setPointerActive(active: boolean) {
   } catch {}
 }
 
-// While a timeline cell owns focus, consume vertical D-pad events natively.
-// TimelineGrid can use this when it owns vertical navigation itself.
+// Kept for native API compatibility. Do NOT arm this to consume Up/Down —
+// Android must move guide focus; JS only handles top/bottom/left boundaries.
 export function setGuideNavigationActive(active: boolean) {
   try {
-    TvRemote?.setGuideNavigationActive?.(active);
+    // Always clear — consuming vertical keys freezes Fire TV guide surfing.
+    TvRemote?.setGuideNavigationActive?.(false);
+    void active;
   } catch {}
 }
 

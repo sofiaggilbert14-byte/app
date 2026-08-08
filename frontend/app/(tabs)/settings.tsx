@@ -4,7 +4,7 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import Constants from "expo-constants";
-import { PurpleTvShell, usePurpleTvDrawer } from "@/src/components/PurpleTvShell";
+import { PurpleTvShell } from "@/src/components/PurpleTvShell";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { TvCalibrationControls } from "@/src/components/TvCalibrationControls";
 import {
@@ -60,7 +60,6 @@ const TILES: Tile[] = [
 ];
 
 export default function SettingsScreen() {
-  const { drawerOpen, openDrawer } = usePurpleTvDrawer();
   const router = useRouter();
   const {
     refresh,
@@ -141,19 +140,16 @@ export default function SettingsScreen() {
 
   useTvBackHandler(
     useCallback(() => {
+      // Close a settings section first — never open the drawer on a single Back.
       if (section) {
         setBackupStatus(null);
         setClearFavoritesArmed(false);
         setSection(null);
         return true;
       }
-      if (!drawerOpen) {
-        openDrawer();
-        return true;
-      }
-      // Once open, the drawer keeps focus until the user chooses a destination.
-      return true;
-    }, [drawerOpen, openDrawer, section]),
+      // Defer to PurpleTvShell double-Back policy (arm / open / close).
+      return false;
+    }, [section]),
   );
 
   const appVersion = Constants.expoConfig?.version || "2.0.0-purple";
@@ -362,7 +358,7 @@ export default function SettingsScreen() {
         </View>
 
         {!section ? (
-          <FocusGuide style={styles.tileGridWrap} trapFocusDown>
+          <FocusGuide style={styles.tileGridWrap}>
             <View style={styles.tileGrid}>
               {TILES.map((tile, index) => (
                 <Pressable
@@ -379,7 +375,7 @@ export default function SettingsScreen() {
             </View>
           </FocusGuide>
         ) : (
-          <FocusGuide style={styles.detailsWrap} trapFocusDown>
+          <FocusGuide style={styles.detailsWrap}>
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.details}>
             <Pressable
               hasTVPreferredFocus={preferBackFocus}

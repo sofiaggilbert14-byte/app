@@ -17,7 +17,11 @@ import { ChannelLogo } from "./ChannelLogo";
 import { nowNext, progressPct, fmtTime, reminderKey } from "@/src/utils/time";
 import { useStore } from "@/src/store";
 import { requestNativeFocus } from "@/src/utils/tvFocus";
-import { armGuideBottomFocusLock } from "@/src/utils/tvGuideFocusLock";
+import {
+  applyLeftFocusLock,
+  armGuideBottomFocusLock,
+  armGuideLeftFocusLock,
+} from "@/src/utils/tvGuideFocusLock";
 import { evaluateGuideNavigation } from "@/src/core/guideNavigationPolicy";
 
 const ACCENT = "#A855F7";
@@ -53,6 +57,7 @@ type ChannelCardProps = {
   preferInitialFocus?: boolean;
   hasReminder?: boolean;
   lockFocusDown?: boolean;
+  lockFocusLeft?: boolean;
 };
 
 const ChannelCard = memo(function ChannelCard({
@@ -72,6 +77,7 @@ const ChannelCard = memo(function ChannelCard({
   preferInitialFocus = false,
   hasReminder = false,
   lockFocusDown = false,
+  lockFocusLeft = false,
 }: ChannelCardProps) {
   const { current, next } = nowNext(item.programs, nowDate);
   const pct = progressPct(current, nowDate);
@@ -80,14 +86,16 @@ const ChannelCard = memo(function ChannelCard({
   const setCardRef = useCallback(
     (node: any) => {
       cardRef.current = node;
+      applyLeftFocusLock(node, lockFocusLeft);
       applyDownFocusLock(node, lockFocusDown);
     },
-    [lockFocusDown],
+    [lockFocusDown, lockFocusLeft],
   );
 
   useEffect(() => {
+    applyLeftFocusLock(cardRef.current, lockFocusLeft);
     applyDownFocusLock(cardRef.current, lockFocusDown);
-  }, [lockFocusDown]);
+  }, [lockFocusDown, lockFocusLeft]);
 
   const handleChannelPress = useCallback(() => onChannelPress(item), [item, onChannelPress]);
   const handleCurrentPress = useCallback(() => {
@@ -167,7 +175,6 @@ export function BoxGrid({
   onProgramPress,
   onChannelFocus,
   onUpBoundary,
-  onLeftBoundary,
   onFocusedRowChange,
   onViewportChannelIds,
   onGuideFocusNode,
@@ -180,6 +187,8 @@ export function BoxGrid({
   reminderKeys,
   resetToken = 0,
   active = true,
+  lockLeftEdge = true,
+  restoreChannelId,
 }: {
   channels: Channel[];
   now: string;
@@ -187,7 +196,6 @@ export function BoxGrid({
   onProgramPress: (p: Program, c: Channel) => void;
   onChannelFocus?: (c: Channel) => void;
   onUpBoundary?: () => void;
-  onLeftBoundary?: () => void;
   onFocusedRowChange?: (index: number) => void;
   onViewportChannelIds?: (ids: string[]) => void;
   onGuideFocusNode?: (node: unknown) => void;
@@ -200,6 +208,8 @@ export function BoxGrid({
   reminderKeys?: ReadonlySet<string>;
   resetToken?: number;
   active?: boolean;
+  lockLeftEdge?: boolean;
+  restoreChannelId?: string | null;
 }) {
   const { width } = useWindowDimensions();
   const numColumns = width >= 1400 ? 6 : width >= 1150 ? 5 : width >= 900 ? 4 : width >= 600 ? 3 : 2;
@@ -211,6 +221,7 @@ export function BoxGrid({
   channelsRef.current = channels;
   const focusedRowRef = useRef(0);
   const focusedIndexRef = useRef(0);
+  const lastScrollSyncedRowRef = useRef(-1);
   const focusedNodeRef = useRef<unknown>(null);
   const lastRowIndexRef = useRef(0);
   const lastReportedDeepRef = useRef(false);
@@ -246,6 +257,14 @@ export function BoxGrid({
       focusedIndexRef.current = index;
       focusedRowRef.current = row;
       gridOwnsFocusRef.current = true;
+      if (lastScrollSyncedRowRef.current !== row) {
+        lastScrollSyncedRowRef.current = row;
+        try {
+          listRef.current?.scrollToIndex({ index, animated: false, viewPosition: 0.25 });
+        } catch {
+          /* FlashList will retry once the row is measured. */
+        }
+      }
       const deep = row > 0;
       if (preferFirst && deep) setPreferFirst(false);
       if (lastReportedDeepRef.current !== deep) {
@@ -257,14 +276,23 @@ export function BoxGrid({
     [numColumns, onFocusedRowChange, preferFirst, reportViewport],
   );
 
-  // Mount-once preferred focus — group resets must not steal chip focus.
+  // Mount-once preferred focus — restore the last watched card after player.
   useEffect(() => {
     if (hasClaimedFocusRef.current) return;
+    if (!channels.length) return;
     hasClaimedFocusRef.current = true;
+    const restoreIndex = restoreChannelId
+      ? channels.findIndex((channel) => channel.id === restoreChannelId)
+      : -1;
+    if (restoreIndex >= 0) {
+      try {
+        listRef.current?.scrollToIndex({ index: restoreIndex, animated: false, viewPosition: 0.45 });
+      } catch {}
+    }
     setPreferFirst(true);
-    const clearPreferred = setTimeout(() => setPreferFirst(false), 360);
+    const clearPreferred = setTimeout(() => setPreferFirst(false), 600);
     return () => clearTimeout(clearPreferred);
-  }, []);
+  }, [channels, restoreChannelId]);
 
   useEffect(() => {
     if (!resetToken) return;
@@ -290,11 +318,11 @@ export function BoxGrid({
       (event) => {
         if (!active) return;
         const key = event?.eventType;
-        // Left edge of compact grid → reopen drawer (same job as Timeline logo Left).
+        // Left edge of compact grid — pin focus; never open the drawer.
         if (key === "left" && gridOwnsFocusRef.current) {
           const col = focusedIndexRef.current % Math.max(1, numColumns);
           if (col === 0) {
-            onLeftBoundary?.();
+            armGuideLeftFocusLock(focusedNodeRef.current);
             return;
           }
         }
@@ -321,7 +349,7 @@ export function BoxGrid({
           guideEscapeInFlight.current = false;
         }, GUIDE_ESCAPE_GUARD_MS);
       },
-      [active, numColumns, onLeftBoundary, onUpBoundary],
+      [active, numColumns, onUpBoundary],
     ),
   );
 
@@ -347,13 +375,17 @@ export function BoxGrid({
           onRowFocus={reportFocusedRow}
           onFocusNode={rememberFocusNode}
           toggleFavorite={toggleFavorite}
-          preferInitialFocus={preferFirst && index === 0}
+          preferInitialFocus={
+            preferFirst &&
+            (restoreChannelId ? item.id === restoreChannelId : index === 0)
+          }
           hasReminder={reminded}
           lockFocusDown={row >= lastRowIndex}
+          lockFocusLeft={lockLeftEdge && index % Math.max(1, numColumns) === 0}
         />
       );
     },
-    [channelNumberById, lastRowIndex, nowDate, numColumns, onChannelFocus, onChannelPress, onProgramPress, preferFirst, reminderKeys, rememberFocusNode, reportFocusedRow, showChannelLogos, showChannelNumbers, toggleFavorite],
+    [channelNumberById, lastRowIndex, lockLeftEdge, nowDate, numColumns, onChannelFocus, onChannelPress, onProgramPress, preferFirst, reminderKeys, rememberFocusNode, reportFocusedRow, restoreChannelId, showChannelLogos, showChannelNumbers, toggleFavorite],
   );
 
   return (
@@ -366,7 +398,7 @@ export function BoxGrid({
         keyExtractor={(c) => c.id}
         // Re-render visible hearts when favorites change without recreating renderItem.
         extraData={favorites}
-        drawDistance={360}
+        drawDistance={720}
         removeClippedSubviews={false}
         contentContainerStyle={{ paddingBottom: 130, paddingHorizontal: spacing.xs, paddingTop: spacing.xs }}
         ListHeaderComponent={ListHeaderComponent}

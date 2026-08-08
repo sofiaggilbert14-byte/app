@@ -25,6 +25,7 @@ import { NowPlayingBar } from "@/src/components/NowPlayingBar";
 import { Channel } from "@/src/api";
 import { useStore } from "@/src/store";
 import { setPriorityMatchChannelIds, setViewportGuideChannelIds } from "@/src/source";
+import { markGuideSurfing } from "@/src/utils/guideSurfGate";
 import { getPowerProfileTuning } from "@/src/core/devicePowerProfile";
 import { channelHasEpgMatch } from "@/src/core/epgUserOverrides";
 import { fonts, radius, spacing, tvColors } from "@/src/theme";
@@ -33,8 +34,13 @@ import { requestNativeFocus, requestNativeFocusWithRetry } from "@/src/utils/tvF
 import { setGuideNavigationActive } from "@/src/utils/tvRemote";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 import { MODAL_FOCUS_RETRY_DELAYS_MS } from "@/src/core/guideRegressionPolicy";
+import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
 
 const BASE_GROUPS = ["All", "Favorites", "Recently Watched", "Sports", "News", "Movies", "Kids", "Music"];
+// Session-only guide position survives the root player route unmounting tabs.
+// Do not persist to disk: this is navigation state, not a user preference.
+let guideSessionGroup = "All";
+let guideSessionChannelId: string | null = null;
 
 function byName(a: Channel, b: Channel) {
   return (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" });
@@ -64,16 +70,18 @@ function AutoScrollDescription({ text }: { text: string }) {
 
 export default function PurpleGuideScreen() {
   const router = useRouter();
-  const { drawerOpen, openDrawer } = usePurpleTvDrawer();
+  const { drawerOpen } = usePurpleTvDrawer();
   const { width: screenWidth } = useWindowDimensions();
   const {
     channels,
+    programsByChannelId,
     windowStart,
     windowEnd,
     loading,
     refreshing,
     error,
     hardRefresh,
+    patchProgramsForChannelIds,
     addRecent,
     openProgram,
     activeProgram,
@@ -100,10 +108,10 @@ export default function PurpleGuideScreen() {
   const [surfLogosSuppressed, setSurfLogosSuppressed] = useState(false);
 
   const [now, setNow] = useState(() => new Date().toISOString());
-  const [group, setGroup] = useState("All");
-  const [focusedId, setFocusedId] = useState<string | null>(null);
+  const [group, setGroup] = useState(() => guideSessionGroup);
+  const [focusedId, setFocusedId] = useState<string | null>(() => guideSessionChannelId);
   const [previewId, setPreviewId] = useState<string | null>(null);
-  const [, setPreviewStatus] = useState<StreamStatus>("loading");
+  const [previewStatus, setPreviewStatus] = useState<StreamStatus>("loading");
   const [resetToken, setResetToken] = useState(0);
   const metadataTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -157,11 +165,20 @@ export default function PurpleGuideScreen() {
   // After the drawer closes on Guide, restore the last grid cell — content autoFocus
   // is intentionally skipped on /guide, so without this Left→drawer→close loses focus.
   const drawerWasOpenForFocusRef = useRef(drawerOpen);
+  const [gridReclaimToken, setGridReclaimToken] = useState(0);
   useEffect(() => {
     const wasOpen = drawerWasOpenForFocusRef.current;
     drawerWasOpenForFocusRef.current = drawerOpen;
     if (!wasOpen || drawerOpen || activeProgram) return;
-    return requestNativeFocusWithRetry(lastGuideFocusNodeRef.current, [80, 180, 300]);
+    // Reclaim immediately; the closed rail is decorative and cannot win focus.
+    const cancel = requestNativeFocusWithRetry(lastGuideFocusNodeRef.current, [0, 40, 120, 280, 480, 720]);
+    const fallback = setTimeout(() => {
+      setGridReclaimToken((value) => value + 1);
+    }, 500);
+    return () => {
+      cancel?.();
+      clearTimeout(fallback);
+    };
   }, [activeProgram, drawerOpen]);
 
   // After Remind/Cancel sheet closes, return focus to the guide cell — never Live TV.
@@ -176,16 +193,32 @@ export default function PurpleGuideScreen() {
     if (node) lastGuideFocusNodeRef.current = node;
   }, []);
 
-  // While the guide owns vertical surf, consume D-pad natively so OS focus
-  // does not race FlashList / TimelineGrid. Release while the drawer/modal owns focus.
+  const guideFocusRegionRef = useRef<"channel" | "program">("program");
+  const channelLogoNodeRef = useRef<unknown>(null);
+  const onGuideBackTarget = useCallback((region: "channel" | "program", logoNode: unknown) => {
+    guideFocusRegionRef.current = region;
+    if (logoNode) channelLogoNodeRef.current = logoNode;
+  }, []);
+
+  // Back in the guide: step to the channel logo first. Only at the left edge does
+  // Back defer to the shell double-Back drawer arm — never opens on a single press.
+  useTvBackHandler(
+    useCallback(() => {
+      if (drawerOpen || activeProgram) return false;
+      if (guideFocusRegionRef.current === "program" && channelLogoNodeRef.current) {
+        requestNativeFocus(channelLogoNodeRef.current);
+        guideFocusRegionRef.current = "channel";
+        return true;
+      }
+      return false;
+    }, [activeProgram, drawerOpen]),
+  );
+
+  // Never arm native Up/Down consumption — Android must move guide focus freely.
   useEffect(() => {
-    if (activeProgram || drawerOpen) {
-      setGuideNavigationActive(false);
-      return;
-    }
-    setGuideNavigationActive(true);
+    setGuideNavigationActive(false);
     return () => setGuideNavigationActive(false);
-  }, [activeProgram, drawerOpen]);
+  }, []);
   useEffect(() => {
     if (loading || refreshing || channels.length > 0) return;
     if (bootRetryRef.current >= 1) return;
@@ -194,9 +227,10 @@ export default function PurpleGuideScreen() {
     return () => clearTimeout(timer);
   }, [loading, refreshing, channels.length, hardRefresh]);
 
-  // Live clock for the rail only — do not rebuild the guide geometry every minute.
+  // Tick often enough for the timeline "now" indicator / progress fills without
+  // rebuilding guide geometry (TimelineGrid keeps layout independent of now).
   useEffect(() => {
-    const timer = setInterval(() => setNow(new Date().toISOString()), 5 * 60_000);
+    const timer = setInterval(() => setNow(new Date().toISOString()), 30_000);
     return () => clearInterval(timer);
   }, []);
 
@@ -231,7 +265,7 @@ export default function PurpleGuideScreen() {
 
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
 
-  const filtered = useMemo(() => {
+  const filteredMeta = useMemo(() => {
     // All: return the same channels ref so favorite toggles do not rebuild TimelineGrid geometry.
     let list: Channel[];
     if (group === "All") list = channels;
@@ -249,21 +283,54 @@ export default function PurpleGuideScreen() {
     return list.filter((c) => !channelHasEpgMatch(c));
   }, [channels, epgGuideFilter, epgManualRemaps, favoriteSet, group, recent]);
 
-  // Huge playlists: prefer matching the visible group first on the next EPG refresh.
-  useEffect(() => {
-    if (channels.length < 2500) {
-      setPriorityMatchChannelIds([]);
-      return;
-    }
-    setPriorityMatchChannelIds(filtered.slice(0, 400).map((c) => c.id));
-  }, [channels.length, filtered]);
+  // Attach programmes from the normalized map without rewriting stable channel meta refs
+  // when the programme pointer for that row is unchanged.
+  const filtered = useMemo(() => {
+    let changed = false;
+    const next = filteredMeta.map((channel) => {
+      const programs = programsByChannelId[channel.id];
+      if (!programs?.length) {
+        if (!channel.programs?.length) return channel;
+        changed = true;
+        return {
+          id: channel.id,
+          tvg_id: channel.tvg_id,
+          name: channel.name,
+          logo: channel.logo,
+          group: channel.group,
+          url: channel.url,
+          stream_type: channel.stream_type,
+        };
+      }
+      if (channel.programs === programs) return channel;
+      changed = true;
+      return { ...channel, programs };
+    });
+    return changed ? next : filteredMeta;
+  }, [filteredMeta, programsByChannelId]);
 
   const onViewportChannelIds = useCallback((ids: string[]) => {
     setViewportGuideChannelIds(ids);
-    if (channels.length >= 2500) {
+    if (channels.length >= 400) {
       setPriorityMatchChannelIds(ids.slice(0, 400));
+    } else {
+      setPriorityMatchChannelIds([]);
     }
-  }, [channels.length]);
+    void patchProgramsForChannelIds(ids);
+  }, [channels.length, patchProgramsForChannelIds]);
+
+  const viewportSeedKeyRef = useRef("");
+  // Seed only on cold load/group/reset. A silent refresh must not yank a deeply
+  // scrolled guide's EPG query scope back to the first channels.
+  useEffect(() => {
+    if (!filtered.length) return;
+    const key = `${group}:${resetToken}`;
+    if (viewportSeedKeyRef.current === key) return;
+    viewportSeedKeyRef.current = key;
+    const ids = filtered.slice(0, 24).map((c) => c.id);
+    setViewportGuideChannelIds(ids);
+    setPriorityMatchChannelIds(channels.length >= 400 ? ids : []);
+  }, [channels.length, filtered, group, resetToken]);
 
   const [remapOpen, setRemapOpen] = useState(false);
 
@@ -278,6 +345,8 @@ export default function PurpleGuideScreen() {
   // so the guide never leaves an unfocusable empty FlashList.
   useEffect(() => {
     if (!groups.includes(group)) {
+      guideSessionGroup = "All";
+      guideSessionChannelId = null;
       setGroup("All");
       setResetToken((value) => value + 1);
     }
@@ -295,8 +364,8 @@ export default function PurpleGuideScreen() {
     const focused = focusedId ? filtered.find((c) => c.id === focusedId) : null;
     if (focused) return focused;
     const last = lastChannelId ? filtered.find((c) => c.id === lastChannelId) : null;
-    return last || filtered.find((c) => c.programs?.length) || filtered[0] || null;
-  }, [filtered, focusedId, lastChannelId]);
+    return last || filtered.find((c) => (programsByChannelId[c.id] || c.programs)?.length) || filtered[0] || null;
+  }, [filtered, focusedId, lastChannelId, programsByChannelId]);
 
   const epgSourceChoices = useMemo(() => {
     type Choice = { id: string; label: string; score: number };
@@ -308,7 +377,7 @@ export default function PurpleGuideScreen() {
       if (!id) continue;
       const label = channel.name || id;
       const hay = `${label} ${id}`.toLowerCase();
-      const hasPrograms = Array.isArray(channel.programs) && channel.programs.length > 0;
+      const hasPrograms = !!(programsByChannelId[channel.id]?.length || channel.programs?.length);
       let score = hasPrograms ? 1000 : 0;
       if (focusToken && hay.includes(focusToken)) score += 200;
       if (focusName && hay.includes(focusName.slice(0, Math.min(12, focusName.length)))) score += 80;
@@ -320,7 +389,7 @@ export default function PurpleGuideScreen() {
     return Array.from(byId.values())
       .sort((a, b) => b.score - a.score || a.label.localeCompare(b.label))
       .slice(0, 200);
-  }, [channels, previewChannel?.name]);
+  }, [channels, previewChannel?.name, programsByChannelId]);
 
   const applyRemap = useCallback(
     (sourceId: string) => {
@@ -351,7 +420,8 @@ export default function PurpleGuideScreen() {
   const previewVisible =
     safePreviewMode !== "off" &&
     !!previewChannel?.url &&
-    previewId === previewChannel.id;
+    previewId === previewChannel.id &&
+    previewStatus !== "error";
 
   // delayed: longest settle; surf: off while surfing + longer arm on weak sticks; on: normal.
   const previewDelay =
@@ -393,10 +463,14 @@ export default function PurpleGuideScreen() {
       if (metadataTimer.current) clearTimeout(metadataTimer.current);
       if (previewTimer.current) clearTimeout(previewTimer.current);
       const requestedId = channel.id;
+      guideSessionChannelId = requestedId;
       const nowTs = Date.now();
       const rapid = nowTs - lastFocusAtRef.current < 240;
       lastFocusAtRef.current = nowTs;
       if (rapid) rapidSurfUntilRef.current = nowTs + powerTuning.rapidSurfHoldMs;
+      if (rapid || nowTs < rapidSurfUntilRef.current) {
+        markGuideSurfing(powerTuning.rapidSurfHoldMs);
+      }
 
       // While the user is holding/repeating directions: zero rail/preview work.
       // "surf" mode (and delayed/on) soft-clear preview while surfing — never share decoder with fullscreen path.
@@ -447,6 +521,8 @@ export default function PurpleGuideScreen() {
     if (metadataTimer.current) clearTimeout(metadataTimer.current);
     if (previewTimer.current) clearTimeout(previewTimer.current);
     groupChangedAt.current = Date.now();
+    guideSessionGroup = next;
+    guideSessionChannelId = null;
     setGroup(next);
     setFocusedId(null);
     setPreviewId(null);
@@ -468,16 +544,13 @@ export default function PurpleGuideScreen() {
     if (chip) requestNativeFocusWithRetry(chip, [0, 40, 120]);
   }, [group]);
 
-  const onGuideLeftBoundary = useCallback(() => {
-    if (drawerOpen) return;
-    openDrawer();
-  }, [drawerOpen, openDrawer]);
-
   const resetGuide = useCallback(() => {
     void Haptics.selectionAsync().catch(() => undefined);
     if (metadataTimer.current) clearTimeout(metadataTimer.current);
     if (previewTimer.current) clearTimeout(previewTimer.current);
     groupChangedAt.current = Date.now();
+    guideSessionGroup = "All";
+    guideSessionChannelId = null;
     setGroup("All");
     setFocusedId(null);
     setPreviewId(null);
@@ -592,7 +665,12 @@ export default function PurpleGuideScreen() {
           <View style={styles.body}>
             {/* No autoFocus / trapFocusUp — preferred focus is mount-once on row 0, and Up-escape
                 is gated inside the grid. Flipping traps mid-surf freezes Fire TV focus. */}
-            <FocusGuide style={styles.gridPanel} trapFocusDown trapFocusRight>
+            <FocusGuide
+              style={styles.gridPanel}
+              trapFocusDown
+              trapFocusLeft={!drawerOpen}
+              trapFocusRight
+            >
               {guideLayout === "compact" ? (
                 <BoxGrid
                   channels={filtered}
@@ -607,9 +685,10 @@ export default function PurpleGuideScreen() {
                   showChannelLogos={channelLogos && !surfLogosSuppressed}
                   reminderKeys={gridReminderKeys}
                   resetToken={resetToken}
-                  active={!activeProgram}
+                  active={!activeProgram && !drawerOpen}
+                  lockLeftEdge={!drawerOpen}
+                  restoreChannelId={guideSessionChannelId}
                   onUpBoundary={onGuideUpBoundary}
-                  onLeftBoundary={onGuideLeftBoundary}
                   onFocusedRowChange={onFocusedGuideRow}
                   onViewportChannelIds={onViewportChannelIds}
                   onGuideFocusNode={onGuideFocusNode}
@@ -632,12 +711,15 @@ export default function PurpleGuideScreen() {
                   showChannelLogos={channelLogos && !surfLogosSuppressed}
                   reminderKeys={gridReminderKeys}
                   resetToken={resetToken}
-                  active={!activeProgram}
+                  active={!activeProgram && !drawerOpen}
+                  lockLeftEdge={!drawerOpen}
+                  restoreChannelId={guideSessionChannelId}
                   onUpBoundary={onGuideUpBoundary}
-                  onLeftBoundary={onGuideLeftBoundary}
                   onFocusedRowChange={onFocusedGuideRow}
                   onGuideFocusNode={onGuideFocusNode}
                   onViewportChannelIds={onViewportChannelIds}
+                  onBackTargetChange={onGuideBackTarget}
+                  reclaimToken={gridReclaimToken}
                 />
               )}
             </FocusGuide>

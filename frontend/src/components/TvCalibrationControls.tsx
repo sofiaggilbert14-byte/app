@@ -17,10 +17,10 @@ const RED = "#E3262E";
 type Side = keyof TvCalibration;
 
 const SIDES: { side: Side; label: string; hint: string }[] = [
-  { side: "left", label: "Left edge", hint: "Move the app inward from the left side." },
-  { side: "right", label: "Right edge", hint: "Move the app inward from the right side." },
-  { side: "top", label: "Top edge", hint: "Move the app downward from the top." },
-  { side: "bottom", label: "Bottom edge", hint: "Move the app upward from the bottom edge." },
+  { side: "left", label: "Left edge", hint: "− expands left / fills more. + insets inward." },
+  { side: "right", label: "Right edge", hint: "− expands right / fills more. + insets inward." },
+  { side: "top", label: "Top edge", hint: "− expands upward / fills more. + insets downward." },
+  { side: "bottom", label: "Bottom edge", hint: "− expands downward / fills more. + insets upward." },
 ];
 
 export function TvCalibrationControls() {
@@ -72,7 +72,8 @@ export function TvCalibrationControls() {
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>TV screen fit / overscan</Text>
           <Text style={styles.hint}>
-            Adjust the edges, then choose Save & Apply. The app updates immediately without a restart.
+            Minus (−) stretches the app outward to fill the TV. Plus (+) pulls an edge inward for overscan.
+            Save & Apply updates immediately — no restart.
           </Text>
         </View>
         <Pressable
