@@ -87,7 +87,7 @@ test("guide session keeps preview, modal, refresh, and route-loop safety wiring"
   assert.match(guide, /previewId === previewChannel\.id/);
   assert.match(guide, /key=\{`purple-guide-preview-\$\{previewChannel\.id\}-\$\{previewEpoch\}`\}/);
   assert.match(guide, /if \(previewTimer\.current\) clearTimeout\(previewTimer\.current\)/);
-  assert.match(guide, /active=\{!activeProgram\}/);
+  assert.match(guide, /active=\{!activeProgram && !drawerOpen\}/);
   assert.match(guide, /refreshing=\{refreshing\}/);
   assert.match(guide, /openFullscreenPlayer/);
   assert.match(guide, /setPreviewId\(null\)/);

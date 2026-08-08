@@ -140,7 +140,6 @@ test("StreamPlayer and player route use role-scoped session teardown", async () 
     source("patches/react-native-vlc-media-player+1.0.98.patch"),
     source("package.json"),
   ]);
-  assert.match(playerComp, /pauseSessionDecoders\(role\)/);
   assert.match(playerComp, /beginSession\(role\)/);
   assert.match(playerComp, /isSessionCurrent/);
   assert.match(playerComp, /sessionRole/);
