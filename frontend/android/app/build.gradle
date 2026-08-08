@@ -147,6 +147,9 @@ android {
 
 dependencies {
     implementation("com.facebook.react:react-android")
+    // LGPL-only Media3 FFmpeg audio extension built from pinned source in CI.
+    // DefaultRenderersFactory in the Expo Video patch discovers it reflectively.
+    implementation project(':ffmpeg-audio')
 
     def isGifEnabled = (findProperty('expo.gif.enabled') ?: "") == "true";
     def isWebpEnabled = (findProperty('expo.webp.enabled') ?: "") == "true";

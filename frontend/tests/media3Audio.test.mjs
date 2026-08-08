@@ -28,3 +28,20 @@ test("Expo Video patch disables chunkless HLS prep and exposes renderer track ca
   assert.match(patch, /mimeType/);
   assert.match(patch, /isSupported/);
 });
+
+test("Android TV build includes a pinned LGPL Media3 FFmpeg audio extension", async () => {
+  const [appBuild, settings, workflow, script, nativeBuildScript, notice] = await Promise.all([
+    source("android/app/build.gradle"),
+    source("android/settings.gradle"),
+    source("../.github/workflows/purple-tv-ui.yml"),
+    source("scripts/build-media3-ffmpeg-audio.sh"),
+    source("android/ffmpeg-audio/src/main/jni/build_ffmpeg.sh"),
+    source("android/ffmpeg-audio/NOTICE.md"),
+  ]);
+  assert.match(appBuild, /implementation project\(':ffmpeg-audio'\)/);
+  assert.match(settings, /include ':ffmpeg-audio'/);
+  assert.match(workflow, /Build LGPL Media3 FFmpeg audio extension/);
+  assert.match(script, /ac3 eac3 dca truehd mlp/);
+  assert.match(nativeBuildScript, /--disable-gpl/);
+  assert.match(notice, /LGPL/i);
+});

@@ -68,6 +68,12 @@ jobs:
       - name: Install Android native toolchain
         uses: android-actions/setup-android@v3
 
+      - name: Build LGPL Media3 FFmpeg audio extension
+        run: |
+          sdkmanager --install "ndk;27.1.12297006" "cmake;3.22.1"
+          chmod +x scripts/build-media3-ffmpeg-audio.sh
+          ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/27.1.12297006" ./scripts/build-media3-ffmpeg-audio.sh
+
       - name: Install JavaScript dependencies
         run: npm install --legacy-peer-deps --no-audit --no-fund
 

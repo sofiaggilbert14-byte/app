@@ -36,4 +36,6 @@ rootProject.name = 'Charm IPTV'
 expoAutolinking.useExpoVersionCatalog()
 
 include ':app'
+include ':ffmpeg-audio'
+project(':ffmpeg-audio').projectDir = new File(rootDir, 'ffmpeg-audio')
 includeBuild(expoAutolinking.reactNativeGradlePlugin)
