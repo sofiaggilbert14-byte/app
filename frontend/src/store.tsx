@@ -2,7 +2,16 @@ import React, { createContext, startTransition, useCallback, useContext, useEffe
 import dayjs from "dayjs";
 import { storage } from "@/src/utils/storage";
 import { Channel, Program } from "@/src/api";
-import { loadGuide, refreshEpgOnly, refreshSource, setManualEpgRemaps, setPreferTvgIdOnlyMatching, subscribeSource } from "@/src/source";
+import {
+  loadGuide,
+  loadGuideProgramsForChannelIds,
+  refreshEpgOnly,
+  refreshSource,
+  setManualEpgRemaps,
+  setPreferTvgIdOnlyMatching,
+  subscribeSource,
+} from "@/src/source";
+import { isGuideSurfing, onGuideSurfSettled } from "@/src/utils/guideSurfGate";
 import { reminderKey, setTimeFormat24h } from "@/src/utils/time";
 import { sanitizeFavoriteIds, toggleFavoriteId } from "@/src/utils/favoriteIds";
 import { pushRecentId, sanitizeRecentIds } from "@/src/utils/recentIds";
@@ -93,6 +102,8 @@ export type ActiveProgram = { program: Program; channel: Channel } | null;
 
 export type Store = {
   channels: Channel[];
+  /** Normalized EPG programmes keyed by playlist channel id — patchable without remounting channels. */
+  programsByChannelId: Record<string, Program[]>;
   windowStart: string;
   windowEnd: string;
   loading: boolean;
@@ -100,6 +111,8 @@ export type Store = {
   error: string | null;
   refresh: (silent?: boolean) => Promise<void>;
   hardRefresh: () => Promise<void>;
+  /** Fetch/attach programmes for a viewport ring without a full guide rebuild. */
+  patchProgramsForChannelIds: (channelIds: string[]) => Promise<void>;
   selectedDate: string;
   setSelectedDate: (d: string) => void;
   channelById: (id: string) => Channel | undefined;
@@ -179,6 +192,7 @@ export function useStore(): Store {
 
 export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [programsByChannelId, setProgramsByChannelId] = useState<Record<string, Program[]>>({});
   const [windowStart, setWindowStart] = useState("");
   const [windowEnd, setWindowEnd] = useState("");
   const [loading, setLoading] = useState(true);
@@ -188,6 +202,9 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const dateRef = useRef(selectedDate);
   const refreshRequestRef = useRef(0);
   const refreshSilentRef = useRef<(silent?: boolean) => Promise<void>>(async () => undefined);
+  const pendingSilentRefreshRef = useRef(false);
+  const patchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const patchRequestRef = useRef(0);
 
   const [favorites, setFavorites] = useState<string[]>([]);
   const [recentIds, setRecentIds] = useState<string[]>([]);
@@ -398,7 +415,17 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     storage.setItem(SLEEP_TIMER_MINUTES_KEY, next);
   }, []);
 
-  const channelById = useCallback((id: string) => channelByIdMap.get(id), [channelByIdMap]);
+  const channelById = useCallback(
+    (id: string) => {
+      const channel = channelByIdMap.get(id);
+      if (!channel) return undefined;
+      const programs = programsByChannelId[id];
+      if (!programs?.length) return channel;
+      if (channel.programs === programs) return channel;
+      return { ...channel, programs };
+    },
+    [channelByIdMap, programsByChannelId],
+  );
 
   const isFavorite = useCallback((id: string) => favoritesSet.has(id), [favoritesSet]);
 
@@ -531,6 +558,10 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refresh = useCallback(async (silent = false) => {
+    if (silent && isGuideSurfing()) {
+      pendingSilentRefreshRef.current = true;
+      return;
+    }
     const requestId = ++refreshRequestRef.current;
     if (!silent) setLoading(true);
     setError(null);
@@ -540,25 +571,60 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       const start = isToday ? undefined : day.startOf("day").toISOString();
       const data = await loadGuide(start, guideWindowHoursRef.current);
       if (requestId !== refreshRequestRef.current) return;
-      setChannels(applyManualEpgRemaps(data.channels, epgManualRemapsRef.current));
+      // Keep channel meta stable when identity/order unchanged; always merge programmes.
+      const nextChannels = applyManualEpgRemaps(data.channels, epgManualRemapsRef.current);
+      const nextPrograms =
+        data.programsByChannelId && Object.keys(data.programsByChannelId).length
+          ? data.programsByChannelId
+          : Object.fromEntries(
+              nextChannels
+                .filter((channel) => Array.isArray(channel.programs) && channel.programs.length)
+                .map((channel) => [channel.id, channel.programs as Program[]]),
+            );
+      setProgramsByChannelId((prev) => ({ ...prev, ...nextPrograms }));
+      setChannels((prev) => {
+        if (
+          prev.length === nextChannels.length &&
+          prev.length > 0 &&
+          prev.every((channel, index) => {
+            const next = nextChannels[index];
+            return (
+              channel.id === next.id &&
+              channel.tvg_id === next.tvg_id &&
+              channel.name === next.name &&
+              channel.logo === next.logo &&
+              channel.group === next.group &&
+              channel.url === next.url
+            );
+          })
+        ) {
+          return prev;
+        }
+        // Strip nested programs from channel objects — UI reads programsByChannelId.
+        return nextChannels.map((channel) => {
+          if (!channel.programs?.length) return channel;
+          const { programs: _programs, ...meta } = channel;
+          return meta;
+        });
+      });
       setWindowStart(data.start);
       setWindowEnd(data.end);
       // Soft-remap Phase-4 / collision IDs onto the live playlist without wiping orphans.
       setFavorites((prev) => {
-        const { ids } = remapStoredChannelIds(prev, data.channels);
+        const { ids } = remapStoredChannelIds(prev, nextChannels);
         if (ids.length === prev.length && ids.every((id, i) => id === prev[i])) return prev;
         void storage.setItem(FAV_KEY, ids);
         return ids;
       });
       setRecentIds((prev) => {
-        const { ids } = remapStoredChannelIds(prev, data.channels);
+        const { ids } = remapStoredChannelIds(prev, nextChannels);
         if (ids.length === prev.length && ids.every((id, i) => id === prev[i])) return prev;
         persistRecent(ids);
         return ids;
       });
       setLastChannelId((prev) => {
         if (!prev) return prev;
-        const { ids } = remapStoredChannelIds([prev], data.channels);
+        const { ids } = remapStoredChannelIds([prev], nextChannels);
         const next = ids[0] || prev;
         if (next !== prev) void storage.setItem(LAST_CHANNEL_KEY, next);
         return next;
@@ -572,6 +638,39 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   }, [persistRecent]);
 
   refreshSilentRef.current = refresh;
+
+  const patchProgramsForChannelIds = useCallback(async (channelIds: string[]) => {
+    if (!channelIds.length) return;
+    const requestId = ++patchRequestRef.current;
+    if (patchTimerRef.current) clearTimeout(patchTimerRef.current);
+    await new Promise<void>((resolve) => {
+      patchTimerRef.current = setTimeout(() => resolve(), isGuideSurfing() ? 90 : 140);
+    });
+    if (requestId !== patchRequestRef.current) return;
+    try {
+      const day = dayjs(dateRef.current);
+      const isToday = day.isSame(dayjs(), "day");
+      const start = isToday ? undefined : day.startOf("day").toISOString();
+      const delta = await loadGuideProgramsForChannelIds(channelIds, start, guideWindowHoursRef.current);
+      if (requestId !== patchRequestRef.current) return;
+      if (!delta || !Object.keys(delta).length) return;
+      startTransition(() => {
+        setProgramsByChannelId((prev) => {
+          let changed = false;
+          const next = { ...prev };
+          for (const [id, list] of Object.entries(delta)) {
+            if (!list?.length) continue;
+            if (prev[id] === list) continue;
+            next[id] = list;
+            changed = true;
+          }
+          return changed ? next : prev;
+        });
+      });
+    } catch {
+      /* keep last-good programmes on the glass */
+    }
+  }, []);
 
   const setSelectedDate = useCallback(
     (d: string) => {
@@ -694,13 +793,24 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       if (refreshTimer) clearTimeout(refreshTimer);
       refreshTimer = setTimeout(() => {
         refreshTimer = null;
-        if (!disposed) void refresh(true);
+        if (disposed) return;
+        if (isGuideSurfing()) {
+          pendingSilentRefreshRef.current = true;
+          return;
+        }
+        void refresh(true);
       }, 500);
+    });
+    const unsubSettle = onGuideSurfSettled(() => {
+      if (disposed || !pendingSilentRefreshRef.current) return;
+      pendingSilentRefreshRef.current = false;
+      void refresh(true);
     });
     return () => {
       disposed = true;
       if (refreshTimer) clearTimeout(refreshTimer);
       unsubscribe();
+      unsubSettle();
     };
   }, [refresh]);
 
@@ -726,7 +836,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   }, [loading, refreshing]);
   useEffect(() => {
     const timer = setInterval(() => {
-      if (busyRef.current) return;
+      if (busyRef.current || isGuideSurfing()) return;
       void refresh(true);
     }, 60 * 60 * 1000);
     return () => clearInterval(timer);
@@ -753,6 +863,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const value: Store = useMemo(
     () => ({
       channels,
+      programsByChannelId,
       windowStart,
       windowEnd,
       loading,
@@ -760,6 +871,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       error,
       refresh,
       hardRefresh,
+      patchProgramsForChannelIds,
       selectedDate,
       setSelectedDate,
       channelById,
@@ -823,6 +935,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     }),
     [
       channels,
+      programsByChannelId,
       windowStart,
       windowEnd,
       loading,
@@ -830,6 +943,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       error,
       refresh,
       hardRefresh,
+      patchProgramsForChannelIds,
       selectedDate,
       setSelectedDate,
       channelById,

@@ -23,9 +23,29 @@ type NativeRefreshResult = {
   channelIdsWithPrograms?: string[];
 };
 
+export type NativePlaylistChannelRow = {
+  playlistId: string;
+  rawTvgId?: string;
+  name?: string;
+  logo?: string;
+  group?: string;
+};
+
+export type NativePlaylistEpgMatchRow = {
+  playlistId: string;
+  xmltvId?: string;
+  logoXmltvId?: string;
+  ambiguous?: boolean;
+  matchPolicy?: string;
+  manual?: boolean;
+};
+
 type CharmEpgModule = {
   refresh(url: string): Promise<NativeRefreshResult>;
   getWindow(startMs: number, endMs: number, channelIds: string[]): Promise<NativeWindow>;
+  queryGuideWindow?(startMs: number, endMs: number, playlistChannelIds: string[]): Promise<NativeWindow>;
+  upsertPlaylistChannels?(channels: NativePlaylistChannelRow[], playlistEpoch: number): Promise<boolean>;
+  upsertPlaylistEpgMatches?(matches: NativePlaylistEpgMatchRow[], guideEpoch: number): Promise<boolean>;
   getCurrent(): Promise<NativeCurrent>;
   clear(): Promise<boolean>;
 };
@@ -44,6 +64,17 @@ function toProgram(program: NativeProgramme): Program {
   };
 }
 
+function windowToPrograms(window: NativeWindow, channelIds: string[]): Record<string, Program[]> {
+  const result: Record<string, Program[]> = {};
+  for (const channelId of channelIds) {
+    if (result[channelId]) continue;
+    const programmes = window[channelId];
+    if (!programmes?.length) continue;
+    result[channelId] = programmes.map(toProgram);
+  }
+  return result;
+}
+
 export async function refreshNativeEpg(url: string): Promise<NativeRefreshResult> {
   if (!nativeModule) throw new Error("Native EPG engine is unavailable");
   return nativeModule.refresh(url);
@@ -59,15 +90,42 @@ export async function loadNativeEpgWindow(
   if (!uniqueIds.length) return {};
 
   const window = await nativeModule.getWindow(startMs, endMs, uniqueIds);
-  const result: Record<string, Program[]> = {};
+  return windowToPrograms(window, uniqueIds);
+}
 
-  for (const channelId of uniqueIds) {
-    if (result[channelId]) continue;
-    const programmes = window[channelId];
-    if (!programmes?.length) continue;
-    result[channelId] = programmes.map(toProgram);
+/** Joined guide window keyed by playlist channel id (SQL MATCH ⋈ PROGRAMMES). */
+export async function queryNativeGuideWindow(
+  playlistChannelIds: string[],
+  startMs: number,
+  endMs: number,
+): Promise<Record<string, Program[]>> {
+  if (!nativeModule) return {};
+  const uniqueIds = Array.from(new Set(playlistChannelIds.filter(Boolean)));
+  if (!uniqueIds.length) return {};
+
+  if (typeof nativeModule.queryGuideWindow === "function") {
+    const window = await nativeModule.queryGuideWindow(startMs, endMs, uniqueIds);
+    return windowToPrograms(window, uniqueIds);
   }
-  return result;
+  // Older APKs: fall back to XMLTV-keyed getWindow (caller must pass xmltv ids).
+  return loadNativeEpgWindow(uniqueIds, startMs, endMs);
+}
+
+export async function upsertNativePlaylistChannels(
+  channels: NativePlaylistChannelRow[],
+  playlistEpoch: number,
+): Promise<void> {
+  if (!nativeModule || typeof nativeModule.upsertPlaylistChannels !== "function") return;
+  if (!channels.length) return;
+  await nativeModule.upsertPlaylistChannels(channels, playlistEpoch);
+}
+
+export async function upsertNativePlaylistEpgMatches(
+  matches: NativePlaylistEpgMatchRow[],
+  guideEpoch: number,
+): Promise<void> {
+  if (!nativeModule || typeof nativeModule.upsertPlaylistEpgMatches !== "function") return;
+  await nativeModule.upsertPlaylistEpgMatches(matches, guideEpoch);
 }
 
 export async function loadNativeCurrentPrograms(): Promise<Record<string, Program>> {

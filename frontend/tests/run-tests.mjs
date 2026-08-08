@@ -5,5 +5,6 @@ import "./pr36Wiring.test.mjs";
 import "./guideTorture.test.mjs";
 import "./drawerNavigation.test.mjs";
 import "./epgMatching.test.mjs";
+import "./epgFastGuide.test.mjs";
 import "./rc1Hardening.test.mjs";
 import "./playbackSession.test.mjs";

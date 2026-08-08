@@ -45,6 +45,8 @@ test("native EPG refuses empty live swaps and filters getWindow by channel ids",
   assert.match(mod, /channelIds: ReadableArray/);
   assert.match(mod, /deleteExpired\(/);
   assert.match(bridge, /getWindow\(startMs, endMs, uniqueIds\)/);
+  assert.match(db, /queryGuideWindow/);
+  assert.match(mod, /queryGuideWindow/);
 });
 
 test("favorites are never auto-pruned on playlist load", async () => {

@@ -398,7 +398,7 @@ export function BoxGrid({
         keyExtractor={(c) => c.id}
         // Re-render visible hearts when favorites change without recreating renderItem.
         extraData={favorites}
-        drawDistance={480}
+        drawDistance={720}
         removeClippedSubviews={false}
         contentContainerStyle={{ paddingBottom: 130, paddingHorizontal: spacing.xs, paddingTop: spacing.xs }}
         ListHeaderComponent={ListHeaderComponent}

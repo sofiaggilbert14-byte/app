@@ -25,6 +25,7 @@ import { NowPlayingBar } from "@/src/components/NowPlayingBar";
 import { Channel } from "@/src/api";
 import { useStore } from "@/src/store";
 import { setPriorityMatchChannelIds, setViewportGuideChannelIds } from "@/src/source";
+import { markGuideSurfing } from "@/src/utils/guideSurfGate";
 import { getPowerProfileTuning } from "@/src/core/devicePowerProfile";
 import { channelHasEpgMatch } from "@/src/core/epgUserOverrides";
 import { fonts, radius, spacing, tvColors } from "@/src/theme";
@@ -73,12 +74,14 @@ export default function PurpleGuideScreen() {
   const { width: screenWidth } = useWindowDimensions();
   const {
     channels,
+    programsByChannelId,
     windowStart,
     windowEnd,
     loading,
     refreshing,
     error,
     hardRefresh,
+    patchProgramsForChannelIds,
     addRecent,
     openProgram,
     activeProgram,
@@ -262,7 +265,7 @@ export default function PurpleGuideScreen() {
 
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
 
-  const filtered = useMemo(() => {
+  const filteredMeta = useMemo(() => {
     // All: return the same channels ref so favorite toggles do not rebuild TimelineGrid geometry.
     let list: Channel[];
     if (group === "All") list = channels;
@@ -280,6 +283,25 @@ export default function PurpleGuideScreen() {
     return list.filter((c) => !channelHasEpgMatch(c));
   }, [channels, epgGuideFilter, epgManualRemaps, favoriteSet, group, recent]);
 
+  // Attach programmes from the normalized map without rewriting stable channel meta refs
+  // when the programme pointer for that row is unchanged.
+  const filtered = useMemo(() => {
+    let changed = false;
+    const next = filteredMeta.map((channel) => {
+      const programs = programsByChannelId[channel.id];
+      if (!programs?.length) {
+        if (!channel.programs?.length) return channel;
+        changed = true;
+        const { programs: _drop, ...meta } = channel;
+        return meta;
+      }
+      if (channel.programs === programs) return channel;
+      changed = true;
+      return { ...channel, programs };
+    });
+    return changed ? next : filteredMeta;
+  }, [filteredMeta, programsByChannelId]);
+
   const onViewportChannelIds = useCallback((ids: string[]) => {
     setViewportGuideChannelIds(ids);
     if (channels.length >= 400) {
@@ -287,7 +309,8 @@ export default function PurpleGuideScreen() {
     } else {
       setPriorityMatchChannelIds([]);
     }
-  }, [channels.length]);
+    void patchProgramsForChannelIds(ids);
+  }, [channels.length, patchProgramsForChannelIds]);
 
   const viewportSeedKeyRef = useRef("");
   // Seed only on cold load/group/reset. A silent refresh must not yank a deeply
@@ -334,8 +357,8 @@ export default function PurpleGuideScreen() {
     const focused = focusedId ? filtered.find((c) => c.id === focusedId) : null;
     if (focused) return focused;
     const last = lastChannelId ? filtered.find((c) => c.id === lastChannelId) : null;
-    return last || filtered.find((c) => c.programs?.length) || filtered[0] || null;
-  }, [filtered, focusedId, lastChannelId]);
+    return last || filtered.find((c) => (programsByChannelId[c.id] || c.programs)?.length) || filtered[0] || null;
+  }, [filtered, focusedId, lastChannelId, programsByChannelId]);
 
   const epgSourceChoices = useMemo(() => {
     type Choice = { id: string; label: string; score: number };
@@ -347,7 +370,7 @@ export default function PurpleGuideScreen() {
       if (!id) continue;
       const label = channel.name || id;
       const hay = `${label} ${id}`.toLowerCase();
-      const hasPrograms = Array.isArray(channel.programs) && channel.programs.length > 0;
+      const hasPrograms = !!(programsByChannelId[channel.id]?.length || channel.programs?.length);
       let score = hasPrograms ? 1000 : 0;
       if (focusToken && hay.includes(focusToken)) score += 200;
       if (focusName && hay.includes(focusName.slice(0, Math.min(12, focusName.length)))) score += 80;
@@ -359,7 +382,7 @@ export default function PurpleGuideScreen() {
     return Array.from(byId.values())
       .sort((a, b) => b.score - a.score || a.label.localeCompare(b.label))
       .slice(0, 200);
-  }, [channels, previewChannel?.name]);
+  }, [channels, previewChannel?.name, programsByChannelId]);
 
   const applyRemap = useCallback(
     (sourceId: string) => {
@@ -438,6 +461,9 @@ export default function PurpleGuideScreen() {
       const rapid = nowTs - lastFocusAtRef.current < 240;
       lastFocusAtRef.current = nowTs;
       if (rapid) rapidSurfUntilRef.current = nowTs + powerTuning.rapidSurfHoldMs;
+      if (rapid || nowTs < rapidSurfUntilRef.current) {
+        markGuideSurfing(powerTuning.rapidSurfHoldMs);
+      }
 
       // While the user is holding/repeating directions: zero rail/preview work.
       // "surf" mode (and delayed/on) soft-clear preview while surfing — never share decoder with fullscreen path.

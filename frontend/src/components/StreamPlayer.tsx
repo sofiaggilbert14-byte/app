@@ -39,9 +39,12 @@ const NON_CIRCUIT_REASONS = new Set<SessionFailReason>([
   "start-timeout",
   "engine-swap",
   "circuit-open",
+  "silent-audio",
   "user-stop",
   "superseded",
 ]);
+/** After Media3 reports playing, wait this long for audio tracks before VLC swap. */
+const SILENT_AUDIO_GRACE_MS = 2200;
 
 function pruneFailureMap(now = Date.now()) {
   for (const [key, state] of failureStateByKey) {
@@ -513,6 +516,47 @@ function ExpoStream({
     return () => sub.remove();
   }, [blocked, emit, engine, player, sessionGeneration, sessionRole, setBlocked, uri]);
 
+  // Media3 can paint video while failing to expose/decode audio (AC-3 etc.).
+  // If no audio track appears after a short grace, soft-fail so StreamPlayer swaps to VLC.
+  useEffect(() => {
+    if (blocked || mode === "preview") return;
+    let cancelled = false;
+    let sawAudio = false;
+    const markAudio = () => {
+      try {
+        const tracks = (player as { availableAudioTracks?: unknown[] }).availableAudioTracks;
+        if (Array.isArray(tracks) && tracks.length > 0) sawAudio = true;
+        const selected = (player as { audioTrack?: unknown }).audioTrack;
+        if (selected) sawAudio = true;
+      } catch {
+        /* older expo-video builds */
+      }
+    };
+    markAudio();
+    let trackSub: { remove: () => void } | null = null;
+    try {
+      trackSub = player.addListener("availableAudioTracksChange", () => {
+        markAudio();
+      }) as { remove: () => void };
+    } catch {
+      trackSub = null;
+    }
+    const timer = setTimeout(() => {
+      if (cancelled || !mountedRef.current || tearingDownRef.current) return;
+      if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
+      markAudio();
+      if (sawAudio) return;
+      emit("error", "silent-audio");
+    }, SILENT_AUDIO_GRACE_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      try {
+        trackSub?.remove();
+      } catch {}
+    };
+  }, [blocked, emit, mode, player, sessionGeneration, sessionRole, uri]);
+
   if (blocked) return null;
 
   return (
@@ -616,15 +660,17 @@ export function StreamPlayer({
         setStatus("playing");
         return;
       }
-      // One alternate-engine attempt handles HLS/codec differences between
-      // Media3 and VLC for both preview and fullscreen.
+      // One alternate-engine attempt handles HLS/codec differences / silent audio
+      // between Media3 and VLC for both preview and fullscreen.
       if (status === "error" && !forceVlc && !fallbackUsed) {
         const alternate = alternateEngine(engine, vlcAvailable);
         if (alternate) {
           setFallbackUsed(true);
           setEngine(alternate);
-          setSessionPhase(role, sessionGeneration, "recovering", "engine-swap");
-          setStatus("loading", "engine-swap");
+          const swapReason: SessionFailReason =
+            reason === "silent-audio" ? "silent-audio" : "engine-swap";
+          setSessionPhase(role, sessionGeneration, "recovering", swapReason);
+          setStatus("loading", swapReason);
           return;
         }
       }

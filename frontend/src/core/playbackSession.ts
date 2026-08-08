@@ -17,6 +17,7 @@ export type SessionFailReason =
   | "engine-swap"
   | "circuit-open"
   | "stream-error"
+  | "silent-audio"
   | "user-stop"
   | "superseded"
   | "crashed";

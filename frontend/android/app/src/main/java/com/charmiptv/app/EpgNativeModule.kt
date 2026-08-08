@@ -7,7 +7,9 @@ import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.ReadableArray
+import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.WritableArray
+import com.facebook.react.bridge.WritableMap
 import org.xmlpull.v1.XmlPullParser
 import java.io.BufferedInputStream
 import java.io.FilterInputStream
@@ -56,8 +58,20 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         database.replaceBatches(batches)
 
         // Soft guide epoch — independent of playlist last-good (no joint snapshot).
-        // Aliases are not mirrored to JS — matching stays in JS indexes from this payload
-        // (avoids unused SQLite alias churn every refresh).
+        // Persist aliases for SQL joins / future native rematch; JS still owns match policy.
+        val aliases = ArrayList<Triple<String, String, String>>(channelNames.size + channelIdsWithPrograms.size)
+        for ((channelId, displayName) in channelNames) {
+          aliases.add(Triple(channelId, "display_name", displayName))
+          aliases.add(Triple(channelId, "xmltv_id", channelId))
+        }
+        for (channelId in channelIdsWithPrograms) {
+          aliases.add(Triple(channelId, "has_programs", channelId))
+          if (!channelNames.containsKey(channelId)) {
+            aliases.add(Triple(channelId, "xmltv_id", channelId))
+          }
+        }
+        database.replaceChannelAliases(aliases)
+
         val guideEpoch = (database.getMeta("guide_epoch")?.toLongOrNull() ?: 0L) + 1L
         database.setMeta("guide_epoch", guideEpoch.toString())
         database.setMeta("guide_refreshed_at", now.toString())
@@ -111,18 +125,90 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
           if (!id.isNullOrEmpty()) ids.add(id)
         }
         val programmes = database.queryWindow(start, end, ids)
-        val grouped = Arguments.createMap()
-        val channelArrays = HashMap<String, WritableArray>()
-        for (program in programmes) {
-          val array = channelArrays.getOrPut(program.channelId) { Arguments.createArray() }
-          array.pushMap(programToMap(program))
-        }
-        for ((channelId, array) in channelArrays) {
-          grouped.putArray(channelId, array)
-        }
-        promise.resolve(grouped)
+        promise.resolve(groupPrograms(programmes))
       } catch (t: Throwable) {
         promise.reject("EPG_WINDOW_FAILED", t.message ?: "Could not read native EPG window", t)
+      }
+    }
+  }
+
+  /**
+   * Fast path for the TV guide: JOIN playlist_epg_matches → epg_programmes and
+   * return programmes keyed by playlist channel id (not XMLTV id).
+   */
+  @ReactMethod
+  fun queryGuideWindow(startMs: Double, endMs: Double, playlistChannelIds: ReadableArray, promise: Promise) {
+    queryExecutor.execute {
+      try {
+        val start = startMs.toLong()
+        val end = endMs.toLong()
+        if (end <= start || end - start > MAX_QUERY_WINDOW_MS) {
+          throw IllegalArgumentException("Invalid EPG query window")
+        }
+        val ids = ArrayList<String>(playlistChannelIds.size())
+        for (i in 0 until playlistChannelIds.size()) {
+          val id = playlistChannelIds.getString(i)?.trim()
+          if (!id.isNullOrEmpty()) ids.add(id)
+        }
+        val programmes = database.queryGuideWindow(start, end, ids)
+        promise.resolve(groupPrograms(programmes))
+      } catch (t: Throwable) {
+        promise.reject("EPG_GUIDE_WINDOW_FAILED", t.message ?: "Could not read joined EPG window", t)
+      }
+    }
+  }
+
+  @ReactMethod
+  fun upsertPlaylistChannels(channels: ReadableArray, playlistEpoch: Double, promise: Promise) {
+    refreshExecutor.execute {
+      try {
+        val rows = ArrayList<PlaylistChannelRow>(channels.size())
+        for (i in 0 until channels.size()) {
+          val map = channels.getMap(i) ?: continue
+          val playlistId = map.getString("playlistId")?.trim().orEmpty()
+          if (playlistId.isEmpty()) continue
+          rows.add(
+            PlaylistChannelRow(
+              playlistId = playlistId,
+              rawTvgId = map.getString("rawTvgId")?.trim().orEmpty(),
+              name = map.getString("name")?.trim().orEmpty(),
+              logo = map.getString("logo")?.trim().orEmpty(),
+              groupTitle = map.getString("group")?.trim().orEmpty(),
+            )
+          )
+        }
+        database.replacePlaylistChannels(rows, playlistEpoch.toLong())
+        promise.resolve(true)
+      } catch (t: Throwable) {
+        promise.reject("EPG_PLAYLIST_UPSERT_FAILED", t.message ?: "Could not upsert playlist channels", t)
+      }
+    }
+  }
+
+  @ReactMethod
+  fun upsertPlaylistEpgMatches(matches: ReadableArray, guideEpoch: Double, promise: Promise) {
+    refreshExecutor.execute {
+      try {
+        val rows = ArrayList<PlaylistEpgMatchRow>(matches.size())
+        for (i in 0 until matches.size()) {
+          val map = matches.getMap(i) ?: continue
+          val playlistId = map.getString("playlistId")?.trim().orEmpty()
+          if (playlistId.isEmpty()) continue
+          rows.add(
+            PlaylistEpgMatchRow(
+              playlistId = playlistId,
+              xmltvId = map.getString("xmltvId")?.trim().orEmpty(),
+              logoXmltvId = map.getString("logoXmltvId")?.trim().orEmpty(),
+              ambiguous = if (map.hasKey("ambiguous")) map.getBoolean("ambiguous") else false,
+              matchPolicy = map.getString("matchPolicy")?.trim().orEmpty().ifEmpty { "full" },
+              manual = if (map.hasKey("manual")) map.getBoolean("manual") else false,
+            )
+          )
+        }
+        database.replacePlaylistEpgMatches(rows, guideEpoch.toLong())
+        promise.resolve(true)
+      } catch (t: Throwable) {
+        promise.reject("EPG_MATCH_UPSERT_FAILED", t.message ?: "Could not upsert EPG matches", t)
       }
     }
   }
@@ -191,6 +277,19 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     else putNull("category")
     putDouble("startMs", program.startMs.toDouble())
     putDouble("endMs", program.endMs.toDouble())
+  }
+
+  private fun groupPrograms(programmes: List<NativeEpgProgram>): WritableMap {
+    val grouped = Arguments.createMap()
+    val channelArrays = HashMap<String, WritableArray>()
+    for (program in programmes) {
+      val array = channelArrays.getOrPut(program.channelId) { Arguments.createArray() }
+      array.pushMap(programToMap(program))
+    }
+    for ((channelId, array) in channelArrays) {
+      grouped.putArray(channelId, array)
+    }
+    return grouped
   }
 
   private fun streamProgramBatches(

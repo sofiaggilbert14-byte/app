@@ -38,6 +38,7 @@ const FAIL_REASON_LABEL: Record<SessionFailReason, string> = {
   "engine-swap": "switched playback engine",
   "circuit-open": "temporarily paused after repeated failures",
   "stream-error": "stream error",
+  "silent-audio": "no audio on Media3 — switching to VLC",
   "user-stop": "stopped",
   superseded: "replaced",
   crashed: "player crash",
