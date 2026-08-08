@@ -282,6 +282,8 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
         const nextLogo = xmltvLogo || channel.logo || "";
         const nextGuideId = sourceId || channel.tvg_id;
 
+        // Preserve object identity when EPG match did not change logo/tvg_id —
+        // avoids rewriting unchanged channel rows through React/store churn.
         if (nextLogo === channel.logo && nextGuideId === channel.tvg_id) return channel;
         return { ...channel, tvg_id: nextGuideId, logo: nextLogo };
       });

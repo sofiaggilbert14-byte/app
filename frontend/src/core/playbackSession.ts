@@ -132,6 +132,9 @@ export function stopSession(
 /** Invoke stop callbacks without bumping generation (rapid-scan pause). */
 export function pauseSessionDecoders(role: SessionRole): void {
   invokeStops(role);
+  // Drop registrations after invoke so a paused-but-still-mounted caller cannot
+  // double-fire stale stops; remount/registerSessionStop re-arms cleanly.
+  roles[role].stops.clear();
 }
 
 /** Guide → player handoff: kill preview only so fullscreen can allocate safely. */

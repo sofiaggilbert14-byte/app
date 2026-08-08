@@ -27,6 +27,7 @@ import { useStore } from "@/src/store";
 import { fonts, radius, spacing, tvColors } from "@/src/theme";
 import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
 import { requestNativeFocus, requestNativeFocusWithRetry } from "@/src/utils/tvFocus";
+import { setGuideNavigationActive } from "@/src/utils/tvRemote";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 import { MODAL_FOCUS_RETRY_DELAYS_MS } from "@/src/core/guideRegressionPolicy";
 
@@ -161,7 +162,16 @@ export default function PurpleGuideScreen() {
     if (node) lastGuideFocusNodeRef.current = node;
   }, []);
 
-  // One deferred recovery only — stacked hardRefresh on boot freezes focus on weak TVs.
+  // While the guide owns vertical surf, consume D-pad natively so OS focus
+  // does not race FlashList / TimelineGrid.
+  useEffect(() => {
+    if (activeProgram) {
+      setGuideNavigationActive(false);
+      return;
+    }
+    setGuideNavigationActive(true);
+    return () => setGuideNavigationActive(false);
+  }, [activeProgram]);
   useEffect(() => {
     if (loading || refreshing || channels.length > 0) return;
     if (bootRetryRef.current >= 1) return;
@@ -531,7 +541,26 @@ export default function PurpleGuideScreen() {
             <View style={[styles.detailsPanel, { width: detailsRailWidth }]}>
               <View style={styles.preview} pointerEvents="none">
                 {previewVisible && previewChannel ? (
-                  <ErrorBoundary fallback={() => null}>
+                  <ErrorBoundary
+                    onError={() => {
+                      // Soft remount — keep grid focus (preview is pointerEvents none).
+                      setTimeout(() => {
+                        setPreviewStatus("loading");
+                        setPreviewEpoch((value) => value + 1);
+                      }, 700);
+                    }}
+                    fallback={() => (
+                      <View style={styles.previewFallback}>
+                        <ChannelLogo
+                          name={previewChannel.name}
+                          logo={previewChannel.logo}
+                          disabled={!channelLogos}
+                          size={46}
+                        />
+                        <Text style={styles.previewRetryHint}>Preview recovering…</Text>
+                      </View>
+                    )}
+                  >
                     <StreamPlayer
                       key={`purple-guide-preview-${previewChannel.id}-${previewEpoch}`}
                       uri={previewChannel.url}
@@ -618,7 +647,8 @@ const styles = StyleSheet.create({
   gridPanel: { flex: 1, minWidth: 0, overflow: "hidden", backgroundColor: tvColors.canvasRaised, borderWidth: 1, borderColor: tvColors.line, borderRadius: radius.sm },
   detailsPanel: { flexShrink: 0, backgroundColor: tvColors.panel, borderRadius: radius.sm, borderWidth: 1, borderColor: tvColors.line, overflow: "hidden" },
   preview: { width: "100%", aspectRatio: 16 / 9, flexShrink: 0, backgroundColor: "#05050B", overflow: "hidden" },
-  previewFallback: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: tvColors.purpleDeep },
+  previewFallback: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: tvColors.purpleDeep, gap: 8 },
+  previewRetryHint: { color: tvColors.textMuted, fontFamily: fonts.regular, fontSize: 9 },
   liveTag: { position: "absolute", left: 6, bottom: 6, backgroundColor: "rgba(124,58,237,0.92)", borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2 },
   liveTagText: { color: "#fff", fontFamily: fonts.bold, fontSize: 6 },
   detailsCopy: { flex: 1, minHeight: 0, padding: 8 },

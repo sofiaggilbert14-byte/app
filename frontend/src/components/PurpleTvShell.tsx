@@ -51,11 +51,11 @@ type FooterAction = {
 const NAV: NavItem[] = [
   { route: "/", label: "Live TV", icon: "tv-outline" },
   { route: "/guide", label: "TV Guide", icon: "calendar-outline" },
+  { route: "/favorites", label: "Favorites", icon: "heart-outline" },
   { route: "/channels", label: "Channels", icon: "list-outline" },
   { route: "/movies", label: "Movies", icon: "film-outline" },
   { route: "/series", label: "Series", icon: "albums-outline" },
   { route: "/catchup", label: "Catch Up", icon: "time-outline" },
-  { route: "/favorites", label: "Favorites", icon: "heart-outline" },
   { route: "/search", label: "Search", icon: "search-outline" },
   { route: "/settings", label: "Settings", icon: "settings-outline" },
 ];
@@ -189,12 +189,15 @@ export function PurpleTvShell({
           openDrawer();
           return true;
         }
-        // keep-drawer-open
-        reopenArmedAtRef.current = 0;
+        if (decision === "close-drawer") {
+          reopenArmedAtRef.current = 0;
+          closeDrawer();
+          return true;
+        }
         return true;
       });
       return () => sub.remove();
-    }, [activeProgram, drawerOpen, openDrawer]),
+    }, [activeProgram, closeDrawer, drawerOpen, openDrawer]),
   );
 
   const navigate = useCallback(
@@ -251,27 +254,6 @@ export function PurpleTvShell({
           >
             <Ionicons name="menu-outline" size={16} color={tvColors.purpleSoft} />
           </Pressable>
-          {NAV.slice(0, 6).map((item) => {
-            const selected = item.route === active;
-            return (
-              <Pressable
-                key={`peek-${item.route}`}
-                onPress={() => navigate(item.route)}
-                style={({ focused }: any) => [
-                  styles.railPeekHit,
-                  selected && styles.navRowSelected,
-                  focused && styles.navRowFocused,
-                ]}
-                testID={`purple-rail-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
-              >
-                <Ionicons
-                  name={selected ? (item.icon.replace("-outline", "") as any) : item.icon}
-                  size={15}
-                  color={selected ? "#fff" : tvColors.textMuted}
-                />
-              </Pressable>
-            );
-          })}
         </FocusGuide>
       ) : null}
 
@@ -308,6 +290,7 @@ export function PurpleTvShell({
                 style={({ focused }: any) => [
                   styles.navRow,
                   selected && styles.navRowSelected,
+                  selected && styles.navRowActiveMark,
                   focused && styles.navRowFocused,
                 ]}
                 testID={`purple-nav-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
@@ -471,6 +454,11 @@ const styles = StyleSheet.create({
   },
   navRowSelected: {
     backgroundColor: tvColors.purple,
+  },
+  navRowActiveMark: {
+    borderLeftWidth: 3,
+    borderLeftColor: tvColors.purpleBright,
+    paddingLeft: 6,
   },
   navRowFocused: {
     borderColor: "#fff",

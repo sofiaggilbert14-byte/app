@@ -7,6 +7,7 @@ type Props = {
   // Optional custom fallback; receives a reset() to try re-rendering children.
   fallback?: (reset: () => void) => React.ReactNode;
   onReset?: () => void;
+  onError?: (error: unknown) => void;
 };
 
 type State = { hasError: boolean; message: string | null };
@@ -23,6 +24,11 @@ export class ErrorBoundary extends React.Component<Props, State> {
 
   componentDidCatch(error: unknown) {
     console.warn("[ErrorBoundary] caught", error);
+    try {
+      this.props.onError?.(error);
+    } catch {
+      /* ignore listener failures */
+    }
   }
 
   reset = () => {

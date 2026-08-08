@@ -38,9 +38,11 @@ test("native EPG refuses empty live swaps and filters getWindow by channel ids",
   ]);
   assert.match(db, /Refusing to replace live EPG with an empty feed/);
   assert.match(db, /channelIds\.chunked\(IN_CLAUSE_CHUNK\)/);
+  assert.match(db, /fun deleteExpired/);
   assert.match(mod, /resolveProgrammeStop/);
   assert.match(mod, /DEFAULT_PROGRAMME_DURATION_MS/);
   assert.match(mod, /channelIds: ReadableArray/);
+  assert.match(mod, /deleteExpired\(/);
   assert.match(bridge, /getWindow\(startMs, endMs, uniqueIds\)/);
 });
 

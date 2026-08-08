@@ -30,15 +30,24 @@ import {
 export type StreamStatus = "loading" | "playing" | "error";
 
 const FAILURE_WINDOW_MS = 60_000;
-const MAX_FAILURES_PER_WINDOW = 5;
-/** Fullscreen-only cooldown. Preview must never poison fullscreen for 60s. */
-const CIRCUIT_COOLDOWN_MS = 45_000;
+const MAX_FAILURES_PER_WINDOW = 6;
+/** Fullscreen-only cooldown. Preview must never poison fullscreen. */
+const CIRCUIT_COOLDOWN_MS = 30_000;
 const FULLSCREEN_START_TIMEOUT_MS = 12_000;
 const PREVIEW_START_TIMEOUT_MS = 8_000;
 
 type FailureState = { failures: number[]; blockedUntil: number };
 const failureStateByKey = new Map<string, FailureState>();
 const MAX_FAILURE_KEYS = 64;
+
+/** Reasons that are expected during zap/recover — do not open the circuit. */
+const NON_CIRCUIT_REASONS = new Set<SessionFailReason>([
+  "start-timeout",
+  "engine-swap",
+  "circuit-open",
+  "user-stop",
+  "superseded",
+]);
 
 function pruneFailureMap(now = Date.now()) {
   for (const [key, state] of failureStateByKey) {
@@ -64,11 +73,13 @@ function failureKey(role: SessionRole, engine: Engine, uri: string): string {
 function getFailureState(role: SessionRole, engine: Engine, uri: string): FailureState {
   const key = failureKey(role, engine, uri);
   const now = Date.now();
-  const state = failureStateByKey.get(key) || { failures: [], blockedUntil: 0 };
-  state.failures = state.failures.filter((ts) => now - ts <= FAILURE_WINDOW_MS);
-  if (state.blockedUntil <= now && state.failures.length < MAX_FAILURES_PER_WINDOW) state.blockedUntil = 0;
-  failureStateByKey.set(key, state);
-  return state;
+  const existing = failureStateByKey.get(key);
+  if (!existing) return { failures: [], blockedUntil: 0 };
+  existing.failures = existing.failures.filter((ts) => now - ts <= FAILURE_WINDOW_MS);
+  if (existing.blockedUntil <= now && existing.failures.length < MAX_FAILURES_PER_WINDOW) {
+    existing.blockedUntil = 0;
+  }
+  return existing;
 }
 
 function circuitRemainingMs(role: SessionRole, engine: Engine, uri: string): number {
@@ -80,9 +91,15 @@ function isCircuitOpen(role: SessionRole, engine: Engine, uri: string): boolean 
   return circuitRemainingMs(role, engine, uri) > 0;
 }
 
-function recordFailure(role: SessionRole, engine: Engine, uri: string): void {
+function recordFailure(
+  role: SessionRole,
+  engine: Engine,
+  uri: string,
+  reason?: SessionFailReason | null,
+): void {
   // Preview is best-effort — never open a circuit that blocks later fullscreen play.
   if (!uri || role === "preview") return;
+  if (reason && NON_CIRCUIT_REASONS.has(reason)) return;
   const now = Date.now();
   const key = failureKey(role, engine, uri);
   const state = getFailureState(role, engine, uri);
@@ -99,6 +116,20 @@ function recordStablePlayback(role: SessionRole, engine: Engine, uri: string): v
   state.failures = state.failures.slice(-2);
   state.blockedUntil = 0;
   failureStateByKey.set(key, state);
+}
+
+/** Explicit Retry / user recover — clear fullscreen circuit entries for this URI. */
+export function clearFullscreenCircuit(uri?: string): void {
+  if (!uri) {
+    for (const key of Array.from(failureStateByKey.keys())) {
+      if (key.startsWith("fullscreen:")) failureStateByKey.delete(key);
+    }
+    return;
+  }
+  const needle = `:${uri}`;
+  for (const key of Array.from(failureStateByKey.keys())) {
+    if (key.startsWith("fullscreen:") && key.endsWith(needle)) failureStateByKey.delete(key);
+  }
 }
 
 function useStatusTracker(
@@ -258,7 +289,7 @@ function VlcStream({
   const fail = useCallback(() => {
     if (tearingDownRef.current || !activeRef.current) return;
     if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
-    recordFailure(sessionRole, engine, uri);
+    recordFailure(sessionRole, engine, uri, "stream-error");
     if (isCircuitOpen(sessionRole, engine, uri)) {
       setBlocked(true);
       emit("loading", "circuit-open");
@@ -323,7 +354,7 @@ function ExpoStream({
       player.bufferOptions =
         mode === "preview"
           ? { preferredForwardBufferDuration: 0.6, maxBufferBytes: 6 * 1024 * 1024 }
-          : { preferredForwardBufferDuration: 2, maxBufferBytes: 48 * 1024 * 1024 };
+          : { preferredForwardBufferDuration: 2, maxBufferBytes: 32 * 1024 * 1024 };
     } catch {
       /* older native builds may ignore bufferOptions */
     }
@@ -380,7 +411,7 @@ function ExpoStream({
           !tearingDownRef.current &&
           isSessionCurrent(sessionRole, sessionGeneration)
         ) {
-          recordFailure(sessionRole, engine, uri);
+          recordFailure(sessionRole, engine, uri, "stream-error");
           if (isCircuitOpen(sessionRole, engine, uri)) {
             setBlocked(true);
             emit("loading", "circuit-open");
@@ -413,7 +444,7 @@ function ExpoStream({
       } else if (status === "loading") {
         emit("loading");
       } else if (error || status === "error") {
-        recordFailure(sessionRole, engine, uri);
+        recordFailure(sessionRole, engine, uri, "stream-error");
         if (isCircuitOpen(sessionRole, engine, uri)) {
           setBlocked(true);
           emit("loading", "circuit-open");
@@ -444,7 +475,8 @@ export function StreamPlayer({ uri, onStatus, style, mode, sessionRole }: Props)
   const isGuidePreview = pathname === "/guide";
   const playbackMode = mode ?? (isGuidePreview ? "preview" : "full");
   const role: SessionRole = sessionRole ?? (playbackMode === "preview" ? "preview" : "fullscreen");
-  const pauseOnRapidScan = role === "preview" || pathname === "/player";
+  // Player route owns zap/strip pause itself — avoid dual rapid-scan controllers.
+  const pauseOnRapidScan = role === "preview";
   const [playerEnginePreference] = usePlayerEnginePreference();
   const forceVlc = playerEnginePreference === "vlc" && vlcAvailable && role !== "preview";
   const [guideScanSettled, setGuideScanSettled] = useState(true);

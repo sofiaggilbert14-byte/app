@@ -30,7 +30,7 @@ test("closed-drawer Back arms reopen; second Back within the window opens", () =
     }),
     "arm-reopen",
   );
-  assert.equal(evaluateDrawerBack({ drawerOpen: true, blockingOverlayOpen: false }), "keep-drawer-open");
+  assert.equal(evaluateDrawerBack({ drawerOpen: true, blockingOverlayOpen: false }), "close-drawer");
   assert.equal(evaluateDrawerBack({ drawerOpen: false, blockingOverlayOpen: true }), "pass-through");
 });
 
@@ -48,10 +48,13 @@ test("drawer uses bounded native motion and excludes hidden controls from TV foc
   // Guide owns preferred focus — content autoFocus must not pulse when drawer closes on /guide.
   assert.match(shell, /active !== "\/guide"/);
   assert.match(shell, /evaluateDrawerBack/);
-  assert.match(shell, /arm-reopen/);
+  assert.match(shell, /close-drawer/);
+  assert.match(shell, /closeDrawer\(\)/);
   assert.match(shell, /PURPLE_RAIL_PEEK_WIDTH/);
   assert.match(shell, /onLongPress=\{exit\}/);
   assert.match(shell, /Hold Exit/);
+  assert.match(shell, /purple-rail-open-drawer/);
+  assert.doesNotMatch(shell, /NAV\.slice\(0,\s*6\)/);
   assert.doesNotMatch(shell, /useNativeDriver: false/);
   assert.doesNotMatch(shell, /AsyncStorage|refreshSource|clearGuideCache|SQLite|database/i);
   assert.match(layout, /<PurpleTvDrawerProvider>/);
@@ -69,7 +72,8 @@ test("guide tabs reclaim the left edge and top-row Up restores the active tab", 
   assert.match(guide, /openFullscreenPlayer/);
   assert.match(guide, /drawerWasOpenForFocusRef/);
   assert.match(guide, /requestNativeFocusWithRetry\(lastGuideFocusNodeRef\.current, \[80, 180, 300\]\)/);
-  assert.match(guide, /NowPlayingBar/);
+  assert.match(guide, /setGuideNavigationActive/);
+  assert.match(guide, /Preview recovering/);
   assert.match(guide, /setPreviewId\(null\)/);
 });
 

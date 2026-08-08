@@ -53,6 +53,9 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
           channelIdsWithPrograms,
         )
         database.replaceBatches(batches)
+        // Drop programmes that ended well before the retained history window so
+        // LIVE does not accumulate forever across partial refreshes.
+        database.deleteExpired(now - GUIDE_HISTORY_MS)
         rebuildCurrentCache(now)
 
         val logos = Arguments.createMap()

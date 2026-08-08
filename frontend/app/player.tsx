@@ -18,7 +18,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { ErrorBoundary } from "@/src/components/ErrorBoundary";
-import { StreamPlayer, StreamStatus, vlcAvailable } from "@/src/components/StreamPlayer";
+import { StreamPlayer, StreamStatus, vlcAvailable, clearFullscreenCircuit } from "@/src/components/StreamPlayer";
 import { useStore } from "@/src/store";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { addTvKeyListener } from "@/src/utils/tvRemote";
@@ -235,7 +235,16 @@ export default function PlayerScreen() {
       ? Math.max(CHANNEL_PREVIEW_DELAY_MS, CHANNEL_ZAP_SETTLE_MS)
       : CHANNEL_PREVIEW_DELAY_MS;
     previewTimer.current = setTimeout(() => {
-      if (Date.now() < rapidStripUntilRef.current) return;
+      const remaining = rapidStripUntilRef.current - Date.now();
+      if (remaining > 0) {
+        // Still in a held-strip burst — reschedule instead of abandoning the arm.
+        previewTimer.current = setTimeout(() => {
+          if (pendingChannelIdRef.current !== id) return;
+          if (Date.now() < rapidStripUntilRef.current) return;
+          armDecoderAfterSettle(40);
+        }, remaining + 40);
+        return;
+      }
       if (pendingChannelIdRef.current !== id) return;
       armDecoderAfterSettle(40);
     }, delay);
@@ -258,6 +267,7 @@ export default function PlayerScreen() {
     if (retryTimer.current) clearTimeout(retryTimer.current);
     if (zapTimer.current) clearTimeout(zapTimer.current);
     const generation = generationRef.current;
+    clearFullscreenCircuit(channel?.url);
     pauseSessionDecoders("fullscreen");
     setDecoderArmed(true);
     setStatus("loading");
@@ -267,7 +277,7 @@ export default function PlayerScreen() {
     requestAnimationFrame(() => {
       if (generation === generationRef.current) setRetryToken((value) => value + 1);
     });
-  }, [channel?.name, hasStream, showNotice]);
+  }, [channel?.name, channel?.url, hasStream, showNotice]);
 
   useEffect(() => {
     controlsRef.current = controls;

@@ -66,6 +66,9 @@ test("pauseSessionDecoders does not invalidate generation", () => {
   pauseSessionDecoders("preview");
   assert.equal(stops, 1);
   assert.equal(isSessionCurrent("preview", gen), true);
+  // Stops are cleared after pause so a remount must re-register.
+  pauseSessionDecoders("preview");
+  assert.equal(stops, 1);
 });
 
 test("fullscreen stop does not tear down a later preview session", () => {
@@ -127,9 +130,11 @@ test("StreamPlayer and player route use role-scoped session teardown", async () 
   assert.match(playerComp, /sessionRole/);
   assert.match(playerComp, /role === "preview"/);
   assert.match(playerComp, /rapidBurstRef\.current >= 2/);
+  assert.match(playerComp, /clearFullscreenCircuit/);
   assert.doesNotMatch(playerComp, /forceStopAllStreams\(\)/);
   assert.match(playerRoute, /pauseSessionDecoders\("fullscreen"\)/);
   assert.match(playerRoute, /stopFullscreenSession/);
   assert.match(playerRoute, /sessionRole="fullscreen"/);
+  assert.match(playerRoute, /clearFullscreenCircuit/);
   assert.match(lifecycle, /playbackSession/);
 });

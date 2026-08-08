@@ -2,10 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { sanitizeFavoriteIds, toggleFavoriteId, MAX_FAVORITES } from "../src/utils/favoriteIds.ts";
 import { sanitizeRecentIds, pushRecentId, MAX_RECENT } from "../src/utils/recentIds.ts";
+import { sanitizeReminders, MAX_REMINDERS } from "../src/utils/reminderIds.ts";
+import { remapStoredChannelIds } from "../src/utils/channelIdentityMigrate.ts";
 import { resolveFavoritesBackup, serializeFavoritesBackup } from "../src/core/favoritesBackupCore.ts";
 
 const channel = (id, tvgId, name, url = `https://stream.example/${id}`) => ({
-  id, tvg_id: tvgId, name, url, logo: "", group: "", stream_type: "unknown", programs: [],
+  id, tvg_id: tvgId, name, logo: "", group: "", url, stream_type: "unknown", programs: [],
 });
 
 test("favorite migration keeps bounded unique ID strings only", () => {
@@ -37,6 +39,30 @@ test("recent push keeps newest first and capped", () => {
   for (let i = 0; i < MAX_RECENT + 3; i += 1) ids = pushRecentId(ids, `id-${i}`);
   assert.equal(ids.length, MAX_RECENT);
   assert.equal(ids[0], `id-${MAX_RECENT + 2}`);
+});
+
+test("reminders drop expired rows and stay capped", () => {
+  const now = Date.parse("2026-08-08T12:00:00.000Z");
+  const rows = sanitizeReminders([
+    { key: "old", channelId: "a", start: "2026-08-08T08:00:00.000Z", stop: "2026-08-08T09:00:00.000Z" },
+    { key: "live", channelId: "b", start: "2026-08-08T11:30:00.000Z", stop: "2026-08-08T12:30:00.000Z" },
+    { key: "soon", channelId: "c", start: "2026-08-08T13:00:00.000Z", stop: "2026-08-08T14:00:00.000Z" },
+  ], now);
+  assert.deepEqual(rows.map((row) => row.key), ["live", "soon"]);
+  const many = Array.from({ length: MAX_REMINDERS + 5 }, (_, i) => ({
+    key: `k${i}`,
+    channelId: `c${i}`,
+    start: new Date(now + i * 60_000).toISOString(),
+    stop: new Date(now + (i + 60) * 60_000).toISOString(),
+  }));
+  assert.equal(sanitizeReminders(many, now).length, MAX_REMINDERS);
+});
+
+test("stored channel ids remap through unique tvg-id without wiping orphans", () => {
+  const channels = [channel("news.1~abc", "news.1", "News One"), channel("sports.1", "sports.1", "Sports")];
+  const { ids, remapped } = remapStoredChannelIds(["news.1#2", "sports.1", "missing-orphan"], channels);
+  assert.equal(remapped, 1);
+  assert.deepEqual(ids, ["news.1~abc", "sports.1", "missing-orphan"]);
 });
 
 test("backup never serializes stream URLs and restores by exact identity", () => {

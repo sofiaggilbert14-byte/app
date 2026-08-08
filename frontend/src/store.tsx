@@ -6,6 +6,8 @@ import { loadGuide, refreshSource, subscribeSource } from "@/src/source";
 import { reminderKey } from "@/src/utils/time";
 import { sanitizeFavoriteIds, toggleFavoriteId } from "@/src/utils/favoriteIds";
 import { pushRecentId, sanitizeRecentIds } from "@/src/utils/recentIds";
+import { sanitizeReminders } from "@/src/utils/reminderIds";
+import { remapStoredChannelIds } from "@/src/utils/channelIdentityMigrate";
 import {
   cancelReminder,
   requestNotificationPermission,
@@ -300,9 +302,12 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
         stop: program.stop,
       };
       // Update ref synchronously so immediate hasReminder / toggle reads are correct.
-      remindersRef.current = [...remindersRef.current.filter((r) => r.key !== key), rem];
+      remindersRef.current = sanitizeReminders([
+        ...remindersRef.current.filter((r) => r.key !== key),
+        rem,
+      ]) as Reminder[];
       setReminders((prev) => {
-        const next = [...prev.filter((r) => r.key !== key), rem];
+        const next = sanitizeReminders([...prev.filter((r) => r.key !== key), rem]) as Reminder[];
         try {
           storage.setItem(REM_KEY, next);
         } catch {}
@@ -351,6 +356,26 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setChannels(data.channels);
       setWindowStart(data.start);
       setWindowEnd(data.end);
+      // Soft-remap Phase-4 / collision IDs onto the live playlist without wiping orphans.
+      setFavorites((prev) => {
+        const { ids } = remapStoredChannelIds(prev, data.channels);
+        if (ids.length === prev.length && ids.every((id, i) => id === prev[i])) return prev;
+        void storage.setItem(FAV_KEY, ids);
+        return ids;
+      });
+      setRecentIds((prev) => {
+        const { ids } = remapStoredChannelIds(prev, data.channels);
+        if (ids.length === prev.length && ids.every((id, i) => id === prev[i])) return prev;
+        persistRecent(ids);
+        return ids;
+      });
+      setLastChannelId((prev) => {
+        if (!prev) return prev;
+        const { ids } = remapStoredChannelIds([prev], data.channels);
+        const next = ids[0] || prev;
+        if (next !== prev) void storage.setItem(LAST_CHANNEL_KEY, next);
+        return next;
+      });
     } catch (e: any) {
       if (requestId !== refreshRequestRef.current) return;
       setError(e?.message || "Failed to load guide");
@@ -395,7 +420,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
         void storage.setItem(RECENT_KEY, cleanedRecent);
       }
       setLastChannelId(await storage.getItem<string | null>(LAST_CHANNEL_KEY, null));
-      setReminders((await storage.getItem<Reminder[]>(REM_KEY, [])) || []);
+      setReminders(sanitizeReminders((await storage.getItem<Reminder[]>(REM_KEY, [])) || []) as Reminder[]);
       setPointerModeState((await storage.getItem<boolean>(PMODE_KEY, false)) || false);
       setGuideLayoutState((await storage.getItem<GuideLayout>(GUIDE_LAYOUT_KEY, "cinematic")) || "cinematic");
       setGuideDensityState((await storage.getItem<GuideDensity>(GUIDE_DENSITY_KEY, "normal")) || "normal");

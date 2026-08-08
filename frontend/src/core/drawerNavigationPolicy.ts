@@ -1,6 +1,6 @@
 export type DrawerBackDecision =
   | "open-drawer"
-  | "keep-drawer-open"
+  | "close-drawer"
   | "pass-through"
   | "arm-reopen";
 
@@ -11,6 +11,7 @@ export const DRAWER_REOPEN_DOUBLE_BACK_MS = 900;
  * Closed-drawer Back must not open the sidebar on the same press that leaves a
  * player/modal — that feels like the drawer "stealing" Back. Require a second
  * Back within DRAWER_REOPEN_DOUBLE_BACK_MS to actually open.
+ * Open-drawer Back closes the sidebar so focus can return to content.
  */
 export function evaluateDrawerBack(input: {
   drawerOpen: boolean;
@@ -19,7 +20,7 @@ export function evaluateDrawerBack(input: {
   now?: number;
 }): DrawerBackDecision {
   if (input.blockingOverlayOpen) return "pass-through";
-  if (input.drawerOpen) return "keep-drawer-open";
+  if (input.drawerOpen) return "close-drawer";
   const now = input.now ?? Date.now();
   const armedAt = input.reopenArmedAt ?? 0;
   if (armedAt > 0 && now - armedAt <= DRAWER_REOPEN_DOUBLE_BACK_MS) {

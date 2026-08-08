@@ -115,9 +115,9 @@ export function allocateChannelId(input: {
 export function parseM3UWithStats(
   text: string,
   normalizeLogo: (url: string) => string = (url) => url,
+  onProgress?: (ratio: number) => void,
 ): ParseM3UStats {
   enforcePlaylistTextLimit(text);
-  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/);
   type RawEntry = {
     tvgId: string;
     name: string;
@@ -128,33 +128,52 @@ export function parseM3UWithStats(
   const entries: RawEntry[] = [];
   let rejected = 0;
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line.startsWith("#EXTINF")) continue;
+  // Walk lines without allocating a full string[] (large playlists on Fire TV).
+  const source = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  const total = Math.max(1, source.length);
+  let offset = 0;
+  let pending: { line: string; attrs: Record<string, string>; name: string } | null = null;
+  let scanned = 0;
 
-    const attrs: Record<string, string> = {};
-    EXTINF_ATTR.lastIndex = 0;
-    let match: RegExpExecArray | null;
-    while ((match = EXTINF_ATTR.exec(line))) attrs[match[1]] = match[2];
+  const flushProgress = () => {
+    if (!onProgress) return;
+    scanned += 1;
+    if (scanned % 400 === 0) onProgress(Math.min(0.95, offset / total));
+  };
 
-    const name = line.includes(",")
-      ? line.slice(line.lastIndexOf(",") + 1).trim()
-      : attrs["tvg-name"] || "Channel";
+  while (offset <= source.length) {
+    const nextBreak = source.indexOf("\n", offset);
+    const end = nextBreak < 0 ? source.length : nextBreak;
+    let line = source.slice(offset, end);
+    if (line.endsWith("\r")) line = line.slice(0, -1);
+    line = line.trim();
+    offset = nextBreak < 0 ? source.length + 1 : nextBreak + 1;
+    flushProgress();
 
-    let url = "";
-    for (let j = i + 1; j < lines.length; j++) {
-      const next = lines[j].trim();
-      if (next.startsWith("#EXTINF")) break;
-      if (next && !next.startsWith("#")) {
-        url = next;
-        break;
-      }
-    }
-    if (!url || !isAllowedPlaylistUrl(url)) {
-      rejected += 1;
+    if (line.startsWith("#EXTINF")) {
+      if (pending) rejected += 1;
+      const attrs: Record<string, string> = {};
+      EXTINF_ATTR.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = EXTINF_ATTR.exec(line))) attrs[match[1]] = match[2];
+      const name = line.includes(",")
+        ? line.slice(line.lastIndexOf(",") + 1).trim()
+        : attrs["tvg-name"] || "Channel";
+      pending = { line, attrs, name };
       continue;
     }
 
+    if (!pending) continue;
+    if (!line || line.startsWith("#")) continue;
+
+    const url = line;
+    const attrs = pending.attrs;
+    const name = pending.name;
+    pending = null;
+    if (!isAllowedPlaylistUrl(url)) {
+      rejected += 1;
+      continue;
+    }
     entries.push({
       tvgId: (attrs["tvg-id"] || "").trim(),
       name,
@@ -163,6 +182,8 @@ export function parseM3UWithStats(
       url,
     });
   }
+  if (pending) rejected += 1;
+  onProgress?.(1);
 
   const tvgCounts = new Map<string, number>();
   for (const entry of entries) {
