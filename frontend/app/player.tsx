@@ -45,7 +45,7 @@ const FAIL_REASON_LABEL: Record<SessionFailReason, string> = {
   "engine-swap": "switched playback engine",
   "circuit-open": "temporarily paused after repeated failures",
   "stream-error": "stream error",
-  "silent-audio": "no audio on Media3 — switching to VLC",
+  "silent-audio": "no supported Media3 audio track",
   "user-stop": "stopped",
   superseded: "replaced",
   crashed: "player crash",
@@ -427,6 +427,12 @@ export default function PlayerScreen() {
     (next: StreamStatus, reason?: SessionFailReason | null) => {
       setStatus(next);
       if (reason !== undefined) setFailReason(reason);
+      // Engine swaps invalidate prior Media3 track ids (derived FORMAT ids differ).
+      if (reason === "silent-audio" || reason === "engine-swap") {
+        setAudioTrackId(undefined);
+        setTextTrackId(undefined);
+        setTracksOpen(false);
+      }
       if (next === "playing") setFailReason(null);
     },
     [],

@@ -100,6 +100,9 @@ jobs:
           APK="android/app/build/outputs/apk/release/app-release.apk"
           test -f "$APK"
           unzip -l "$APK" | grep -E "(index\.android\.bundle|assets/.*\.bundle|resources\.arsc)" >/dev/null
+          # FFmpeg Media3 extension must ship for AC-3/E-AC-3/DTS software decode.
+          unzip -l "$APK" | grep -E 'lib/arm64-v8a/libffmpegJNI\.so' >/dev/null
+          unzip -l "$APK" | grep -E 'lib/armeabi-v7a/libffmpegJNI\.so' >/dev/null
           cp "$APK" "android/app/build/outputs/apk/release/CharmIPTV-Purple-TV-Universal.apk"
 
       - name: Upload purple TV APK

@@ -1,9 +1,9 @@
 diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/HlsAudioRecoveryPlaylistParserFactory.java b/node_modules/expo-video/android/src/main/java/expo/modules/video/HlsAudioRecoveryPlaylistParserFactory.java
 new file mode 100644
-index 0000000..32688b5
+index 0000000..696ba74
 --- /dev/null
 +++ b/node_modules/expo-video/android/src/main/java/expo/modules/video/HlsAudioRecoveryPlaylistParserFactory.java
-@@ -0,0 +1,101 @@
+@@ -0,0 +1,117 @@
 +package expo.modules.video;
 +
 +import android.net.Uri;
@@ -20,13 +20,19 @@ index 0000000..32688b5
 +import java.util.ArrayList;
 +import java.util.LinkedHashSet;
 +import java.util.List;
++import java.util.Locale;
 +import java.util.Set;
 +
 +/**
-+ * Conservatively repairs one common IPTV HLS defect: a master playlist declares
-+ * an external AUDIO rendition group but variants refer to a different group
-+ * spelling. There is no safe general repair when the provider omits the audio
-+ * URI entirely, so this class never invents an unlinked playlist URL.
++ * Conservatively repairs common IPTV HLS defects around separate AUDIO groups:
++ * <ul>
++ *   <li>variants reference a different AUDIO group spelling than the one
++ *       declared by {@code EXT-X-MEDIA} (case/whitespace insensitive)</li>
++ *   <li>variants omit {@code AUDIO=} while the master declares exactly one
++ *       external audio rendition and no muxed audio format</li>
++ * </ul>
++ * There is no safe general repair when the provider omits the audio URI
++ * entirely, so this class never invents an unlinked playlist URL.
 + */
 +@UnstableApi
 +public final class HlsAudioRecoveryPlaylistParserFactory implements HlsPlaylistParserFactory {
@@ -57,6 +63,11 @@ index 0000000..32688b5
 +    }
 +  }
 +
++  private static boolean groupIdsMatch(@Nullable String left, @Nullable String right) {
++    if (left == null || right == null) return false;
++    return left.trim().toLowerCase(Locale.US).equals(right.trim().toLowerCase(Locale.US));
++  }
++
 +  private static HlsPlaylist repair(HlsPlaylist playlist) {
 +    if (!(playlist instanceof HlsMultivariantPlaylist)) return playlist;
 +    HlsMultivariantPlaylist master = (HlsMultivariantPlaylist) playlist;
@@ -72,9 +83,14 @@ index 0000000..32688b5
 +    boolean changed = false;
 +    List<HlsMultivariantPlaylist.Variant> variants = new ArrayList<>(master.variants.size());
 +    for (HlsMultivariantPlaylist.Variant variant : master.variants) {
-+      // Repair only an explicitly broken reference. A missing AUDIO attribute
-+      // may be genuine muxed audio, and guessing would attach wrong language.
-+      if (variant.audioGroupId != null && !declaredAudioGroup.equals(variant.audioGroupId)) {
++      boolean mismatched =
++          variant.audioGroupId != null && !groupIdsMatch(declaredAudioGroup, variant.audioGroupId);
++      // Only attach a missing AUDIO= when the master has no muxed audio and
++      // exactly one external audio group — otherwise the stream may already be
++      // muxed and guessing would attach the wrong language.
++      boolean missingAttach =
++          variant.audioGroupId == null && master.muxedAudioFormat == null;
++      if (mismatched || missingAttach) {
 +        changed = true;
 +        variants.add(
 +            new HlsMultivariantPlaylist.Variant(
@@ -106,48 +122,170 @@ index 0000000..32688b5
 +  }
 +}
 diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayer.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayer.kt
-index 1c7a55c..3a5a5e9 100644
+index 1c7a55c..5410ecc 100644
 --- a/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayer.kt
 +++ b/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayer.kt
 @@ -53,6 +53,11 @@ import java.lang.ref.WeakReference
  class VideoPlayer(val context: Context, appContext: AppContext, source: VideoSource?) : AutoCloseable, SharedObject(appContext), IntervalUpdateEmitter {
    // This improves the performance of playing DRM-protected content
    private var renderersFactory = DefaultRenderersFactory(context)
-+    // When an app packages a Media3 extension renderer (for example an
-+    // FFmpeg audio extension), prefer it for formats the platform decoder
-+    // cannot reliably handle. With no extension on the classpath this is a
-+    // safe no-op and platform MediaCodec remains first available fallback.
-+    .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
++    // Use Media3 extension renderers (FFmpeg audio) only when the platform
++    // decoder cannot handle a format. ON keeps MediaCodec for AAC/etc. while
++    // still unlocking AC-3/E-AC-3/DTS through the app-bundled FFmpeg module.
++    // With no extension on the classpath this is a safe no-op.
++    .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
      .forceEnableMediaCodecAsynchronousQueueing()
      .setEnableDecoderFallback(true)
    private var listeners: MutableList<WeakReference<VideoPlayerListener>> = mutableListOf()
 diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerAudioTracks.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerAudioTracks.kt
-index 0cdcc0b..d29e80c 100644
+index 0cdcc0b..ed948c3 100644
 --- a/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerAudioTracks.kt
 +++ b/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerAudioTracks.kt
-@@ -60,7 +60,7 @@ class VideoPlayerAudioTracks(owner: VideoPlayer) : VideoPlayerListener {
-
+@@ -1,5 +1,6 @@
+ package expo.modules.video.player
+ 
++import android.util.Log
+ import androidx.annotation.OptIn
+ import androidx.media3.common.C
+ import androidx.media3.common.Format
+@@ -20,12 +21,14 @@ class VideoPlayerAudioTracks(owner: VideoPlayer) : VideoPlayerListener {
+       return owner.get()
+     }
+   private val formatsToGroups = mutableMapOf<Format, Pair<TrackGroup, Int>>()
++  private val formatIds = mutableMapOf<Format, String>()
+   private var currentAudioTrackFormat: Format? = null
+   private var currentOverride: TrackSelectionOverride? = null
+ 
+   var currentAudioTrack: AudioTrack?
+     get() {
+-      return AudioTrack.fromFormat(currentAudioTrackFormat)
++      val format = currentAudioTrackFormat
++      return AudioTrack.fromFormat(format, true, format?.let { formatIds[it] })
+     }
+     set(value) {
+       applyAudioTrack(value)
+@@ -48,24 +51,34 @@ class VideoPlayerAudioTracks(owner: VideoPlayer) : VideoPlayerListener {
+   // VideoPlayerListener
+   override fun onTrackSelectionParametersChanged(player: VideoPlayer, trackSelectionParameters: TrackSelectionParameters) {
+     currentAudioTrackFormat = findSelectedAudioFormat()
++    logSelectedTrack("parameters-changed")
+     super.onTrackSelectionParametersChanged(player, trackSelectionParameters)
+   }
+ 
+   override fun onTracksChanged(player: VideoPlayer, tracks: Tracks) {
+     formatsToGroups.clear()
++    formatIds.clear()
+     availableAudioTracks.clear()
++    var groupIndex = 0
+     for (group in tracks.groups) {
+       for (i in 0..<group.length) {
+         val format: Format = group.getTrackFormat(i)
+ 
          if (MimeTypes.isAudio(format.sampleMimeType)) {
            formatsToGroups[format] = group.mediaTrackGroup to i
 -          val track = AudioTrack.fromFormat(format) ?: continue
-+          val track = AudioTrack.fromFormat(format, group.isTrackSupported(i)) ?: continue
++          // IPTV manifests often omit FORMAT ids and refine sample rate later.
++          // Include group/track indexes so JS selection stays stable across updates.
++          val identity =
++            "g$groupIndex:t$i:${format.sampleMimeType ?: "audio"}:${format.language ?: "und"}:${format.bitrate}"
++          formatIds[format] = format.id ?: identity
++          val track = AudioTrack.fromFormat(format, group.isTrackSupported(i), identity) ?: continue
            availableAudioTracks.add(track)
          }
        }
-@@ -83,7 +83,7 @@ class VideoPlayerAudioTracks(owner: VideoPlayer) : VideoPlayerListener {
++      groupIndex += 1
+     }
+     currentAudioTrackFormat = findSelectedAudioFormat()
++    logSelectedTrack("tracks-changed")
+     super.onTracksChanged(player, tracks)
+   }
+ 
+@@ -82,22 +95,26 @@ class VideoPlayerAudioTracks(owner: VideoPlayer) : VideoPlayerListener {
+       currentOverride = null
        return
      }
-     val format = formatsToGroups.keys.firstOrNull {
+-    val format = formatsToGroups.keys.firstOrNull {
 -      it.id == audioTrack.id
-+      AudioTrack.fromFormat(it)?.id == audioTrack.id
++    val format = formatsToGroups.keys.firstOrNull { candidate ->
++      val candidateId = formatIds[candidate] ?: AudioTrack.fromFormat(candidate)?.id
++      candidateId == audioTrack.id
      }
      format?.let {
-       formatsToGroups[it]?.let { subtitlePair ->
+-      formatsToGroups[it]?.let { subtitlePair ->
+-        val trackSelectionOverride = TrackSelectionOverride(subtitlePair.first, subtitlePair.second)
++      formatsToGroups[it]?.let { pair ->
++        val trackSelectionOverride = TrackSelectionOverride(pair.first, pair.second)
+         newParameters = newParameters.buildUpon().addOverride(trackSelectionOverride).build()
+         player.trackSelectionParameters = newParameters
+         setAudioTracksEnabled(true)
+         currentOverride = trackSelectionOverride
++        currentAudioTrackFormat = it
++        logSelectedTrack("apply")
+       }
+     }
+   }
+ 
+   private fun findSelectedAudioFormat(): Format? {
+-    val trackSelectionParameters = videoPlayer?.player?.trackSelectionParameters
++    val player = videoPlayer?.player
++    val trackSelectionParameters = player?.trackSelectionParameters
+     val preferredAudioLanguages = trackSelectionParameters?.preferredAudioLanguages
+     val overriddenFormat: Format? = trackSelectionParameters?.overrides?.let {
+       for ((group, trackSelectionOverride) in it) {
+@@ -111,6 +128,22 @@ class VideoPlayerAudioTracks(owner: VideoPlayer) : VideoPlayerListener {
+       return@let null
+     }
+ 
++    // Prefer the track Media3 is actually rendering over a language preference guess.
++    val selectedFormat: Format? = player?.currentTracks?.groups?.firstNotNullOfOrNull { group ->
++      if (!group.isSelected) {
++        null
++      } else {
++        (0 until group.length).firstNotNullOfOrNull { index ->
++          if (!group.isTrackSelected(index)) {
++            null
++          } else {
++            val format = group.getTrackFormat(index)
++            if (MimeTypes.isAudio(format.sampleMimeType)) format else null
++          }
++        }
++      }
++    }
++
+     val preferredFormat: Format? = preferredAudioLanguages?.let { preferredAudioLanguages ->
+       for (preferredLanguage in preferredAudioLanguages) {
+         return@let formatsToGroups.keys.firstOrNull {
+@@ -120,6 +153,24 @@ class VideoPlayerAudioTracks(owner: VideoPlayer) : VideoPlayerListener {
+       return@let null
+     }
+ 
+-    return overriddenFormat ?: preferredFormat
++    return overriddenFormat ?: selectedFormat ?: preferredFormat
++  }
++
++  private fun logSelectedTrack(reason: String) {
++    val format = currentAudioTrackFormat
++    if (format == null) {
++      Log.i(TAG, "audio[$reason] none tracks=${availableAudioTracks.size}")
++      return
++    }
++    Log.i(
++      TAG,
++      "audio[$reason] id=${formatIds[format] ?: format.id} mime=${format.sampleMimeType} " +
++        "lang=${format.language} ch=${format.channelCount} rate=${format.sampleRate} " +
++        "bitrate=${format.bitrate} tracks=${availableAudioTracks.size}"
++    )
++  }
++
++  companion object {
++    private const val TAG = "CharmIPTVAudio"
+   }
+ }
 diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/records/Tracks.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/records/Tracks.kt
-index 20dcbb7..c365bff 100644
+index 20dcbb7..3a0fbe0 100644
 --- a/node_modules/expo-video/android/src/main/java/expo/modules/video/records/Tracks.kt
 +++ b/node_modules/expo-video/android/src/main/java/expo/modules/video/records/Tracks.kt
-@@ -32,19 +32,34 @@ class SubtitleTrack(
+@@ -32,19 +32,41 @@ class SubtitleTrack(
  class AudioTrack(
    @Field val id: String,
    @Field val language: String?,
@@ -160,22 +298,29 @@ index 20dcbb7..c365bff 100644
  ) : Record, Serializable {
    companion object {
 -    fun fromFormat(format: Format?): AudioTrack? {
-+    fun fromFormat(format: Format?, isSupported: Boolean = true): AudioTrack? {
++    fun fromFormat(
++      format: Format?,
++      isSupported: Boolean = true,
++      identity: String? = null,
++    ): AudioTrack? {
        format ?: return null
 -      val id = format.id ?: return null
 +      // IPTV HLS manifests often omit a stable FORMAT id. Keep the track
 +      // selectable by deriving a deterministic identity instead of dropping it
-+      // from availableAudioTracks altogether.
++      // from availableAudioTracks altogether. Prefer an explicit identity that
++      // includes group/track indexes so later format refinement cannot collide.
 +      val id = format.id
++        ?: identity
 +        ?: listOf(
 +          format.sampleMimeType ?: "audio",
 +          format.language ?: "und",
 +          format.channelCount.toString(),
-+          format.sampleRate.toString()
++          format.sampleRate.toString(),
++          format.bitrate.toString()
 +        ).joinToString(":")
        val language = format.language
        val label = language?.let { Locale(it).displayLanguage } ?: "Unknown"
-
+ 
        return AudioTrack(
          id = id,
          language = language,
@@ -200,7 +345,7 @@ index 7e213f7..13bd7aa 100644
 +import expo.modules.video.enums.ContentType
 +import expo.modules.video.HlsAudioRecoveryPlaylistParserFactory
  import okhttp3.OkHttpClient
-
+ 
  @OptIn(UnstableApi::class)
 @@ -63,8 +66,18 @@ fun buildExpoVideoMediaSource(context: Context, videoSource: VideoSource): Media
    } else {
@@ -221,7 +366,7 @@ index 7e213f7..13bd7aa 100644
 +  val mediaSourceFactory = buildMediaSourceFactory(context, dataSourceFactory)
    return mediaSourceFactory.createMediaSource(mediaItem)
  }
-
+ 
 diff --git a/node_modules/expo-video/build/VideoPlayer.types.d.ts b/node_modules/expo-video/build/VideoPlayer.types.d.ts
 index 204f98d..f10de9a 100644
 --- a/node_modules/expo-video/build/VideoPlayer.types.d.ts

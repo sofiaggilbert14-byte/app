@@ -32,6 +32,7 @@ import {
   writeFavoritesBackup,
 } from "@/src/utils/favoritesBackup";
 import { formatDiagnosticsExport } from "@/src/core/diagnosticsExport";
+import { audioDiagnosticsExtras } from "@/src/core/audioDiagnostics";
 import { POWER_PROFILE_OPTIONS } from "@/src/core/devicePowerProfile";
 import { channelHasEpgMatch } from "@/src/core/epgUserOverrides";
 import { fonts, radius, tvColors } from "@/src/theme";
@@ -228,6 +229,7 @@ export default function SettingsScreen() {
           sleepTimerMinutes,
           logosOffWhileSurfing,
           favorites: favorites.length,
+          ...audioDiagnosticsExtras(),
         },
       });
       const root = FileSystem.documentDirectory || "";

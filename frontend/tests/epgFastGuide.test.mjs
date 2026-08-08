@@ -86,5 +86,5 @@ test("Media3 silent audio soft-fails into VLC engine swap", async () => {
   assert.match(player, /availableAudioTracks/);
   assert.match(player, /silent-audio/);
   assert.match(player, /reason === "silent-audio"/);
-  assert.match(ui, /no audio on Media3/);
+  assert.match(ui, /no supported Media3 audio track/);
 });

@@ -20,6 +20,10 @@ import {
   type SessionFailReason,
   type SessionRole,
 } from "@/src/core/playbackSession";
+import {
+  fingerprintStreamUri,
+  recordAudioDiagnostics,
+} from "@/src/core/audioDiagnostics";
 
 export type StreamStatus = "loading" | "playing" | "error";
 export type StreamTrack = {
@@ -420,15 +424,41 @@ function ExpoStream({
   const reportAndSelectMedia3Tracks = useCallback(() => {
     try {
       const audioTracks = Array.isArray(player.availableAudioTracks) ? player.availableAudioTracks : [];
+      const supportedTracks = audioTracks.filter((track: any) => track.isSupported !== false);
       const requestedAudio = audioTrack == null
         ? null
         : audioTracks.find((track) => String(track.id) === String(audioTrack)) || null;
-      const currentAudio = player.audioTrack;
-      const automaticAudio =
-        audioTracks.find((track: any) => track.isSupported !== false) ||
-        audioTracks[0] ||
-        null;
-      const selectedAudio = requestedAudio || currentAudio || automaticAudio;
+      const currentAudio = player.audioTrack as any;
+      const automaticSupported = supportedTracks[0] || null;
+
+      let selectedAudio: any = null;
+      let selectedBy: "user" | "current" | "auto-supported" | "auto-first" | "none" = "none";
+      if (requestedAudio && requestedAudio.isSupported !== false) {
+        selectedAudio = requestedAudio;
+        selectedBy = "user";
+      } else if (currentAudio && currentAudio.isSupported !== false) {
+        selectedAudio = currentAudio;
+        selectedBy = "current";
+      } else if (automaticSupported) {
+        selectedAudio = automaticSupported;
+        selectedBy = "auto-supported";
+      } else if (requestedAudio) {
+        selectedAudio = requestedAudio;
+        selectedBy = "user";
+      } else if (currentAudio) {
+        selectedAudio = currentAudio;
+        selectedBy = "current";
+      } else if (audioTracks[0]) {
+        selectedAudio = audioTracks[0];
+        selectedBy = "auto-first";
+      }
+
+      // Displace an unsupported selection when a supported track exists.
+      if (selectedAudio && selectedAudio.isSupported === false && automaticSupported) {
+        selectedAudio = automaticSupported;
+        selectedBy = "auto-supported";
+      }
+
       if (selectedAudio && player.audioTrack?.id !== selectedAudio.id) {
         player.audioTrack = selectedAudio;
       }
@@ -453,11 +483,28 @@ function ExpoStream({
           name: String(track.label || track.language || `CC ${track.id}`),
         })),
       });
-      return audioTracks.some((track: any) => track.isSupported !== false);
+
+      recordAudioDiagnostics({
+        engine: "media3",
+        role: sessionRole,
+        streamKey: fingerprintStreamUri(uri, kind),
+        trackId: selectedAudio?.id ?? null,
+        mimeType: selectedAudio?.mimeType ?? null,
+        language: selectedAudio?.language ?? null,
+        label: selectedAudio?.label ?? null,
+        isSupported: selectedAudio ? selectedAudio.isSupported !== false : null,
+        trackCount: audioTracks.length,
+        supportedCount: supportedTracks.length,
+        selectedBy,
+        silentAudio: false,
+        reason: null,
+      });
+
+      return supportedTracks.length > 0;
     } catch {
       return false;
     }
-  }, [audioTrack, player, textTrack]);
+  }, [audioTrack, kind, player, sessionRole, textTrack, uri]);
 
   const hardStop = useCallback(() => {
     loadIdRef.current += 1;
@@ -596,13 +643,14 @@ function ExpoStream({
   }, [player, reportAndSelectMedia3Tracks, uri]);
 
   // Media3 can paint video while failing to expose/decode audio (AC-3 etc.).
-  // If no audio track appears after a short grace, soft-fail so StreamPlayer swaps to VLC.
+  // Soft-fail when no supported audio track appears after grace so default mode
+  // can swap to VLC. Media3-only mode still emits silent-audio for UI messaging.
   useEffect(() => {
     if (blocked || mode === "preview" || !mediaReady) return;
     let cancelled = false;
-    let sawAudio = false;
+    let sawSupportedAudio = false;
     const markAudio = () => {
-      sawAudio = reportAndSelectMedia3Tracks() || sawAudio;
+      sawSupportedAudio = reportAndSelectMedia3Tracks() || sawSupportedAudio;
     };
     markAudio();
     const trackSub = player.addListener("availableAudioTracksChange", markAudio);
@@ -610,7 +658,22 @@ function ExpoStream({
       if (cancelled || !mountedRef.current || tearingDownRef.current) return;
       if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
       markAudio();
-      if (sawAudio) return;
+      if (sawSupportedAudio) return;
+      recordAudioDiagnostics({
+        engine: "media3",
+        role: sessionRole,
+        streamKey: fingerprintStreamUri(uri, kind),
+        trackId: player.audioTrack?.id ?? null,
+        mimeType: (player.audioTrack as any)?.mimeType ?? null,
+        language: (player.audioTrack as any)?.language ?? null,
+        label: (player.audioTrack as any)?.label ?? null,
+        isSupported: false,
+        trackCount: Array.isArray(player.availableAudioTracks) ? player.availableAudioTracks.length : 0,
+        supportedCount: 0,
+        selectedBy: "none",
+        silentAudio: true,
+        reason: "silent-audio",
+      });
       emit("error", "silent-audio");
     }, SILENT_AUDIO_GRACE_MS);
     return () => {
@@ -620,7 +683,7 @@ function ExpoStream({
         trackSub.remove();
       } catch {}
     };
-  }, [blocked, emit, mediaReady, mode, player, reportAndSelectMedia3Tracks, sessionGeneration, sessionRole, uri]);
+  }, [blocked, emit, kind, mediaReady, mode, player, reportAndSelectMedia3Tracks, sessionGeneration, sessionRole, uri]);
 
   if (blocked) return null;
 
