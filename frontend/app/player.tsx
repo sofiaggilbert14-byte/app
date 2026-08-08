@@ -32,6 +32,7 @@ import { getTvSafeInsets } from "@/src/utils/tvLayout";
 import { requestNativeFocus } from "@/src/utils/tvFocus";
 import { stopFullscreenSession, stopAllPlaybackSessions, pauseSessionDecoders, type SessionFailReason } from "@/src/core/playbackSession";
 import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
+import { useGuidePrograms } from "@/src/core/guideProgramsStore";
 
 const CHANNEL_PREVIEW_DELAY_MS = 650;
 const CHANNEL_ZAP_SETTLE_MS = 850;
@@ -120,7 +121,12 @@ export default function PlayerScreen() {
     () => getTvSafeInsets(width, height, deviceLayoutMode),
     [deviceLayoutMode, height, width],
   );
-  const channel = useMemo(() => channelById(channelId), [channelById, channelId]);
+  const channelMeta = useMemo(() => channelById(channelId), [channelById, channelId]);
+  const channelPrograms = useGuidePrograms(channelId);
+  const channel = useMemo(
+    () => (channelMeta ? { ...channelMeta, programs: channelPrograms } : undefined),
+    [channelMeta, channelPrograms],
+  );
   const sortedChannels = useMemo(
     () => [...channels].sort((a, b) => (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" })),
     [channels],

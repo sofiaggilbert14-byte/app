@@ -8,15 +8,17 @@ import { useStore } from "@/src/store";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 import { nowNext } from "@/src/utils/time";
+import { useGuidePrograms } from "@/src/core/guideProgramsStore";
 
 /** Compact continue-watching control after leaving the fullscreen player. */
 export function NowPlayingBar({ testID = "now-playing-bar" }: { testID?: string }) {
   const router = useRouter();
   const { lastChannelId, channelById, channelLogos } = useStore();
   const channel = lastChannelId ? channelById(lastChannelId) : null;
+  const programs = useGuidePrograms(lastChannelId);
   const current = useMemo(
-    () => (channel ? nowNext(channel.programs, new Date()).current : undefined),
-    [channel],
+    () => (channel ? nowNext(programs, new Date()).current : undefined),
+    [channel, programs],
   );
 
   if (!channel?.url) return null;
