@@ -14,7 +14,8 @@ import { fmtDayTime } from "@/src/utils/time";
 export default function RemindersScreen() {
   const router = useRouter();
   const { drawerOpen, openDrawer } = usePurpleTvDrawer();
-  const { reminders, removeReminder, channelById } = useStore();
+  const { reminders, removeReminder, channelById, clock24h } = useStore();
+  void clock24h;
 
   useTvBackHandler(
     useCallback(() => {

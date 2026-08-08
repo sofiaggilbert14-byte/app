@@ -31,7 +31,9 @@ export default function LiveTvHomeScreen() {
     loading,
     refreshing,
     error,
+    clock24h,
   } = useStore();
+  void clock24h;
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {

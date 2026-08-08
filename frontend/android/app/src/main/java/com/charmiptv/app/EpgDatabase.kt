@@ -260,33 +260,15 @@ internal class EpgDatabase(context: Context) :
     }
   }
 
-  fun replaceChannelAliases(aliases: List<Triple<String, String, String>>) {
+  /**
+   * Unused — matching stays in JS indexes from the refresh payload.
+   * Kept as a no-op clear so older call sites cannot reintroduce alias write churn.
+   */
+  fun replaceChannelAliases(@Suppress("UNUSED_PARAMETER") aliases: List<Triple<String, String, String>>) {
     val db = writableDatabase
     db.beginTransaction()
     try {
       db.delete(ALIAS_TABLE, null, null)
-      if (aliases.isNotEmpty()) {
-        val statement = db.compileStatement(
-          """
-          INSERT OR IGNORE INTO $ALIAS_TABLE(channel_id, alias_kind, alias_value, normalized_key)
-          VALUES (?, ?, ?, ?)
-          """.trimIndent()
-        )
-        try {
-          for ((channelId, kind, value) in aliases) {
-            val normalized = normalizeKey(value)
-            if (channelId.isBlank() || normalized.isEmpty()) continue
-            statement.clearBindings()
-            statement.bindString(1, channelId)
-            statement.bindString(2, kind)
-            statement.bindString(3, value)
-            statement.bindString(4, normalized)
-            statement.executeInsert()
-          }
-        } finally {
-          statement.close()
-        }
-      }
       db.setTransactionSuccessful()
     } finally {
       db.endTransaction()

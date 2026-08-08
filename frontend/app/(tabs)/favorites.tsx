@@ -10,6 +10,7 @@ import { useStore } from "@/src/store";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
+import { nextFavoriteFolderName } from "@/src/core/favoriteFolders";
 
 function byName(a: Channel, b: Channel) {
   return (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" });
@@ -77,8 +78,11 @@ export default function FavoritesScreen() {
     favoriteFolders,
     addFavoriteFolder,
     toggleFavoriteFolderChannel,
+    renameFavoriteFolder,
     removeFavoriteFolder,
+    clock24h,
   } = useStore();
+  void clock24h; // re-render times when 12/24h setting flips
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
   const [folderId, setFolderId] = useState<string | "all">("all");
   const folderMode = folderId !== "all";
@@ -119,6 +123,13 @@ export default function FavoritesScreen() {
     else toggleFavorite(id);
   }, [folderId, folderMode, toggleFavorite, toggleFavoriteFolderChannel]);
 
+  const onRenameSelectedFolder = useCallback(() => {
+    if (!folderMode) return;
+    const nextName = nextFavoriteFolderName(favoriteFolders, folderId);
+    renameFavoriteFolder(folderId, nextName);
+    void Haptics.selectionAsync().catch(() => undefined);
+  }, [favoriteFolders, folderId, folderMode, renameFavoriteFolder]);
+
   return (
     <PurpleTvShell active="/favorites">
       <View style={styles.page}>
@@ -129,7 +140,7 @@ export default function FavoritesScreen() {
               <Text style={styles.title}>All Favorites</Text>
               <Text numberOfLines={2} style={styles.addHint}>
                 {folderMode
-                  ? "Long-press a channel to add or remove it from this folder. Press plays."
+                  ? "Long-press a channel to add or remove it from this folder. Use Rename to cycle the folder name."
                   : "Long-press removes a favorite. Select a folder, then long-press to assign."}
               </Text>
             </View>
@@ -161,6 +172,14 @@ export default function FavoritesScreen() {
               <Text style={styles.folderText}>{folder.name}</Text>
             </Pressable>
           ))}
+          {folderMode ? (
+            <Pressable
+              onPress={onRenameSelectedFolder}
+              style={({ focused }: any) => [styles.folderChip, focused && styles.focused]}
+            >
+              <Text style={styles.folderText}>Rename</Text>
+            </Pressable>
+          ) : null}
           <Pressable
             onPress={() => {
               const created = addFavoriteFolder(`Folder ${favoriteFolders.length + 1}`);

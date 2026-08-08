@@ -12,6 +12,8 @@ export type FavoriteFolder = {
   channelIds: string[];
 };
 
+export const DEFAULT_FOLDER_PRESETS = ["Sports", "News", "Kids", "Movies"] as const;
+
 function slugId(name: string): string {
   const base = name
     .toLowerCase()
@@ -65,4 +67,24 @@ export function toggleChannelInFolder(folders: FavoriteFolder[], folderId: strin
   });
 }
 
-export const DEFAULT_FOLDER_PRESETS = ["Sports", "News", "Kids", "Movies"] as const;
+export function renameFavoriteFolder(folders: FavoriteFolder[], folderId: string, name: string): FavoriteFolder[] {
+  const clean = name.trim().slice(0, MAX_FOLDER_NAME_LEN);
+  if (!folderId || !clean) return folders;
+  return folders.map((folder) => (folder.id === folderId ? { ...folder, name: clean } : folder));
+}
+
+/** Next rename candidate for TV (cycle presets, then Folder N). */
+export function nextFavoriteFolderName(folders: FavoriteFolder[], folderId: string): string {
+  const current = folders.find((f) => f.id === folderId)?.name || "";
+  const used = new Set(folders.filter((f) => f.id !== folderId).map((f) => f.name.toLowerCase()));
+  const candidates = [
+    ...DEFAULT_FOLDER_PRESETS,
+    ...Array.from({ length: 12 }, (_, i) => `Folder ${i + 1}`),
+  ];
+  const start = Math.max(0, candidates.findIndex((name) => name === current)) + 1;
+  for (let i = 0; i < candidates.length; i++) {
+    const name = candidates[(start + i) % candidates.length];
+    if (!used.has(name.toLowerCase())) return name;
+  }
+  return `Folder ${Date.now().toString(36).slice(-4)}`;
+}

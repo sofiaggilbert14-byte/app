@@ -13,6 +13,8 @@ import { applyManualEpgRemaps, resolveEpgGuideFilter, sanitizeEpgManualRemap, ty
 import {
   createFavoriteFolder,
   DEFAULT_FOLDER_PRESETS,
+  nextFavoriteFolderName,
+  renameFavoriteFolder,
   sanitizeFavoriteFolders,
   toggleChannelInFolder,
   type FavoriteFolder,
@@ -155,6 +157,7 @@ export type Store = {
   setFavoriteFolders: (folders: FavoriteFolder[]) => void;
   addFavoriteFolder: (name: string) => FavoriteFolder | null;
   toggleFavoriteFolderChannel: (folderId: string, channelId: string) => void;
+  renameFavoriteFolder: (folderId: string, name: string) => void;
   removeFavoriteFolder: (id: string) => void;
   guideWindowHours: GuideWindowHours;
   setGuideWindowHours: (v: GuideWindowHours) => void;
@@ -323,17 +326,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     setEpgManualRemapsState(next);
     setManualEpgRemaps(next);
     storage.setItem(EPG_MANUAL_REMAPS_KEY, next);
-    setChannels((prev) => applyManualEpgRemaps(prev, next));
-    // Rematch so cleared remaps restore auto-matched tvg_ids from the playlist base.
-    void (async () => {
-      try {
-        await refreshEpgOnly();
-        await refreshSilentRef.current(true);
-      } catch (error) {
-        console.warn("manual remap refresh failed", error);
-        void refreshSilentRef.current(true);
-      }
-    })();
+    // Reload from auto-matched MEM + remaps at read time (handles clear correctly).
+    void refreshSilentRef.current(true);
   }, []);
 
   const setFavoriteFolders = useCallback((folders: FavoriteFolder[]) => {
@@ -355,6 +349,15 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     if (!folderId || !channelId) return;
     setFavoriteFoldersState((prev) => {
       const next = sanitizeFavoriteFolders(toggleChannelInFolder(prev, folderId, channelId));
+      storage.setItem(FAVORITE_FOLDERS_KEY, next);
+      return next;
+    });
+  }, []);
+
+  const renameFavoriteFolderById = useCallback((folderId: string, name: string) => {
+    if (!folderId) return;
+    setFavoriteFoldersState((prev) => {
+      const next = sanitizeFavoriteFolders(renameFavoriteFolder(prev, folderId, name));
       storage.setItem(FAVORITE_FOLDERS_KEY, next);
       return next;
     });
@@ -790,6 +793,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setFavoriteFolders,
       addFavoriteFolder,
       toggleFavoriteFolderChannel,
+      renameFavoriteFolder: renameFavoriteFolderById,
       removeFavoriteFolder,
       guideWindowHours,
       setGuideWindowHours,
@@ -859,6 +863,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setFavoriteFolders,
       addFavoriteFolder,
       toggleFavoriteFolderChannel,
+      renameFavoriteFolderById,
       removeFavoriteFolder,
       guideWindowHours,
       setGuideWindowHours,

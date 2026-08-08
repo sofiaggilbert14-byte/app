@@ -64,7 +64,8 @@ const ChannelListRow = memo(function ChannelListRow({
 
 export default function ChannelsScreen() {
   const router = useRouter();
-  const { channels, favorites, toggleFavorite, addRecent, channelLogos, hardRefresh, loading, refreshing, error } = useStore();
+  const { channels, favorites, toggleFavorite, addRecent, channelLogos, hardRefresh, loading, refreshing, error, clock24h } = useStore();
+  void clock24h;
   const sorted = useMemo(() => [...channels].sort(byName), [channels]);
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
   const [now, setNow] = useState(() => new Date());

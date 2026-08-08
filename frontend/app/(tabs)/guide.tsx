@@ -92,7 +92,9 @@ export default function PurpleGuideScreen() {
     epgGuideFilter,
     epgManualRemaps,
     setEpgManualRemaps,
+    clock24h,
   } = useStore();
+  void clock24h;
 
   const powerTuning = useMemo(() => getPowerProfileTuning(powerProfile), [powerProfile]);
   const [surfLogosSuppressed, setSurfLogosSuppressed] = useState(false);
@@ -264,13 +266,6 @@ export default function PurpleGuideScreen() {
   }, [channels.length]);
 
   const [remapOpen, setRemapOpen] = useState(false);
-  const epgSourceChoices = useMemo(() => {
-    const ids = new Set<string>();
-    for (const channel of channels) {
-      if (channel.programs?.length && channel.tvg_id) ids.add(channel.tvg_id);
-    }
-    return Array.from(ids).sort((a, b) => a.localeCompare(b)).slice(0, 80);
-  }, [channels]);
 
   const onChannelLongPress = useCallback(
     (channel: Channel) => {
@@ -302,6 +297,30 @@ export default function PurpleGuideScreen() {
     const last = lastChannelId ? filtered.find((c) => c.id === lastChannelId) : null;
     return last || filtered.find((c) => c.programs?.length) || filtered[0] || null;
   }, [filtered, focusedId, lastChannelId]);
+
+  const epgSourceChoices = useMemo(() => {
+    type Choice = { id: string; label: string; score: number };
+    const byId = new Map<string, Choice>();
+    const focusName = (previewChannel?.name || "").toLowerCase().trim();
+    const focusToken = focusName.replace(/[^a-z0-9]+/g, "").slice(0, 8);
+    for (const channel of channels) {
+      const id = String(channel.tvg_id || "").trim();
+      if (!id) continue;
+      const label = channel.name || id;
+      const hay = `${label} ${id}`.toLowerCase();
+      const hasPrograms = Array.isArray(channel.programs) && channel.programs.length > 0;
+      let score = hasPrograms ? 1000 : 0;
+      if (focusToken && hay.includes(focusToken)) score += 200;
+      if (focusName && hay.includes(focusName.slice(0, Math.min(12, focusName.length)))) score += 80;
+      const prev = byId.get(id);
+      if (!prev || score > prev.score) {
+        byId.set(id, { id, label: `${label} · ${id}`, score });
+      }
+    }
+    return Array.from(byId.values())
+      .sort((a, b) => b.score - a.score || a.label.localeCompare(b.label))
+      .slice(0, 200);
+  }, [channels, previewChannel?.name]);
 
   const applyRemap = useCallback(
     (sourceId: string) => {
@@ -726,13 +745,13 @@ export default function PurpleGuideScreen() {
                     <Pressable onPress={clearRemap} style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}>
                       <Text style={styles.secondaryText}>Clear remap</Text>
                     </Pressable>
-                    {epgSourceChoices.map((id) => (
+                    {epgSourceChoices.map((choice) => (
                       <Pressable
-                        key={id}
-                        onPress={() => applyRemap(id)}
+                        key={choice.id}
+                        onPress={() => applyRemap(choice.id)}
                         style={({ focused }: any) => [styles.remapRow, focused && styles.focused]}
                       >
-                        <Text style={styles.secondaryText} numberOfLines={1}>{id}</Text>
+                        <Text style={styles.secondaryText} numberOfLines={1}>{choice.label}</Text>
                       </Pressable>
                     ))}
                   </ScrollView>
@@ -781,7 +800,7 @@ const styles = StyleSheet.create({
   watchText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 7.5 },
   secondaryButton: { flex: 1, minWidth: 0, minHeight: 27, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, backgroundColor: tvColors.panelRaised, borderRadius: 5, borderWidth: 2, borderColor: "transparent", paddingHorizontal: 3 },
   secondaryText: { color: "#fff", fontFamily: fonts.medium, fontSize: 7.2 },
-  remapList: { maxHeight: 110, marginTop: 4 },
+  remapList: { maxHeight: 160, marginTop: 4 },
   remapRow: { minHeight: 26, justifyContent: "center", paddingHorizontal: 6, borderRadius: 4, borderWidth: 2, borderColor: "transparent", backgroundColor: tvColors.panelRaised, marginTop: 3 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.md },
   centerText: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 11, textAlign: "center", maxWidth: 320 },

@@ -19,6 +19,21 @@ export function fmtDayTime(iso: string): string {
   return dayjs(iso).format(use24h ? "ddd D MMM · HH:mm" : "ddd D MMM · h:mm A");
 }
 
+/** Compact relative age for Settings health rows ("3m ago", "2h ago"). */
+export function formatRelativeAge(isoOrMs: string | number | null | undefined, nowMs = Date.now()): string {
+  if (isoOrMs == null || isoOrMs === "") return "—";
+  const ts = typeof isoOrMs === "number" ? isoOrMs : Date.parse(String(isoOrMs));
+  if (!Number.isFinite(ts) || ts <= 0) return "—";
+  const delta = Math.max(0, nowMs - ts);
+  const minutes = Math.round(delta / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  return `${days}d ago`;
+}
+
 export function nowNext(programs: Program[] | undefined, now: Date): { current?: Program; next?: Program } {
   if (!programs || programs.length === 0) return {};
   const t = now.getTime();

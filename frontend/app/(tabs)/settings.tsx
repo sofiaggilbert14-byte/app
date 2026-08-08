@@ -38,6 +38,7 @@ import { fonts, radius, tvColors } from "@/src/theme";
 import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
 import dayjs from "dayjs";
 import * as FileSystem from "expo-file-system/legacy";
+import { formatRelativeAge } from "@/src/utils/time";
 
 type Section = "general" | "player" | "remote" | "epg" | "appearance" | "backup" | "account" | "about";
 
@@ -510,7 +511,7 @@ export default function SettingsScreen() {
                   label="Playlist refreshed"
                   value={
                     diagnostics?.playlistRefreshedAt
-                      ? dayjs(diagnostics.playlistRefreshedAt).format("MMM D, h:mm A")
+                      ? `${formatRelativeAge(diagnostics.playlistRefreshedAt)} · ${dayjs(diagnostics.playlistRefreshedAt).format(clock24h ? "MMM D, HH:mm" : "MMM D, h:mm A")}`
                       : "—"
                   }
                 />
@@ -518,7 +519,7 @@ export default function SettingsScreen() {
                   label="EPG refreshed"
                   value={
                     diagnostics?.guideRefreshedAt
-                      ? dayjs(diagnostics.guideRefreshedAt).format("MMM D, h:mm A")
+                      ? `${formatRelativeAge(diagnostics.guideRefreshedAt)} · ${dayjs(diagnostics.guideRefreshedAt).format(clock24h ? "MMM D, HH:mm" : "MMM D, h:mm A")}`
                       : "—"
                   }
                 />
