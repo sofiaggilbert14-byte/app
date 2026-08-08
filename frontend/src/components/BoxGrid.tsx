@@ -188,6 +188,7 @@ export function BoxGrid({
   resetToken = 0,
   active = true,
   lockLeftEdge = true,
+  restoreChannelId,
 }: {
   channels: Channel[];
   now: string;
@@ -208,6 +209,7 @@ export function BoxGrid({
   resetToken?: number;
   active?: boolean;
   lockLeftEdge?: boolean;
+  restoreChannelId?: string | null;
 }) {
   const { width } = useWindowDimensions();
   const numColumns = width >= 1400 ? 6 : width >= 1150 ? 5 : width >= 900 ? 4 : width >= 600 ? 3 : 2;
@@ -258,7 +260,7 @@ export function BoxGrid({
       if (lastScrollSyncedRowRef.current !== row) {
         lastScrollSyncedRowRef.current = row;
         try {
-          listRef.current?.scrollToIndex({ index, animated: false, viewPosition: 0.45 });
+          listRef.current?.scrollToIndex({ index, animated: false, viewPosition: 0.25 });
         } catch {
           /* FlashList will retry once the row is measured. */
         }
@@ -274,14 +276,23 @@ export function BoxGrid({
     [numColumns, onFocusedRowChange, preferFirst, reportViewport],
   );
 
-  // Mount-once preferred focus — group resets must not steal chip focus.
+  // Mount-once preferred focus — restore the last watched card after player.
   useEffect(() => {
     if (hasClaimedFocusRef.current) return;
+    if (!channels.length) return;
     hasClaimedFocusRef.current = true;
+    const restoreIndex = restoreChannelId
+      ? channels.findIndex((channel) => channel.id === restoreChannelId)
+      : -1;
+    if (restoreIndex >= 0) {
+      try {
+        listRef.current?.scrollToIndex({ index: restoreIndex, animated: false, viewPosition: 0.45 });
+      } catch {}
+    }
     setPreferFirst(true);
-    const clearPreferred = setTimeout(() => setPreferFirst(false), 360);
+    const clearPreferred = setTimeout(() => setPreferFirst(false), 600);
     return () => clearTimeout(clearPreferred);
-  }, []);
+  }, [channels, restoreChannelId]);
 
   useEffect(() => {
     if (!resetToken) return;
@@ -364,14 +375,17 @@ export function BoxGrid({
           onRowFocus={reportFocusedRow}
           onFocusNode={rememberFocusNode}
           toggleFavorite={toggleFavorite}
-          preferInitialFocus={preferFirst && index === 0}
+          preferInitialFocus={
+            preferFirst &&
+            (restoreChannelId ? item.id === restoreChannelId : index === 0)
+          }
           hasReminder={reminded}
           lockFocusDown={row >= lastRowIndex}
           lockFocusLeft={lockLeftEdge && index % Math.max(1, numColumns) === 0}
         />
       );
     },
-    [channelNumberById, lastRowIndex, lockLeftEdge, nowDate, numColumns, onChannelFocus, onChannelPress, onProgramPress, preferFirst, reminderKeys, rememberFocusNode, reportFocusedRow, showChannelLogos, showChannelNumbers, toggleFavorite],
+    [channelNumberById, lastRowIndex, lockLeftEdge, nowDate, numColumns, onChannelFocus, onChannelPress, onProgramPress, preferFirst, reminderKeys, rememberFocusNode, reportFocusedRow, restoreChannelId, showChannelLogos, showChannelNumbers, toggleFavorite],
   );
 
   return (

@@ -431,6 +431,7 @@ export const TimelineGrid = memo(function TimelineGrid({
   onViewportChannelIds,
   onBackTargetChange,
   reclaimToken = 0,
+  restoreChannelId,
 }: {
   channels: Channel[];
   windowStart: string;
@@ -462,6 +463,8 @@ export const TimelineGrid = memo(function TimelineGrid({
   onBackTargetChange?: (region: "channel" | "program", logoNode: unknown) => void;
   /** Bumped after drawer close when restore may have missed — re-prefer row 0 logo. */
   reclaimToken?: number;
+  /** Session-only row restore after returning from fullscreen player. */
+  restoreChannelId?: string | null;
 }) {
   const { width } = useWindowDimensions();
   const big = width >= 900;
@@ -513,7 +516,15 @@ export const TimelineGrid = memo(function TimelineGrid({
         // Keep the mounted RecyclerView window locked to native focus. A
         // non-animated jump prevents held D-pad focus outrunning list scroll.
         try {
-          listRef.current?.scrollToIndex({ index, animated: false, viewPosition: 0.45 });
+          const rapidVertical =
+            lastAxisRef.current === "v" &&
+            Date.now() - lastAxisAtRef.current < RAPID_VERTICAL_MS;
+          listRef.current?.scrollToIndex({
+            index,
+            animated: false,
+            // Avoid recentering the entire list on every held-key repeat.
+            viewPosition: rapidVertical ? 0.22 : 0.45,
+          });
         } catch {
           try {
             listRef.current?.scrollToOffset({ offset: Math.max(0, index * ROW_H), animated: false });
@@ -638,14 +649,25 @@ export const TimelineGrid = memo(function TimelineGrid({
     [scrollX],
   );
 
-  // Mount-once preferred focus only — never reclaim on group/reset (that steals chip focus).
+  // Mount-once preferred focus only — restore the last watched row when tabs
+  // were detached by fullscreen navigation.
   useEffect(() => {
     if (hasClaimedFocusRef.current) return;
+    if (!preparedRows.length) return;
     hasClaimedFocusRef.current = true;
+    const restoreIndex = restoreChannelId
+      ? preparedRows.findIndex((row) => row.channel.id === restoreChannelId)
+      : -1;
+    if (restoreIndex >= 0) {
+      lastScrollSyncedRowRef.current = restoreIndex;
+      try {
+        listRef.current?.scrollToIndex({ index: restoreIndex, animated: false, viewPosition: 0.45 });
+      } catch {}
+    }
     setPreferFirstRow(true);
-    const clearPreferred = setTimeout(() => setPreferFirstRow(false), 360);
+    const clearPreferred = setTimeout(() => setPreferFirstRow(false), 600);
     return () => clearTimeout(clearPreferred);
-  }, []);
+  }, [preparedRows, restoreChannelId]);
 
   // Group/filter changes: reset scroll position only. Do not touch preferred focus.
   useEffect(() => {
@@ -821,14 +843,17 @@ export const TimelineGrid = memo(function TimelineGrid({
         onProgramFocus={onRowProgramFocus}
         onRowChannelFocus={onRowChannelFocus}
         onFocusNode={rememberFocusNode}
-        preferInitialFocus={preferFirstRow && index === 0}
+        preferInitialFocus={
+          preferFirstRow &&
+          (restoreChannelId ? row.channel.id === restoreChannelId : index === 0)
+        }
         lockFocusDown={index >= lastRowIndex}
         lockFocusLeft={lockLeftEdge}
         disableProgramCull={disableProgramCull}
         getFocusedProgramKey={getFocusedProgramKey}
       />
     ),
-    [ROW_H, LOGO_W, LOGO_SIZE, railMetrics.numberWidth, railMetrics.nameFontSize, railMetrics.nameLineHeight, railMetrics.horizontalPadding, railMetrics.itemGap, timelineWidth, negScrollX, panBucket, programViewportW, showChannelNumbers, channelNumberById, showChannelLogos, reminderKeys, onChannelPress, onChannelLongPress, onProgramPress, onRowProgramFocus, onRowChannelFocus, preferFirstRow, rememberFocusNode, lastRowIndex, lockLeftEdge, disableProgramCull, getFocusedProgramKey],
+    [ROW_H, LOGO_W, LOGO_SIZE, railMetrics.numberWidth, railMetrics.nameFontSize, railMetrics.nameLineHeight, railMetrics.horizontalPadding, railMetrics.itemGap, timelineWidth, negScrollX, panBucket, programViewportW, showChannelNumbers, channelNumberById, showChannelLogos, reminderKeys, onChannelPress, onChannelLongPress, onProgramPress, onRowProgramFocus, onRowChannelFocus, preferFirstRow, rememberFocusNode, lastRowIndex, lockLeftEdge, disableProgramCull, getFocusedProgramKey, restoreChannelId],
   );
 
   return (
@@ -870,7 +895,10 @@ export const TimelineGrid = memo(function TimelineGrid({
             data={preparedRows}
             ref={listRef}
             keyExtractor={(row) => row.channel.id}
-            drawDistance={Math.max(480, ROW_H * 10)}
+            drawDistance={Math.max(480, ROW_H * 8)}
+            overrideItemLayout={(layout) => {
+              layout.size = ROW_H;
+            }}
             removeClippedSubviews={false}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingBottom: 120 }}

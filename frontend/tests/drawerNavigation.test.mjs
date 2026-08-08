@@ -35,9 +35,10 @@ test("closed-drawer Back arms reopen; second Back within the window opens", () =
 });
 
 test("drawer uses bounded native motion and excludes hidden controls from TV focus", async () => {
-  const [shell, layout] = await Promise.all([
+  const [shell, layout, rootLayout] = await Promise.all([
     readFile(join(root, "src/components/PurpleTvShell.tsx"), "utf8"),
     readFile(join(root, "app/(tabs)/_layout.tsx"), "utf8"),
+    readFile(join(root, "app/_layout.tsx"), "utf8"),
   ]);
   assert.match(shell, /useNativeDriver: true/);
   assert.match(shell, /styles\.sidebarSpacer|sidebarSpacer/);
@@ -63,7 +64,8 @@ test("drawer uses bounded native motion and excludes hidden controls from TV foc
   assert.doesNotMatch(shell, /NAV\.slice\(0,\s*6\)/);
   assert.doesNotMatch(shell, /useNativeDriver: false/);
   assert.doesNotMatch(shell, /AsyncStorage|refreshSource|clearGuideCache|SQLite|database/i);
-  assert.match(layout, /<PurpleTvDrawerProvider>/);
+  assert.doesNotMatch(layout, /PurpleTvDrawerProvider/);
+  assert.match(rootLayout, /<PurpleTvDrawerProvider>/);
   assert.match(layout, /<Tabs/);
 });
 
@@ -88,6 +90,8 @@ test("guide tabs reclaim the left edge and top-row Up restores the active tab", 
   assert.match(guide, /setPreviewId\(null\)/);
   assert.match(guide, /useTvBackHandler/);
   assert.match(guide, /onBackTargetChange/);
+  assert.match(guide, /guideSessionGroup/);
+  assert.match(guide, /restoreChannelId=\{guideSessionChannelId\}/);
   assert.doesNotMatch(guide, /openDrawer\(\);\s*\n\s*return true/);
 });
 
@@ -100,8 +104,9 @@ test("grids never open the drawer from D-pad Left", async () => {
   assert.match(timeline, /applyLeftFocusLock\(node, lockFocusLeft\)/);
   assert.match(box, /armGuideLeftFocusLock/);
   assert.match(box, /lockFocusLeft/);
-  assert.match(timeline, /scrollToIndex\(\{ index, animated: false, viewPosition: 0\.45 \}\)/);
-  assert.match(box, /scrollToIndex\(\{ index, animated: false, viewPosition: 0\.45 \}\)/);
+  assert.match(timeline, /viewPosition: rapidVertical \? 0\.22 : 0\.45/);
+  assert.match(timeline, /overrideItemLayout/);
+  assert.match(box, /viewPosition: 0\.25/);
   assert.doesNotMatch(timeline, /onLeftBoundary\?\.\(\)/);
   assert.doesNotMatch(box, /onLeftBoundary\?\.\(\)/);
   assert.match(timeline, /epg-timeline-now-indicator/);

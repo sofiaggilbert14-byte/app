@@ -36,6 +36,10 @@ import { MODAL_FOCUS_RETRY_DELAYS_MS } from "@/src/core/guideRegressionPolicy";
 import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
 
 const BASE_GROUPS = ["All", "Favorites", "Recently Watched", "Sports", "News", "Movies", "Kids", "Music"];
+// Session-only guide position survives the root player route unmounting tabs.
+// Do not persist to disk: this is navigation state, not a user preference.
+let guideSessionGroup = "All";
+let guideSessionChannelId: string | null = null;
 
 function byName(a: Channel, b: Channel) {
   return (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" });
@@ -101,8 +105,8 @@ export default function PurpleGuideScreen() {
   const [surfLogosSuppressed, setSurfLogosSuppressed] = useState(false);
 
   const [now, setNow] = useState(() => new Date().toISOString());
-  const [group, setGroup] = useState("All");
-  const [focusedId, setFocusedId] = useState<string | null>(null);
+  const [group, setGroup] = useState(() => guideSessionGroup);
+  const [focusedId, setFocusedId] = useState<string | null>(() => guideSessionChannelId);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewStatus, setPreviewStatus] = useState<StreamStatus>("loading");
   const [resetToken, setResetToken] = useState(0);
@@ -311,6 +315,8 @@ export default function PurpleGuideScreen() {
   // so the guide never leaves an unfocusable empty FlashList.
   useEffect(() => {
     if (!groups.includes(group)) {
+      guideSessionGroup = "All";
+      guideSessionChannelId = null;
       setGroup("All");
       setResetToken((value) => value + 1);
     }
@@ -427,6 +433,7 @@ export default function PurpleGuideScreen() {
       if (metadataTimer.current) clearTimeout(metadataTimer.current);
       if (previewTimer.current) clearTimeout(previewTimer.current);
       const requestedId = channel.id;
+      guideSessionChannelId = requestedId;
       const nowTs = Date.now();
       const rapid = nowTs - lastFocusAtRef.current < 240;
       lastFocusAtRef.current = nowTs;
@@ -481,6 +488,8 @@ export default function PurpleGuideScreen() {
     if (metadataTimer.current) clearTimeout(metadataTimer.current);
     if (previewTimer.current) clearTimeout(previewTimer.current);
     groupChangedAt.current = Date.now();
+    guideSessionGroup = next;
+    guideSessionChannelId = null;
     setGroup(next);
     setFocusedId(null);
     setPreviewId(null);
@@ -507,6 +516,8 @@ export default function PurpleGuideScreen() {
     if (metadataTimer.current) clearTimeout(metadataTimer.current);
     if (previewTimer.current) clearTimeout(previewTimer.current);
     groupChangedAt.current = Date.now();
+    guideSessionGroup = "All";
+    guideSessionChannelId = null;
     setGroup("All");
     setFocusedId(null);
     setPreviewId(null);
@@ -643,6 +654,7 @@ export default function PurpleGuideScreen() {
                   resetToken={resetToken}
                   active={!activeProgram && !drawerOpen}
                   lockLeftEdge={!drawerOpen}
+                  restoreChannelId={guideSessionChannelId}
                   onUpBoundary={onGuideUpBoundary}
                   onFocusedRowChange={onFocusedGuideRow}
                   onViewportChannelIds={onViewportChannelIds}
@@ -668,6 +680,7 @@ export default function PurpleGuideScreen() {
                   resetToken={resetToken}
                   active={!activeProgram && !drawerOpen}
                   lockLeftEdge={!drawerOpen}
+                  restoreChannelId={guideSessionChannelId}
                   onUpBoundary={onGuideUpBoundary}
                   onFocusedRowChange={onFocusedGuideRow}
                   onGuideFocusNode={onGuideFocusNode}

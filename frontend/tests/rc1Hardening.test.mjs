@@ -75,8 +75,8 @@ test("TvRemote checked-in Android matches plugin guide APIs", async () => {
   }
   assert.match(plugin, /KOTLIN_NAMESPACE/);
   assert.match(plugin, /hardenMainActivity/);
-  assert.match(plugin, /minDpadRepeatMs = 48L/);
-  assert.match(activity, /MIN_DPAD_REPEAT_MS = 48L/);
+  assert.match(plugin, /minDpadRepeatMs = 64L/);
+  assert.match(activity, /MIN_DPAD_REPEAT_MS = 64L/);
   assert.match(activity, /Static remote flags must never survive/);
   assert.match(activity, /TvRemoteModule\.pointerActive = false/);
   // Guide surfing must use Android focus — never consume Up/Down when "active".

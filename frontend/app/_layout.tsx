@@ -13,6 +13,7 @@ import { GuideProvider, useStore } from "@/src/store";
 import { ProgramModal } from "@/src/components/ProgramModal";
 import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { PointerOverlay } from "@/src/components/PointerOverlay";
+import { PurpleTvDrawerProvider } from "@/src/components/PurpleTvShell";
 import { TvCalibrationFrame, TvCalibrationProvider } from "@/src/tvCalibration";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 
@@ -106,20 +107,22 @@ export default function RootLayout() {
         <TvCalibrationProvider>
           <TvCalibrationFrame>
             <GuideProvider>
-              <StatusBar style="light" />
-              <NotificationRouter />
-              <ReminderCleanup />
-              <StartScreenRedirect />
-              <ErrorBoundary>
-                <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#070711" } }}>
-                  <Stack.Screen name="(tabs)" />
-                  <Stack.Screen name="player" options={{ animation: "fade" }} />
-                </Stack>
-              </ErrorBoundary>
-              <ErrorBoundary>
-                <ProgramModal />
-              </ErrorBoundary>
-              <PointerOverlay />
+              <PurpleTvDrawerProvider>
+                <StatusBar style="light" />
+                <NotificationRouter />
+                <ReminderCleanup />
+                <StartScreenRedirect />
+                <ErrorBoundary>
+                  <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#070711" } }}>
+                    <Stack.Screen name="(tabs)" />
+                    <Stack.Screen name="player" options={{ animation: "fade" }} />
+                  </Stack>
+                </ErrorBoundary>
+                <ErrorBoundary>
+                  <ProgramModal />
+                </ErrorBoundary>
+                <PointerOverlay />
+              </PurpleTvDrawerProvider>
             </GuideProvider>
           </TvCalibrationFrame>
         </TvCalibrationProvider>

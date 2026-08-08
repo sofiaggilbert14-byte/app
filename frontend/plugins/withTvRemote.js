@@ -185,7 +185,7 @@ function hardenMainActivity(src) {
 
   private var lastAcceptedDirectionalRepeatAt = 0L
   private var lastAcceptedDirectionalKeyCode = -1
-  private val minDpadRepeatMs = 48L
+  private val minDpadRepeatMs = 64L
 `;
     src = src.slice(0, idx) + fields + src.slice(idx);
     src = src.replace(
