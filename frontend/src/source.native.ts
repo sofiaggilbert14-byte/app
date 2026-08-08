@@ -1,6 +1,6 @@
 import dayjs from "dayjs";
 import * as FileSystem from "expo-file-system/legacy";
-import type { Channel, GuideResponse, SourceStatus } from "@/src/api";
+import type { Channel, GuideResponse, Program, SourceStatus } from "@/src/api";
 import {
   enforcePlaylistByteLimit,
   enforcePlaylistTextLimit,
@@ -24,6 +24,9 @@ export const API_BASE = "";
 export const SOURCE_M3U = (process.env.EXPO_PUBLIC_M3U_URL || "").trim();
 /** XMLTV URL — set via EXPO_PUBLIC_EPG_URL at build time. Never hardcode provider URLs. */
 export const SOURCE_EPG = (process.env.EXPO_PUBLIC_EPG_URL || "").trim();
+
+/** Shared empty programmes array — reused for channels with no EPG in-window. */
+const EMPTY_PROGRAMS: Program[] = Object.freeze([]) as Program[];
 
 const TTL_MS = 24 * 60 * 60 * 1000;
 const PROGRESS_THROTTLE_MS = 150;
@@ -193,7 +196,9 @@ async function fetchPlaylist(): Promise<Channel[]> {
   }
   const text = await response.text();
   enforcePlaylistTextLimit(text);
-  const { channels } = parseM3UWithStats(text);
+  const { channels } = parseM3UWithStats(text, (url) => url, (ratio) => {
+    setProgress({ phase: "channels", ratio: 0.05 + ratio * 0.12, etaSeconds: null });
+  });
   const sorted = sortChannels(channels);
   // Empty / unusable refresh must not wipe a last-good on-disk list (refreshInternal catch).
   if (!sorted.length) throw new Error("Playlist contained no playable channels");
@@ -343,11 +348,15 @@ export async function loadGuide(startISO?: string, hours = 8, force = false): Pr
     ? await loadNativeEpgWindow(guideIds, startMs, endMs)
     : {};
 
+  // Shared empty list — avoid allocating tens of thousands of `[]` on big playlists.
+  const emptyPrograms: Program[] = EMPTY_PROGRAMS;
+
   let channelsWithEpg = 0;
   const channels = parsed.channels.map((channel) => {
     const key = channel.tvg_id || channel.id;
-    const list = programmes[key] || [];
-    if (list.length) channelsWithEpg++;
+    const list = programmes[key];
+    if (!list?.length) return { ...channel, programs: emptyPrograms };
+    channelsWithEpg++;
     return { ...channel, programs: list };
   });
 

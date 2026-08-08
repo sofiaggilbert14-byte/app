@@ -24,6 +24,9 @@ import {
   replaceIndexedPrograms,
 } from "@/src/epgDb";
 
+/** Shared empty programmes array for channels with nothing in the guide window. */
+const EMPTY_GUIDE_PROGRAMS: Program[] = Object.freeze([]) as Program[];
+
 /**
  * WEB / non-native source path.
  * Fire TV / Android APK resolves `@/src/source` → `source.native.ts` (Kotlin streamed XMLTV).
@@ -916,7 +919,10 @@ async function doFetchParse(): Promise<Parsed> {
   const previous = MEM;
   const m3uText = await fetchTextMaybeGzip(SOURCE_M3U, undefined, MAX_PLAYLIST_BYTES);
   enforcePlaylistTextLimit(m3uText);
-  const { channels } = parseM3UWithStats(m3uText, https);
+  setProgress({ phase: "channels", ratio: 0.02, etaSeconds: null }, true);
+  const { channels } = parseM3UWithStats(m3uText, https, (ratio) => {
+    setProgress({ phase: "channels", ratio: 0.02 + ratio * 0.18, etaSeconds: null });
+  });
   if (!channels.length) {
     // Keep last-good channels when a refresh yields nothing usable.
     if (previous?.channels?.length) return previous;
@@ -932,7 +938,7 @@ async function doFetchParse(): Promise<Parsed> {
   // Do not rewrite a large existing EPG before starting a refresh.
   if (Object.keys(MEM.programs).length === 0 && !(MEM.epgProgramCount || 0)) await persist();
   emit();
-  setProgress({ phase: "channels", ratio: 0, etaSeconds: null }, true);
+  setProgress({ phase: "channels", ratio: 0.22, etaSeconds: null }, true);
   // Stage 2 (slower): parse the large EPG in the background, then notify.
   loadEpg(channels);
   return MEM;
@@ -996,12 +1002,16 @@ export async function loadGuide(startISO?: string, hours = 12, force = false): P
         winEndMs,
       )
     : null;
-  const channels = parsed.channels.map((c) => ({
-    ...c,
-    programs: indexedPrograms
-      ? indexedPrograms[c.tvg_id] || []
-      : windowPrograms(parsed.programs[c.tvg_id], winStartMs, winEndMs),
-  }));
+  const emptyPrograms: Program[] = EMPTY_GUIDE_PROGRAMS;
+  const channels = parsed.channels.map((c) => {
+    const list = indexedPrograms
+      ? indexedPrograms[c.tvg_id]
+      : windowPrograms(parsed.programs[c.tvg_id], winStartMs, winEndMs);
+    return {
+      ...c,
+      programs: list?.length ? list : emptyPrograms,
+    };
+  });
   return {
     start: winStart.toISOString(),
     end: winEnd.toISOString(),

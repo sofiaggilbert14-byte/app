@@ -39,6 +39,7 @@ test("native EPG refuses empty live swaps and filters getWindow by channel ids",
   assert.match(db, /Refusing to replace live EPG with an empty feed/);
   assert.match(db, /channelIds\.chunked\(IN_CLAUSE_CHUNK\)/);
   assert.match(db, /fun deleteExpired/);
+  assert.match(db, /wal_checkpoint\(PASSIVE\)/);
   assert.match(mod, /resolveProgrammeStop/);
   assert.match(mod, /DEFAULT_PROGRAMME_DURATION_MS/);
   assert.match(mod, /channelIds: ReadableArray/);
@@ -118,8 +119,10 @@ test("playlist ingest keeps last-good and enforces protocol/size guards", async 
   assert.match(native, /parseM3UWithStats/);
   assert.match(native, /enforcePlaylistTextLimit/);
   assert.match(native, /Playlist contained no playable channels/);
+  assert.match(native, /EMPTY_PROGRAMS/);
   assert.match(web, /parseM3UWithStats/);
   assert.match(web, /MAX_PLAYLIST_BYTES/);
+  assert.match(web, /EMPTY_GUIDE_PROGRAMS/);
   assert.match(web, /previous\?\.channels\?\.length/);
   assert.match(web, /Playlist contained no playable channels/);
 });

@@ -226,6 +226,12 @@ internal class EpgDatabase(context: Context) :
 
   fun deleteExpired(beforeMs: Long) {
     writableDatabase.delete(LIVE_TABLE, "end_time < ?", arrayOf(beforeMs.toString()))
+    // Best-effort WAL trim after expiry deletes — PASSIVE never blocks readers.
+    try {
+      writableDatabase.execSQL("PRAGMA wal_checkpoint(PASSIVE)")
+    } catch (_: Throwable) {
+      /* ignore */
+    }
   }
 
   fun clear() {
