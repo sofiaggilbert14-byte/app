@@ -1,0 +1,12 @@
+#EXTM3U
+#EXTINF:-1 tvg-id="news.1" tvg-name="News One" tvg-logo="http://img.example/news.png" group-title="News",News One
+https://stream.example/live/news.m3u8
+#EXTINF:-1 tvg-id="sports.1" group-title="Sports",Sports One
+https://stream.example/live/sports.ts?token=redacted
+#EXTINF:-1 tvg-id="news.1" group-title="News",News One Backup
+https://backup.example/live/channel
+#EXTINF:-1 tvg-id="evil.file" group-title="Bad",Local File
+file:///tmp/evil.ts
+#EXTINF:-1 tvg-id="evil.js" group-title="Bad",Script URL
+javascript:alert(1)
+#EXTINF:-1,No URL Channel

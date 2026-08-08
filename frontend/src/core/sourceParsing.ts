@@ -2,18 +2,131 @@ import type { Channel } from "@/src/api";
 
 const EXTINF_ATTR = /([a-zA-Z0-9-]+)="([^"]*)"/g;
 
+/** Soft cap for downloaded/parsed playlist text (M3U is typically ASCII). */
+export const MAX_PLAYLIST_BYTES = 32 * 1024 * 1024;
+/** Hard cap on accepted channel records after filtering. */
+export const MAX_PLAYLIST_CHANNELS = 25_000;
+/** Keep channel ids within favorite-id hygiene limits. */
+export const MAX_CHANNEL_ID_LEN = 160;
+
+const ALLOWED_PLAYLIST_SCHEMES = new Set([
+  "http:",
+  "https:",
+  "rtsp:",
+  "rtsps:",
+  "rtmp:",
+  "rtmps:",
+]);
+
+export type ParseM3UStats = {
+  channels: Channel[];
+  rejected: number;
+  truncated: boolean;
+};
+
 export function streamType(url: string): string {
-  const clean = url.toLowerCase().split("?")[0];
+  const clean = url.toLowerCase().split("?")[0].split("|")[0];
   if (clean.endsWith(".m3u8")) return "hls";
   if (clean.endsWith(".ts")) return "ts";
   return "unknown";
 }
 
-export function parseM3U(text: string, normalizeLogo: (url: string) => string = (url) => url): Channel[] {
+/** Identity URL without VLC-style pipe headers. */
+export function streamIdentityUrl(url: string): string {
+  return url.split("|")[0].trim().toLowerCase();
+}
+
+/** Stable short fingerprint for URL-based channel identity (djb2). */
+export function fingerprintKey(value: string): string {
+  let hash = 5381;
+  for (let i = 0; i < value.length; i++) {
+    hash = ((hash << 5) + hash) ^ value.charCodeAt(i);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+export function isAllowedPlaylistUrl(url: string): boolean {
+  const raw = streamIdentityUrl(url);
+  if (!raw) return false;
+  const match = raw.match(/^([a-z][a-z0-9+.-]*):/i);
+  if (!match) return false;
+  return ALLOWED_PLAYLIST_SCHEMES.has(`${match[1].toLowerCase()}:`);
+}
+
+export function enforcePlaylistTextLimit(text: string): void {
+  if (text.length > MAX_PLAYLIST_BYTES) {
+    throw new Error(`Playlist exceeds size limit (${MAX_PLAYLIST_BYTES} bytes)`);
+  }
+}
+
+export function enforcePlaylistByteLimit(byteLength: number): void {
+  if (!Number.isFinite(byteLength) || byteLength < 0) return;
+  if (byteLength > MAX_PLAYLIST_BYTES) {
+    throw new Error(`Playlist exceeds size limit (${MAX_PLAYLIST_BYTES} bytes)`);
+  }
+}
+
+function slugify(value: string): string {
+  return value.replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-+|-+$/g, "").toLowerCase();
+}
+
+function clipId(id: string): string {
+  if (id.length <= MAX_CHANNEL_ID_LEN) return id;
+  return id.slice(0, MAX_CHANNEL_ID_LEN);
+}
+
+/**
+ * Prefer unique tvg-id; on collision or missing id, append a URL fingerprint
+ * so reordering the playlist does not reshuffle favorites / recent keys.
+ */
+export function allocateChannelId(input: {
+  tvgId: string;
+  name: string;
+  group: string;
+  url: string;
+  used: Set<string>;
+}): string {
+  const { tvgId, name, group, url, used } = input;
+  const fp = fingerprintKey(streamIdentityUrl(url));
+  const slug = slugify(`${name} ${group}`.trim()) || slugify(name) || `ch-${fp}`;
+  const preferred = clipId((tvgId || slug || `ch-${fp}`).trim() || `ch-${fp}`);
+
+  if (!used.has(preferred)) {
+    used.add(preferred);
+    return preferred;
+  }
+
+  const withFp = clipId(`${preferred}~${fp}`);
+  if (!used.has(withFp)) {
+    used.add(withFp);
+    return withFp;
+  }
+
+  let n = 2;
+  let candidate = clipId(`${withFp}~${n}`);
+  while (used.has(candidate)) {
+    n += 1;
+    candidate = clipId(`${withFp}~${n}`);
+  }
+  used.add(candidate);
+  return candidate;
+}
+
+export function parseM3UWithStats(
+  text: string,
+  normalizeLogo: (url: string) => string = (url) => url,
+): ParseM3UStats {
+  enforcePlaylistTextLimit(text);
   const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/);
-  const channels: Channel[] = [];
-  const used = new Set<string>();
-  let index = 0;
+  type RawEntry = {
+    tvgId: string;
+    name: string;
+    group: string;
+    logo: string;
+    url: string;
+  };
+  const entries: RawEntry[] = [];
+  let rejected = 0;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
@@ -37,27 +150,74 @@ export function parseM3U(text: string, normalizeLogo: (url: string) => string = 
         break;
       }
     }
-    if (!url) continue;
+    if (!url || !isAllowedPlaylistUrl(url)) {
+      rejected += 1;
+      continue;
+    }
 
-    const tvgId = (attrs["tvg-id"] || "").trim();
-    const base = tvgId || name.replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase();
-    let id = base || `channel-${index}`;
-    if (used.has(id)) id = `${id}#${index}`;
-    used.add(id);
+    entries.push({
+      tvgId: (attrs["tvg-id"] || "").trim(),
+      name,
+      group: (attrs["group-title"] || "").trim(),
+      logo: normalizeLogo((attrs["tvg-logo"] || "").trim()),
+      url,
+    });
+  }
+
+  const tvgCounts = new Map<string, number>();
+  for (const entry of entries) {
+    if (!entry.tvgId) continue;
+    tvgCounts.set(entry.tvgId, (tvgCounts.get(entry.tvgId) || 0) + 1);
+  }
+
+  const channels: Channel[] = [];
+  const used = new Set<string>();
+  let truncated = false;
+
+  for (const entry of entries) {
+    if (channels.length >= MAX_PLAYLIST_CHANNELS) {
+      truncated = true;
+      break;
+    }
+    const uniqueTvg = !!entry.tvgId && (tvgCounts.get(entry.tvgId) || 0) === 1;
+    const fp = fingerprintKey(streamIdentityUrl(entry.url));
+    const slug = slugify(`${entry.name} ${entry.group}`.trim()) || slugify(entry.name) || `ch-${fp}`;
+    let preferred = uniqueTvg
+      ? entry.tvgId
+      : entry.tvgId
+        ? `${entry.tvgId}~${fp}`
+        : slug;
+    preferred = clipId(preferred.trim() || `ch-${fp}`);
+
+    let id = preferred;
+    if (used.has(id)) {
+      id = allocateChannelId({
+        tvgId: "",
+        name: entry.name,
+        group: entry.group,
+        url: entry.url,
+        used,
+      });
+    } else {
+      used.add(id);
+    }
 
     channels.push({
       id,
-      tvg_id: tvgId,
-      name,
-      logo: normalizeLogo((attrs["tvg-logo"] || "").trim()),
-      group: (attrs["group-title"] || "").trim(),
-      url,
-      stream_type: streamType(url),
+      tvg_id: entry.tvgId,
+      name: entry.name,
+      logo: entry.logo,
+      group: entry.group,
+      url: entry.url,
+      stream_type: streamType(entry.url),
     });
-    index++;
   }
 
-  return channels;
+  return { channels, rejected, truncated };
+}
+
+export function parseM3U(text: string, normalizeLogo: (url: string) => string = (url) => url): Channel[] {
+  return parseM3UWithStats(text, normalizeLogo).channels;
 }
 
 export function parseXmltvTime(raw: string): string | null {

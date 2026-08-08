@@ -3,7 +3,14 @@ import { Platform } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
 import { DecodeUTF8, Gunzip } from "fflate";
 import type { Channel, Program, GuideResponse, SourceStatus } from "@/src/api";
-import { parseM3U, parseXmltvTime, resolveXmltvStop, streamType } from "@/src/core/sourceParsing";
+import {
+  MAX_PLAYLIST_BYTES,
+  enforcePlaylistTextLimit,
+  parseM3UWithStats,
+  parseXmltvTime,
+  resolveXmltvStop,
+  streamType,
+} from "@/src/core/sourceParsing";
 import {
   buildXmltvMatchIndexes,
   formatNativeEpgError,
@@ -80,10 +87,11 @@ function resolveUrl(url: string): string {
 async function fetchTextMaybeGzip(
   url: string,
   onDownload?: (ratio: number | null) => void,
+  maxBytes?: number,
 ): Promise<string> {
   // Handles both plain and GZIP-compressed sources. Downloads the bytes
   // reliably, then inflates only if gzip-magic.
-  const bytes = await fetchBytes(url, onDownload);
+  const bytes = await fetchBytes(url, onDownload, maxBytes);
   return inflateIfGzip(bytes);
 }
 
@@ -120,11 +128,22 @@ async function base64ToBytes(b64: string): Promise<Uint8Array> {
 async function fetchBytes(
   url: string,
   onDownload?: (ratio: number | null) => void,
+  maxBytes?: number,
 ): Promise<Uint8Array> {
   if (Platform.OS === "web") {
     const res = await fetch(resolveUrl(url), { headers: { "User-Agent": "GridStream/1.0" } });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return new Uint8Array(await res.arrayBuffer());
+    if (maxBytes != null) {
+      const contentLength = Number(res.headers.get("content-length") || "");
+      if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+        throw new Error(`Playlist exceeds size limit (${maxBytes} bytes)`);
+      }
+    }
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    if (maxBytes != null && bytes.byteLength > maxBytes) {
+      throw new Error(`Playlist exceeds size limit (${maxBytes} bytes)`);
+    }
+    return bytes;
   }
   const tmp = (FileSystem.cacheDirectory || FileSystem.documentDirectory || "") + "source_download.bin";
   try {
@@ -149,6 +168,9 @@ async function fetchBytes(
   } catch {}
   const bytes = await base64ToBytes(b64);
   b64 = "";
+  if (maxBytes != null && bytes.byteLength > maxBytes) {
+    throw new Error(`Playlist exceeds size limit (${maxBytes} bytes)`);
+  }
   return bytes;
 }
 
@@ -891,9 +913,15 @@ async function doFetchParse(): Promise<Parsed> {
   }
   // Stage 1 (fast): parse the small M3U so the guide paints immediately, even
   // on low-power Android TV / Firestick boxes.
-  const m3uText = await fetchTextMaybeGzip(SOURCE_M3U);
-  const channels = parseM3U(m3uText, https);
   const previous = MEM;
+  const m3uText = await fetchTextMaybeGzip(SOURCE_M3U, undefined, MAX_PLAYLIST_BYTES);
+  enforcePlaylistTextLimit(m3uText);
+  const { channels } = parseM3UWithStats(m3uText, https);
+  if (!channels.length) {
+    // Keep last-good channels when a refresh yields nothing usable.
+    if (previous?.channels?.length) return previous;
+    throw new Error("Playlist contained no playable channels");
+  }
   MEM = {
     ts: Date.now(),
     channels: sortChannelsAlphabetically(channels),

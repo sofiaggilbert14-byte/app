@@ -1,7 +1,11 @@
 import dayjs from "dayjs";
 import * as FileSystem from "expo-file-system/legacy";
 import type { Channel, GuideResponse, SourceStatus } from "@/src/api";
-import { parseM3U } from "@/src/core/sourceParsing";
+import {
+  enforcePlaylistByteLimit,
+  enforcePlaylistTextLimit,
+  parseM3UWithStats,
+} from "@/src/core/sourceParsing";
 import {
   clearNativeEpg,
   loadNativeEpgWindow,
@@ -183,10 +187,17 @@ async function fetchPlaylist(): Promise<Channel[]> {
     headers: { "User-Agent": "CharmIPTV/Experimental-v3" },
   });
   if (!response.ok) throw new Error(`M3U HTTP ${response.status}`);
+  const contentLength = Number(response.headers.get("content-length") || "");
+  if (Number.isFinite(contentLength) && contentLength > 0) {
+    enforcePlaylistByteLimit(contentLength);
+  }
   const text = await response.text();
-  const channels = sortChannels(parseM3U(text));
-  if (!channels.length) throw new Error("Playlist contained no channels");
-  return channels;
+  enforcePlaylistTextLimit(text);
+  const { channels } = parseM3UWithStats(text);
+  const sorted = sortChannels(channels);
+  // Empty / unusable refresh must not wipe a last-good on-disk list (refreshInternal catch).
+  if (!sorted.length) throw new Error("Playlist contained no playable channels");
+  return sorted;
 }
 
 async function ensureLoaded(): Promise<NativeMeta> {

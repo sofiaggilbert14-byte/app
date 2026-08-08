@@ -101,3 +101,23 @@ test("legacy backend proxy blocks private destinations", async () => {
   assert.match(server, /allow_redirects=False/);
   assert.match(server, /try:\n\s+epg_text = _fetch\(epg_url\)/);
 });
+
+test("playlist ingest keeps last-good and enforces protocol/size guards", async () => {
+  const [parsing, native, web] = await Promise.all([
+    source("src/core/sourceParsing.ts"),
+    source("src/source.native.ts"),
+    source("src/source.ts"),
+  ]);
+  assert.match(parsing, /MAX_PLAYLIST_BYTES/);
+  assert.match(parsing, /MAX_PLAYLIST_CHANNELS/);
+  assert.match(parsing, /isAllowedPlaylistUrl/);
+  assert.match(parsing, /allocateChannelId/);
+  assert.match(parsing, /parseM3UWithStats/);
+  assert.match(native, /parseM3UWithStats/);
+  assert.match(native, /enforcePlaylistTextLimit/);
+  assert.match(native, /Playlist contained no playable channels/);
+  assert.match(web, /parseM3UWithStats/);
+  assert.match(web, /MAX_PLAYLIST_BYTES/);
+  assert.match(web, /previous\?\.channels\?\.length/);
+  assert.match(web, /Playlist contained no playable channels/);
+});
