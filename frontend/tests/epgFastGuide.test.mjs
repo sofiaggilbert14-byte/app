@@ -38,6 +38,9 @@ test("source loadGuide uses SQL join path and focus-ring programme patches", asy
   assert.match(native, /syncPlaylistToNative/);
   assert.match(native, /syncMatchesToNative/);
   assert.match(native, /programsByChannelId/);
+  assert.match(native, /now\.startOf\("minute"\)\.subtract\(1, "hour"\)/);
+  assert.match(native, /programmeWindowEmptyKeys/);
+  assert.match(native, /loadProgrammeCacheMisses/);
   assert.doesNotMatch(
     native,
     /for \(const id of allGuideIds\) \{\s*if \(have\.has\(id\)\) continue;\s*ring\.push\(id\);/,
