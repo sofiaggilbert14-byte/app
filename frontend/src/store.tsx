@@ -685,7 +685,24 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => subscribeSource(() => refresh(true)), [refresh]);
+  useEffect(() => {
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    let disposed = false;
+    // Native EPG emits partial + final phases. Coalesce them so one refresh does
+    // not rebuild every channel/TimelineGrid row multiple times on weak sticks.
+    const unsubscribe = subscribeSource(() => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => {
+        refreshTimer = null;
+        if (!disposed) void refresh(true);
+      }, 500);
+    });
+    return () => {
+      disposed = true;
+      if (refreshTimer) clearTimeout(refreshTimer);
+      unsubscribe();
+    };
+  }, [refresh]);
 
   useEffect(
     () => () => {

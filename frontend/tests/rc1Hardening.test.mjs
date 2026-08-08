@@ -52,6 +52,8 @@ test("favorites are never auto-pruned on playlist load", async () => {
   assert.match(store, /do NOT prune favorite\/recent IDs/);
   assert.doesNotMatch(store, /Drop orphan favorite\/recent IDs/);
   assert.doesNotMatch(store, /prev\.filter\(\(id\) => channelByIdMap\.has\(id\)\)/);
+  assert.match(store, /Coalesce them so one refresh/);
+  assert.match(store, /\}, 500\)/);
 });
 
 test("favorites backup offers SAF portable export", async () => {
@@ -72,6 +74,11 @@ test("TvRemote checked-in Android matches plugin guide APIs", async () => {
     assert.match(mod, new RegExp(needle));
   }
   assert.match(plugin, /KOTLIN_NAMESPACE/);
+  assert.match(plugin, /hardenMainActivity/);
+  assert.match(plugin, /minDpadRepeatMs = 48L/);
+  assert.match(activity, /MIN_DPAD_REPEAT_MS = 48L/);
+  assert.match(activity, /Static remote flags must never survive/);
+  assert.match(activity, /TvRemoteModule\.pointerActive = false/);
   // Guide surfing must use Android focus — never consume Up/Down when "active".
   assert.doesNotMatch(activity, /guideNavigationActive && \(key == "UP"/);
   assert.doesNotMatch(plugin, /guideNavigationActive && \(key == "UP"/);

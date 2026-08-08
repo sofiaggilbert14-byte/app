@@ -93,6 +93,14 @@ class MainActivity : ReactActivity() {
 
   override fun getMainComponentName(): String = "main"
 
+  override fun onDestroy() {
+    // Static remote flags must never survive an Activity/bridge teardown.
+    // A stale pointer flag consumes every D-pad key before Android focus sees it.
+    TvRemoteModule.pointerActive = false
+    TvRemoteModule.guideNavigationActive = false
+    super.onDestroy()
+  }
+
   override fun createReactActivityDelegate(): ReactActivityDelegate {
     return ReactActivityDelegateWrapper(
           this,

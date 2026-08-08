@@ -177,6 +177,66 @@ function withTvRemotePackageRegistered(config) {
   });
 }
 
+function hardenMainActivity(src) {
+  const classMatch = src.match(/class\s+MainActivity[^{]*\{/);
+  if (classMatch && !src.includes("lastAcceptedDirectionalRepeatAt")) {
+    const idx = src.indexOf(classMatch[0]) + classMatch[0].length;
+    const fields = `
+
+  private var lastAcceptedDirectionalRepeatAt = 0L
+  private var lastAcceptedDirectionalKeyCode = -1
+  private val minDpadRepeatMs = 48L
+`;
+    src = src.slice(0, idx) + fields + src.slice(idx);
+    src = src.replace(
+      "  override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {\n",
+      `  override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+    val directional =
+      event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP ||
+        event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN ||
+        event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT ||
+        event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT
+    if (event.action == android.view.KeyEvent.ACTION_DOWN && directional) {
+      if (event.repeatCount == 0) {
+        lastAcceptedDirectionalKeyCode = event.keyCode
+        lastAcceptedDirectionalRepeatAt = event.eventTime
+      } else {
+        val elapsed = event.eventTime - lastAcceptedDirectionalRepeatAt
+        if (event.keyCode == lastAcceptedDirectionalKeyCode && elapsed < minDpadRepeatMs) return true
+        lastAcceptedDirectionalKeyCode = event.keyCode
+        lastAcceptedDirectionalRepeatAt = event.eventTime
+      }
+    } else if (event.action == android.view.KeyEvent.ACTION_UP && directional) {
+      lastAcceptedDirectionalKeyCode = -1
+      lastAcceptedDirectionalRepeatAt = 0L
+    }
+`,
+    );
+  }
+
+  if (!src.includes("FLAG_KEEP_SCREEN_ON")) {
+    src = src.replace(
+      "  override fun onCreate(savedInstanceState: Bundle?) {",
+      `  override fun onCreate(savedInstanceState: Bundle?) {
+    window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)`,
+    );
+  }
+
+  if (!src.includes("Static remote flags must never survive")) {
+    const lifecycle = `
+  override fun onDestroy() {
+    // Static remote flags must never survive an Activity/bridge teardown.
+    TvRemoteModule.pointerActive = false
+    TvRemoteModule.guideNavigationActive = false
+    super.onDestroy()
+  }
+
+`;
+    src = src.replace("  override fun getMainComponentName()", lifecycle + "  override fun getMainComponentName()");
+  }
+  return src;
+}
+
 // 3) Override dispatchKeyEvent in MainActivity.kt to forward D-pad keys to JS.
 function withTvRemoteKeyCapture(config) {
   return withMainActivity(config, (cfg) => {
@@ -189,7 +249,7 @@ function withTvRemoteKeyCapture(config) {
         /\n\s*if \(TvRemoteModule\.guideNavigationActive && \(key == "UP" \|\| key == "DOWN"\)\) return true/g,
         "",
       );
-      cfg.modResults.contents = src;
+      cfg.modResults.contents = hardenMainActivity(src);
       return cfg;
     }
 
@@ -228,7 +288,7 @@ function withTvRemoteKeyCapture(config) {
       const idx = src.indexOf(classMatch[0]) + classMatch[0].length;
       src = src.slice(0, idx) + "\n" + method + src.slice(idx);
     }
-    cfg.modResults.contents = src;
+    cfg.modResults.contents = hardenMainActivity(src);
     return cfg;
   });
 }
