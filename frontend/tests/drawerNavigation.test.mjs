@@ -45,6 +45,8 @@ test("drawer uses bounded native motion and excludes hidden controls from TV foc
   assert.match(shell, /trapFocusRight/);
   assert.match(shell, /closeDrawer\(\);/);
   assert.match(shell, /requestNativeFocusWithRetry\(navRefs\.current\.get\(active\)/);
+  assert.match(shell, /drawerAutoFocus && selected/);
+  assert.match(shell, /PURPLE_DRAWER_ANIMATION_MS,\s*280,\s*420,\s*650/);
   // Guide owns preferred focus — content autoFocus must not pulse when drawer closes on /guide.
   assert.match(shell, /active !== "\/guide"/);
   assert.match(shell, /evaluateDrawerBack/);
@@ -71,7 +73,9 @@ test("guide tabs reclaim the left edge and top-row Up restores the active tab", 
   assert.match(guide, /transform: \[\{ translateX: groupSlideX \}\]/);
   assert.match(guide, /requestNativeFocusWithRetry\(chip, \[0, 40, 120\]\)/);
   assert.match(guide, /onUpBoundary=\{onGuideUpBoundary\}/);
-  assert.match(guide, /trapFocusLeft/);
+  assert.match(guide, /trapFocusLeft=\{!drawerOpen\}/);
+  assert.match(guide, /active=\{!activeProgram && !drawerOpen\}/);
+  assert.match(guide, /lockLeftEdge=\{!drawerOpen\}/);
   assert.doesNotMatch(guide, /onLeftBoundary=\{onGuideLeftBoundary\}/);
   assert.doesNotMatch(guide, /onGuideLeftBoundary/);
   assert.doesNotMatch(guide, /openDrawer\(\)/);
@@ -93,9 +97,11 @@ test("grids never open the drawer from D-pad Left", async () => {
     readFile(join(root, "src/components/BoxGrid.tsx"), "utf8"),
   ]);
   assert.match(timeline, /armGuideLeftFocusLock/);
-  assert.match(timeline, /applyLeftFocusLock\(node, true\)/);
+  assert.match(timeline, /applyLeftFocusLock\(node, lockFocusLeft\)/);
   assert.match(box, /armGuideLeftFocusLock/);
   assert.match(box, /lockFocusLeft/);
+  assert.match(timeline, /scrollToIndex\(\{ index, animated: false, viewPosition: 0\.45 \}\)/);
+  assert.match(box, /scrollToIndex\(\{ index, animated: false, viewPosition: 0\.45 \}\)/);
   assert.doesNotMatch(timeline, /onLeftBoundary\?\.\(\)/);
   assert.doesNotMatch(box, /onLeftBoundary\?\.\(\)/);
   assert.match(timeline, /epg-timeline-now-indicator/);

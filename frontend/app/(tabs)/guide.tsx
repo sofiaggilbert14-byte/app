@@ -104,7 +104,7 @@ export default function PurpleGuideScreen() {
   const [group, setGroup] = useState("All");
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
-  const [, setPreviewStatus] = useState<StreamStatus>("loading");
+  const [previewStatus, setPreviewStatus] = useState<StreamStatus>("loading");
   const [resetToken, setResetToken] = useState(0);
   const metadataTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -384,7 +384,8 @@ export default function PurpleGuideScreen() {
   const previewVisible =
     safePreviewMode !== "off" &&
     !!previewChannel?.url &&
-    previewId === previewChannel.id;
+    previewId === previewChannel.id &&
+    previewStatus !== "error";
 
   // delayed: longest settle; surf: off while surfing + longer arm on weak sticks; on: normal.
   const previewDelay =
@@ -620,7 +621,12 @@ export default function PurpleGuideScreen() {
           <View style={styles.body}>
             {/* No autoFocus / trapFocusUp — preferred focus is mount-once on row 0, and Up-escape
                 is gated inside the grid. Flipping traps mid-surf freezes Fire TV focus. */}
-            <FocusGuide style={styles.gridPanel} trapFocusDown trapFocusLeft trapFocusRight>
+            <FocusGuide
+              style={styles.gridPanel}
+              trapFocusDown
+              trapFocusLeft={!drawerOpen}
+              trapFocusRight
+            >
               {guideLayout === "compact" ? (
                 <BoxGrid
                   channels={filtered}
@@ -635,7 +641,8 @@ export default function PurpleGuideScreen() {
                   showChannelLogos={channelLogos && !surfLogosSuppressed}
                   reminderKeys={gridReminderKeys}
                   resetToken={resetToken}
-                  active={!activeProgram}
+                  active={!activeProgram && !drawerOpen}
+                  lockLeftEdge={!drawerOpen}
                   onUpBoundary={onGuideUpBoundary}
                   onFocusedRowChange={onFocusedGuideRow}
                   onViewportChannelIds={onViewportChannelIds}
@@ -659,7 +666,8 @@ export default function PurpleGuideScreen() {
                   showChannelLogos={channelLogos && !surfLogosSuppressed}
                   reminderKeys={gridReminderKeys}
                   resetToken={resetToken}
-                  active={!activeProgram}
+                  active={!activeProgram && !drawerOpen}
+                  lockLeftEdge={!drawerOpen}
                   onUpBoundary={onGuideUpBoundary}
                   onFocusedRowChange={onFocusedGuideRow}
                   onGuideFocusNode={onGuideFocusNode}

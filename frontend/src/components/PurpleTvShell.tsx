@@ -151,6 +151,7 @@ export function PurpleTvShell({
   const [contentAutoFocus, setContentAutoFocus] = useState(
     () => !drawerOpen && !bootSidebarFocus,
   );
+  const [drawerAutoFocus, setDrawerAutoFocus] = useState(drawerOpen);
   useEffect(() => {
     if (!contentAutoFocus) return;
     const timer = setTimeout(() => setContentAutoFocus(false), 700);
@@ -159,6 +160,7 @@ export function PurpleTvShell({
 
   useEffect(() => {
     if (!drawerOpen) {
+      setDrawerAutoFocus(false);
       // Guide owns mount-once preferred focus — never pulse content autoFocus there
       // (it fights logo/program stickiness after Back → drawer → close).
       if (active !== "/guide") setContentAutoFocus(true);
@@ -166,7 +168,16 @@ export function PurpleTvShell({
     }
 
     setContentAutoFocus(false);
-    return requestNativeFocusWithRetry(navRefs.current.get(active), [80, 180, 300]);
+    setDrawerAutoFocus(true);
+    const clearPreferred = setTimeout(() => setDrawerAutoFocus(false), 700);
+    const cancelFocus = requestNativeFocusWithRetry(
+      navRefs.current.get(active),
+      [0, PURPLE_DRAWER_ANIMATION_MS, 280, 420, 650],
+    );
+    return () => {
+      clearTimeout(clearPreferred);
+      cancelFocus?.();
+    };
   }, [active, drawerOpen]);
 
   const reopenArmedAtRef = useRef(0);
@@ -281,7 +292,7 @@ export function PurpleTvShell({
                     else navRefs.current.delete(item.route);
                   }}
                   focusable={drawerOpen}
-                  hasTVPreferredFocus={preferBootLiveTv}
+                  hasTVPreferredFocus={preferBootLiveTv || (drawerAutoFocus && selected)}
                   onFocus={() => {
                     if (preferBootLiveTv) bootFocusConsumed.current = true;
                   }}

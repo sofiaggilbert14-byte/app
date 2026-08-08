@@ -187,6 +187,7 @@ export function BoxGrid({
   reminderKeys,
   resetToken = 0,
   active = true,
+  lockLeftEdge = true,
 }: {
   channels: Channel[];
   now: string;
@@ -206,6 +207,7 @@ export function BoxGrid({
   reminderKeys?: ReadonlySet<string>;
   resetToken?: number;
   active?: boolean;
+  lockLeftEdge?: boolean;
 }) {
   const { width } = useWindowDimensions();
   const numColumns = width >= 1400 ? 6 : width >= 1150 ? 5 : width >= 900 ? 4 : width >= 600 ? 3 : 2;
@@ -217,6 +219,7 @@ export function BoxGrid({
   channelsRef.current = channels;
   const focusedRowRef = useRef(0);
   const focusedIndexRef = useRef(0);
+  const lastScrollSyncedRowRef = useRef(-1);
   const focusedNodeRef = useRef<unknown>(null);
   const lastRowIndexRef = useRef(0);
   const lastReportedDeepRef = useRef(false);
@@ -252,6 +255,14 @@ export function BoxGrid({
       focusedIndexRef.current = index;
       focusedRowRef.current = row;
       gridOwnsFocusRef.current = true;
+      if (lastScrollSyncedRowRef.current !== row) {
+        lastScrollSyncedRowRef.current = row;
+        try {
+          listRef.current?.scrollToIndex({ index, animated: false, viewPosition: 0.45 });
+        } catch {
+          /* FlashList will retry once the row is measured. */
+        }
+      }
       const deep = row > 0;
       if (preferFirst && deep) setPreferFirst(false);
       if (lastReportedDeepRef.current !== deep) {
@@ -356,11 +367,11 @@ export function BoxGrid({
           preferInitialFocus={preferFirst && index === 0}
           hasReminder={reminded}
           lockFocusDown={row >= lastRowIndex}
-          lockFocusLeft={index % Math.max(1, numColumns) === 0}
+          lockFocusLeft={lockLeftEdge && index % Math.max(1, numColumns) === 0}
         />
       );
     },
-    [channelNumberById, lastRowIndex, nowDate, numColumns, onChannelFocus, onChannelPress, onProgramPress, preferFirst, reminderKeys, rememberFocusNode, reportFocusedRow, showChannelLogos, showChannelNumbers, toggleFavorite],
+    [channelNumberById, lastRowIndex, lockLeftEdge, nowDate, numColumns, onChannelFocus, onChannelPress, onProgramPress, preferFirst, reminderKeys, rememberFocusNode, reportFocusedRow, showChannelLogos, showChannelNumbers, toggleFavorite],
   );
 
   return (
@@ -373,7 +384,7 @@ export function BoxGrid({
         keyExtractor={(c) => c.id}
         // Re-render visible hearts when favorites change without recreating renderItem.
         extraData={favorites}
-        drawDistance={360}
+        drawDistance={480}
         removeClippedSubviews={false}
         contentContainerStyle={{ paddingBottom: 130, paddingHorizontal: spacing.xs, paddingTop: spacing.xs }}
         ListHeaderComponent={ListHeaderComponent}
