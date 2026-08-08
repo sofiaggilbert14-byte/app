@@ -174,7 +174,7 @@ test("Android source path stays native-only (no JS XMLTV inflate/parse)", async 
   assert.match(native, /MAX_PROGRAMME_WINDOW_KEYS = 700/);
   assert.match(native, /HUGE_PLAYLIST_MATCH_THRESHOLD = 400/);
   assert.match(native, /trimProgrammeWindowCache/);
-  assert.match(native, /Intentionally no emit\(\)/);
+  assert.match(native, /never emits\(\)/i);
 });
 
 test("web source path documents no TV JS fallback and uses shared matching", async () => {

@@ -104,8 +104,10 @@ test("grids never open the drawer from D-pad Left", async () => {
   assert.match(timeline, /applyLeftFocusLock\(node, lockFocusLeft\)/);
   assert.match(box, /armGuideLeftFocusLock/);
   assert.match(box, /lockFocusLeft/);
-  assert.match(timeline, /viewPosition: rapidVertical \? 0\.22 : 0\.45/);
-  assert.match(box, /viewPosition: 0\.25/);
+  assert.match(timeline, /mountedBandRef/);
+  assert.match(timeline, /viewPosition: 0\.12/);
+  assert.match(box, /mountedRowBandRef/);
+  assert.match(box, /viewPosition: 0\.12/);
   assert.doesNotMatch(timeline, /onLeftBoundary\?\.\(\)/);
   assert.doesNotMatch(box, /onLeftBoundary\?\.\(\)/);
   assert.match(timeline, /epg-timeline-now-indicator/);
