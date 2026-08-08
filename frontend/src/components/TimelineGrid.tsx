@@ -30,7 +30,7 @@ const ACCENT_SOFT = "#F5F3FF";
 const REMINDER_BELL = "#FACC15";
 const MINUTE_MS = 60_000;
 const GUIDE_ESCAPE_GUARD_MS = 220;
-const RAPID_VERTICAL_MS = 520;
+const RAPID_VERTICAL_MS = 400;
 const PAN_BUCKET_PX = 360;
 const HORIZONTAL_PAN_MS = 110;
 
@@ -107,7 +107,8 @@ type TimelineRowProps = {
   lockFocusDown?: boolean;
   /** While rapid vertical surfing, keep all program cells focusable (prevents blank/cull thrash). */
   disableProgramCull?: boolean;
-  focusedProgramKey?: string | null;
+  /** Ref-style getter so FlashList renderItem does not rebuild on every cell focus. */
+  getFocusedProgramKey?: () => string | null;
 };
 
 type ProgramCellProps = {
@@ -243,7 +244,7 @@ const TimelineRow = memo(function TimelineRow({
   preferInitialFocus = false,
   lockFocusDown = false,
   disableProgramCull = false,
-  focusedProgramKey = null,
+  getFocusedProgramKey,
 }: TimelineRowProps) {
   const item = row.channel;
   const preferred = row.programs.find((program) => program.isLive) || row.programs[0];
@@ -356,7 +357,7 @@ const TimelineRow = memo(function TimelineRow({
               disableProgramCull ? 2.25 : 1,
             );
             const isPreferred = prepared.key === preferred?.key;
-            const keepFocused = focusedProgramKey === prepared.key;
+            const keepFocused = getFocusedProgramKey?.() === prepared.key;
             return (
               <ProgramCell
                 key={prepared.key}
@@ -466,7 +467,8 @@ export const TimelineGrid = memo(function TimelineGrid({
   const cullResumeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cullDisabledRef = useRef(false);
   const [disableProgramCull, setDisableProgramCull] = useState(false);
-  const [focusedProgramKey, setFocusedProgramKey] = useState<string | null>(null);
+  // Ref-only: putting focused key in renderItem deps rebuilt every FlashList row on each cell focus.
+  const focusedProgramKeyRef = useRef<string | null>(null);
   const rememberFocusNode = useCallback((node: unknown) => {
     if (node) focusedNodeRef.current = node;
     onGuideFocusNode?.(node);
@@ -702,7 +704,7 @@ export const TimelineGrid = memo(function TimelineGrid({
   const onRowProgramFocus = useCallback(
     (prepared: PreparedProgram, channel: Channel, rowIndex: number) => {
       reportFocusedRow(rowIndex);
-      setFocusedProgramKey(prepared.key);
+      focusedProgramKeyRef.current = prepared.key;
       keepProgramVisible(prepared, channel);
       if (preferFirstRow && rowIndex !== 0) setPreferFirstRow(false);
     },
@@ -711,6 +713,8 @@ export const TimelineGrid = memo(function TimelineGrid({
 
   const lastRowIndex = Math.max(0, preparedRows.length - 1);
   lastRowIndexRef.current = lastRowIndex;
+
+  const getFocusedProgramKey = useCallback(() => focusedProgramKeyRef.current, []);
 
   const renderRow = useCallback(
     ({ item: row, index }: { item: PreparedRow; index: number }) => (
@@ -742,10 +746,10 @@ export const TimelineGrid = memo(function TimelineGrid({
         preferInitialFocus={preferFirstRow && index === 0}
         lockFocusDown={index >= lastRowIndex}
         disableProgramCull={disableProgramCull}
-        focusedProgramKey={focusedProgramKey}
+        getFocusedProgramKey={getFocusedProgramKey}
       />
     ),
-    [ROW_H, LOGO_W, LOGO_SIZE, railMetrics.numberWidth, railMetrics.nameFontSize, railMetrics.nameLineHeight, railMetrics.horizontalPadding, railMetrics.itemGap, timelineWidth, negScrollX, panBucket, programViewportW, showChannelNumbers, channelNumberById, showChannelLogos, reminderKeys, onChannelPress, onChannelLongPress, onProgramPress, onRowProgramFocus, onRowChannelFocus, preferFirstRow, rememberFocusNode, lastRowIndex, disableProgramCull, focusedProgramKey],
+    [ROW_H, LOGO_W, LOGO_SIZE, railMetrics.numberWidth, railMetrics.nameFontSize, railMetrics.nameLineHeight, railMetrics.horizontalPadding, railMetrics.itemGap, timelineWidth, negScrollX, panBucket, programViewportW, showChannelNumbers, channelNumberById, showChannelLogos, reminderKeys, onChannelPress, onChannelLongPress, onProgramPress, onRowProgramFocus, onRowChannelFocus, preferFirstRow, rememberFocusNode, lastRowIndex, disableProgramCull, getFocusedProgramKey],
   );
 
   return (

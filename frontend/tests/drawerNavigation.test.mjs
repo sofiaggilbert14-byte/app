@@ -3,12 +3,33 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { evaluateDrawerBack } from "../src/core/drawerNavigationPolicy.ts";
+import {
+  DRAWER_REOPEN_DOUBLE_BACK_MS,
+  evaluateDrawerBack,
+} from "../src/core/drawerNavigationPolicy.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-test("Back opens a closed drawer but never steals an overlay or open-drawer Back", () => {
-  assert.equal(evaluateDrawerBack({ drawerOpen: false, blockingOverlayOpen: false }), "open-drawer");
+test("closed-drawer Back arms reopen; second Back within the window opens", () => {
+  assert.equal(evaluateDrawerBack({ drawerOpen: false, blockingOverlayOpen: false }), "arm-reopen");
+  assert.equal(
+    evaluateDrawerBack({
+      drawerOpen: false,
+      blockingOverlayOpen: false,
+      reopenArmedAt: 1_000,
+      now: 1_000 + DRAWER_REOPEN_DOUBLE_BACK_MS,
+    }),
+    "open-drawer",
+  );
+  assert.equal(
+    evaluateDrawerBack({
+      drawerOpen: false,
+      blockingOverlayOpen: false,
+      reopenArmedAt: 1_000,
+      now: 1_000 + DRAWER_REOPEN_DOUBLE_BACK_MS + 1,
+    }),
+    "arm-reopen",
+  );
   assert.equal(evaluateDrawerBack({ drawerOpen: true, blockingOverlayOpen: false }), "keep-drawer-open");
   assert.equal(evaluateDrawerBack({ drawerOpen: false, blockingOverlayOpen: true }), "pass-through");
 });
@@ -26,6 +47,11 @@ test("drawer uses bounded native motion and excludes hidden controls from TV foc
   assert.match(shell, /requestNativeFocusWithRetry\(navRefs\.current\.get\(active\)/);
   // Guide owns preferred focus — content autoFocus must not pulse when drawer closes on /guide.
   assert.match(shell, /active !== "\/guide"/);
+  assert.match(shell, /evaluateDrawerBack/);
+  assert.match(shell, /arm-reopen/);
+  assert.match(shell, /PURPLE_RAIL_PEEK_WIDTH/);
+  assert.match(shell, /onLongPress=\{exit\}/);
+  assert.match(shell, /Hold Exit/);
   assert.doesNotMatch(shell, /useNativeDriver: false/);
   assert.doesNotMatch(shell, /AsyncStorage|refreshSource|clearGuideCache|SQLite|database/i);
   assert.match(layout, /<PurpleTvDrawerProvider>/);
@@ -43,12 +69,16 @@ test("guide tabs reclaim the left edge and top-row Up restores the active tab", 
   assert.match(guide, /openFullscreenPlayer/);
   assert.match(guide, /drawerWasOpenForFocusRef/);
   assert.match(guide, /requestNativeFocusWithRetry\(lastGuideFocusNodeRef\.current, \[80, 180, 300\]\)/);
+  assert.match(guide, /NowPlayingBar/);
+  assert.match(guide, /setPreviewId\(null\)/);
 });
 
 test("legacy route-level guide redirects cannot override the drawer", async () => {
   const routes = ["catchup", "channels", "favorites", "index", "movies", "search", "series"];
   const sources = await Promise.all(routes.map((route) => readFile(join(root, `app/(tabs)/${route}.tsx`), "utf8")));
   for (const source of sources) assert.doesNotMatch(source, /useTvBackToGuide/);
+  const home = await readFile(join(root, "app/(tabs)/index.tsx"), "utf8");
+  assert.match(home, /NowPlayingBar/);
 });
 
 test("APK install artifact is separate from diagnostics evidence", async () => {

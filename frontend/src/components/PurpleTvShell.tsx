@@ -61,6 +61,8 @@ const NAV: NavItem[] = [
 ];
 
 export const PURPLE_SIDEBAR_WIDTH = 156;
+/** Icon-only strip visible when the full drawer is closed. */
+export const PURPLE_RAIL_PEEK_WIDTH = 56;
 export const PURPLE_DRAWER_ANIMATION_MS = 180;
 
 type DrawerContextValue = {
@@ -163,6 +165,8 @@ export function PurpleTvShell({
     return requestNativeFocusWithRetry(navRefs.current.get(active), [80, 180, 300]);
   }, [active, drawerOpen]);
 
+  const reopenArmedAtRef = useRef(0);
+
   useFocusEffect(
     useCallback(() => {
       if (Platform.OS === "web") return;
@@ -170,9 +174,23 @@ export function PurpleTvShell({
         const decision = evaluateDrawerBack({
           drawerOpen,
           blockingOverlayOpen: !!activeProgram,
+          reopenArmedAt: reopenArmedAtRef.current,
         });
-        if (decision === "pass-through") return false;
-        if (decision === "open-drawer") openDrawer();
+        if (decision === "pass-through") {
+          reopenArmedAtRef.current = 0;
+          return false;
+        }
+        if (decision === "arm-reopen") {
+          reopenArmedAtRef.current = Date.now();
+          return true;
+        }
+        if (decision === "open-drawer") {
+          reopenArmedAtRef.current = 0;
+          openDrawer();
+          return true;
+        }
+        // keep-drawer-open
+        reopenArmedAtRef.current = 0;
         return true;
       });
       return () => sub.remove();
@@ -193,6 +211,20 @@ export function PurpleTvShell({
     if (Platform.OS !== "web") BackHandler.exitApp();
   }, []);
 
+  const [exitHint, setExitHint] = useState(false);
+  const exitHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const promptHoldToExit = useCallback(() => {
+    setExitHint(true);
+    if (exitHintTimer.current) clearTimeout(exitHintTimer.current);
+    exitHintTimer.current = setTimeout(() => setExitHint(false), 1600);
+  }, []);
+  useEffect(
+    () => () => {
+      if (exitHintTimer.current) clearTimeout(exitHintTimer.current);
+    },
+    [],
+  );
+
   const drawerTranslateX = drawerProgress.interpolate({
     inputRange: [0, 1],
     outputRange: [-PURPLE_SIDEBAR_WIDTH, 0],
@@ -210,6 +242,39 @@ export function PurpleTvShell({
         },
       ]}
     >
+      {!drawerOpen ? (
+        <FocusGuide style={styles.railPeek} trapFocusUp trapFocusDown trapFocusLeft>
+          <Pressable
+            onPress={openDrawer}
+            style={({ focused }: any) => [styles.railPeekHit, focused && styles.navRowFocused]}
+            testID="purple-rail-open-drawer"
+          >
+            <Ionicons name="menu-outline" size={16} color={tvColors.purpleSoft} />
+          </Pressable>
+          {NAV.slice(0, 6).map((item) => {
+            const selected = item.route === active;
+            return (
+              <Pressable
+                key={`peek-${item.route}`}
+                onPress={() => navigate(item.route)}
+                style={({ focused }: any) => [
+                  styles.railPeekHit,
+                  selected && styles.navRowSelected,
+                  focused && styles.navRowFocused,
+                ]}
+                testID={`purple-rail-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
+              >
+                <Ionicons
+                  name={selected ? (item.icon.replace("-outline", "") as any) : item.icon}
+                  size={15}
+                  color={selected ? "#fff" : tvColors.textMuted}
+                />
+              </Pressable>
+            );
+          })}
+        </FocusGuide>
+      ) : null}
+
       <View style={[styles.sidebarSlot, { width: drawerOpen ? PURPLE_SIDEBAR_WIDTH : 0 }]}>
         <Animated.View
           pointerEvents={drawerOpen ? "auto" : "none"}
@@ -266,7 +331,6 @@ export function PurpleTvShell({
               disabled={footerAction.disabled}
               onPress={footerAction.onPress}
               onFocus={() => {
-                // Holding Down at the bottom of the guide must not stick on Reset/Exit.
                 if (active === "/guide") reclaimGuideBottomFocusIfArmed();
               }}
               style={({ focused }: any) => [
@@ -282,7 +346,9 @@ export function PurpleTvShell({
           ) : null}
           <Pressable
             focusable={drawerOpen}
-            onPress={exit}
+            onPress={promptHoldToExit}
+            onLongPress={exit}
+            delayLongPress={650}
             onFocus={() => {
               if (active === "/guide") reclaimGuideBottomFocusIfArmed();
             }}
@@ -290,7 +356,9 @@ export function PurpleTvShell({
             testID="purple-nav-power"
           >
             <Ionicons name="power-outline" size={14} color={tvColors.textMuted} />
-            <Text numberOfLines={1} style={footerAction ? styles.footerCompactText : styles.powerText}>Exit</Text>
+            <Text numberOfLines={1} style={footerAction ? styles.footerCompactText : styles.powerText}>
+              {exitHint ? "Hold Exit" : "Exit"}
+            </Text>
           </Pressable>
             </View>
           </FocusGuide>
@@ -321,6 +389,27 @@ const styles = StyleSheet.create({
   sidebarSlot: {
     height: "100%",
     zIndex: 10,
+  },
+  railPeek: {
+    width: PURPLE_RAIL_PEEK_WIDTH,
+    height: "100%",
+    backgroundColor: "#0A0916",
+    borderRightWidth: 1,
+    borderRightColor: tvColors.line,
+    paddingTop: 10,
+    paddingBottom: 8,
+    alignItems: "center",
+    gap: 4,
+    zIndex: 9,
+  },
+  railPeekHit: {
+    width: 44,
+    height: 36,
+    borderRadius: radius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "transparent",
   },
   sidebarMotion: {
     position: "absolute",

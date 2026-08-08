@@ -29,7 +29,7 @@ test("rapid scan policy is route-specific and bounded", () => {
   assert.equal(routeAcceptsRapidScanKey("/player", "DOWN"), false);
   assert.equal(routeAcceptsRapidScanKey("/player", "RIGHT"), true);
   assert.equal(isRapidDirectionalScan(1_000, 1_200), true);
-  assert.equal(isRapidDirectionalScan(1_000, 1_241), false);
-  assert.equal(DECODER_RESUME_SETTLE_MS, 650);
+  assert.equal(isRapidDirectionalScan(1_000, 1_221), false);
+  assert.equal(DECODER_RESUME_SETTLE_MS, 480);
   assert.deepEqual([...MODAL_FOCUS_RETRY_DELAYS_MS], [0, 40, 120, 280]);
 });

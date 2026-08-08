@@ -21,6 +21,7 @@ import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { StreamPlayer, StreamStatus } from "@/src/components/StreamPlayer";
 import { EpgProgressBar } from "@/src/components/EpgProgressBar";
+import { NowPlayingBar } from "@/src/components/NowPlayingBar";
 import { Channel } from "@/src/api";
 import { useStore } from "@/src/store";
 import { fonts, radius, spacing, tvColors } from "@/src/theme";
@@ -295,6 +296,8 @@ export default function PurpleGuideScreen() {
 
       // While the user is holding/repeating directions: zero rail/preview work.
       if (nowTs < rapidSurfUntilRef.current || rapid) {
+        // Soft surf: drop live preview so decoder/GPU do not fight FlashList focus.
+        setPreviewId(null);
         metadataTimer.current = setTimeout(() => {
           if (Date.now() < rapidSurfUntilRef.current) return;
           setFocusedId(requestedId);
@@ -426,6 +429,7 @@ export default function PurpleGuideScreen() {
         </View>
 
         <EpgProgressBar />
+        <NowPlayingBar testID="guide-now-playing" />
 
         {loading && channels.length === 0 ? (
           <View style={styles.center}>

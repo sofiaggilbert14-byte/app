@@ -125,7 +125,10 @@ test("StreamPlayer and player route use role-scoped session teardown", async () 
   assert.match(playerComp, /beginSession\(role\)/);
   assert.match(playerComp, /isSessionCurrent/);
   assert.match(playerComp, /sessionRole/);
+  assert.match(playerComp, /role === "preview"/);
+  assert.match(playerComp, /rapidBurstRef\.current >= 2/);
   assert.doesNotMatch(playerComp, /forceStopAllStreams\(\)/);
+  assert.match(playerRoute, /pauseSessionDecoders\("fullscreen"\)/);
   assert.match(playerRoute, /stopFullscreenSession/);
   assert.match(playerRoute, /sessionRole="fullscreen"/);
   assert.match(lifecycle, /playbackSession/);

@@ -24,7 +24,7 @@ import { fonts, radius, tvColors } from "@/src/theme";
 import { addTvKeyListener } from "@/src/utils/tvRemote";
 import { getTvSafeInsets } from "@/src/utils/tvLayout";
 import { requestNativeFocus } from "@/src/utils/tvFocus";
-import { stopFullscreenSession, stopAllPlaybackSessions, type SessionFailReason } from "@/src/core/playbackSession";
+import { stopFullscreenSession, stopAllPlaybackSessions, pauseSessionDecoders, type SessionFailReason } from "@/src/core/playbackSession";
 import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
 
 const CHANNEL_PREVIEW_DELAY_MS = 650;
@@ -201,14 +201,15 @@ export default function PlayerScreen() {
     revealControls({ claimChannelsFocus: false });
 
     if (opts?.immediate) {
-      stopFullscreenSession();
+      // Pause decoders only — do not bump session generation while StreamPlayer is still mounted.
+      pauseSessionDecoders("fullscreen");
       setDecoderArmed(true);
       setRetryToken((value) => value + 1);
       return;
     }
 
     // Tear down the live fullscreen decoder before swapping — rapid Next/Prev was orphaning VLC audio.
-    stopFullscreenSession();
+    pauseSessionDecoders("fullscreen");
     setDecoderArmed(false);
     armDecoderAfterSettle(CHANNEL_ZAP_SETTLE_MS);
   }, [addRecent, armDecoderAfterSettle, channelById, revealControls, showNotice]);
@@ -227,7 +228,7 @@ export default function PlayerScreen() {
       addRecent(target);
       showNotice(`Switching to ${target.name}`);
     }
-    stopFullscreenSession();
+    pauseSessionDecoders("fullscreen");
     setDecoderArmed(false);
     revealControls({ claimChannelsFocus: false });
     const delay = nowTs < rapidStripUntilRef.current || rapid
@@ -257,7 +258,7 @@ export default function PlayerScreen() {
     if (retryTimer.current) clearTimeout(retryTimer.current);
     if (zapTimer.current) clearTimeout(zapTimer.current);
     const generation = generationRef.current;
-    stopFullscreenSession();
+    pauseSessionDecoders("fullscreen");
     setDecoderArmed(true);
     setStatus("loading");
     setFailReason(null);
