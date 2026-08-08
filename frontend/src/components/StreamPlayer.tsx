@@ -8,6 +8,7 @@ import { usePlayerEnginePreference } from "@/src/playerEnginePreference";
 import {
   alternateEngine,
   detectStreamKind,
+  media3ContentType,
   parsePipeHeaders,
   preferredEngine,
   type Engine,
@@ -421,7 +422,7 @@ function ExpoStream({
     emit("loading");
     (async () => {
       try {
-        const contentType = kind === "hls" ? "hls" : kind === "dash" ? "dash" : "progressive";
+        const contentType = media3ContentType(kind);
         await player.replaceAsync({ uri, headers, contentType });
         if (
           !cancelled &&

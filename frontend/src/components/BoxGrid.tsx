@@ -17,7 +17,7 @@ import { ChannelLogo } from "./ChannelLogo";
 import { nowNext, progressPct, fmtTime, reminderKey } from "@/src/utils/time";
 import { useStore } from "@/src/store";
 import { requestNativeFocus } from "@/src/utils/tvFocus";
-import { armGuideBottomFocusLock } from "@/src/utils/tvGuideFocusLock";
+import { armGuideBottomFocusLock, armGuideLeftFocusLock } from "@/src/utils/tvGuideFocusLock";
 import { evaluateGuideNavigation } from "@/src/core/guideNavigationPolicy";
 
 const ACCENT = "#A855F7";
@@ -167,7 +167,6 @@ export function BoxGrid({
   onProgramPress,
   onChannelFocus,
   onUpBoundary,
-  onLeftBoundary,
   onFocusedRowChange,
   onViewportChannelIds,
   onGuideFocusNode,
@@ -187,7 +186,6 @@ export function BoxGrid({
   onProgramPress: (p: Program, c: Channel) => void;
   onChannelFocus?: (c: Channel) => void;
   onUpBoundary?: () => void;
-  onLeftBoundary?: () => void;
   onFocusedRowChange?: (index: number) => void;
   onViewportChannelIds?: (ids: string[]) => void;
   onGuideFocusNode?: (node: unknown) => void;
@@ -290,11 +288,11 @@ export function BoxGrid({
       (event) => {
         if (!active) return;
         const key = event?.eventType;
-        // Left edge of compact grid → reopen drawer (same job as Timeline logo Left).
+        // Left edge of compact grid — pin focus; never open the drawer.
         if (key === "left" && gridOwnsFocusRef.current) {
           const col = focusedIndexRef.current % Math.max(1, numColumns);
           if (col === 0) {
-            onLeftBoundary?.();
+            armGuideLeftFocusLock(focusedNodeRef.current);
             return;
           }
         }
@@ -321,7 +319,7 @@ export function BoxGrid({
           guideEscapeInFlight.current = false;
         }, GUIDE_ESCAPE_GUARD_MS);
       },
-      [active, numColumns, onLeftBoundary, onUpBoundary],
+      [active, numColumns, onUpBoundary],
     ),
   );
 

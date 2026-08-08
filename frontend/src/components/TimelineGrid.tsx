@@ -20,7 +20,7 @@ import { Channel, Program } from "@/src/api";
 import { ChannelLogo } from "./ChannelLogo";
 import { reminderKey } from "@/src/utils/time";
 import { requestNativeFocus } from "@/src/utils/tvFocus";
-import { armGuideBottomFocusLock } from "@/src/utils/tvGuideFocusLock";
+import { armGuideBottomFocusLock, armGuideLeftFocusLock } from "@/src/utils/tvGuideFocusLock";
 import { CHANNEL_NAME_MAX_LINES, getGuideRailMetrics } from "@/src/core/guideLayoutPolicy";
 import { evaluateGuideNavigation } from "@/src/core/guideNavigationPolicy";
 
@@ -67,6 +67,8 @@ type PreparedProgram = {
   left: number;
   width: number;
   isLive: boolean;
+  /** 0–1 how far the show has progressed (live cells only; refreshed with channel data). */
+  progressRatio: number;
   timeLabel: string;
 };
 
@@ -209,6 +211,12 @@ const ProgramCell = memo(function ProgramCell({
         <View style={styles.reminderBadge} pointerEvents="none">
           <Ionicons name="notifications" size={11} color={REMINDER_BELL} />
         </View>
+      ) : null}
+      {prepared.isLive && prepared.progressRatio > 0 ? (
+        <View
+          pointerEvents="none"
+          style={[styles.progProgressFill, { width: `${Math.round(prepared.progressRatio * 100)}%` }]}
+        />
       ) : null}
       <Text numberOfLines={1} style={styles.progTitle}>{prepared.program.title}</Text>
       <Text numberOfLines={1} style={styles.progTime}>{prepared.timeLabel}</Text>
@@ -406,7 +414,6 @@ export const TimelineGrid = memo(function TimelineGrid({
   reminderKeys,
   resetToken = 0,
   active = true,
-  onLeftBoundary,
   onUpBoundary,
   onFocusedRowChange,
   onGuideFocusNode,
@@ -431,7 +438,6 @@ export const TimelineGrid = memo(function TimelineGrid({
   reminderKeys?: ReadonlySet<string>;
   resetToken?: number;
   active?: boolean;
-  onLeftBoundary?: () => void;
   /** Fired when Up is pressed on the first guide row so focus can exit to group chips. */
   onUpBoundary?: () => void;
   /** Reports the currently focused row index so the parent can relax trapFocusUp on row 0. */
@@ -541,6 +547,8 @@ export const TimelineGrid = memo(function TimelineGrid({
     if (!Number.isFinite(windowStartMs) || !Number.isFinite(windowEndMs)) {
       return channels.map((channel) => ({ channel, programs: [] }));
     }
+    // Use wall clock at prepare time for live fills — do NOT depend on the 30s
+    // guide `now` tick or FlashList rebuilds every channel on weak sticks.
     const liveNow = Date.now();
     return channels.map((channel) => {
       const programs: PreparedProgram[] = [];
@@ -551,18 +559,23 @@ export const TimelineGrid = memo(function TimelineGrid({
         if (endMs <= windowStartMs || startMs >= windowEndMs) continue;
         const visibleStart = Math.max(startMs, windowStartMs);
         const visibleEnd = Math.min(endMs, windowEndMs);
+        const isLive = liveNow >= startMs && liveNow < endMs;
+        const progressRatio = isLive
+          ? Math.max(0, Math.min(1, (liveNow - startMs) / (endMs - startMs)))
+          : 0;
         programs.push({
           program,
           key: `${channel.id}:${program.start}:${program.stop || "open"}`,
           left: ((visibleStart - windowStartMs) / MINUTE_MS) * PX_PER_MIN,
           width: Math.max(24, ((visibleEnd - visibleStart) / MINUTE_MS) * PX_PER_MIN - 3),
-          isLive: liveNow >= startMs && liveNow < endMs,
+          isLive,
+          progressRatio,
           timeLabel: formatTime(startMs),
         });
       }
       return { channel, programs };
     });
-    // Intentionally omit nowMs — a 60s tick must not rebuild the whole guide.
+    // Intentionally omit nowMs — the timeline indicator overlays independently.
   }, [channels, PX_PER_MIN, windowEndMs, windowStartMs]);
 
   preparedRowsRef.current = preparedRows;
@@ -669,8 +682,9 @@ export const TimelineGrid = memo(function TimelineGrid({
           lastAxisRef.current = "h";
           lastAxisAtRef.current = Date.now();
         }
+        // Left edge: pin focus — never open the drawer (double-Back only).
         if (decision.boundary === "left-boundary") {
-          onLeftBoundary?.();
+          armGuideLeftFocusLock(focusedNodeRef.current);
           return;
         }
         // Bottom of guide: keep focus in-grid. Holding Down must never land on Exit.
@@ -693,7 +707,7 @@ export const TimelineGrid = memo(function TimelineGrid({
           }, GUIDE_ESCAPE_GUARD_MS);
         }
       },
-      [active, onLeftBoundary, onUpBoundary],
+      [active, onUpBoundary],
     ),
   );
 
@@ -802,6 +816,12 @@ export const TimelineGrid = memo(function TimelineGrid({
             {ticks.map((tick) => (
               <Text key={tick.key} style={[styles.tickLabel, { left: tick.left }]}>{tick.label}</Text>
             ))}
+            {showNow ? (
+              <View style={[styles.nowHeaderMark, { left: Math.max(0, nowOffset - 14) }]} pointerEvents="none">
+                <Text style={styles.nowHeaderText}>NOW</Text>
+                <View style={styles.nowHeaderCaret} />
+              </View>
+            ) : null}
           </Animated.View>
         </View>
       </View>
@@ -837,7 +857,12 @@ export const TimelineGrid = memo(function TimelineGrid({
           />
         )}
         {showNow && bodyH > 0 && (
-          <View style={[styles.nowOverlay, { left: LOGO_W }]} pointerEvents="none">
+          <View
+            style={[styles.nowOverlay, { left: LOGO_W }]}
+            pointerEvents="none"
+            testID="epg-timeline-now-indicator"
+            accessibilityLabel="Guide timeline progress indicator"
+          >
             <Animated.View
               style={{
                 width: timelineWidth,
@@ -845,7 +870,9 @@ export const TimelineGrid = memo(function TimelineGrid({
                 transform: [{ translateX: negScrollX }],
               }}
             >
-              <View style={[styles.nowLine, { left: nowOffset }]} />
+              <View style={[styles.nowLineTrack, { left: Math.max(0, nowOffset - 1) }]}>
+                <View style={styles.nowLine} />
+              </View>
             </Animated.View>
           </View>
         )}
@@ -954,13 +981,57 @@ const styles = StyleSheet.create({
     borderColor: "#FFFFFF",
     backgroundColor: "rgba(91,33,182,0.92)",
   },
-  progTitle: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 10 },
-  progTime: { color: "rgba(255,255,255,0.72)", fontFamily: fonts.regular, fontSize: 8, marginTop: 1 },
+  progTitle: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 10, zIndex: 1 },
+  progTime: { color: "rgba(255,255,255,0.72)", fontFamily: fonts.regular, fontSize: 8, marginTop: 1, zIndex: 1 },
+  progProgressFill: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: "rgba(168,85,247,0.38)",
+    zIndex: 0,
+  },
   noData: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 9 },
   nowOverlay: {
     ...StyleSheet.absoluteFillObject,
     overflow: "hidden",
     zIndex: 3,
   },
-  nowLine: { position: "absolute", top: 0, bottom: 0, width: 2, backgroundColor: ACCENT, zIndex: 3, pointerEvents: "none" },
+  nowLineTrack: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    width: 3,
+    alignItems: "center",
+    zIndex: 3,
+  },
+  nowLine: {
+    width: 2,
+    flex: 1,
+    backgroundColor: "#F472B6",
+  },
+  nowHeaderMark: {
+    position: "absolute",
+    top: 2,
+    width: 28,
+    alignItems: "center",
+    zIndex: 4,
+  },
+  nowHeaderText: {
+    color: "#F9A8D4",
+    fontFamily: fonts.bold,
+    fontSize: 9,
+    letterSpacing: 0.6,
+  },
+  nowHeaderCaret: {
+    marginTop: 1,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 5,
+    borderRightWidth: 5,
+    borderTopWidth: 6,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderTopColor: "#F472B6",
+  },
 });

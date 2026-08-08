@@ -37,7 +37,9 @@ const EMPTY_PROGRAMS: Program[] = [];
 const TTL_MS = 24 * 60 * 60 * 1000;
 const PROGRESS_THROTTLE_MS = 150;
 /** Above this, match current-group / priority ids first, then the rest (keeps channels-first paint snappy). */
-const HUGE_PLAYLIST_MATCH_THRESHOLD = 800;
+const HUGE_PLAYLIST_MATCH_THRESHOLD = 400;
+/** Cap merged programme rows held in JS — weak Fire TVs thrash if this grows with the full playlist. */
+const MAX_PROGRAMME_WINDOW_KEYS = 700;
 const CACHE_ROOT = FileSystem.documentDirectory || "";
 const CHANNEL_CACHE = CACHE_ROOT ? `${CACHE_ROOT}charm_native_channels_v2.json` : "";
 const LEGACY_CHANNEL_CACHE = CACHE_ROOT ? `${CACHE_ROOT}charm_native_channels_v1.json` : "";
@@ -103,6 +105,27 @@ export function setViewportGuideChannelIds(ids: string[] | null): void {
 function clearProgrammeWindowCache(): void {
   programmeWindowCache = {};
   programmeWindowCacheKey = "";
+}
+
+/** Drop off-viewport programme rows so JS heap stays bounded on huge playlists. */
+function trimProgrammeWindowCache(keepKeys: Iterable<string>): void {
+  const keep = new Set(keepKeys);
+  let keys = Object.keys(programmeWindowCache);
+  if (keys.length <= MAX_PROGRAMME_WINDOW_KEYS) return;
+  for (const key of keys) {
+    if (keep.has(key)) continue;
+    delete programmeWindowCache[key];
+  }
+  keys = Object.keys(programmeWindowCache);
+  if (keys.length <= MAX_PROGRAMME_WINDOW_KEYS) return;
+  const overflow = keys.length - MAX_PROGRAMME_WINDOW_KEYS;
+  let dropped = 0;
+  for (const key of keys) {
+    if (keep.has(key)) continue;
+    delete programmeWindowCache[key];
+    dropped += 1;
+    if (dropped >= overflow) break;
+  }
 }
 
 function matchPolicyKey(): string {
@@ -554,24 +577,33 @@ export async function loadGuide(startISO?: string, hours = 8, force = false): Pr
   for (const [key, list] of Object.entries(programmes)) {
     if (list?.length) programmeWindowCache[key] = list;
   }
+  trimProgrammeWindowCache(guideIds);
 
-  // After a scoped paint, warm the rest of the window in the background so scrolling
-  // does not wait for another focus-driven query.
+  // After a scoped paint, warm a ring around the viewport in the background.
+  // Never warm the entire playlist in one shot, and never emit() (that rebuilds
+  // every React channel + TimelineGrid row — the main hitch on weak sticks).
   if (huge && nativeEpgAvailable && guideIds.length < allGuideIds.length) {
     const warmKey = cacheKey;
-    void loadNativeEpgWindow(allGuideIds, startMs, endMs)
-      .then((full) => {
-        if (programmeWindowCacheKey !== warmKey) return;
-        let added = 0;
-        for (const [key, list] of Object.entries(full)) {
-          if (!list?.length) continue;
-          if (programmeWindowCache[key] === list) continue;
-          programmeWindowCache[key] = list;
-          added += 1;
-        }
-        if (added > 0) emit();
-      })
-      .catch(() => undefined);
+    const have = new Set(guideIds);
+    const ring: string[] = [];
+    for (const id of allGuideIds) {
+      if (have.has(id)) continue;
+      ring.push(id);
+      if (ring.length >= 180) break;
+    }
+    if (ring.length) {
+      void loadNativeEpgWindow(ring, startMs, endMs)
+        .then((partial) => {
+          if (programmeWindowCacheKey !== warmKey) return;
+          for (const [key, list] of Object.entries(partial)) {
+            if (!list?.length) continue;
+            programmeWindowCache[key] = list;
+          }
+          trimProgrammeWindowCache([...guideIds, ...ring]);
+          // Intentionally no emit() — next focus/viewport refresh attaches rows.
+        })
+        .catch(() => undefined);
+    }
   }
 
   // Shared empty list — avoid allocating tens of thousands of `[]` on big playlists.

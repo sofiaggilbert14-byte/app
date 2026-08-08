@@ -1,5 +1,15 @@
 export type Engine = "vlc" | "media3";
-export type StreamKind = "hls" | "dash" | "progressive" | "rtsp" | "rtmp" | "transport" | "unknown";
+/** CMAF is packaging (fMP4) carried inside HLS or DASH — not a separate engine path. */
+export type StreamKind =
+  | "hls"
+  | "dash"
+  | "progressive"
+  | "rtsp"
+  | "rtmp"
+  | "transport"
+  | "srt"
+  | "webrtc"
+  | "unknown";
 
 export const DEFAULT_STREAM_USER_AGENT = "VLC/3.0.20 LibVLC/3.0.20";
 
@@ -8,10 +18,30 @@ export function detectStreamKind(uri: string): StreamKind {
   const protocol = lower.split(":", 1)[0];
   if (protocol === "rtsp") return "rtsp";
   if (protocol === "rtmp" || protocol === "rtmps") return "rtmp";
-  if (/\.m3u8(?:$|[?#])/.test(lower) || lower.includes("format=m3u8") || lower.includes("type=hls")) return "hls";
-  if (/\.mpd(?:$|[?#])/.test(lower) || lower.includes("format=mpd") || lower.includes("type=dash")) return "dash";
+  if (protocol === "srt" || protocol === "rist") return "srt";
+  if (protocol === "webrtc" || (protocol === "http" && lower.includes("webrtc"))) return "webrtc";
+  // HLS — Apple HLS / CMAF-in-HLS (.m3u8 → .ts or fMP4 segments).
+  if (
+    /\.m3u8(?:$|[?#])/.test(lower) ||
+    lower.includes("format=m3u8") ||
+    lower.includes("type=hls") ||
+    lower.includes("/hls/") ||
+    lower.includes("playlist.m3u8")
+  ) {
+    return "hls";
+  }
+  // MPEG-DASH / CMAF-in-DASH (.mpd → fMP4).
+  if (
+    /\.mpd(?:$|[?#])/.test(lower) ||
+    lower.includes("format=mpd") ||
+    lower.includes("type=dash") ||
+    lower.includes("/dash/") ||
+    lower.includes("manifest.mpd")
+  ) {
+    return "dash";
+  }
   if (/\.(?:ts|m2ts)(?:$|[?#])/.test(lower) || lower.includes("mpegts")) return "transport";
-  if (/\.(?:mp4|m4v|mov|webm|mkv|avi)(?:$|[?#])/.test(lower)) return "progressive";
+  if (/\.(?:mp4|m4v|m4s|mov|webm|mkv|avi|cmfv|cmfa)(?:$|[?#])/.test(lower)) return "progressive";
   return "unknown";
 }
 
@@ -39,6 +69,12 @@ export function parsePipeHeaders(rawUri: string): { uri: string; headers: Record
   return { uri, headers };
 }
 
+/**
+ * Media3 (ExoPlayer) handles HLS, DASH, and CMAF-packaged live streams with
+ * H.264/HEVC/VP9/AV1 + AAC/HE-AAC when the device decoder supports them.
+ * VLC covers MPEG-TS, RTSP/RTMP, and SRT contribution feeds.
+ * WebRTC needs a dedicated stack — route to VLC only as a soft attempt.
+ */
 export function preferredEngine(kind: StreamKind): Engine {
   if (kind === "hls" || kind === "dash" || kind === "progressive") return "media3";
   return "vlc";
@@ -47,4 +83,11 @@ export function preferredEngine(kind: StreamKind): Engine {
 export function alternateEngine(engine: Engine, vlcAvailable: boolean): Engine | null {
   if (engine === "vlc") return "media3";
   return vlcAvailable ? "vlc" : null;
+}
+
+/** Media3 contentType hint for expo-video / ExoPlayer replaceAsync. */
+export function media3ContentType(kind: StreamKind): "hls" | "dash" | "progressive" {
+  if (kind === "dash") return "dash";
+  if (kind === "hls") return "hls";
+  return "progressive";
 }

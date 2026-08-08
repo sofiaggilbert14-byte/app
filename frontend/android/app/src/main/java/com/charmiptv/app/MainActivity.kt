@@ -27,7 +27,7 @@ class MainActivity : ReactActivity() {
     // Keep the first press instant, but cap Android's very aggressive held-key
     // repeat stream. Some Fire TV/remotes can produce focus moves faster than
     // FlashList/Fabric can recycle rows, eventually leaving competing focus
-    // targets and a flashing/blank guide. ~9 moves/sec remains fast for surfing
+    // targets and a flashing/blank guide. ~20 moves/sec remains snappy for surfing
     // while giving the UI a frame budget to recycle each destination safely.
     if (event.action == android.view.KeyEvent.ACTION_DOWN && directional) {
       if (event.repeatCount == 0) {
@@ -67,8 +67,10 @@ class MainActivity : ReactActivity() {
         rc?.getJSModule(com.facebook.react.modules.core.DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
           ?.emit("TvRemoteKey", key)
       } catch (e: Throwable) {}
+      // Pointer mode owns the D-pad entirely. Guide Up/Down must NOT be consumed —
+      // Android's focus engine moves between guide cells; JS only handles boundaries
+      // (Up → group tabs, bottom lock). Consuming Up/Down freezes guide surfing.
       if (TvRemoteModule.pointerActive) return true
-      if (TvRemoteModule.guideNavigationActive && (key == "UP" || key == "DOWN")) return true
     }
     return super.dispatchKeyEvent(event)
   }
@@ -113,6 +115,6 @@ class MainActivity : ReactActivity() {
   }
 
   companion object {
-    private const val MIN_DPAD_REPEAT_MS = 72L
+    private const val MIN_DPAD_REPEAT_MS = 48L
   }
 }

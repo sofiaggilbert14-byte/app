@@ -1,3 +1,4 @@
+import { findNodeHandle } from "react-native";
 import { requestNativeFocus } from "@/src/utils/tvFocus";
 
 /**
@@ -19,4 +20,24 @@ export function clearGuideBottomFocusLock() {
 export function reclaimGuideBottomFocusIfArmed(): boolean {
   if (Date.now() > armedUntil) return false;
   return requestNativeFocus(armedNode);
+}
+
+/** Pin Left on the focused guide cell so D-pad Left never opens the drawer. */
+export function applyLeftFocusLock(node: any, locked: boolean) {
+  if (!node) return;
+  const handle = findNodeHandle(node);
+  if (!handle) return;
+  try {
+    node.setNativeProps?.({ nextFocusLeft: locked ? handle : -1 });
+  } catch {
+    /* native props optional on web */
+  }
+}
+
+export function armGuideLeftFocusLock(node: unknown, ms = 400) {
+  applyLeftFocusLock(node, true);
+  if (node) requestNativeFocus(node);
+  if (ms > 0) {
+    setTimeout(() => applyLeftFocusLock(node, true), ms);
+  }
 }

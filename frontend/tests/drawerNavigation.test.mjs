@@ -69,18 +69,32 @@ test("guide tabs reclaim the left edge and top-row Up restores the active tab", 
   assert.match(guide, /transform: \[\{ translateX: groupSlideX \}\]/);
   assert.match(guide, /requestNativeFocusWithRetry\(chip, \[0, 40, 120\]\)/);
   assert.match(guide, /onUpBoundary=\{onGuideUpBoundary\}/);
-  assert.match(guide, /onLeftBoundary=\{onGuideLeftBoundary\}/);
-  assert.match(guide, /openDrawer\(\)/);
+  assert.doesNotMatch(guide, /onLeftBoundary=\{onGuideLeftBoundary\}/);
+  assert.doesNotMatch(guide, /onGuideLeftBoundary/);
+  assert.doesNotMatch(guide, /openDrawer\(\)/);
   assert.match(guide, /openFullscreenPlayer/);
   assert.match(guide, /drawerWasOpenForFocusRef/);
   assert.match(guide, /requestNativeFocusWithRetry\(lastGuideFocusNodeRef\.current/);
-  assert.match(guide, /setGuideNavigationActive/);
-  assert.match(guide, /activeProgram \|\| drawerOpen/);
+  assert.match(guide, /setGuideNavigationActive\(false\)/);
+  assert.doesNotMatch(guide, /setGuideNavigationActive\(true\)/);
   assert.match(guide, /Preview recovering/);
   assert.match(guide, /setPreviewId\(null\)/);
   assert.match(guide, /useTvBackHandler/);
   assert.match(guide, /onBackTargetChange/);
   assert.doesNotMatch(guide, /openDrawer\(\);\s*\n\s*return true/);
+});
+
+test("grids never open the drawer from D-pad Left", async () => {
+  const [timeline, box] = await Promise.all([
+    readFile(join(root, "src/components/TimelineGrid.tsx"), "utf8"),
+    readFile(join(root, "src/components/BoxGrid.tsx"), "utf8"),
+  ]);
+  assert.match(timeline, /armGuideLeftFocusLock/);
+  assert.match(box, /armGuideLeftFocusLock/);
+  assert.doesNotMatch(timeline, /onLeftBoundary\?\.\(\)/);
+  assert.doesNotMatch(box, /onLeftBoundary\?\.\(\)/);
+  assert.match(timeline, /epg-timeline-now-indicator/);
+  assert.match(timeline, /progProgressFill/);
 });
 
 test("settings and reminders never open the drawer on a single Back", async () => {

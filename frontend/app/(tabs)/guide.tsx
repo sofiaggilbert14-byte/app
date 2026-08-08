@@ -65,7 +65,7 @@ function AutoScrollDescription({ text }: { text: string }) {
 
 export default function PurpleGuideScreen() {
   const router = useRouter();
-  const { drawerOpen, openDrawer } = usePurpleTvDrawer();
+  const { drawerOpen } = usePurpleTvDrawer();
   const { width: screenWidth } = useWindowDimensions();
   const {
     channels,
@@ -207,20 +207,11 @@ export default function PurpleGuideScreen() {
     }, [activeProgram, drawerOpen]),
   );
 
-  // While the guide owns vertical surf, consume D-pad natively so OS focus
-  // does not race FlashList / TimelineGrid. Release while the drawer/modal owns focus.
-  // Wait a beat after drawer close so restore can land in the grid first.
+  // Never arm native Up/Down consumption — Android must move guide focus freely.
   useEffect(() => {
-    if (activeProgram || drawerOpen) {
-      setGuideNavigationActive(false);
-      return;
-    }
-    const timer = setTimeout(() => setGuideNavigationActive(true), 220);
-    return () => {
-      clearTimeout(timer);
-      setGuideNavigationActive(false);
-    };
-  }, [activeProgram, drawerOpen]);
+    setGuideNavigationActive(false);
+    return () => setGuideNavigationActive(false);
+  }, []);
   useEffect(() => {
     if (loading || refreshing || channels.length > 0) return;
     if (bootRetryRef.current >= 1) return;
@@ -229,9 +220,10 @@ export default function PurpleGuideScreen() {
     return () => clearTimeout(timer);
   }, [loading, refreshing, channels.length, hardRefresh]);
 
-  // Live clock for the rail only — do not rebuild the guide geometry every minute.
+  // Tick often enough for the timeline "now" indicator / progress fills without
+  // rebuilding guide geometry (TimelineGrid keeps layout independent of now).
   useEffect(() => {
-    const timer = setInterval(() => setNow(new Date().toISOString()), 5 * 60_000);
+    const timer = setInterval(() => setNow(new Date().toISOString()), 30_000);
     return () => clearInterval(timer);
   }, []);
 
@@ -286,7 +278,7 @@ export default function PurpleGuideScreen() {
 
   // Huge playlists: prefer matching the visible group first on the next EPG refresh.
   useEffect(() => {
-    if (channels.length < 800) {
+    if (channels.length < 400) {
       setPriorityMatchChannelIds([]);
       return;
     }
@@ -295,7 +287,7 @@ export default function PurpleGuideScreen() {
 
   const onViewportChannelIds = useCallback((ids: string[]) => {
     setViewportGuideChannelIds(ids);
-    if (channels.length >= 800) {
+    if (channels.length >= 400) {
       setPriorityMatchChannelIds(ids.slice(0, 400));
     }
   }, [channels.length]);
@@ -509,11 +501,6 @@ export default function PurpleGuideScreen() {
     if (chip) requestNativeFocusWithRetry(chip, [0, 40, 120]);
   }, [group]);
 
-  const onGuideLeftBoundary = useCallback(() => {
-    if (drawerOpen) return;
-    openDrawer();
-  }, [drawerOpen, openDrawer]);
-
   const resetGuide = useCallback(() => {
     void Haptics.selectionAsync().catch(() => undefined);
     if (metadataTimer.current) clearTimeout(metadataTimer.current);
@@ -650,7 +637,6 @@ export default function PurpleGuideScreen() {
                   resetToken={resetToken}
                   active={!activeProgram}
                   onUpBoundary={onGuideUpBoundary}
-                  onLeftBoundary={onGuideLeftBoundary}
                   onFocusedRowChange={onFocusedGuideRow}
                   onViewportChannelIds={onViewportChannelIds}
                   onGuideFocusNode={onGuideFocusNode}
@@ -675,7 +661,6 @@ export default function PurpleGuideScreen() {
                   resetToken={resetToken}
                   active={!activeProgram}
                   onUpBoundary={onGuideUpBoundary}
-                  onLeftBoundary={onGuideLeftBoundary}
                   onFocusedRowChange={onFocusedGuideRow}
                   onGuideFocusNode={onGuideFocusNode}
                   onViewportChannelIds={onViewportChannelIds}

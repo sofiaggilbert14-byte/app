@@ -183,13 +183,12 @@ function withTvRemoteKeyCapture(config) {
     let src = cfg.modResults.contents;
 
     // Upgrade an Activity produced by an earlier version of this plugin.
+    // Never consume guide Up/Down — that freezes Android focus surfing in the grid.
     if (src.includes("dispatchKeyEvent")) {
-      if (!src.includes("guideNavigationActive")) {
-        src = src.replace(
-          "if (TvRemoteModule.pointerActive) return true",
-          `if (TvRemoteModule.pointerActive) return true\n      if (TvRemoteModule.guideNavigationActive && (key == "UP" || key == "DOWN")) return true`,
-        );
-      }
+      src = src.replace(
+        /\n\s*if \(TvRemoteModule\.guideNavigationActive && \(key == "UP" \|\| key == "DOWN"\)\) return true/g,
+        "",
+      );
       cfg.modResults.contents = src;
       return cfg;
     }
@@ -217,8 +216,8 @@ function withTvRemoteKeyCapture(config) {
         rc?.getJSModule(com.facebook.react.modules.core.DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
           ?.emit("TvRemoteKey", key)
       } catch (e: Throwable) {}
+      // Pointer mode owns D-pad. Guide Up/Down must reach Android's focus engine.
       if (TvRemoteModule.pointerActive) return true
-      if (TvRemoteModule.guideNavigationActive && (key == "UP" || key == "DOWN")) return true
     }
     return super.dispatchKeyEvent(event)
   }

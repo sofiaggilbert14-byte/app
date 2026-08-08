@@ -72,7 +72,9 @@ test("TvRemote checked-in Android matches plugin guide APIs", async () => {
     assert.match(mod, new RegExp(needle));
   }
   assert.match(plugin, /KOTLIN_NAMESPACE/);
-  assert.match(activity, /guideNavigationActive/);
+  // Guide surfing must use Android focus — never consume Up/Down when "active".
+  assert.doesNotMatch(activity, /guideNavigationActive && \(key == "UP"/);
+  assert.doesNotMatch(plugin, /guideNavigationActive && \(key == "UP"/);
 });
 
 test("Cloudflare worker does not default CORS to wildcard", async () => {

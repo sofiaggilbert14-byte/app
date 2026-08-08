@@ -3,8 +3,9 @@ import { Platform, View, Text, StyleSheet } from "react-native";
 import { Image } from "expo-image";
 import { colors, fonts, radius } from "@/src/theme";
 
-const MAX_CONCURRENT_IMAGE_LOADS = Platform.isTV ? 8 : 4;
-const MAX_URI_HISTORY = 256;
+const MAX_CONCURRENT_IMAGE_LOADS = Platform.isTV ? 4 : 4;
+const MAX_URI_HISTORY = 192;
+const MAX_LOAD_QUEUE = 48;
 const LOAD_SLOT_TIMEOUT_MS = 10000;
 
 type QueueEntry = {
@@ -40,6 +41,11 @@ function drainQueue(): void {
 
 function requestLoadSlot(onGranted: () => void): () => void {
   const entry: QueueEntry = { cancelled: false, grant: onGranted };
+  // Bound the waiter list — rapid surf used to enqueue unbounded work on weak sticks.
+  while (loadQueue.length >= MAX_LOAD_QUEUE) {
+    const dropped = loadQueue.shift();
+    if (dropped) dropped.cancelled = true;
+  }
   loadQueue.push(entry);
   drainQueue();
   return () => {
