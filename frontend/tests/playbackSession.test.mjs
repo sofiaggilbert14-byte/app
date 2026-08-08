@@ -145,11 +145,14 @@ test("StreamPlayer and player route use role-scoped session teardown", async () 
   assert.match(playerComp, /isSessionCurrent/);
   assert.match(playerComp, /sessionRole/);
   assert.match(playerComp, /role === "preview"/);
-  assert.match(playerComp, /rapidBurstRef\.current >= 2/);
+  assert.doesNotMatch(playerComp, /rapidBurstRef|pauseSessionDecoders\(role\)/);
   assert.match(playerComp, /clearFullscreenCircuit/);
-  assert.match(playerComp, /clear: true/);
+  assert.match(playerComp, /stopPlayer\?\.\(\)/);
+  assert.doesNotMatch(playerComp, /setNativeProps\?\.\(\{ clear: true \}\)/);
   assert.match(playerComp, /AppState\.addEventListener/);
   assert.match(playerComp, /replaceQueueRef/);
+  assert.match(playerComp, /mode === "preview"/);
+  assert.match(playerComp, /mediaOptions/);
   assert.doesNotMatch(playerComp, /key=\{`vlc:\$\{uri\}:\$\{sessionGeneration\}`\}/);
   assert.doesNotMatch(playerComp, /forceStopAllStreams\(\)/);
   assert.match(playerRoute, /pauseSessionDecoders\("fullscreen"\)/);

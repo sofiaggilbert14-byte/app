@@ -1,5 +1,5 @@
 diff --git a/node_modules/react-native-vlc-media-player/android/src/main/java/com/yuanzhou/vlc/vlcplayer/ReactVlcPlayerView.java b/node_modules/react-native-vlc-media-player/android/src/main/java/com/yuanzhou/vlc/vlcplayer/ReactVlcPlayerView.java
-index 8c7acdf..7544e21 100755
+index 8c7acdf..0777e7a 100755
 --- a/node_modules/react-native-vlc-media-player/android/src/main/java/com/yuanzhou/vlc/vlcplayer/ReactVlcPlayerView.java
 +++ b/node_modules/react-native-vlc-media-player/android/src/main/java/com/yuanzhou/vlc/vlcplayer/ReactVlcPlayerView.java
 @@ -363,7 +363,7 @@ class ReactVlcPlayerView extends TextureView implements
@@ -46,19 +46,30 @@ index 8c7acdf..7544e21 100755
          }
      }
  
-@@ -752,6 +756,7 @@ class ReactVlcPlayerView extends TextureView implements
+@@ -758,6 +762,10 @@ class ReactVlcPlayerView extends TextureView implements
+         stopPlayback();
      }
  
-     public void cleanUpResources() {
++    public void detachLifecycleListener() {
 +        themedReactContext.removeLifecycleEventListener(this);
-         if (surfaceView != null) {
-             surfaceView.removeOnLayoutChangeListener(onLayoutChangeListener);
-         }
++    }
++
+     @Override
+     public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
+         mVideoWidth = width;
 diff --git a/node_modules/react-native-vlc-media-player/android/src/main/java/com/yuanzhou/vlc/vlcplayer/ReactVlcPlayerViewManager.java b/node_modules/react-native-vlc-media-player/android/src/main/java/com/yuanzhou/vlc/vlcplayer/ReactVlcPlayerViewManager.java
-index b935a4d..80ed6db 100755
+index b935a4d..c6cf57c 100755
 --- a/node_modules/react-native-vlc-media-player/android/src/main/java/com/yuanzhou/vlc/vlcplayer/ReactVlcPlayerViewManager.java
 +++ b/node_modules/react-native-vlc-media-player/android/src/main/java/com/yuanzhou/vlc/vlcplayer/ReactVlcPlayerViewManager.java
-@@ -179,7 +179,8 @@ public class ReactVlcPlayerViewManager extends SimpleViewManager<ReactVlcPlayerV
+@@ -54,6 +54,7 @@ public class ReactVlcPlayerViewManager extends SimpleViewManager<ReactVlcPlayerV
+     @Override
+     public void onDropViewInstance(ReactVlcPlayerView view) {
+         view.cleanUpResources();
++        view.detachLifecycleListener();
+     }
+ 
+     @Override
+@@ -179,7 +180,8 @@ public class ReactVlcPlayerViewManager extends SimpleViewManager<ReactVlcPlayerV
          return MapBuilder.of(
              "startRecording", 1,
              "stopRecording", 2,
@@ -68,7 +79,7 @@ index b935a4d..80ed6db 100755
          );
      }
  
-@@ -204,6 +205,10 @@ public class ReactVlcPlayerViewManager extends SimpleViewManager<ReactVlcPlayerV
+@@ -204,6 +206,10 @@ public class ReactVlcPlayerViewManager extends SimpleViewManager<ReactVlcPlayerV
                  }
                  break;
  

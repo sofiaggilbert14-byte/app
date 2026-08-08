@@ -302,13 +302,16 @@ export default function PlayerScreen() {
     // accumulated failures or a bad source remounts native decoders forever.
     if (clearCircuit) clearFullscreenCircuit(channel?.url);
     pauseSessionDecoders("fullscreen");
-    setDecoderArmed(true);
+    // Force a real native-view remount. Keeping a stopped VLC view mounted with
+    // the same source is a black-screen dead end on Fire TV.
+    setDecoderArmed(false);
     setStatus("loading");
     setFailReason(null);
     setRetryAttempt((value) => value + 1);
     showNotice(`Reconnecting ${channel?.name || "stream"}`);
+    setRetryToken((value) => value + 1);
     requestAnimationFrame(() => {
-      if (generation === generationRef.current) setRetryToken((value) => value + 1);
+      if (generation === generationRef.current) setDecoderArmed(true);
     });
   }, [channel?.name, channel?.url, hasStream, showNotice]);
 
