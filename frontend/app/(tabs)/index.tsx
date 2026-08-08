@@ -77,8 +77,8 @@ export default function LiveTvHomeScreen() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.page}>
         <View style={styles.topbar}>
           <View>
+            <Text style={styles.pageTitle}>CharmIPTV</Text>
             <Text style={styles.eyebrow}>LIVE TELEVISION</Text>
-            <Text style={styles.pageTitle}>Home</Text>
           </View>
           <View style={styles.topRight}>
             <Pressable
@@ -93,8 +93,6 @@ export default function LiveTvHomeScreen() {
           </View>
         </View>
 
-        <NowPlayingBar testID="home-now-playing" />
-
         <View style={styles.hero}>
           <LinearGradient
             colors={["rgba(124,58,237,0.18)", "rgba(12,10,27,0.80)", "#090914"]}
@@ -103,7 +101,7 @@ export default function LiveTvHomeScreen() {
             style={StyleSheet.absoluteFill}
           />
           <View style={styles.heroCopy}>
-            <Text style={styles.heroLabel}>CURRENTLY WATCHING</Text>
+            <Text style={styles.heroLabel}>CONTINUE</Text>
             <Text numberOfLines={1} style={styles.heroTitle}>
               {heroChannel?.name || "Choose a channel"}
             </Text>
@@ -156,6 +154,8 @@ export default function LiveTvHomeScreen() {
           </View>
         </View>
 
+        <NowPlayingBar testID="home-now-playing" />
+
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Recently Watched Channels</Text>
           <Text style={styles.sectionHint}>Pick up where you left off</Text>
@@ -193,15 +193,15 @@ export default function LiveTvHomeScreen() {
 const styles = StyleSheet.create({
   page: { padding: 18, paddingBottom: 26, gap: 12 },
   topbar: { minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  eyebrow: { color: tvColors.purpleSoft, fontFamily: fonts.semibold, fontSize: 8, letterSpacing: 1.2 },
-  pageTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 20, marginTop: 1 },
+  eyebrow: { color: tvColors.purpleSoft, fontFamily: fonts.semibold, fontSize: 8, letterSpacing: 1.2, marginTop: 2 },
+  pageTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 28 },
   topRight: { flexDirection: "row", alignItems: "center", gap: 12 },
   clock: { color: "#fff", fontFamily: fonts.medium, fontSize: 10 },
   statusDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: tvColors.purpleBright },
-  hero: { minHeight: 198, flexDirection: "row", borderRadius: radius.md, borderWidth: 1, borderColor: tvColors.line, overflow: "hidden" },
+  hero: { minHeight: 210, flexDirection: "row", borderRadius: radius.md, borderWidth: 1, borderColor: tvColors.line, overflow: "hidden" },
   heroCopy: { flex: 1.1, padding: 18, justifyContent: "center", alignItems: "flex-start" },
   heroLabel: { color: tvColors.textMuted, fontFamily: fonts.semibold, fontSize: 8, letterSpacing: 0.9 },
-  heroTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 25, marginTop: 4, maxWidth: "95%" },
+  heroTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 22, marginTop: 4, maxWidth: "95%" },
   heroMetaRow: { flexDirection: "row", alignItems: "center", gap: 7, marginTop: 5 },
   livePill: { backgroundColor: tvColors.purple, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
   livePillText: { color: "#fff", fontFamily: fonts.bold, fontSize: 7 },

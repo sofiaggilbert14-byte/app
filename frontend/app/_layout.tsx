@@ -1,7 +1,7 @@
 import { Stack, usePathname, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import * as Notifications from "expo-notifications";
-import { useEffect } from "react";
+import React, { useEffect } from "react";
 import { LogBox, useWindowDimensions } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -65,6 +65,28 @@ function ReminderCleanup() {
   return null;
 }
 
+function StartScreenRedirect() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const { startScreen, lastChannelId, loading } = useStore();
+  const doneRef = React.useRef(false);
+
+  useEffect(() => {
+    if (doneRef.current || loading) return;
+    if (pathname && pathname !== "/" && pathname !== "/index") return;
+    doneRef.current = true;
+    if (startScreen === "guide") {
+      router.replace("/guide" as any);
+      return;
+    }
+    if (startScreen === "last_channel" && lastChannelId) {
+      openFullscreenPlayer(router, lastChannelId);
+    }
+  }, [lastChannelId, loading, pathname, router, startScreen]);
+
+  return null;
+}
+
 export default function RootLayout() {
   const [iconsLoaded, iconErr] = useIconFonts();
   const [fontsLoaded, fontErr] = useAppFonts();
@@ -87,6 +109,7 @@ export default function RootLayout() {
               <StatusBar style="light" />
               <NotificationRouter />
               <ReminderCleanup />
+              <StartScreenRedirect />
               <ErrorBoundary>
                 <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#070711" } }}>
                   <Stack.Screen name="(tabs)" />

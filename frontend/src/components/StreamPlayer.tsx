@@ -171,6 +171,12 @@ type Props = {
   style?: StyleProp<ViewStyle>;
   mode?: "preview" | "full";
   sessionRole?: SessionRole;
+  audioTrack?: number;
+  textTrack?: number;
+  onTracksAvailable?: (tracks: {
+    audio: { id: number; name: string }[];
+    text: { id: number; name: string }[];
+  }) => void;
 };
 
 type EngineProps = Props & {
@@ -229,6 +235,9 @@ function VlcStream({
   mode = "full",
   sessionRole,
   sessionGeneration,
+  audioTrack,
+  textTrack,
+  onTracksAvailable,
 }: EngineProps) {
   const activeRef = useRef(true);
   const tearingDownRef = useRef(false);
@@ -317,6 +326,17 @@ function VlcStream({
       autoAspectRatio
       resizeMode="contain"
       acceptInvalidCertificates
+      audioTrack={audioTrack}
+      textTrack={textTrack}
+      onLoad={(info: any) => {
+        const audio = Array.isArray(info?.audioTracks)
+          ? info.audioTracks.map((t: any) => ({ id: Number(t.id), name: String(t.name || t.language || `Audio ${t.id}`) }))
+          : [];
+        const text = Array.isArray(info?.textTracks)
+          ? info.textTracks.map((t: any) => ({ id: Number(t.id), name: String(t.name || t.language || `CC ${t.id}`) }))
+          : [];
+        onTracksAvailable?.({ audio, text });
+      }}
       onOpen={() => activeRef.current && !tearingDownRef.current && !paused && emit("loading")}
       onBuffering={() => activeRef.current && !tearingDownRef.current && !paused && emit("loading")}
       onPlaying={() => {
@@ -476,7 +496,16 @@ function ExpoStream({
   );
 }
 
-export function StreamPlayer({ uri, onStatus, style, mode, sessionRole }: Props) {
+export function StreamPlayer({
+  uri,
+  onStatus,
+  style,
+  mode,
+  sessionRole,
+  audioTrack,
+  textTrack,
+  onTracksAvailable,
+}: Props) {
   const isFocused = useIsFocused();
   const pathname = usePathname();
   const isGuidePreview = pathname === "/guide";
@@ -636,6 +665,9 @@ export function StreamPlayer({ uri, onStatus, style, mode, sessionRole }: Props)
         mode={playbackMode}
         sessionRole={role}
         sessionGeneration={sessionGeneration}
+        audioTrack={audioTrack}
+        textTrack={textTrack}
+        onTracksAvailable={onTracksAvailable}
       />
     );
   }

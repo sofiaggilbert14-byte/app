@@ -187,12 +187,15 @@ export function applyXmltvMatchesToChannels(
   options: EpgMatchOptions & {
     /** Prefer rematching these channel ids first (current group / viewport). */
     priorityChannelIds?: Iterable<string>;
+    /** When set, only these channel ids are rematched; others keep prior fields. */
+    onlyChannelIds?: Iterable<string>;
   } = {},
 ): { channels: Channel[]; quality: EpgMatchQuality } {
   const preferTvgIdOnly = !!options.preferTvgIdOnly;
+  const only = options.onlyChannelIds ? new Set(options.onlyChannelIds) : null;
   const priority = new Set(options.priorityChannelIds || []);
   const order =
-    priority.size > 0
+    !only && priority.size > 0
       ? [
           ...channels.filter((c) => priority.has(c.id)),
           ...channels.filter((c) => !priority.has(c.id)),
@@ -205,6 +208,10 @@ export function applyXmltvMatchesToChannels(
   const byId = new Map<string, Channel>();
 
   for (const channel of order) {
+    if (only && !only.has(channel.id)) {
+      byId.set(channel.id, channel);
+      continue;
+    }
     const result = matchPlaylistChannelToXmltv(channel, indexes, logos, { preferTvgIdOnly });
     if (result.ambiguous && !result.sourceId) ambiguous++;
     else if (result.sourceId) matched++;
@@ -214,7 +221,6 @@ export function applyXmltvMatchesToChannels(
     const nextLogo = xmltvLogo || channel.logo || "";
     const nextGuideId = result.sourceId || channel.tvg_id;
 
-    // Preserve object identity when match + logo did not change — avoids React/store churn.
     if (nextLogo === channel.logo && nextGuideId === channel.tvg_id) {
       byId.set(channel.id, channel);
     } else {
@@ -222,9 +228,21 @@ export function applyXmltvMatchesToChannels(
     }
   }
 
-  // Restore original playlist order.
   const nextChannels = channels.map((c) => byId.get(c.id) || c);
+  if (only) {
+    // Partial pass — quality counts only cover the subset; caller may merge later.
+    return { channels: nextChannels, quality: { matched, ambiguous, unmatched } };
+  }
   return { channels: nextChannels, quality: { matched, ambiguous, unmatched } };
+}
+
+/** Merge two partial quality snapshots (phase1 + phase2) without double-counting. */
+export function mergeMatchQuality(a: EpgMatchQuality, b: EpgMatchQuality): EpgMatchQuality {
+  return {
+    matched: a.matched + b.matched,
+    ambiguous: a.ambiguous + b.ambiguous,
+    unmatched: a.unmatched + b.unmatched,
+  };
 }
 
 /**

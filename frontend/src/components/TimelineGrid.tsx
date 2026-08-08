@@ -410,6 +410,7 @@ export const TimelineGrid = memo(function TimelineGrid({
   onUpBoundary,
   onFocusedRowChange,
   onGuideFocusNode,
+  onViewportChannelIds,
 }: {
   channels: Channel[];
   windowStart: string;
@@ -435,6 +436,8 @@ export const TimelineGrid = memo(function TimelineGrid({
   onFocusedRowChange?: (index: number) => void;
   /** Parent can restore focus after modal close. */
   onGuideFocusNode?: (node: unknown) => void;
+  /** Visible-ish channel ids around the focused row (viewport + overscan) for EPG query scoping. */
+  onViewportChannelIds?: (ids: string[]) => void;
 }) {
   const { width } = useWindowDimensions();
   const big = width >= 900;
@@ -447,6 +450,8 @@ export const TimelineGrid = memo(function TimelineGrid({
   const panAnimRef = useRef<Animated.CompositeAnimation | null>(null);
   const [bodyH, setBodyH] = useState(0);
   const [programViewportW, setProgramViewportW] = useState(0);
+  const bodyHRef = useRef(0);
+  const preparedRowsRef = useRef<PreparedRow[]>([]);
   // Coarse pan bucket only — avoids re-rendering every row on each pixel of horizontal pan.
   const [panBucket, setPanBucket] = useState(0);
   // Preferred focus is mount-once only. Group changes must NOT reclaim it (steals chip focus).
@@ -479,11 +484,23 @@ export const TimelineGrid = memo(function TimelineGrid({
       focusedRowRef.current = index;
       gridOwnsFocusRef.current = true;
       const deep = index > 0;
-      if (lastReportedDeepRef.current === deep) return;
-      lastReportedDeepRef.current = deep;
-      onFocusedRowChange?.(index);
+      if (lastReportedDeepRef.current !== deep) {
+        lastReportedDeepRef.current = deep;
+        onFocusedRowChange?.(index);
+      } else if (index === 0) {
+        onFocusedRowChange?.(index);
+      }
+      if (onViewportChannelIds && preparedRowsRef.current.length) {
+        const rows = preparedRowsRef.current;
+        const visible = Math.max(4, Math.ceil((bodyHRef.current || ROW_H * 6) / ROW_H) + 3);
+        const start = Math.max(0, index - 1);
+        const end = Math.min(rows.length, start + visible);
+        const ids: string[] = [];
+        for (let i = start; i < end; i++) ids.push(rows[i].channel.id);
+        onViewportChannelIds(ids);
+      }
     },
-    [onFocusedRowChange],
+    [ROW_H, onFocusedRowChange, onViewportChannelIds],
   );
 
   const totalMin = mins(windowEnd, windowStart);
@@ -541,6 +558,11 @@ export const TimelineGrid = memo(function TimelineGrid({
     });
     // Intentionally omit nowMs — a 60s tick must not rebuild the whole guide.
   }, [channels, PX_PER_MIN, windowEndMs, windowStartMs]);
+
+  preparedRowsRef.current = preparedRows;
+  useEffect(() => {
+    bodyHRef.current = bodyH;
+  }, [bodyH]);
 
   const nowOffset = Number.isFinite(nowMs) && Number.isFinite(windowStartMs)
     ? ((nowMs - windowStartMs) / MINUTE_MS) * PX_PER_MIN
@@ -772,7 +794,14 @@ export const TimelineGrid = memo(function TimelineGrid({
         clipped timeline track that pans via translateX only — so Left/Right never
         slides the channel column over show blocks.
       */}
-      <View style={styles.body} onLayout={(e: LayoutChangeEvent) => setBodyH(e.nativeEvent.layout.height)}>
+      <View
+        style={styles.body}
+        onLayout={(e: LayoutChangeEvent) => {
+          const h = e.nativeEvent.layout.height;
+          bodyHRef.current = h;
+          setBodyH(h);
+        }}
+      >
         {bodyH > 0 && (
           <FlashList
             data={preparedRows}

@@ -2,12 +2,21 @@ import React, { createContext, startTransition, useCallback, useContext, useEffe
 import dayjs from "dayjs";
 import { storage } from "@/src/utils/storage";
 import { Channel, Program } from "@/src/api";
-import { loadGuide, refreshSource, setPreferTvgIdOnlyMatching, subscribeSource } from "@/src/source";
-import { reminderKey } from "@/src/utils/time";
+import { loadGuide, refreshEpgOnly, refreshSource, setManualEpgRemaps, setPreferTvgIdOnlyMatching, subscribeSource } from "@/src/source";
+import { reminderKey, setTimeFormat24h } from "@/src/utils/time";
 import { sanitizeFavoriteIds, toggleFavoriteId } from "@/src/utils/favoriteIds";
 import { pushRecentId, sanitizeRecentIds } from "@/src/utils/recentIds";
 import { sanitizeReminders } from "@/src/utils/reminderIds";
 import { remapStoredChannelIds } from "@/src/utils/channelIdentityMigrate";
+import { getPowerProfileTuning, resolvePowerProfile, type PowerProfile } from "@/src/core/devicePowerProfile";
+import { applyManualEpgRemaps, resolveEpgGuideFilter, sanitizeEpgManualRemap, type EpgGuideFilter } from "@/src/core/epgUserOverrides";
+import {
+  createFavoriteFolder,
+  DEFAULT_FOLDER_PRESETS,
+  sanitizeFavoriteFolders,
+  toggleChannelInFolder,
+  type FavoriteFolder,
+} from "@/src/core/favoriteFolders";
 import {
   cancelReminder,
   requestNotificationPermission,
@@ -28,12 +37,34 @@ const DEVICE_LAYOUT_MODE_KEY = "gs_device_layout_mode";
 const PLAYER_TIMEOUT_KEY = "gs_player_timeout_ms";
 const AUTO_RETRY_KEY = "gs_auto_retry_streams";
 const PREFER_TVG_ID_ONLY_KEY = "gs_prefer_tvg_id_only";
-const GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 8);
+const POWER_PROFILE_KEY = "gs_power_profile";
+const LOGOS_OFF_SURF_KEY = "gs_logos_off_while_surfing";
+const EPG_GUIDE_FILTER_KEY = "gs_epg_guide_filter";
+const EPG_MANUAL_REMAPS_KEY = "gs_epg_manual_remaps";
+const FAVORITE_FOLDERS_KEY = "gs_favorite_folders";
+const FAVORITE_FOLDERS_SEEDED_KEY = "gs_favorite_folders_seeded";
+const GUIDE_WINDOW_HOURS_KEY = "gs_guide_window_hours";
+const CLOCK_24H_KEY = "gs_clock_24h";
+const START_SCREEN_KEY = "gs_start_screen";
+const SLEEP_TIMER_MINUTES_KEY = "gs_sleep_timer_minutes";
 
-function readGuideWindowHours(value: string | undefined, fallback: number): number {
+const DEFAULT_GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 8);
+
+function readGuideWindowHours(value: string | number | null | undefined, fallback: GuideWindowHours): GuideWindowHours {
   const n = Number(value || fallback);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.min(48, Math.max(6, Math.round(n)));
+  if (n === 6 || n === 8 || n === 12 || n === 24) return n;
+  return fallback;
+}
+
+function resolveStartScreen(value: string | null | undefined): StartScreen {
+  if (value === "guide" || value === "last_channel" || value === "home") return value;
+  return "home";
+}
+
+function resolveSleepTimerMinutes(value: unknown): SleepTimerMinutes {
+  const n = Number(value);
+  if (n === 15 || n === 30 || n === 60 || n === 90) return n;
+  return 0;
 }
 
 export type GuideLayout = "cinematic" | "compact";
@@ -41,6 +72,10 @@ export type GuideDensity = "large" | "normal" | "compact";
 export type SafePreviewMode = "on" | "delayed" | "surf" | "off";
 export type DeviceLayoutMode = "auto" | "tv" | "mobile";
 export type PlayerControlsTimeoutMs = 8000 | 15000 | 30000 | 60000;
+export type GuideWindowHours = 6 | 8 | 12 | 24;
+export type StartScreen = "home" | "guide" | "last_channel";
+export type SleepTimerMinutes = 0 | 15 | 30 | 60 | 90;
+export type { EpgGuideFilter, FavoriteFolder, PowerProfile };
 
 export type Reminder = {
   key: string;
@@ -54,7 +89,7 @@ export type Reminder = {
 
 export type ActiveProgram = { program: Program; channel: Channel } | null;
 
-type Store = {
+export type Store = {
   channels: Channel[];
   windowStart: string;
   windowEnd: string;
@@ -108,6 +143,27 @@ type Store = {
   setAutoRetryStreams: (v: boolean) => void;
   preferTvgIdOnly: boolean;
   setPreferTvgIdOnly: (v: boolean) => void;
+  powerProfile: PowerProfile;
+  setPowerProfile: (v: PowerProfile) => void;
+  logosOffWhileSurfing: boolean;
+  setLogosOffWhileSurfing: (v: boolean) => void;
+  epgGuideFilter: EpgGuideFilter;
+  setEpgGuideFilter: (v: EpgGuideFilter) => void;
+  epgManualRemaps: Record<string, string>;
+  setEpgManualRemaps: (v: Record<string, string>) => void;
+  favoriteFolders: FavoriteFolder[];
+  setFavoriteFolders: (folders: FavoriteFolder[]) => void;
+  addFavoriteFolder: (name: string) => FavoriteFolder | null;
+  toggleFavoriteFolderChannel: (folderId: string, channelId: string) => void;
+  removeFavoriteFolder: (id: string) => void;
+  guideWindowHours: GuideWindowHours;
+  setGuideWindowHours: (v: GuideWindowHours) => void;
+  clock24h: boolean;
+  setClock24h: (v: boolean) => void;
+  startScreen: StartScreen;
+  setStartScreen: (v: StartScreen) => void;
+  sleepTimerMinutes: SleepTimerMinutes;
+  setSleepTimerMinutes: (v: SleepTimerMinutes) => void;
 };
 
 const Ctx = createContext<Store | null>(null);
@@ -128,6 +184,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [selectedDate, setSelectedDateState] = useState(dayjs().format("YYYY-MM-DD"));
   const dateRef = useRef(selectedDate);
   const refreshRequestRef = useRef(0);
+  const refreshSilentRef = useRef<(silent?: boolean) => Promise<void>>(async () => undefined);
 
   const [favorites, setFavorites] = useState<string[]>([]);
   const [recentIds, setRecentIds] = useState<string[]>([]);
@@ -150,6 +207,18 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [playerControlsTimeoutMs, setPlayerControlsTimeoutMsState] = useState<PlayerControlsTimeoutMs>(8000);
   const [autoRetryStreams, setAutoRetryStreamsState] = useState(true);
   const [preferTvgIdOnly, setPreferTvgIdOnlyState] = useState(false);
+  const [powerProfile, setPowerProfileState] = useState<PowerProfile>("normal");
+  const [logosOffWhileSurfing, setLogosOffWhileSurfingState] = useState(getPowerProfileTuning("normal").logosOffWhileSurfingDefault);
+  const [epgGuideFilter, setEpgGuideFilterState] = useState<EpgGuideFilter>("all");
+  const [epgManualRemaps, setEpgManualRemapsState] = useState<Record<string, string>>({});
+  const epgManualRemapsRef = useRef<Record<string, string>>({});
+  epgManualRemapsRef.current = epgManualRemaps;
+  const [favoriteFolders, setFavoriteFoldersState] = useState<FavoriteFolder[]>([]);
+  const [guideWindowHours, setGuideWindowHoursState] = useState<GuideWindowHours>(DEFAULT_GUIDE_WINDOW_HOURS);
+  const guideWindowHoursRef = useRef<GuideWindowHours>(DEFAULT_GUIDE_WINDOW_HOURS);
+  const [clock24h, setClock24hState] = useState(false);
+  const [startScreen, setStartScreenState] = useState<StartScreen>("home");
+  const [sleepTimerMinutes, setSleepTimerMinutesState] = useState<SleepTimerMinutes>(0);
 
   // Memoized helpers for fast lookups
   const channelByIdMap = useMemo(() => {
@@ -219,6 +288,111 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     setPreferTvgIdOnlyState(v);
     setPreferTvgIdOnlyMatching(v);
     storage.setItem(PREFER_TVG_ID_ONLY_KEY, v);
+    void (async () => {
+      try {
+        await refreshEpgOnly();
+        await refreshSilentRef.current(true);
+      } catch (error) {
+        console.warn("preferTvgIdOnly rematch failed", error);
+      }
+    })();
+  }, []);
+
+  const setPowerProfile = useCallback((v: PowerProfile) => {
+    const next = resolvePowerProfile(v);
+    setPowerProfileState(next);
+    storage.setItem(POWER_PROFILE_KEY, next);
+    const tuning = getPowerProfileTuning(next);
+    setLogosOffWhileSurfingState(tuning.logosOffWhileSurfingDefault);
+    storage.setItem(LOGOS_OFF_SURF_KEY, tuning.logosOffWhileSurfingDefault);
+  }, []);
+
+  const setLogosOffWhileSurfing = useCallback((v: boolean) => {
+    setLogosOffWhileSurfingState(v);
+    storage.setItem(LOGOS_OFF_SURF_KEY, v);
+  }, []);
+
+  const setEpgGuideFilter = useCallback((v: EpgGuideFilter) => {
+    const next = resolveEpgGuideFilter(v);
+    setEpgGuideFilterState(next);
+    storage.setItem(EPG_GUIDE_FILTER_KEY, next);
+  }, []);
+
+  const setEpgManualRemaps = useCallback((v: Record<string, string>) => {
+    const next = sanitizeEpgManualRemap(v);
+    setEpgManualRemapsState(next);
+    setManualEpgRemaps(next);
+    storage.setItem(EPG_MANUAL_REMAPS_KEY, next);
+    setChannels((prev) => applyManualEpgRemaps(prev, next));
+    // Rematch so cleared remaps restore auto-matched tvg_ids from the playlist base.
+    void (async () => {
+      try {
+        await refreshEpgOnly();
+        await refreshSilentRef.current(true);
+      } catch (error) {
+        console.warn("manual remap refresh failed", error);
+        void refreshSilentRef.current(true);
+      }
+    })();
+  }, []);
+
+  const setFavoriteFolders = useCallback((folders: FavoriteFolder[]) => {
+    const next = sanitizeFavoriteFolders(folders);
+    setFavoriteFoldersState(next);
+    storage.setItem(FAVORITE_FOLDERS_KEY, next);
+  }, []);
+
+  const addFavoriteFolder = useCallback((name: string) => {
+    const folder = createFavoriteFolder(name, favoriteFolders);
+    if (!folder) return null;
+    const next = sanitizeFavoriteFolders([...favoriteFolders, folder]);
+    setFavoriteFoldersState(next);
+    storage.setItem(FAVORITE_FOLDERS_KEY, next);
+    return folder;
+  }, [favoriteFolders]);
+
+  const toggleFavoriteFolderChannel = useCallback((folderId: string, channelId: string) => {
+    if (!folderId || !channelId) return;
+    setFavoriteFoldersState((prev) => {
+      const next = sanitizeFavoriteFolders(toggleChannelInFolder(prev, folderId, channelId));
+      storage.setItem(FAVORITE_FOLDERS_KEY, next);
+      return next;
+    });
+  }, []);
+
+  const removeFavoriteFolder = useCallback((id: string) => {
+    if (!id) return;
+    setFavoriteFoldersState((prev) => {
+      const next = prev.filter((folder) => folder.id !== id);
+      storage.setItem(FAVORITE_FOLDERS_KEY, next);
+      return next;
+    });
+  }, []);
+
+  const setGuideWindowHours = useCallback((v: GuideWindowHours) => {
+    const next = readGuideWindowHours(v, DEFAULT_GUIDE_WINDOW_HOURS);
+    guideWindowHoursRef.current = next;
+    setGuideWindowHoursState(next);
+    storage.setItem(GUIDE_WINDOW_HOURS_KEY, next);
+    void refreshSilentRef.current(true);
+  }, []);
+
+  const setClock24h = useCallback((v: boolean) => {
+    setClock24hState(v);
+    setTimeFormat24h(v);
+    storage.setItem(CLOCK_24H_KEY, v);
+  }, []);
+
+  const setStartScreen = useCallback((v: StartScreen) => {
+    const next = resolveStartScreen(v);
+    setStartScreenState(next);
+    storage.setItem(START_SCREEN_KEY, next);
+  }, []);
+
+  const setSleepTimerMinutes = useCallback((v: SleepTimerMinutes) => {
+    const next = resolveSleepTimerMinutes(v);
+    setSleepTimerMinutesState(next);
+    storage.setItem(SLEEP_TIMER_MINUTES_KEY, next);
   }, []);
 
   const channelById = useCallback((id: string) => channelByIdMap.get(id), [channelByIdMap]);
@@ -361,9 +535,9 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       const day = dayjs(dateRef.current);
       const isToday = day.isSame(dayjs(), "day");
       const start = isToday ? undefined : day.startOf("day").toISOString();
-      const data = await loadGuide(start, GUIDE_WINDOW_HOURS);
+      const data = await loadGuide(start, guideWindowHoursRef.current);
       if (requestId !== refreshRequestRef.current) return;
-      setChannels(data.channels);
+      setChannels(applyManualEpgRemaps(data.channels, epgManualRemapsRef.current));
       setWindowStart(data.start);
       setWindowEnd(data.end);
       // Soft-remap Phase-4 / collision IDs onto the live playlist without wiping orphans.
@@ -393,6 +567,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       if (!silent && requestId === refreshRequestRef.current) setLoading(false);
     }
   }, [persistRecent]);
+
+  refreshSilentRef.current = refresh;
 
   const setSelectedDate = useCallback(
     (d: string) => {
@@ -443,6 +619,46 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       const tvgOnly = (await storage.getItem<boolean>(PREFER_TVG_ID_ONLY_KEY, false)) || false;
       setPreferTvgIdOnlyState(tvgOnly);
       setPreferTvgIdOnlyMatching(tvgOnly);
+      const profile = resolvePowerProfile(await storage.getItem<string>(POWER_PROFILE_KEY, "normal"));
+      setPowerProfileState(profile);
+      const rawLogosOffWhileSurfing = await storage.getItem<boolean | null>(LOGOS_OFF_SURF_KEY, null);
+      setLogosOffWhileSurfingState(
+        typeof rawLogosOffWhileSurfing === "boolean"
+          ? rawLogosOffWhileSurfing
+          : getPowerProfileTuning(profile).logosOffWhileSurfingDefault,
+      );
+      setEpgGuideFilterState(resolveEpgGuideFilter(await storage.getItem<string>(EPG_GUIDE_FILTER_KEY, "all")));
+      const manualRemaps = sanitizeEpgManualRemap(await storage.getItem<Record<string, string>>(EPG_MANUAL_REMAPS_KEY, {}));
+      setEpgManualRemapsState(manualRemaps);
+      setManualEpgRemaps(manualRemaps);
+      // Seed useful TV folder presets once (even if the user later deletes all folders).
+      const foldersSeeded = (await storage.getItem<boolean>(FAVORITE_FOLDERS_SEEDED_KEY, false)) || false;
+      const storedFolders = sanitizeFavoriteFolders(await storage.getItem<FavoriteFolder[]>(FAVORITE_FOLDERS_KEY, []));
+      if (!foldersSeeded && !storedFolders.length) {
+        const seeded: FavoriteFolder[] = [];
+        for (const name of DEFAULT_FOLDER_PRESETS) {
+          const folder = createFavoriteFolder(name, seeded);
+          if (folder) seeded.push(folder);
+        }
+        const next = sanitizeFavoriteFolders(seeded);
+        setFavoriteFoldersState(next);
+        void storage.setItem(FAVORITE_FOLDERS_KEY, next);
+        void storage.setItem(FAVORITE_FOLDERS_SEEDED_KEY, true);
+      } else {
+        setFavoriteFoldersState(storedFolders);
+        if (!foldersSeeded) void storage.setItem(FAVORITE_FOLDERS_SEEDED_KEY, true);
+      }
+      const storedGuideWindowHours = readGuideWindowHours(
+        await storage.getItem<number>(GUIDE_WINDOW_HOURS_KEY, DEFAULT_GUIDE_WINDOW_HOURS),
+        DEFAULT_GUIDE_WINDOW_HOURS,
+      );
+      guideWindowHoursRef.current = storedGuideWindowHours;
+      setGuideWindowHoursState(storedGuideWindowHours);
+      const storedClock24h = (await storage.getItem<boolean>(CLOCK_24H_KEY, false)) || false;
+      setClock24hState(storedClock24h);
+      setTimeFormat24h(storedClock24h);
+      setStartScreenState(resolveStartScreen(await storage.getItem<string>(START_SCREEN_KEY, "home")));
+      setSleepTimerMinutesState(resolveSleepTimerMinutes(await storage.getItem<number>(SLEEP_TIMER_MINUTES_KEY, 0)));
 
       // Fast paint from cache only — never block first focus with permission dialogs
       // or stacked source rebuilds (those freeze Fire TV focus on open).
@@ -562,6 +778,27 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setAutoRetryStreams,
       preferTvgIdOnly,
       setPreferTvgIdOnly,
+      powerProfile,
+      setPowerProfile,
+      logosOffWhileSurfing,
+      setLogosOffWhileSurfing,
+      epgGuideFilter,
+      setEpgGuideFilter,
+      epgManualRemaps,
+      setEpgManualRemaps,
+      favoriteFolders,
+      setFavoriteFolders,
+      addFavoriteFolder,
+      toggleFavoriteFolderChannel,
+      removeFavoriteFolder,
+      guideWindowHours,
+      setGuideWindowHours,
+      clock24h,
+      setClock24h,
+      startScreen,
+      setStartScreen,
+      sleepTimerMinutes,
+      setSleepTimerMinutes,
     }),
     [
       channels,
@@ -610,6 +847,27 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setAutoRetryStreams,
       preferTvgIdOnly,
       setPreferTvgIdOnly,
+      powerProfile,
+      setPowerProfile,
+      logosOffWhileSurfing,
+      setLogosOffWhileSurfing,
+      epgGuideFilter,
+      setEpgGuideFilter,
+      epgManualRemaps,
+      setEpgManualRemaps,
+      favoriteFolders,
+      setFavoriteFolders,
+      addFavoriteFolder,
+      toggleFavoriteFolderChannel,
+      removeFavoriteFolder,
+      guideWindowHours,
+      setGuideWindowHours,
+      clock24h,
+      setClock24h,
+      startScreen,
+      setStartScreen,
+      sleepTimerMinutes,
+      setSleepTimerMinutes,
     ],
   );
 

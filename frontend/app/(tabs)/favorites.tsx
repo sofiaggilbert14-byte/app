@@ -20,22 +20,26 @@ const FavoriteRow = memo(function FavoriteRow({
   number,
   logos,
   now,
+  inFolder,
+  folderMode,
   onPlay,
-  onRemove,
+  onLongPress,
 }: {
   channel: Channel;
   number: number;
   logos: boolean;
   now: Date;
+  inFolder: boolean;
+  folderMode: boolean;
   onPlay: (channel: Channel) => void;
-  onRemove: (id: string) => void;
+  onLongPress: (id: string) => void;
 }) {
   const current = nowNext(channel.programs, now).current;
   const progress = current ? progressPct(current, now) : 0;
   return (
     <Pressable
       onPress={() => onPlay(channel)}
-      onLongPress={() => onRemove(channel.id)}
+      onLongPress={() => onLongPress(channel.id)}
       delayLongPress={450}
       style={({ focused }: any) => [styles.row, focused && styles.focused]}
     >
@@ -48,7 +52,15 @@ const FavoriteRow = memo(function FavoriteRow({
       </View>
       <Text style={styles.time}>{current ? `${fmtTime(current.start)}${current.stop ? ` - ${fmtTime(current.stop)}` : ""}` : "LIVE"}</Text>
       <View style={styles.heart} pointerEvents="none">
-        <Ionicons name="heart" size={17} color={tvColors.purpleBright} />
+        {folderMode ? (
+          <Ionicons
+            name={inFolder ? "checkmark-circle" : "ellipse-outline"}
+            size={17}
+            color={inFolder ? tvColors.purpleBright : tvColors.textMuted}
+          />
+        ) : (
+          <Ionicons name="heart" size={17} color={tvColors.purpleBright} />
+        )}
       </View>
     </Pressable>
   );
@@ -56,9 +68,38 @@ const FavoriteRow = memo(function FavoriteRow({
 
 export default function FavoritesScreen() {
   const router = useRouter();
-  const { channels, favorites, toggleFavorite, addRecent, channelLogos } = useStore();
+  const {
+    channels,
+    favorites,
+    toggleFavorite,
+    addRecent,
+    channelLogos,
+    favoriteFolders,
+    addFavoriteFolder,
+    toggleFavoriteFolderChannel,
+    removeFavoriteFolder,
+  } = useStore();
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
-  const items = useMemo(() => [...channels].filter((c) => favoriteSet.has(c.id)).sort(byName), [channels, favoriteSet]);
+  const [folderId, setFolderId] = useState<string | "all">("all");
+  const folderMode = folderId !== "all";
+  const folderMemberSet = useMemo(() => {
+    if (!folderMode) return null;
+    const folder = favoriteFolders.find((f) => f.id === folderId);
+    return new Set(folder?.channelIds || []);
+  }, [favoriteFolders, folderId, folderMode]);
+
+  // Always list all favorites so a selected folder can assign members (long-press).
+  // When browsing a folder, members sort first.
+  const items = useMemo(() => {
+    const all = [...channels].filter((c) => favoriteSet.has(c.id)).sort(byName);
+    if (!folderMemberSet) return all;
+    return [...all].sort((a, b) => {
+      const aIn = folderMemberSet.has(a.id) ? 0 : 1;
+      const bIn = folderMemberSet.has(b.id) ? 0 : 1;
+      if (aIn !== bIn) return aIn - bIn;
+      return byName(a, b);
+    });
+  }, [channels, favoriteSet, folderMemberSet]);
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
@@ -72,10 +113,11 @@ export default function FavoritesScreen() {
     openFullscreenPlayer(router, channel.id);
   }, [addRecent, router]);
 
-  const remove = useCallback((id: string) => {
+  const onLongPress = useCallback((id: string) => {
     void Haptics.selectionAsync().catch(() => undefined);
-    toggleFavorite(id);
-  }, [toggleFavorite]);
+    if (folderMode) toggleFavoriteFolderChannel(folderId, id);
+    else toggleFavorite(id);
+  }, [folderId, folderMode, toggleFavorite, toggleFavoriteFolderChannel]);
 
   return (
     <PurpleTvShell active="/favorites">
@@ -86,14 +128,48 @@ export default function FavoritesScreen() {
             <View style={styles.titleRow}>
               <Text style={styles.title}>All Favorites</Text>
               <Text numberOfLines={2} style={styles.addHint}>
-                Add or remove favorites by long-pressing a channel in the TV Guide, Channels list, or here.
+                {folderMode
+                  ? "Long-press a channel to add or remove it from this folder. Press plays."
+                  : "Long-press removes a favorite. Select a folder, then long-press to assign."}
               </Text>
             </View>
           </View>
           <View style={styles.headerRight}>
-            <Text style={styles.count}>{items.length} favorites</Text>
+            <Text style={styles.count}>
+              {folderMode && folderMemberSet
+                ? `${folderMemberSet.size} in folder · ${items.length} favorites`
+                : `${items.length} favorites`}
+            </Text>
             <Ionicons name="search-outline" size={15} color={tvColors.textMuted} />
           </View>
+        </View>
+
+        <View style={styles.folderRow}>
+          <Pressable onPress={() => setFolderId("all")} style={({ focused }: any) => [styles.folderChip, folderId === "all" && styles.folderActive, focused && styles.focused]}>
+            <Text style={styles.folderText}>All</Text>
+          </Pressable>
+          {favoriteFolders.map((folder) => (
+            <Pressable
+              key={folder.id}
+              onPress={() => setFolderId(folder.id)}
+              onLongPress={() => {
+                if (folderId === folder.id) setFolderId("all");
+                removeFavoriteFolder(folder.id);
+              }}
+              style={({ focused }: any) => [styles.folderChip, folderId === folder.id && styles.folderActive, focused && styles.focused]}
+            >
+              <Text style={styles.folderText}>{folder.name}</Text>
+            </Pressable>
+          ))}
+          <Pressable
+            onPress={() => {
+              const created = addFavoriteFolder(`Folder ${favoriteFolders.length + 1}`);
+              if (created) setFolderId(created.id);
+            }}
+            style={({ focused }: any) => [styles.folderChip, focused && styles.focused]}
+          >
+            <Text style={styles.folderText}>+ Folder</Text>
+          </Pressable>
         </View>
 
         {items.length ? (
@@ -106,7 +182,16 @@ export default function FavoritesScreen() {
             removeClippedSubviews={false}
             contentContainerStyle={styles.list}
             renderItem={({ item, index }) => (
-              <FavoriteRow channel={item} number={index + 1} logos={channelLogos} now={now} onPlay={play} onRemove={remove} />
+              <FavoriteRow
+                channel={item}
+                number={index + 1}
+                logos={channelLogos}
+                now={now}
+                folderMode={folderMode}
+                inFolder={!!folderMemberSet?.has(item.id)}
+                onPlay={play}
+                onLongPress={onLongPress}
+              />
             )}
           />
         ) : (
@@ -134,6 +219,10 @@ const styles = StyleSheet.create({
   addHint: { flex: 1, maxWidth: 360, color: tvColors.textMuted, fontFamily: fonts.regular, fontSize: 7.5, lineHeight: 10.5, marginTop: 2 },
   headerRight: { flexDirection: "row", alignItems: "center", gap: 12 },
   count: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 8.5 },
+  folderRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8, paddingTop: 10, paddingBottom: 4 },
+  folderChip: { minHeight: 28, justifyContent: "center", paddingHorizontal: 12, borderRadius: 5, borderWidth: 2, borderColor: "transparent", backgroundColor: tvColors.panel },
+  folderActive: { borderColor: tvColors.purpleBright, backgroundColor: tvColors.purpleDeep },
+  folderText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 9 },
   list: { paddingTop: 7, paddingBottom: 20 },
   row: { minHeight: 56, flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 7, borderWidth: 2, borderColor: "transparent", borderBottomColor: tvColors.line, borderRadius: radius.sm },
   focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },

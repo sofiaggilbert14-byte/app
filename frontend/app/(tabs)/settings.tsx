@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -8,14 +8,19 @@ import { PurpleTvShell, usePurpleTvDrawer } from "@/src/components/PurpleTvShell
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { TvCalibrationControls } from "@/src/components/TvCalibrationControls";
 import {
-  DeviceLayoutMode,
-  GuideDensity,
-  GuideLayout,
-  PlayerControlsTimeoutMs,
-  SafePreviewMode,
   useStore,
+  type DeviceLayoutMode,
+  type EpgGuideFilter,
+  type GuideDensity,
+  type GuideLayout,
+  type GuideWindowHours,
+  type PlayerControlsTimeoutMs,
+  type PowerProfile,
+  type SafePreviewMode,
+  type SleepTimerMinutes,
+  type StartScreen,
 } from "@/src/store";
-import { clearGuideCache, refreshSource, sourceDiagnostics, type SourceDiagnostics } from "@/src/source";
+import { clearGuideCache, refreshEpgOnly, refreshSource, sourceDiagnostics, type SourceDiagnostics } from "@/src/source";
 import {
   type PlayerEnginePreference,
   usePlayerEnginePreference,
@@ -26,9 +31,13 @@ import {
   serializeFavoritesBackup,
   writeFavoritesBackup,
 } from "@/src/utils/favoritesBackup";
+import { formatDiagnosticsExport } from "@/src/core/diagnosticsExport";
+import { POWER_PROFILE_OPTIONS } from "@/src/core/devicePowerProfile";
+import { channelHasEpgMatch } from "@/src/core/epgUserOverrides";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
 import dayjs from "dayjs";
+import * as FileSystem from "expo-file-system/legacy";
 
 type Section = "general" | "player" | "remote" | "epg" | "appearance" | "backup" | "account" | "about";
 
@@ -77,12 +86,28 @@ export default function SettingsScreen() {
     setAutoRetryStreams,
     preferTvgIdOnly,
     setPreferTvgIdOnly,
+    powerProfile,
+    setPowerProfile,
+    logosOffWhileSurfing,
+    setLogosOffWhileSurfing,
+    epgGuideFilter,
+    setEpgGuideFilter,
+    guideWindowHours,
+    setGuideWindowHours,
+    clock24h,
+    setClock24h,
+    startScreen,
+    setStartScreen,
+    sleepTimerMinutes,
+    setSleepTimerMinutes,
   } = useStore();
   const [playerEnginePreference, setPlayerEnginePreference] = usePlayerEnginePreference();
   const [section, setSection] = useState<Section | null>(null);
   const [busy, setBusy] = useState(false);
   const [backupStatus, setBackupStatus] = useState<string | null>(null);
+  const [clearFavoritesArmed, setClearFavoritesArmed] = useState(false);
   const [diagnostics, setDiagnostics] = useState<SourceDiagnostics | null>(null);
+  const clearFavoritesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Mount-once preferred focus — sticky hasTVPreferredFocus steals focus on re-render.
   const [preferTileFocus, setPreferTileFocus] = useState(true);
   const [preferBackFocus, setPreferBackFocus] = useState(false);
@@ -100,15 +125,24 @@ export default function SettingsScreen() {
 
   useEffect(() => {
     if (!section) return;
+    setClearFavoritesArmed(false);
     setPreferBackFocus(true);
     const timer = setTimeout(() => setPreferBackFocus(false), 700);
     return () => clearTimeout(timer);
   }, [section]);
 
+  useEffect(
+    () => () => {
+      if (clearFavoritesTimer.current) clearTimeout(clearFavoritesTimer.current);
+    },
+    [],
+  );
+
   useTvBackHandler(
     useCallback(() => {
       if (section) {
         setBackupStatus(null);
+        setClearFavoritesArmed(false);
         setSection(null);
         return true;
       }
@@ -124,10 +158,26 @@ export default function SettingsScreen() {
   const appVersion = Constants.expoConfig?.version || "2.0.0-purple";
   const versionCode = (Constants.expoConfig as any)?.android?.versionCode;
   const selected = useMemo(() => TILES.find((item) => item.id === section), [section]);
+  const groupMatchBreakdown = useMemo(() => {
+    const byGroup = new Map<string, { matched: number; unmatched: number; total: number }>();
+    for (const channel of channels) {
+      const name = (channel.group || "Ungrouped").trim() || "Ungrouped";
+      const entry = byGroup.get(name) || { matched: 0, unmatched: 0, total: 0 };
+      entry.total += 1;
+      if (channelHasEpgMatch(channel)) entry.matched += 1;
+      else entry.unmatched += 1;
+      byGroup.set(name, entry);
+    }
+    return Array.from(byGroup.entries())
+      .map(([name, counts]) => ({ name, ...counts }))
+      .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name))
+      .slice(0, 6);
+  }, [channels]);
 
   const choose = useCallback((id: Section) => {
     void Haptics.selectionAsync().catch(() => undefined);
     setBackupStatus(null);
+    setClearFavoritesArmed(false);
     if (id === "epg") {
       router.push("/epg-sources" as any);
       return;
@@ -146,6 +196,70 @@ export default function SettingsScreen() {
     }
   }, [busy, refresh]);
 
+  const reloadEpgOnly = useCallback(async () => {
+    if (busy) return;
+    setBusy(true);
+    setBackupStatus("Refreshing EPG only…");
+    try {
+      await refreshEpgOnly();
+      await refresh(true);
+      setBackupStatus("EPG refreshed. Playlist was left unchanged.");
+      void sourceDiagnostics().then(setDiagnostics).catch(() => undefined);
+    } catch (error) {
+      setBackupStatus(error instanceof Error ? error.message : "EPG refresh failed.");
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, refresh]);
+
+  const exportDiagnostics = useCallback(async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const snap = await sourceDiagnostics();
+      setDiagnostics(snap);
+      const body = formatDiagnosticsExport({
+        diagnostics: snap,
+        appVersion,
+        preferTvgIdOnly,
+        powerProfile,
+        guideFilter: epgGuideFilter,
+        extras: {
+          guideWindowHours,
+          clock24h,
+          startScreen,
+          sleepTimerMinutes,
+          logosOffWhileSurfing,
+          favorites: favorites.length,
+        },
+      });
+      const root = FileSystem.documentDirectory || "";
+      if (!root || Platform.OS === "web") {
+        setBackupStatus("Diagnostics ready (copy unavailable on this platform).");
+        return;
+      }
+      const path = `${root}charmiptv-diagnostics-${Date.now()}.txt`;
+      await FileSystem.writeAsStringAsync(path, body);
+      setBackupStatus(`Diagnostics saved to ${path.split("/").pop()}`);
+    } catch (error) {
+      setBackupStatus(error instanceof Error ? error.message : "Diagnostics export failed.");
+    } finally {
+      setBusy(false);
+    }
+  }, [
+    appVersion,
+    busy,
+    clock24h,
+    epgGuideFilter,
+    favorites.length,
+    guideWindowHours,
+    logosOffWhileSurfing,
+    powerProfile,
+    preferTvgIdOnly,
+    sleepTimerMinutes,
+    startScreen,
+  ]);
+
   const clearCache = useCallback(async () => {
     if (busy) return;
     setBusy(true);
@@ -163,15 +277,27 @@ export default function SettingsScreen() {
 
   const clearFavoritesDangerous = useCallback(async () => {
     if (busy) return;
+    if (!clearFavoritesArmed) {
+      setClearFavoritesArmed(true);
+      setBackupStatus("Press again to confirm clear favorites.");
+      if (clearFavoritesTimer.current) clearTimeout(clearFavoritesTimer.current);
+      clearFavoritesTimer.current = setTimeout(() => setClearFavoritesArmed(false), 7000);
+      return;
+    }
+    if (clearFavoritesTimer.current) {
+      clearTimeout(clearFavoritesTimer.current);
+      clearFavoritesTimer.current = null;
+    }
     setBusy(true);
     setBackupStatus("Clearing all favorites…");
     try {
       replaceFavorites([]);
+      setClearFavoritesArmed(false);
       setBackupStatus("Favorites cleared. This does not clear the guide cache.");
     } finally {
       setBusy(false);
     }
-  }, [busy, replaceFavorites]);
+  }, [busy, clearFavoritesArmed, replaceFavorites]);
 
   const backupFavorites = useCallback(async () => {
     if (busy) return;
@@ -259,6 +385,7 @@ export default function SettingsScreen() {
               onPress={() => {
                 void Haptics.selectionAsync().catch(() => undefined);
                 setBackupStatus(null);
+                setClearFavoritesArmed(false);
                 setPreferTileFocus(true);
                 setSection(null);
               }}
@@ -303,21 +430,80 @@ export default function SettingsScreen() {
                 </Text>
                 <ToggleRow label="Channel numbers" value={channelNumbers} onChange={setChannelNumbers} />
                 <ToggleRow label="Channel logos" value={channelLogos} onChange={setChannelLogos} />
+                <ToggleRow label="Logos off while surfing" value={logosOffWhileSurfing} onChange={setLogosOffWhileSurfing} />
+                <ChoiceRow<PowerProfile>
+                  label="Power profile"
+                  value={powerProfile}
+                  options={POWER_PROFILE_OPTIONS}
+                  onChange={setPowerProfile}
+                />
+                <Text style={styles.help}>
+                  Weak stick lengthens preview arm and settle times. Max preview arms sooner on stronger devices.
+                </Text>
+                <ChoiceRow<EpgGuideFilter>
+                  label="Guide EPG filter"
+                  value={epgGuideFilter}
+                  options={[
+                    { label: "All", value: "all" },
+                    { label: "Matched", value: "matched" },
+                    { label: "Unmatched", value: "unmatched" },
+                  ]}
+                  onChange={setEpgGuideFilter}
+                />
+                <ChoiceRow<GuideWindowHours>
+                  label="Guide window"
+                  value={guideWindowHours}
+                  options={[
+                    { label: "6h", value: 6 },
+                    { label: "8h", value: 8 },
+                    { label: "12h", value: 12 },
+                    { label: "24h", value: 24 },
+                  ]}
+                  onChange={setGuideWindowHours}
+                />
+                <ToggleRow label="24-hour clock" value={clock24h} onChange={setClock24h} />
+                <ChoiceRow<StartScreen>
+                  label="Start screen"
+                  value={startScreen}
+                  options={[
+                    { label: "Home", value: "home" },
+                    { label: "Guide", value: "guide" },
+                    { label: "Last channel", value: "last_channel" },
+                  ]}
+                  onChange={setStartScreen}
+                />
                 <ToggleRow
                   label="Prefer tvg-id matching only"
                   value={preferTvgIdOnly}
                   onChange={setPreferTvgIdOnly}
                 />
                 <Text style={styles.help}>
-                  For messy providers: match playlist channels by tvg-id only (never by display name). Ambiguous names never invent a match.
+                  For messy providers: match playlist channels by tvg-id only (never by display name). Ambiguous names never invent a match. Use the guide details rail EPG button to set a manual remap for the focused channel.
                 </Text>
                 <Action label={busy ? "Refreshing…" : "Refresh playlist & EPG"} icon="refresh" onPress={hardReload} disabled={busy} />
+                <Action label={busy ? "Working…" : "Refresh EPG only"} icon="calendar-outline" onPress={reloadEpgOnly} disabled={busy} />
+                <Action label={busy ? "Working…" : "Export diagnostics"} icon="document-text-outline" onPress={exportDiagnostics} disabled={busy} />
+                {backupStatus && section === "general" ? <Text style={styles.status}>{backupStatus}</Text> : null}
                 {diagnostics?.matchQuality ? (
                   <View style={styles.matchBlock}>
                     <Text style={styles.settingLabel}>EPG match quality</Text>
                     <InfoRow label="Matched" value={String(diagnostics.matchQuality.matched)} />
                     <InfoRow label="Ambiguous" value={String(diagnostics.matchQuality.ambiguous)} />
                     <InfoRow label="Unmatched" value={String(diagnostics.matchQuality.unmatched)} />
+                    {groupMatchBreakdown.length ? (
+                      <View style={styles.matchGroups}>
+                        {groupMatchBreakdown.map((item) => (
+                          <InfoRow
+                            key={item.name}
+                            label={item.name}
+                            value={`${item.matched} matched / ${item.unmatched} unmatched`}
+                          />
+                        ))}
+                      </View>
+                    ) : null}
+                    <Text style={styles.help}>
+                      Guide filter and favorite folders use this match state. Matched ≈ channels with a programme source id after refresh.
+                    </Text>
                   </View>
                 ) : null}
                 <InfoRow
@@ -354,7 +540,21 @@ export default function SettingsScreen() {
                   onChange={setPlayerControlsTimeoutMs}
                 />
                 <ToggleRow label="Auto retry streams" value={autoRetryStreams} onChange={setAutoRetryStreams} />
-                <Text style={styles.help}>App Default chooses the best engine per stream. Forcing VLC still allows one automatic Media3 fallback if VLC cannot start. The purple guide preview stays on its optimized default path.</Text>
+                <ChoiceRow<SleepTimerMinutes>
+                  label="Sleep timer"
+                  value={sleepTimerMinutes}
+                  options={[
+                    { label: "Off", value: 0 },
+                    { label: "15m", value: 15 },
+                    { label: "30m", value: 30 },
+                    { label: "60m", value: 60 },
+                    { label: "90m", value: 90 },
+                  ]}
+                  onChange={setSleepTimerMinutes}
+                />
+                <Text style={styles.help}>
+                  Sleep timer stops fullscreen playback and returns to Home. Auto retry stays on by default. Audio/CC tracks appear in the player when the stream provides them (VLC).
+                </Text>
               </SettingsCard>
             ) : null}
 
@@ -401,7 +601,13 @@ export default function SettingsScreen() {
                   Clear favorites is destructive and separate from guide cache. Export a backup first if you may need them later.
                 </Text>
                 <Action
-                  label={busy ? "Working…" : "Clear all favorites"}
+                  label={
+                    busy
+                      ? "Working…"
+                      : clearFavoritesArmed
+                        ? "Confirm clear all favorites"
+                        : "Clear all favorites"
+                  }
                   icon="warning-outline"
                   onPress={clearFavoritesDangerous}
                   disabled={busy || favorites.length === 0}
@@ -535,6 +741,7 @@ const styles = StyleSheet.create({
   infoValue: { color: "#fff", fontFamily: fonts.medium, fontSize: 8.5 },
   help: { color: tvColors.textMuted, fontFamily: fonts.regular, fontSize: 8.5, lineHeight: 12.5 },
   matchBlock: { gap: 2, paddingTop: 4, borderTopWidth: 1, borderTopColor: tvColors.line },
+  matchGroups: { gap: 1, paddingTop: 4 },
   calibrationWrap: { borderTopWidth: 1, borderTopColor: tvColors.line, marginTop: 4, paddingTop: 8 },
   focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
 });

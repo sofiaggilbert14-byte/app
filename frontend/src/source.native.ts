@@ -19,8 +19,10 @@ import {
   channelMatchIdentity,
   emptyMatchQuality,
   formatNativeEpgError,
+  mergeMatchQuality,
   type EpgMatchQuality,
 } from "@/src/core/epgMatching";
+import { applyManualEpgRemaps, type EpgManualRemap } from "@/src/core/epgUserOverrides";
 import { cleanupLegacyEpgArtifactsOnce } from "@/src/utils/legacyEpgCleanup";
 
 export const API_BASE = "";
@@ -70,6 +72,13 @@ let sourceEmitScheduled = false;
 let preferTvgIdOnly = false;
 /** Optional priority channel ids for huge-list first-pass matching (current group / viewport). */
 let priorityMatchChannelIds: string[] = [];
+/** Manual per-channel XMLTV remaps (user wins over auto-match). */
+let manualEpgRemaps: EpgManualRemap = {};
+/** Optional viewport ids for guide window queries (perf). */
+let viewportGuideChannelIds: string[] | null = null;
+/** Merged programme window — viewport fetches must not wipe off-screen rows. */
+let programmeWindowCache: Record<string, Program[]> = {};
+let programmeWindowCacheKey = "";
 
 export function setPreferTvgIdOnlyMatching(value: boolean): void {
   preferTvgIdOnly = !!value;
@@ -83,6 +92,19 @@ export function setPriorityMatchChannelIds(ids: string[]): void {
   priorityMatchChannelIds = Array.isArray(ids) ? ids.filter(Boolean) : [];
 }
 
+export function setManualEpgRemaps(remaps: EpgManualRemap): void {
+  manualEpgRemaps = remaps && typeof remaps === "object" ? remaps : {};
+}
+
+export function setViewportGuideChannelIds(ids: string[] | null): void {
+  viewportGuideChannelIds = ids && ids.length ? ids.filter(Boolean) : null;
+}
+
+function clearProgrammeWindowCache(): void {
+  programmeWindowCache = {};
+  programmeWindowCacheKey = "";
+}
+
 function matchPolicyKey(): string {
   return preferTvgIdOnly ? "tvg" : "full";
 }
@@ -90,6 +112,57 @@ function matchPolicyKey(): string {
 function playlistIdentityFingerprint(channels: Channel[]): string {
   // Logo URLs intentionally excluded — logo-only EPG drift must not force rematch.
   return channels.map((channel) => channelMatchIdentity(channel)).join("\n");
+}
+
+function withManualRemaps(channels: Channel[]): Channel[] {
+  return applyManualEpgRemaps(channels, manualEpgRemaps);
+}
+
+async function nextTick(): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
+
+/**
+ * Two-phase match on huge lists: priority/viewport first + emit, then remainder.
+ * Avoids waiting for the full rematch before the visible group feels “live”.
+ * Returns auto-matched rows only — manual remaps are applied at loadGuide / UI read time
+ * so clearing a remap can restore the auto-matched tvg_id.
+ */
+async function matchChannelsWithPhases(
+  channels: Channel[],
+  indexes: ReturnType<typeof buildXmltvMatchIndexes>,
+  epgLogos: Record<string, string>,
+  onPartial?: (channels: Channel[], quality: EpgMatchQuality) => void | Promise<void>,
+): Promise<{ channels: Channel[]; quality: EpgMatchQuality }> {
+  const huge = channels.length >= HUGE_PLAYLIST_MATCH_THRESHOLD;
+  const priority =
+    huge && priorityMatchChannelIds.length
+      ? Array.from(new Set(priorityMatchChannelIds)).slice(0, 500)
+      : [];
+
+  if (priority.length > 0 && onPartial) {
+    const phase1 = applyXmltvMatchesToChannels(channels, indexes, epgLogos, {
+      preferTvgIdOnly,
+      onlyChannelIds: priority,
+    });
+    await onPartial(phase1.channels, phase1.quality);
+    await nextTick();
+    const restIds = channels.map((c) => c.id).filter((id) => !priority.includes(id));
+    const phase2 = applyXmltvMatchesToChannels(phase1.channels, indexes, epgLogos, {
+      preferTvgIdOnly,
+      onlyChannelIds: restIds,
+    });
+    return {
+      channels: phase2.channels,
+      quality: mergeMatchQuality(phase1.quality, phase2.quality),
+    };
+  }
+
+  const applied = applyXmltvMatchesToChannels(channels, indexes, epgLogos, {
+    preferTvgIdOnly,
+    priorityChannelIds: priority.length ? priority : undefined,
+  });
+  return { channels: applied.channels, quality: applied.quality };
 }
 
 export type LoadPhase = "idle" | "channels" | "downloading" | "decompressing" | "parsing" | "indexing" | "caching" | "ready" | "error";
@@ -256,19 +329,6 @@ async function fetchPlaylist(): Promise<Channel[]> {
   return sorted;
 }
 
-function matchChannels(
-  channels: Channel[],
-  indexes: ReturnType<typeof buildXmltvMatchIndexes>,
-  epgLogos: Record<string, string>,
-): { channels: Channel[]; quality: EpgMatchQuality } {
-  const huge = channels.length >= HUGE_PLAYLIST_MATCH_THRESHOLD;
-  const priority = huge && priorityMatchChannelIds.length ? priorityMatchChannelIds : undefined;
-  return applyXmltvMatchesToChannels(channels, indexes, epgLogos, {
-    preferTvgIdOnly,
-    priorityChannelIds: priority,
-  });
-}
-
 async function ensureLoaded(): Promise<NativeMeta> {
   // Best-effort once per install: drop superseded JS/expo EPG files (never v3 native DB).
   void cleanupLegacyEpgArtifactsOnce();
@@ -375,7 +435,22 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
         matchedChannelsWithLogos = logoOnly || cached.channels;
         quality = cached.matchQuality || emptyMatchQuality();
       } else {
-        const applied = matchChannels(channels, indexes, epgLogos);
+        const applied = await matchChannelsWithPhases(
+          channels,
+          indexes,
+          epgLogos,
+          async (partialChannels, partialQuality) => {
+            // Two-phase: paint priority/viewport matches without waiting for the full list.
+            // Keep the same channel array length/order to reduce FlashList thrash.
+            MEM = {
+              ...MEM!,
+              channels: partialChannels,
+              epgChannelCount: partialQuality.matched,
+              matchQuality: partialQuality,
+            };
+            emit();
+          },
+        );
         matchedChannelsWithLogos = applied.channels;
         quality = applied.quality;
       }
@@ -386,6 +461,7 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
           ? Math.round(epg.guideEpoch)
           : (MEM.guideEpoch || 0) + 1;
 
+      clearProgrammeWindowCache();
       MEM = {
         ...MEM,
         ts: guideRefreshedAt,
@@ -440,24 +516,70 @@ export async function loadGuide(startISO?: string, hours = 8, force = false): Pr
   const startMs = winStart.valueOf();
   const endMs = winEnd.valueOf();
 
-  const guideIds = Array.from(
-    new Set(
-      parsed.channels
-        .map((channel) => channel.tvg_id || channel.id)
-        .filter(Boolean),
-    ),
-  );
+  // Apply user remaps at read time so clear-remap restores auto-matched ids from MEM.
+  const remapped = withManualRemaps(parsed.channels);
+  const cacheKey = `${startMs}|${endMs}|${parsed.guideEpoch || 0}`;
+  if (programmeWindowCacheKey !== cacheKey) {
+    clearProgrammeWindowCache();
+    programmeWindowCacheKey = cacheKey;
+  }
+
+  const byChannelId = new Map(remapped.map((channel) => [channel.id, channel]));
+  const allGuideIds = remapped.map((channel) => channel.tvg_id || channel.id).filter(Boolean);
+  let guideIds = allGuideIds;
+
+  // Huge lists: query viewport (+ priority group) first for felt speed, then merge into cache
+  // so off-screen rows keep previously fetched programmes instead of being wiped.
+  const huge = remapped.length >= HUGE_PLAYLIST_MATCH_THRESHOLD;
+  if (huge && viewportGuideChannelIds?.length) {
+    const want = new Set<string>([
+      ...viewportGuideChannelIds,
+      ...priorityMatchChannelIds.slice(0, 400),
+    ]);
+    const scoped: string[] = [];
+    for (const id of want) {
+      const channel = byChannelId.get(id);
+      const key = channel ? channel.tvg_id || channel.id : id;
+      if (key) scoped.push(key);
+    }
+    if (scoped.length) guideIds = scoped;
+  }
+  guideIds = Array.from(new Set(guideIds));
+
   const programmes = nativeEpgAvailable
     ? await loadNativeEpgWindow(guideIds, startMs, endMs)
     : {};
+
+  for (const [key, list] of Object.entries(programmes)) {
+    if (list?.length) programmeWindowCache[key] = list;
+  }
+
+  // After a scoped paint, warm the rest of the window in the background so scrolling
+  // does not wait for another focus-driven query.
+  if (huge && nativeEpgAvailable && guideIds.length < allGuideIds.length) {
+    const warmKey = cacheKey;
+    void loadNativeEpgWindow(allGuideIds, startMs, endMs)
+      .then((full) => {
+        if (programmeWindowCacheKey !== warmKey) return;
+        let added = 0;
+        for (const [key, list] of Object.entries(full)) {
+          if (!list?.length) continue;
+          if (programmeWindowCache[key] === list) continue;
+          programmeWindowCache[key] = list;
+          added += 1;
+        }
+        if (added > 0) emit();
+      })
+      .catch(() => undefined);
+  }
 
   // Shared empty list — avoid allocating tens of thousands of `[]` on big playlists.
   // Never mutate EMPTY_PROGRAMS.
   const emptyPrograms: Program[] = EMPTY_PROGRAMS;
 
-  const channels = parsed.channels.map((channel) => {
+  const channels = remapped.map((channel) => {
     const key = channel.tvg_id || channel.id;
-    const list = programmes[key];
+    const list = programmeWindowCache[key];
     if (!list?.length) return { ...channel, programs: emptyPrograms };
     return { ...channel, programs: list };
   });
@@ -474,6 +596,88 @@ export async function loadGuide(startISO?: string, hours = 8, force = false): Pr
 
 export async function refreshSource(force = false): Promise<SourceStatus> {
   await refreshInternal(force);
+  return sourceStatus();
+}
+
+/** Refresh XMLTV only — keep current playlist rows (independent epochs). */
+export async function refreshEpgOnly(): Promise<SourceStatus> {
+  // Wait for any in-flight refresh, then always rematch with the current policy.
+  if (refreshPromise) await refreshPromise;
+  refreshPromise = (async () => {
+    const cached = MEM || (await readChannelCache());
+    if (!cached?.channels?.length) {
+      return refreshInternal(true);
+    }
+    lastSourceError = null;
+    try {
+      if (!nativeEpgAvailable) throw new Error("Native EPG engine is unavailable in this Android build");
+      if (!SOURCE_EPG) throw new Error("EPG is not configured for this build (missing EXPO_PUBLIC_EPG_URL).");
+      setProgress({ phase: "downloading", ratio: 0.2, etaSeconds: null, message: null }, true);
+      const epg = await refreshNativeEpg(https(SOURCE_EPG));
+      setProgress({ phase: "caching", ratio: 0.9, etaSeconds: null }, true);
+      const epgLogos = epg.channelLogos || {};
+      const epgNames = epg.channelNames || {};
+      const indexes = buildXmltvMatchIndexes({
+        channelIds: new Set([
+          ...Object.keys(epgLogos),
+          ...Object.keys(epgNames),
+          ...(epg.channelIdsWithPrograms || []),
+        ]),
+        channelNames: epgNames,
+        idsWithPrograms: epg.channelIdsWithPrograms || [],
+      });
+      const applied = await matchChannelsWithPhases(cached.channels, indexes, epgLogos, async (partial, quality) => {
+        MEM = {
+          ...cached,
+          ...MEM,
+          channels: partial,
+          epgChannelCount: quality.matched,
+          matchQuality: quality,
+        };
+        emit();
+      });
+      const guideRefreshedAt = Date.now();
+      const guideEpoch =
+        typeof epg.guideEpoch === "number" && Number.isFinite(epg.guideEpoch)
+          ? Math.round(epg.guideEpoch)
+          : (cached.guideEpoch || 0) + 1;
+      clearProgrammeWindowCache();
+      MEM = {
+        ...cached,
+        ...MEM,
+        ts: guideRefreshedAt,
+        channels: applied.channels,
+        epgProgramCount: Math.max(0, Math.round(epg.count || 0)),
+        epgChannelCount: applied.quality.matched,
+        epgError: undefined,
+        guideEpoch,
+        guideRefreshedAt,
+        matchFingerprint: indexes.fingerprint,
+        matchQuality: applied.quality,
+        matchPolicy: matchPolicyKey(),
+      };
+      await persistMeta(MEM);
+      emit();
+      setProgress({ phase: "ready", ratio: 1, etaSeconds: 0, message: null }, true);
+      return MEM;
+    } catch (error) {
+      const message = formatNativeEpgError(error);
+      lastSourceError = message;
+      setProgress({ phase: "error", ratio: 0, etaSeconds: null, message }, true);
+      if (MEM) {
+        MEM = { ...MEM, epgError: message };
+        await persistMeta(MEM).catch(() => undefined);
+        emit();
+        return MEM;
+      }
+      throw error instanceof Error ? error : new Error(message);
+    }
+  })();
+  try {
+    await refreshPromise;
+  } finally {
+    refreshPromise = null;
+  }
   return sourceStatus();
 }
 
@@ -544,6 +748,8 @@ export async function sourceDiagnostics(): Promise<SourceDiagnostics> {
 export async function clearGuideCache(): Promise<void> {
   MEM = null;
   lastSourceError = null;
+  clearProgrammeWindowCache();
+  viewportGuideChannelIds = null;
   if (progressTimer) {
     clearTimeout(progressTimer);
     progressTimer = null;

@@ -68,6 +68,8 @@ export default function PlayerScreen() {
     channelLogos,
     channelNumbers,
     deviceLayoutMode,
+    sleepTimerMinutes,
+    setSleepTimerMinutes,
   } = useStore();
 
   const [channelId, setChannelId] = useState(params.channelId);
@@ -81,6 +83,11 @@ export default function PlayerScreen() {
   const [playerNow, setPlayerNow] = useState(() => new Date());
   // Decoder is disarmed while rapid Next/Prev or strip surfing — prevents VLC pile-up / audio leaks.
   const [decoderArmed, setDecoderArmed] = useState(true);
+  const [audioTracks, setAudioTracks] = useState<{ id: number; name: string }[]>([]);
+  const [textTracks, setTextTracks] = useState<{ id: number; name: string }[]>([]);
+  const [audioTrackId, setAudioTrackId] = useState<number | undefined>(undefined);
+  const [textTrackId, setTextTrackId] = useState<number | undefined>(undefined);
+  const [tracksOpen, setTracksOpen] = useState(false);
 
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -121,6 +128,26 @@ export default function PlayerScreen() {
     const timer = setInterval(() => setPlayerNow(new Date()), 30_000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!sleepTimerMinutes) return;
+    const endsAt = Date.now() + sleepTimerMinutes * 60_000;
+    const timer = setInterval(() => {
+      if (Date.now() < endsAt) return;
+      setSleepTimerMinutes(0);
+      void stopFullscreenSession();
+      router.replace("/" as any);
+    }, 15_000);
+    return () => clearInterval(timer);
+  }, [router, setSleepTimerMinutes, sleepTimerMinutes]);
+
+  useEffect(() => {
+    setAudioTracks([]);
+    setTextTracks([]);
+    setAudioTrackId(undefined);
+    setTextTrackId(undefined);
+    setTracksOpen(false);
+  }, [channelId, retryToken]);
 
   const { current, next } = nowNext(channel?.programs, playerNow);
   const progress = current ? progressPct(current, playerNow) : 0;
@@ -382,9 +409,19 @@ export default function PlayerScreen() {
   }, [router]);
 
   useEffect(() => {
+    if (!params.channelId || params.channelId === channelIdRef.current) return;
+    changeChannel(params.channelId, false, { immediate: true });
+  }, [changeChannel, params.channelId]);
+
+  useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
       if (!controlsRef.current) {
         revealControls();
+        return true;
+      }
+      if (tracksOpen) {
+        setTracksOpen(false);
+        scheduleHide();
         return true;
       }
       if (channelsOpen) {
@@ -396,7 +433,7 @@ export default function PlayerScreen() {
       return true;
     });
     return () => sub.remove();
-  }, [channelsOpen, revealControls, scheduleHide, stopAndExit]);
+  }, [channelsOpen, revealControls, scheduleHide, stopAndExit, tracksOpen]);
 
   return (
     <View style={styles.root}>
@@ -428,6 +465,12 @@ export default function PlayerScreen() {
             key={`play-${retryToken}`}
             uri={channel?.url || ""}
             sessionRole="fullscreen"
+            audioTrack={audioTrackId}
+            textTrack={textTrackId}
+            onTracksAvailable={(tracks) => {
+              setAudioTracks(tracks.audio.filter((t) => Number.isFinite(t.id)));
+              setTextTracks(tracks.text.filter((t) => Number.isFinite(t.id)));
+            }}
             onStatus={(next, reason) => {
               setStatus(next);
               if (reason !== undefined) setFailReason(reason);
@@ -563,6 +606,13 @@ export default function PlayerScreen() {
                 <Ionicons name="list" size={15} color="#fff" />
                 <Text style={styles.controlLabel}>Channels</Text>
               </Pressable>
+              <Pressable
+                onPress={() => setTracksOpen((value) => !value)}
+                style={({ focused }: any) => [styles.textControl, tracksOpen && styles.controlActive, focused && styles.focused]}
+              >
+                <Ionicons name="musical-notes-outline" size={15} color="#fff" />
+                <Text style={styles.controlLabel}>Audio/CC</Text>
+              </Pressable>
               <View style={styles.controlsSpacer} />
               <Pressable
                 ref={prevButtonRef}
@@ -599,6 +649,37 @@ export default function PlayerScreen() {
                 <Ionicons name="close" size={18} color="#fff" />
               </Pressable>
             </View>
+
+            {tracksOpen ? (
+              <View style={styles.tracksPanel}>
+                <Text style={styles.controlLabel}>Audio</Text>
+                {audioTracks.length ? audioTracks.map((track) => (
+                  <Pressable
+                    key={`a-${track.id}`}
+                    onPress={() => setAudioTrackId(track.id)}
+                    style={({ focused }: any) => [styles.trackRow, audioTrackId === track.id && styles.controlActive, focused && styles.focused]}
+                  >
+                    <Text style={styles.controlLabel}>{track.name}</Text>
+                  </Pressable>
+                )) : <Text style={styles.errorText}>No audio tracks reported</Text>}
+                <Text style={[styles.controlLabel, { marginTop: 8 }]}>Subtitles</Text>
+                <Pressable
+                  onPress={() => setTextTrackId(undefined)}
+                  style={({ focused }: any) => [styles.trackRow, textTrackId == null && styles.controlActive, focused && styles.focused]}
+                >
+                  <Text style={styles.controlLabel}>Off</Text>
+                </Pressable>
+                {textTracks.map((track) => (
+                  <Pressable
+                    key={`t-${track.id}`}
+                    onPress={() => setTextTrackId(track.id)}
+                    style={({ focused }: any) => [styles.trackRow, textTrackId === track.id && styles.controlActive, focused && styles.focused]}
+                  >
+                    <Text style={styles.controlLabel}>{track.name}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
 
             {channelsOpen ? (
               <FlatList
@@ -667,6 +748,8 @@ const styles = StyleSheet.create({
   iconControl: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 17, borderWidth: 2, borderColor: "transparent" },
   pauseControl: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 19, borderWidth: 2, borderColor: "transparent", backgroundColor: tvColors.purple },
   channelStrip: { gap: 6, paddingTop: 5 },
+  tracksPanel: { maxHeight: 160, marginTop: 6, padding: 8, borderRadius: radius.sm, backgroundColor: "rgba(16,16,30,0.94)", gap: 4 },
+  trackRow: { minHeight: 28, justifyContent: "center", paddingHorizontal: 8, borderRadius: 5, borderWidth: 2, borderColor: "transparent" },
   channelCard: { width: 96, minHeight: 54, alignItems: "center", justifyContent: "center", gap: 3, borderRadius: radius.sm, borderWidth: 2, borderColor: "transparent", backgroundColor: "rgba(16,16,30,0.94)", padding: 4 },
   channelCardActive: { backgroundColor: tvColors.purpleDeep, borderColor: tvColors.purpleBright },
   channelCardName: { color: "#fff", fontFamily: fonts.medium, fontSize: 7.5, textAlign: "center" },

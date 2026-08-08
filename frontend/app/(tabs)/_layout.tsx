@@ -19,6 +19,7 @@ export default function TabsLayout() {
         <Tabs.Screen name="series" options={{ title: "Series" }} />
         <Tabs.Screen name="catchup" options={{ title: "Catch Up" }} />
         <Tabs.Screen name="favorites" options={{ title: "Favorites" }} />
+        <Tabs.Screen name="reminders" options={{ title: "Reminders" }} />
         <Tabs.Screen name="search" options={{ title: "Search" }} />
         <Tabs.Screen name="settings" options={{ title: "Settings" }} />
         <Tabs.Screen name="epg-sources" options={{ title: "EPG Sources" }} />

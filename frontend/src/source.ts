@@ -75,6 +75,15 @@ export function setPreferTvgIdOnlyMatching(value: boolean): void {
 export function setPriorityMatchChannelIds(_ids: string[]): void {
   /* native-only huge-list priority */
 }
+export function setManualEpgRemaps(_remaps: Record<string, string>): void {
+  /* native-only */
+}
+export function setViewportGuideChannelIds(_ids: string[] | null): void {
+  /* native-only */
+}
+export async function refreshEpgOnly(): Promise<SourceStatus> {
+  return refreshSource(true);
+}
 
 function sortChannelsAlphabetically(channels: Channel[]): Channel[] {
   return [...channels].sort((a, b) =>

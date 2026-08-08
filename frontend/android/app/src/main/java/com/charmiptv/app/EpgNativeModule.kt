@@ -55,21 +55,9 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         )
         database.replaceBatches(batches)
 
-        // Durable exact + normalized aliases for playlist↔XMLTV matching (JS still owns match policy).
-        val aliases = ArrayList<Triple<String, String, String>>()
-        for (channelId in channelIdsWithPrograms) {
-          aliases.add(Triple(channelId, "id", channelId))
-        }
-        for ((channelId, name) in channelNames) {
-          aliases.add(Triple(channelId, "id", channelId))
-          if (name.isNotBlank()) aliases.add(Triple(channelId, "name", name))
-        }
-        for (channelId in channelLogos.keys) {
-          aliases.add(Triple(channelId, "id", channelId))
-        }
-        database.replaceChannelAliases(aliases)
-
         // Soft guide epoch — independent of playlist last-good (no joint snapshot).
+        // Aliases are not mirrored to JS — matching stays in JS indexes from this payload
+        // (avoids unused SQLite alias churn every refresh).
         val guideEpoch = (database.getMeta("guide_epoch")?.toLongOrNull() ?: 0L) + 1L
         database.setMeta("guide_epoch", guideEpoch.toString())
         database.setMeta("guide_refreshed_at", now.toString())

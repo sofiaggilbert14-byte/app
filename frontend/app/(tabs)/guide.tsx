@@ -24,7 +24,9 @@ import { EpgProgressBar } from "@/src/components/EpgProgressBar";
 import { NowPlayingBar } from "@/src/components/NowPlayingBar";
 import { Channel } from "@/src/api";
 import { useStore } from "@/src/store";
-import { setPriorityMatchChannelIds } from "@/src/source";
+import { setPriorityMatchChannelIds, setViewportGuideChannelIds } from "@/src/source";
+import { getPowerProfileTuning } from "@/src/core/devicePowerProfile";
+import { channelHasEpgMatch } from "@/src/core/epgUserOverrides";
 import { fonts, radius, spacing, tvColors } from "@/src/theme";
 import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
 import { requestNativeFocus, requestNativeFocusWithRetry } from "@/src/utils/tvFocus";
@@ -85,7 +87,15 @@ export default function PurpleGuideScreen() {
     channelNumbers,
     channelLogos,
     reminders,
+    powerProfile,
+    logosOffWhileSurfing,
+    epgGuideFilter,
+    epgManualRemaps,
+    setEpgManualRemaps,
   } = useStore();
+
+  const powerTuning = useMemo(() => getPowerProfileTuning(powerProfile), [powerProfile]);
+  const [surfLogosSuppressed, setSurfLogosSuppressed] = useState(false);
 
   const [now, setNow] = useState(() => new Date().toISOString());
   const [group, setGroup] = useState("All");
@@ -95,6 +105,7 @@ export default function PurpleGuideScreen() {
   const [resetToken, setResetToken] = useState(0);
   const metadataTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewRecoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const groupChangedAt = useRef(0);
   const bootRetryRef = useRef(0);
   const groupChipRefs = useRef(new Map<string, any>());
@@ -191,6 +202,8 @@ export default function PurpleGuideScreen() {
     () => () => {
       if (metadataTimer.current) clearTimeout(metadataTimer.current);
       if (previewTimer.current) clearTimeout(previewTimer.current);
+      if (previewRecoverTimer.current) clearTimeout(previewRecoverTimer.current);
+      setViewportGuideChannelIds(null);
     },
     [],
   );
@@ -218,16 +231,21 @@ export default function PurpleGuideScreen() {
 
   const filtered = useMemo(() => {
     // All: return the same channels ref so favorite toggles do not rebuild TimelineGrid geometry.
-    if (group === "All") return channels;
-    if (group === "Favorites") {
-      return channels.filter((c) => favoriteSet.has(c.id)).sort(byName);
+    let list: Channel[];
+    if (group === "All") list = channels;
+    else if (group === "Favorites") {
+      list = channels.filter((c) => favoriteSet.has(c.id)).sort(byName);
+    } else if (group === "Recently Watched") {
+      list = recent;
+    } else {
+      list = channels.filter((c) => matches(c, group)).sort(byName);
     }
-    if (group === "Recently Watched") {
-      // Keep recency order from recentIds (do not alpha-sort).
-      return recent;
+    if (epgGuideFilter === "all") return list;
+    if (epgGuideFilter === "matched") {
+      return list.filter(channelHasEpgMatch);
     }
-    return channels.filter((c) => matches(c, group)).sort(byName);
-  }, [channels, favoriteSet, group, recent]);
+    return list.filter((c) => !channelHasEpgMatch(c));
+  }, [channels, epgGuideFilter, epgManualRemaps, favoriteSet, group, recent]);
 
   // Huge playlists: prefer matching the visible group first on the next EPG refresh.
   useEffect(() => {
@@ -237,6 +255,22 @@ export default function PurpleGuideScreen() {
     }
     setPriorityMatchChannelIds(filtered.slice(0, 400).map((c) => c.id));
   }, [channels.length, filtered]);
+
+  const onViewportChannelIds = useCallback((ids: string[]) => {
+    setViewportGuideChannelIds(ids);
+    if (channels.length >= 2500) {
+      setPriorityMatchChannelIds(ids.slice(0, 400));
+    }
+  }, [channels.length]);
+
+  const [remapOpen, setRemapOpen] = useState(false);
+  const epgSourceChoices = useMemo(() => {
+    const ids = new Set<string>();
+    for (const channel of channels) {
+      if (channel.programs?.length && channel.tvg_id) ids.add(channel.tvg_id);
+    }
+    return Array.from(ids).sort((a, b) => a.localeCompare(b)).slice(0, 80);
+  }, [channels]);
 
   const onChannelLongPress = useCallback(
     (channel: Channel) => {
@@ -269,6 +303,27 @@ export default function PurpleGuideScreen() {
     return last || filtered.find((c) => c.programs?.length) || filtered[0] || null;
   }, [filtered, focusedId, lastChannelId]);
 
+  const applyRemap = useCallback(
+    (sourceId: string) => {
+      const channelId = previewChannel?.id || focusedId;
+      if (!channelId) return;
+      const next = { ...epgManualRemaps, [channelId]: sourceId };
+      setEpgManualRemaps(next);
+      setRemapOpen(false);
+      void Haptics.selectionAsync().catch(() => undefined);
+    },
+    [epgManualRemaps, focusedId, previewChannel?.id, setEpgManualRemaps],
+  );
+
+  const clearRemap = useCallback(() => {
+    const channelId = previewChannel?.id || focusedId;
+    if (!channelId) return;
+    const next = { ...epgManualRemaps };
+    delete next[channelId];
+    setEpgManualRemaps(next);
+    setRemapOpen(false);
+  }, [epgManualRemaps, focusedId, previewChannel?.id, setEpgManualRemaps]);
+
   const current = useMemo(
     () => (previewChannel ? nowNext(previewChannel.programs, new Date(now)).current : undefined),
     [now, previewChannel],
@@ -281,9 +336,14 @@ export default function PurpleGuideScreen() {
 
   // delayed: longest settle; surf: off while surfing + longer arm on weak sticks; on: normal.
   const previewDelay =
-    safePreviewMode === "delayed" ? 2200 : safePreviewMode === "surf" ? 2000 : 1600;
+    safePreviewMode === "delayed" || safePreviewMode === "surf"
+      ? powerTuning.previewArmDelayedMs
+      : powerTuning.previewArmOnMs;
   /** Extra arm after rapid surf settles — weak Fire sticks need decoder breathing room. */
-  const surfSettleExtraMs = safePreviewMode === "surf" ? 500 : 350;
+  const surfSettleExtraMs =
+    safePreviewMode === "surf"
+      ? powerTuning.surfSettleExtraMs + 150
+      : powerTuning.surfSettleExtraMs;
 
   const schedulePreview = useCallback((requestedId: string, delay: number, hasUrl: boolean) => {
     if (safePreviewMode === "off" || !hasUrl) {
@@ -296,6 +356,7 @@ export default function PurpleGuideScreen() {
       setPreviewStatus("loading");
       setPreviewEpoch((value) => value + 1);
       setPreviewId(requestedId);
+      setSurfLogosSuppressed(false);
     }, delay);
   }, [safePreviewMode]);
 
@@ -316,13 +377,14 @@ export default function PurpleGuideScreen() {
       const nowTs = Date.now();
       const rapid = nowTs - lastFocusAtRef.current < 240;
       lastFocusAtRef.current = nowTs;
-      if (rapid) rapidSurfUntilRef.current = nowTs + 700;
+      if (rapid) rapidSurfUntilRef.current = nowTs + powerTuning.rapidSurfHoldMs;
 
       // While the user is holding/repeating directions: zero rail/preview work.
       // "surf" mode (and delayed/on) soft-clear preview while surfing — never share decoder with fullscreen path.
       if (nowTs < rapidSurfUntilRef.current || rapid) {
         // Soft surf: drop live preview so decoder/GPU do not fight FlashList focus.
         setPreviewId(null);
+        if (logosOffWhileSurfing) setSurfLogosSuppressed(true);
         metadataTimer.current = setTimeout(() => {
           if (Date.now() < rapidSurfUntilRef.current) return;
           setFocusedId(requestedId);
@@ -331,21 +393,21 @@ export default function PurpleGuideScreen() {
             previewDelay + surfSettleExtraMs,
             !!channel.url,
           );
-        }, 900);
+        }, Math.max(750, powerTuning.rapidSurfHoldMs + 50));
         return;
       }
 
       const recentlyChangedGroup = nowTs - groupChangedAt.current < 1800;
       const delay = recentlyChangedGroup
-        ? Math.max(previewDelay + surfSettleExtraMs, 2000)
+        ? Math.max(previewDelay + surfSettleExtraMs, powerTuning.previewArmDelayedMs)
         : previewDelay;
 
       metadataTimer.current = setTimeout(() => {
         setFocusedId((prev) => (prev === requestedId ? prev : requestedId));
         schedulePreview(requestedId, delay, !!channel.url);
-      }, 180);
+      }, powerTuning.focusMetadataMs);
     },
-    [previewDelay, schedulePreview, surfSettleExtraMs],
+    [logosOffWhileSurfing, powerTuning, previewDelay, schedulePreview, surfSettleExtraMs],
   );
 
   const play = useCallback(
@@ -523,13 +585,14 @@ export default function PurpleGuideScreen() {
                   onRefresh={hardRefresh}
                   showChannelNumbers={channelNumbers}
                   channelNumberById={channelNumberById}
-                  showChannelLogos={channelLogos}
+                  showChannelLogos={channelLogos && !surfLogosSuppressed}
                   reminderKeys={gridReminderKeys}
                   resetToken={resetToken}
                   active={!activeProgram}
                   onUpBoundary={onGuideUpBoundary}
                   onLeftBoundary={onGuideLeftBoundary}
                   onFocusedRowChange={onFocusedGuideRow}
+                  onViewportChannelIds={onViewportChannelIds}
                   onGuideFocusNode={onGuideFocusNode}
                 />
               ) : (
@@ -547,7 +610,7 @@ export default function PurpleGuideScreen() {
                   density={guideDensity}
                   showChannelNumbers={channelNumbers}
                   channelNumberById={channelNumberById}
-                  showChannelLogos={channelLogos}
+                  showChannelLogos={channelLogos && !surfLogosSuppressed}
                   reminderKeys={gridReminderKeys}
                   resetToken={resetToken}
                   active={!activeProgram}
@@ -555,6 +618,7 @@ export default function PurpleGuideScreen() {
                   onLeftBoundary={onGuideLeftBoundary}
                   onFocusedRowChange={onFocusedGuideRow}
                   onGuideFocusNode={onGuideFocusNode}
+                  onViewportChannelIds={onViewportChannelIds}
                 />
               )}
             </FocusGuide>
@@ -565,7 +629,9 @@ export default function PurpleGuideScreen() {
                   <ErrorBoundary
                     onError={() => {
                       // Soft remount — keep grid focus (preview is pointerEvents none).
-                      setTimeout(() => {
+                      if (previewRecoverTimer.current) clearTimeout(previewRecoverTimer.current);
+                      previewRecoverTimer.current = setTimeout(() => {
+                        previewRecoverTimer.current = null;
                         setPreviewStatus("loading");
                         setPreviewEpoch((value) => value + 1);
                       }, 700);
@@ -642,7 +708,35 @@ export default function PurpleGuideScreen() {
                     />
                     <Text style={styles.secondaryText}>Favorite</Text>
                   </Pressable>
+                  <Pressable
+                    disabled={!previewChannel}
+                    onPress={() => setRemapOpen((v) => !v)}
+                    style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
+                  >
+                    <Ionicons name="link-outline" size={12} color={tvColors.purpleSoft} />
+                    <Text style={styles.secondaryText}>EPG</Text>
+                  </Pressable>
                 </View>
+                {remapOpen && previewChannel ? (
+                  <ScrollView style={styles.remapList} showsVerticalScrollIndicator={false}>
+                    <Text style={styles.descLabel}>MANUAL EPG REMAP</Text>
+                    <Text style={styles.timeText} numberOfLines={2}>
+                      Current: {epgManualRemaps[previewChannel.id] || previewChannel.tvg_id || "none"}
+                    </Text>
+                    <Pressable onPress={clearRemap} style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}>
+                      <Text style={styles.secondaryText}>Clear remap</Text>
+                    </Pressable>
+                    {epgSourceChoices.map((id) => (
+                      <Pressable
+                        key={id}
+                        onPress={() => applyRemap(id)}
+                        style={({ focused }: any) => [styles.remapRow, focused && styles.focused]}
+                      >
+                        <Text style={styles.secondaryText} numberOfLines={1}>{id}</Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                ) : null}
               </View>
             </View>
           </View>
@@ -687,6 +781,8 @@ const styles = StyleSheet.create({
   watchText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 7.5 },
   secondaryButton: { flex: 1, minWidth: 0, minHeight: 27, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, backgroundColor: tvColors.panelRaised, borderRadius: 5, borderWidth: 2, borderColor: "transparent", paddingHorizontal: 3 },
   secondaryText: { color: "#fff", fontFamily: fonts.medium, fontSize: 7.2 },
+  remapList: { maxHeight: 110, marginTop: 4 },
+  remapRow: { minHeight: 26, justifyContent: "center", paddingHorizontal: 6, borderRadius: 4, borderWidth: 2, borderColor: "transparent", backgroundColor: tvColors.panelRaised, marginTop: 3 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.md },
   centerText: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 11, textAlign: "center", maxWidth: 320 },
   retryButton: { minHeight: 32, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, borderRadius: 6, borderWidth: 2, borderColor: "transparent", backgroundColor: tvColors.purple, marginTop: 4 },

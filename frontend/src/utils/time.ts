@@ -1,12 +1,22 @@
 import dayjs from "dayjs";
 import type { Program } from "@/src/api";
 
+let use24h = false;
+
+export function setTimeFormat24h(value: boolean): void {
+  use24h = !!value;
+}
+
+export function getTimeFormat24h(): boolean {
+  return use24h;
+}
+
 export function fmtTime(iso: string): string {
-  return dayjs(iso).format("h:mm A");
+  return dayjs(iso).format(use24h ? "HH:mm" : "h:mm A");
 }
 
 export function fmtDayTime(iso: string): string {
-  return dayjs(iso).format("ddd h:mm A");
+  return dayjs(iso).format(use24h ? "ddd D MMM · HH:mm" : "ddd D MMM · h:mm A");
 }
 
 export function nowNext(programs: Program[] | undefined, now: Date): { current?: Program; next?: Program } {

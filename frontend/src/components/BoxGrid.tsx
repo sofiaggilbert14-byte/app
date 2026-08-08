@@ -169,6 +169,7 @@ export function BoxGrid({
   onUpBoundary,
   onLeftBoundary,
   onFocusedRowChange,
+  onViewportChannelIds,
   onGuideFocusNode,
   ListHeaderComponent,
   refreshing,
@@ -188,6 +189,7 @@ export function BoxGrid({
   onUpBoundary?: () => void;
   onLeftBoundary?: () => void;
   onFocusedRowChange?: (index: number) => void;
+  onViewportChannelIds?: (ids: string[]) => void;
   onGuideFocusNode?: (node: unknown) => void;
   ListHeaderComponent?: React.ReactElement;
   refreshing?: boolean;
@@ -205,6 +207,8 @@ export function BoxGrid({
   const { favorites, toggleFavorite } = useStore();
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
   const listRef = useRef<FlashListRef<Channel>>(null);
+  const channelsRef = useRef(channels);
+  channelsRef.current = channels;
   const focusedRowRef = useRef(0);
   const focusedIndexRef = useRef(0);
   const focusedNodeRef = useRef<unknown>(null);
@@ -220,6 +224,22 @@ export function BoxGrid({
     onGuideFocusNode?.(node);
   }, [onGuideFocusNode]);
 
+  const reportViewport = useCallback(
+    (index: number) => {
+      if (!onViewportChannelIds) return;
+      const list = channelsRef.current;
+      if (!list.length) return;
+      const cols = Math.max(1, numColumns);
+      const visibleRows = 4;
+      const start = Math.max(0, index - cols);
+      const end = Math.min(list.length, start + cols * visibleRows);
+      const ids: string[] = [];
+      for (let i = start; i < end; i++) ids.push(list[i].id);
+      onViewportChannelIds(ids);
+    },
+    [numColumns, onViewportChannelIds],
+  );
+
   const reportFocusedRow = useCallback(
     (index: number) => {
       const row = Math.floor(index / Math.max(1, numColumns));
@@ -228,11 +248,13 @@ export function BoxGrid({
       gridOwnsFocusRef.current = true;
       const deep = row > 0;
       if (preferFirst && deep) setPreferFirst(false);
-      if (lastReportedDeepRef.current === deep) return;
-      lastReportedDeepRef.current = deep;
-      onFocusedRowChange?.(row);
+      if (lastReportedDeepRef.current !== deep) {
+        lastReportedDeepRef.current = deep;
+        onFocusedRowChange?.(row);
+      }
+      reportViewport(index);
     },
-    [numColumns, onFocusedRowChange, preferFirst],
+    [numColumns, onFocusedRowChange, preferFirst, reportViewport],
   );
 
   // Mount-once preferred focus — group resets must not steal chip focus.
