@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { storage } from "@/src/utils/storage";
 
-export type PlayerEnginePreference = "default" | "vlc";
+export type PlayerEnginePreference = "default" | "media3" | "vlc";
 
 const PLAYER_ENGINE_KEY = "gs_player_engine_preference";
 let cachedPreference: PlayerEnginePreference = "default";
@@ -15,7 +15,7 @@ async function loadPreference(): Promise<PlayerEnginePreference> {
 
   loadPromise = (async () => {
     const stored = await storage.getItem<PlayerEnginePreference>(PLAYER_ENGINE_KEY, "default");
-    cachedPreference = stored === "vlc" ? "vlc" : "default";
+    cachedPreference = stored === "vlc" || stored === "media3" ? stored : "default";
     loaded = true;
     return cachedPreference;
   })();

@@ -658,6 +658,7 @@ export function StreamPlayer({
   const playbackFocused = isFocused && appActive;
   const [playerEnginePreference] = usePlayerEnginePreference();
   const forceVlc = playerEnginePreference === "vlc" && vlcAvailable && role !== "preview";
+  const forceMedia3 = playerEnginePreference === "media3" && role !== "preview";
   const [session, setSession] = useState({ key: "", generation: 0 });
 
   const setStatus = useStatusTracker(onStatus, `${role}:${uri}`);
@@ -665,9 +666,10 @@ export function StreamPlayer({
   const kind = useMemo(() => detectStreamKind(cleanUri), [cleanUri]);
   const initialEngine = useMemo(() => {
     if (forceVlc) return "vlc" as Engine;
+    if (forceMedia3) return "media3" as Engine;
     const preferred = preferredEngine(kind);
     return preferred === "vlc" && !vlcAvailable ? "media3" : preferred;
-  }, [forceVlc, kind]);
+  }, [forceMedia3, forceVlc, kind]);
   const [engine, setEngine] = useState<Engine>(initialEngine);
   const [fallbackUsed, setFallbackUsed] = useState(false);
   const stableRef = useRef(false);
@@ -727,7 +729,7 @@ export function StreamPlayer({
       }
       // One alternate-engine attempt handles HLS/codec differences / silent audio
       // between Media3 and VLC for both preview and fullscreen.
-      if (status === "error" && !forceVlc && !fallbackUsed) {
+      if (status === "error" && !forceVlc && !forceMedia3 && !fallbackUsed) {
         const alternate = alternateEngine(engine, vlcAvailable);
         if (alternate) {
           setFallbackUsed(true);
@@ -748,7 +750,7 @@ export function StreamPlayer({
       }
       setStatus(status, reason);
     },
-    [engine, fallbackUsed, forceVlc, role, sessionGeneration, setStatus],
+    [engine, fallbackUsed, forceMedia3, forceVlc, role, sessionGeneration, setStatus],
   );
 
   if (!playbackFocused || !uri || !sessionGeneration) return null;

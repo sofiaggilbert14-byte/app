@@ -527,7 +527,11 @@ export default function SettingsScreen() {
                 <ChoiceRow<PlayerEnginePreference>
                   label="Video player"
                   value={playerEnginePreference}
-                  options={[{ label: "App Default", value: "default" }, { label: "VLC", value: "vlc" }]}
+                  options={[
+                    { label: "App Default", value: "default" },
+                    { label: "Media3", value: "media3" },
+                    { label: "VLC", value: "vlc" },
+                  ]}
                   onChange={setPlayerEnginePreference}
                 />
                 <ChoiceRow<PlayerControlsTimeoutMs>
@@ -550,7 +554,7 @@ export default function SettingsScreen() {
                   onChange={setSleepTimerMinutes}
                 />
                 <Text style={styles.help}>
-                  Sleep timer stops fullscreen playback and returns to Home. Auto retry stays on by default. Audio/CC tracks appear in the player when the stream provides them (VLC).
+                  Media3 exposes audio/CC tracks and uses the Android TV codec path. Choose Media3 to keep one player engine; VLC remains an optional compatibility mode.
                 </Text>
               </SettingsCard>
             ) : null}

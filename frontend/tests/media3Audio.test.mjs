@@ -17,6 +17,7 @@ test("Media3 path exposes selectable audio tracks and deterministic audio focus"
   assert.match(player, /player\.audioTrack = selectedAudio/);
   assert.match(player, /player\.audioMixingMode = mode === "preview" \? "mixWithOthers" : "doNotMix"/);
   assert.match(player, /mediaReady/);
+  assert.match(player, /forceMedia3/);
   assert.match(screen, /unsupported on this decoder/);
 });
 
