@@ -94,12 +94,11 @@ test("guide session keeps preview, modal, refresh, and route-loop safety wiring"
   // Blur must not globally force-stop (kills newly mounted fullscreen); zap/play use role-scoped stops.
   assert.doesNotMatch(streamPlayer, /if \(!isFocused\) forceStopAllStreams\(\)/);
   assert.doesNotMatch(streamPlayer, /forceStopAllStreams\(\)/);
-  assert.match(streamPlayer, /pauseSessionDecoders\(role\)/);
-  assert.match(streamPlayer, /pauseOnRapidScan && !guideScanSettled/);
+  assert.doesNotMatch(streamPlayer, /pauseSessionDecoders\(role\)|pauseOnRapidScan|guideScanSettled/);
   assert.match(streamPlayer, /role === "preview"/);
   assert.match(streamPlayer, /clearFullscreenCircuit/);
   assert.match(streamPlayer, /parsePipeHeaders\(uri\)\.uri/);
-  assert.doesNotMatch(streamPlayer, /setStatus\("error", "circuit-open"\)/);
+  assert.match(streamPlayer, /setStatus\("error", "circuit-open"\)/);
   assert.doesNotMatch(streamPlayer, /pathname === "\/player"/);
   assert.match(playerRoute, /stopFullscreenSession/);
   assert.match(playerRoute, /pauseSessionDecoders\("fullscreen"\)/);
