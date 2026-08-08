@@ -94,7 +94,8 @@ test("XMLTV timestamps respect offsets and reject malformed values", async () =>
   const times = [...xml.matchAll(/(?:start|stop)="([^"]+)"/g)].map((match) => parseXmltvTime(match[1]));
   assert.equal(times[0], "2026-08-07T14:00:00.000Z");
   assert.equal(times[1], "2026-08-07T14:30:00.000Z");
-  assert.equal(times.at(-2), null);
+  assert.equal(parseXmltvTime("not-a-date"), null);
+  assert.ok(times.includes(null), "fixture still includes a malformed XMLTV timestamp");
 });
 
 test("XMLTV stop fallback is bounded and deterministic", () => {

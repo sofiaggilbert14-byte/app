@@ -126,9 +126,14 @@ export function clearFullscreenCircuit(uri?: string): void {
     }
     return;
   }
-  const needle = `:${uri}`;
+  // Circuit keys store the pipe-stripped URI; callers often pass the raw channel.url.
+  const clean = parsePipeHeaders(uri).uri || uri;
+  const needles = clean === uri ? [uri] : [uri, clean];
   for (const key of Array.from(failureStateByKey.keys())) {
-    if (key.startsWith("fullscreen:") && key.endsWith(needle)) failureStateByKey.delete(key);
+    if (!key.startsWith("fullscreen:")) continue;
+    if (needles.some((needle) => key.endsWith(`:${needle}`))) {
+      failureStateByKey.delete(key);
+    }
   }
 }
 
@@ -198,15 +203,17 @@ function useCircuitCooldown(
     }
 
     if (remaining <= 0) {
+      // Cooldown finished — remount cleanly as loading (do not emit error/circuit-open,
+      // which stacked with auto-retry and left a false failed state).
       setBlocked(false);
-      setStatus("error", "circuit-open");
+      setStatus("loading");
       return;
     }
 
     setStatus("loading", "circuit-open");
     const timer = setTimeout(() => {
       setBlocked(false);
-      setStatus("error", "circuit-open");
+      setStatus("loading");
     }, remaining + 25);
     return () => clearTimeout(timer);
   }, [blocked, engine, role, setStatus, uri]);

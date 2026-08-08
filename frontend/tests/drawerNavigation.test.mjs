@@ -73,6 +73,7 @@ test("guide tabs reclaim the left edge and top-row Up restores the active tab", 
   assert.match(guide, /drawerWasOpenForFocusRef/);
   assert.match(guide, /requestNativeFocusWithRetry\(lastGuideFocusNodeRef\.current, \[80, 180, 300\]\)/);
   assert.match(guide, /setGuideNavigationActive/);
+  assert.match(guide, /activeProgram \|\| drawerOpen/);
   assert.match(guide, /Preview recovering/);
   assert.match(guide, /setPreviewId\(null\)/);
 });

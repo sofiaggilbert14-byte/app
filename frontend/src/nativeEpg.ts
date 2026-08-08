@@ -5,6 +5,7 @@ type NativeProgramme = {
   channelId: string;
   title: string;
   description?: string | null;
+  category?: string | null;
   startMs: number;
   endMs: number;
 };
@@ -16,6 +17,7 @@ type NativeRefreshResult = {
   count: number;
   windowStartMs: number;
   windowEndMs: number;
+  guideEpoch?: number;
   channelLogos?: Record<string, string>;
   channelNames?: Record<string, string>;
   channelIdsWithPrograms?: string[];
@@ -36,7 +38,7 @@ function toProgram(program: NativeProgramme): Program {
   return {
     title: program.title || "No Information",
     desc: program.description || "",
-    category: "",
+    category: program.category || "",
     start: new Date(program.startMs).toISOString(),
     stop: new Date(program.endMs).toISOString(),
   };

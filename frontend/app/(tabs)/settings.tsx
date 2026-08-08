@@ -15,7 +15,7 @@ import {
   SafePreviewMode,
   useStore,
 } from "@/src/store";
-import { clearGuideCache, refreshSource } from "@/src/source";
+import { clearGuideCache, refreshSource, sourceDiagnostics, type SourceDiagnostics } from "@/src/source";
 import {
   type PlayerEnginePreference,
   usePlayerEnginePreference,
@@ -28,6 +28,7 @@ import {
 } from "@/src/utils/favoritesBackup";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
+import dayjs from "dayjs";
 
 type Section = "general" | "player" | "remote" | "epg" | "appearance" | "backup" | "account" | "about";
 
@@ -74,14 +75,22 @@ export default function SettingsScreen() {
     setPlayerControlsTimeoutMs,
     autoRetryStreams,
     setAutoRetryStreams,
+    preferTvgIdOnly,
+    setPreferTvgIdOnly,
   } = useStore();
   const [playerEnginePreference, setPlayerEnginePreference] = usePlayerEnginePreference();
   const [section, setSection] = useState<Section | null>(null);
   const [busy, setBusy] = useState(false);
   const [backupStatus, setBackupStatus] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<SourceDiagnostics | null>(null);
   // Mount-once preferred focus — sticky hasTVPreferredFocus steals focus on re-render.
   const [preferTileFocus, setPreferTileFocus] = useState(true);
   const [preferBackFocus, setPreferBackFocus] = useState(false);
+
+  useEffect(() => {
+    if (section !== "general" && section !== "backup" && section !== "about") return;
+    void sourceDiagnostics().then(setDiagnostics).catch(() => undefined);
+  }, [section, busy]);
 
   useEffect(() => {
     if (!preferTileFocus) return;
@@ -140,14 +149,29 @@ export default function SettingsScreen() {
   const clearCache = useCallback(async () => {
     if (busy) return;
     setBusy(true);
+    setBackupStatus("Clearing guide cache (favorites kept)…");
     try {
       await clearGuideCache();
       await refreshSource(true);
       await refresh(true);
+      setBackupStatus("Guide cache cleared and rebuilt. Favorites were not changed.");
+      void sourceDiagnostics().then(setDiagnostics).catch(() => undefined);
     } finally {
       setBusy(false);
     }
   }, [busy, refresh]);
+
+  const clearFavoritesDangerous = useCallback(async () => {
+    if (busy) return;
+    setBusy(true);
+    setBackupStatus("Clearing all favorites…");
+    try {
+      replaceFavorites([]);
+      setBackupStatus("Favorites cleared. This does not clear the guide cache.");
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, replaceFavorites]);
 
   const backupFavorites = useCallback(async () => {
     if (busy) return;
@@ -266,12 +290,52 @@ export default function SettingsScreen() {
                 <ChoiceRow<SafePreviewMode>
                   label="Live preview"
                   value={safePreviewMode}
-                  options={[{ label: "Normal", value: "on" }, { label: "Delayed", value: "delayed" }, { label: "Off", value: "off" }]}
+                  options={[
+                    { label: "Normal", value: "on" },
+                    { label: "Delayed", value: "delayed" },
+                    { label: "Off while surfing", value: "surf" },
+                    { label: "Off", value: "off" },
+                  ]}
                   onChange={setSafePreviewMode}
                 />
+                <Text style={styles.help}>
+                  Off while surfing soft-clears preview during D-pad surfing and arms after settle (longer on weak sticks). Preview never shares a decoder with fullscreen.
+                </Text>
                 <ToggleRow label="Channel numbers" value={channelNumbers} onChange={setChannelNumbers} />
                 <ToggleRow label="Channel logos" value={channelLogos} onChange={setChannelLogos} />
+                <ToggleRow
+                  label="Prefer tvg-id matching only"
+                  value={preferTvgIdOnly}
+                  onChange={setPreferTvgIdOnly}
+                />
+                <Text style={styles.help}>
+                  For messy providers: match playlist channels by tvg-id only (never by display name). Ambiguous names never invent a match.
+                </Text>
                 <Action label={busy ? "Refreshing…" : "Refresh playlist & EPG"} icon="refresh" onPress={hardReload} disabled={busy} />
+                {diagnostics?.matchQuality ? (
+                  <View style={styles.matchBlock}>
+                    <Text style={styles.settingLabel}>EPG match quality</Text>
+                    <InfoRow label="Matched" value={String(diagnostics.matchQuality.matched)} />
+                    <InfoRow label="Ambiguous" value={String(diagnostics.matchQuality.ambiguous)} />
+                    <InfoRow label="Unmatched" value={String(diagnostics.matchQuality.unmatched)} />
+                  </View>
+                ) : null}
+                <InfoRow
+                  label="Playlist refreshed"
+                  value={
+                    diagnostics?.playlistRefreshedAt
+                      ? dayjs(diagnostics.playlistRefreshedAt).format("MMM D, h:mm A")
+                      : "—"
+                  }
+                />
+                <InfoRow
+                  label="EPG refreshed"
+                  value={
+                    diagnostics?.guideRefreshedAt
+                      ? dayjs(diagnostics.guideRefreshedAt).format("MMM D, h:mm A")
+                      : "—"
+                  }
+                />
               </SettingsCard>
             ) : null}
 
@@ -328,8 +392,20 @@ export default function SettingsScreen() {
                 </View>
                 {backupStatus ? <Text style={styles.status}>{backupStatus}</Text> : null}
                 <View style={styles.divider} />
-                <Text style={styles.help}>Guide cache maintenance is separate from favorites. Rebuilding the guide does not erase your favorites list.</Text>
+                <Text style={styles.help}>
+                  Clear guide cache is safe — rebuilds playlist/EPG meta and native guide DB only. Favorites stay intact.
+                </Text>
                 <Action label={busy ? "Working…" : "Clear & rebuild guide cache"} icon="trash-outline" onPress={clearCache} disabled={busy} />
+                <View style={styles.divider} />
+                <Text style={styles.help}>
+                  Clear favorites is destructive and separate from guide cache. Export a backup first if you may need them later.
+                </Text>
+                <Action
+                  label={busy ? "Working…" : "Clear all favorites"}
+                  icon="warning-outline"
+                  onPress={clearFavoritesDangerous}
+                  disabled={busy || favorites.length === 0}
+                />
               </SettingsCard>
             ) : null}
 
@@ -458,6 +534,7 @@ const styles = StyleSheet.create({
   infoLabel: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 8.5 },
   infoValue: { color: "#fff", fontFamily: fonts.medium, fontSize: 8.5 },
   help: { color: tvColors.textMuted, fontFamily: fonts.regular, fontSize: 8.5, lineHeight: 12.5 },
+  matchBlock: { gap: 2, paddingTop: 4, borderTopWidth: 1, borderTopColor: tvColors.line },
   calibrationWrap: { borderTopWidth: 1, borderTopColor: tvColors.line, marginTop: 4, paddingTop: 8 },
   focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
 });

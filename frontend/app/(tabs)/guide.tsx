@@ -24,6 +24,7 @@ import { EpgProgressBar } from "@/src/components/EpgProgressBar";
 import { NowPlayingBar } from "@/src/components/NowPlayingBar";
 import { Channel } from "@/src/api";
 import { useStore } from "@/src/store";
+import { setPriorityMatchChannelIds } from "@/src/source";
 import { fonts, radius, spacing, tvColors } from "@/src/theme";
 import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
 import { requestNativeFocus, requestNativeFocusWithRetry } from "@/src/utils/tvFocus";
@@ -163,15 +164,15 @@ export default function PurpleGuideScreen() {
   }, []);
 
   // While the guide owns vertical surf, consume D-pad natively so OS focus
-  // does not race FlashList / TimelineGrid.
+  // does not race FlashList / TimelineGrid. Release while the drawer/modal owns focus.
   useEffect(() => {
-    if (activeProgram) {
+    if (activeProgram || drawerOpen) {
       setGuideNavigationActive(false);
       return;
     }
     setGuideNavigationActive(true);
     return () => setGuideNavigationActive(false);
-  }, [activeProgram]);
+  }, [activeProgram, drawerOpen]);
   useEffect(() => {
     if (loading || refreshing || channels.length > 0) return;
     if (bootRetryRef.current >= 1) return;
@@ -228,6 +229,15 @@ export default function PurpleGuideScreen() {
     return channels.filter((c) => matches(c, group)).sort(byName);
   }, [channels, favoriteSet, group, recent]);
 
+  // Huge playlists: prefer matching the visible group first on the next EPG refresh.
+  useEffect(() => {
+    if (channels.length < 2500) {
+      setPriorityMatchChannelIds([]);
+      return;
+    }
+    setPriorityMatchChannelIds(filtered.slice(0, 400).map((c) => c.id));
+  }, [channels.length, filtered]);
+
   const onChannelLongPress = useCallback(
     (channel: Channel) => {
       toggleFavorite(channel.id);
@@ -269,7 +279,11 @@ export default function PurpleGuideScreen() {
     !!previewChannel?.url &&
     previewId === previewChannel.id;
 
-  const previewDelay = safePreviewMode === "delayed" ? 2200 : 1600;
+  // delayed: longest settle; surf: off while surfing + longer arm on weak sticks; on: normal.
+  const previewDelay =
+    safePreviewMode === "delayed" ? 2200 : safePreviewMode === "surf" ? 2000 : 1600;
+  /** Extra arm after rapid surf settles — weak Fire sticks need decoder breathing room. */
+  const surfSettleExtraMs = safePreviewMode === "surf" ? 500 : 350;
 
   const schedulePreview = useCallback((requestedId: string, delay: number, hasUrl: boolean) => {
     if (safePreviewMode === "off" || !hasUrl) {
@@ -305,26 +319,33 @@ export default function PurpleGuideScreen() {
       if (rapid) rapidSurfUntilRef.current = nowTs + 700;
 
       // While the user is holding/repeating directions: zero rail/preview work.
+      // "surf" mode (and delayed/on) soft-clear preview while surfing — never share decoder with fullscreen path.
       if (nowTs < rapidSurfUntilRef.current || rapid) {
         // Soft surf: drop live preview so decoder/GPU do not fight FlashList focus.
         setPreviewId(null);
         metadataTimer.current = setTimeout(() => {
           if (Date.now() < rapidSurfUntilRef.current) return;
           setFocusedId(requestedId);
-          schedulePreview(requestedId, previewDelay, !!channel.url);
-        }, 750);
+          schedulePreview(
+            requestedId,
+            previewDelay + surfSettleExtraMs,
+            !!channel.url,
+          );
+        }, 900);
         return;
       }
 
       const recentlyChangedGroup = nowTs - groupChangedAt.current < 1800;
-      const delay = recentlyChangedGroup ? Math.max(previewDelay, 1800) : previewDelay;
+      const delay = recentlyChangedGroup
+        ? Math.max(previewDelay + surfSettleExtraMs, 2000)
+        : previewDelay;
 
       metadataTimer.current = setTimeout(() => {
         setFocusedId((prev) => (prev === requestedId ? prev : requestedId));
         schedulePreview(requestedId, delay, !!channel.url);
       }, 180);
     },
-    [previewDelay, schedulePreview],
+    [previewDelay, schedulePreview, surfSettleExtraMs],
   );
 
   const play = useCallback(

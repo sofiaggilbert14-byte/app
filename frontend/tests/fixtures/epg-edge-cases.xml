@@ -1,13 +1,26 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <tv>
-  <channel id="news.1"><display-name>News One</display-name></channel>
+  <channel id="news.1"><display-name>News One</display-name><icon src="https://logo/news.png"/></channel>
+  <channel id="dup.a"><display-name>Shared</display-name></channel>
+  <channel id="dup.b"><display-name>Shared</display-name></channel>
   <programme channel="news.1" start="20260807100000 -0400" stop="20260807103000 -0400">
     <title>Valid offset program</title>
+    <category>News</category>
   </programme>
   <programme channel="news.1" start="20260807103000 -0400">
     <title>Missing stop</title>
+    <category>News</category>
+  </programme>
+  <programme channel="news.1" start="20260807120000 -0400" stop="20260807130000 -0400">
+    <title>Afternoon block</title>
   </programme>
   <programme channel="news.1" start="not-a-date" stop="20260807113000 -0400">
     <title>Malformed start</title>
+  </programme>
+  <programme channel="dup.a" start="20260807100000 -0400" stop="20260807110000 -0400">
+    <title>Dup A</title>
+  </programme>
+  <programme channel="dup.b" start="20260807100000 -0400" stop="20260807110000 -0400">
+    <title>Dup B</title>
   </programme>
 </tv>

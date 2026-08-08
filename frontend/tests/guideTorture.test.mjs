@@ -98,11 +98,14 @@ test("guide session keeps preview, modal, refresh, and route-loop safety wiring"
   assert.match(streamPlayer, /pauseOnRapidScan && !guideScanSettled/);
   assert.match(streamPlayer, /role === "preview"/);
   assert.match(streamPlayer, /clearFullscreenCircuit/);
+  assert.match(streamPlayer, /parsePipeHeaders\(uri\)\.uri/);
+  assert.doesNotMatch(streamPlayer, /setStatus\("error", "circuit-open"\)/);
   assert.doesNotMatch(streamPlayer, /pathname === "\/player"/);
   assert.match(playerRoute, /stopFullscreenSession/);
   assert.match(playerRoute, /pauseSessionDecoders\("fullscreen"\)/);
   assert.match(playerRoute, /rapidStripUntilRef/);
   assert.match(playerRoute, /remaining \+ 40/);
   assert.match(playerRoute, /clearFullscreenCircuit/);
+  assert.match(playerRoute, /if \(zapTimer\.current\) clearTimeout\(zapTimer\.current\)/);
   assert.match(programModal, /hardwareBackPress/);
 });

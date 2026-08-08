@@ -2,7 +2,7 @@ import React, { createContext, startTransition, useCallback, useContext, useEffe
 import dayjs from "dayjs";
 import { storage } from "@/src/utils/storage";
 import { Channel, Program } from "@/src/api";
-import { loadGuide, refreshSource, subscribeSource } from "@/src/source";
+import { loadGuide, refreshSource, setPreferTvgIdOnlyMatching, subscribeSource } from "@/src/source";
 import { reminderKey } from "@/src/utils/time";
 import { sanitizeFavoriteIds, toggleFavoriteId } from "@/src/utils/favoriteIds";
 import { pushRecentId, sanitizeRecentIds } from "@/src/utils/recentIds";
@@ -27,6 +27,7 @@ const CHANNEL_LOGOS_KEY = "gs_channel_logos";
 const DEVICE_LAYOUT_MODE_KEY = "gs_device_layout_mode";
 const PLAYER_TIMEOUT_KEY = "gs_player_timeout_ms";
 const AUTO_RETRY_KEY = "gs_auto_retry_streams";
+const PREFER_TVG_ID_ONLY_KEY = "gs_prefer_tvg_id_only";
 const GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 8);
 
 function readGuideWindowHours(value: string | undefined, fallback: number): number {
@@ -37,7 +38,7 @@ function readGuideWindowHours(value: string | undefined, fallback: number): numb
 
 export type GuideLayout = "cinematic" | "compact";
 export type GuideDensity = "large" | "normal" | "compact";
-export type SafePreviewMode = "on" | "delayed" | "off";
+export type SafePreviewMode = "on" | "delayed" | "surf" | "off";
 export type DeviceLayoutMode = "auto" | "tv" | "mobile";
 export type PlayerControlsTimeoutMs = 8000 | 15000 | 30000 | 60000;
 
@@ -105,6 +106,8 @@ type Store = {
   setPlayerControlsTimeoutMs: (v: PlayerControlsTimeoutMs) => void;
   autoRetryStreams: boolean;
   setAutoRetryStreams: (v: boolean) => void;
+  preferTvgIdOnly: boolean;
+  setPreferTvgIdOnly: (v: boolean) => void;
 };
 
 const Ctx = createContext<Store | null>(null);
@@ -146,6 +149,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [deviceLayoutMode, setDeviceLayoutModeState] = useState<DeviceLayoutMode>("auto");
   const [playerControlsTimeoutMs, setPlayerControlsTimeoutMsState] = useState<PlayerControlsTimeoutMs>(8000);
   const [autoRetryStreams, setAutoRetryStreamsState] = useState(true);
+  const [preferTvgIdOnly, setPreferTvgIdOnlyState] = useState(false);
 
   // Memoized helpers for fast lookups
   const channelByIdMap = useMemo(() => {
@@ -209,6 +213,12 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const setAutoRetryStreams = useCallback((v: boolean) => {
     setAutoRetryStreamsState(v);
     storage.setItem(AUTO_RETRY_KEY, v);
+  }, []);
+
+  const setPreferTvgIdOnly = useCallback((v: boolean) => {
+    setPreferTvgIdOnlyState(v);
+    setPreferTvgIdOnlyMatching(v);
+    storage.setItem(PREFER_TVG_ID_ONLY_KEY, v);
   }, []);
 
   const channelById = useCallback((id: string) => channelByIdMap.get(id), [channelByIdMap]);
@@ -430,6 +440,9 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setDeviceLayoutModeState((await storage.getItem<DeviceLayoutMode>(DEVICE_LAYOUT_MODE_KEY, "auto")) || "auto");
       setPlayerControlsTimeoutMsState((await storage.getItem<PlayerControlsTimeoutMs>(PLAYER_TIMEOUT_KEY, 8000)) || 8000);
       setAutoRetryStreamsState((await storage.getItem<boolean>(AUTO_RETRY_KEY, true)) ?? true);
+      const tvgOnly = (await storage.getItem<boolean>(PREFER_TVG_ID_ONLY_KEY, false)) || false;
+      setPreferTvgIdOnlyState(tvgOnly);
+      setPreferTvgIdOnlyMatching(tvgOnly);
 
       // Fast paint from cache only — never block first focus with permission dialogs
       // or stacked source rebuilds (those freeze Fire TV focus on open).
@@ -547,6 +560,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setPlayerControlsTimeoutMs,
       autoRetryStreams,
       setAutoRetryStreams,
+      preferTvgIdOnly,
+      setPreferTvgIdOnly,
     }),
     [
       channels,
@@ -593,6 +608,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setPlayerControlsTimeoutMs,
       autoRetryStreams,
       setAutoRetryStreams,
+      preferTvgIdOnly,
+      setPreferTvgIdOnly,
     ],
   );
 

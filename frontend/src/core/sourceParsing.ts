@@ -280,3 +280,46 @@ export function resolveXmltvStop(startIso: string, rawStop: string, fallbackMinu
   }
   return new Date(startMs + fallbackMinutes * 60_000).toISOString();
 }
+
+const DEFAULT_PROGRAMME_DURATION_MS = 30 * 60 * 1000;
+const MAX_PROGRAMME_DURATION_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Infer missing/default stops from the next programme on the same channel.
+ * Runs once after ingest — never during guide cell paint.
+ * Mutates programme `stop` in place when a default +30m (or overlapping) stop was used.
+ */
+export function inferMissingStopsFromNextProgram<T extends { start: string; stop: string | null }>(
+  programsByChannel: Record<string, T[]>,
+  fallbackMinutes = 30,
+): void {
+  const defaultDurationMs = fallbackMinutes * 60_000;
+  for (const list of Object.values(programsByChannel)) {
+    if (!list?.length) continue;
+    const sorted = [...list].sort((a, b) => Date.parse(a.start) - Date.parse(b.start));
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const current = sorted[i];
+      const next = sorted[i + 1];
+      const startMs = Date.parse(current.start);
+      const stopMs = current.stop ? Date.parse(current.stop) : Number.NaN;
+      const nextStartMs = Date.parse(next.start);
+      if (!Number.isFinite(startMs) || !Number.isFinite(nextStartMs) || nextStartMs <= startMs) continue;
+      const usedDefault =
+        Number.isFinite(stopMs) && stopMs === startMs + defaultDurationMs;
+      const overlapsNext = Number.isFinite(stopMs) && stopMs > nextStartMs;
+      const missingStop = !current.stop || !Number.isFinite(stopMs);
+      if (!(usedDefault || overlapsNext || missingStop)) continue;
+      const duration = nextStartMs - startMs;
+      if (duration <= 0 || duration > MAX_PROGRAMME_DURATION_MS) continue;
+      if (duration > defaultDurationMs && !usedDefault && !overlapsNext && !missingStop) continue;
+      current.stop = new Date(nextStartMs).toISOString();
+    }
+    // Keep list order stable for callers that already sorted; rewrite in sorted order when mutated.
+    if (list !== sorted) {
+      list.length = 0;
+      list.push(...sorted);
+    }
+  }
+}
+
+export { DEFAULT_PROGRAMME_DURATION_MS, MAX_PROGRAMME_DURATION_MS };

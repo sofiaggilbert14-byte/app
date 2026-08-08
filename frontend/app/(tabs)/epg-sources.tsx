@@ -92,8 +92,32 @@ export default function EpgSourcesScreen() {
         <View style={styles.health}>
           <Text style={styles.healthTitle}>Source Health</Text>
           <Info label="Channels with EPG" value={String(status.channels_with_epg || 0)} />
+          <Info
+            label="Match quality"
+            value={
+              diagnostics?.matchQuality
+                ? `${diagnostics.matchQuality.matched} matched · ${diagnostics.matchQuality.ambiguous} ambiguous · ${diagnostics.matchQuality.unmatched} unmatched`
+                : "—"
+            }
+          />
           <Info label="Refresh in progress" value={diagnostics?.refreshInFlight ? "Yes" : "No"} />
           <Info label="Last refresh" value={status.last_refresh ? dayjs(status.last_refresh).format("MMM D, h:mm A") : "Not yet"} />
+          <Info
+            label="Playlist age"
+            value={
+              diagnostics?.playlistRefreshedAt
+                ? dayjs(diagnostics.playlistRefreshedAt).format("MMM D, h:mm A")
+                : "—"
+            }
+          />
+          <Info
+            label="EPG age"
+            value={
+              diagnostics?.guideRefreshedAt
+                ? dayjs(diagnostics.guideRefreshedAt).format("MMM D, h:mm A")
+                : "—"
+            }
+          />
           <Info label="Cache age" value={diagnostics?.cacheAgeMinutes != null ? `${diagnostics.cacheAgeMinutes} min` : "—"} />
           {diagnostics?.epgError || status.error ? (
             <Text style={styles.error} testID="epg-sources-error">

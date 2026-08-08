@@ -185,6 +185,7 @@ export default function PlayerScreen() {
     const target = channelById(id);
     if (!target) return;
     if (previewTimer.current) clearTimeout(previewTimer.current);
+    if (zapTimer.current) clearTimeout(zapTimer.current);
     if (retryTimer.current) clearTimeout(retryTimer.current);
     if (haptic) void Haptics.selectionAsync().catch(() => undefined);
 
@@ -217,6 +218,8 @@ export default function PlayerScreen() {
   const previewChannel = useCallback((id: string) => {
     if (id === pendingChannelIdRef.current) return;
     if (previewTimer.current) clearTimeout(previewTimer.current);
+    if (zapTimer.current) clearTimeout(zapTimer.current);
+    if (retryTimer.current) clearTimeout(retryTimer.current);
     const nowTs = Date.now();
     const rapid = nowTs - lastStripFocusAtRef.current < 240;
     lastStripFocusAtRef.current = nowTs;

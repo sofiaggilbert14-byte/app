@@ -38,6 +38,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   fun refresh(url: String, promise: Promise) {
     refreshExecutor.execute {
       try {
+        database.ensureHealthy()
         val now = System.currentTimeMillis()
         val minStop = now - GUIDE_HISTORY_MS
         val maxStart = now + GUIDE_WINDOW_MS
@@ -53,9 +54,29 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
           channelIdsWithPrograms,
         )
         database.replaceBatches(batches)
-        // Drop programmes that ended well before the retained history window so
-        // LIVE does not accumulate forever across partial refreshes.
-        database.deleteExpired(now - GUIDE_HISTORY_MS)
+
+        // Durable exact + normalized aliases for playlist↔XMLTV matching (JS still owns match policy).
+        val aliases = ArrayList<Triple<String, String, String>>()
+        for (channelId in channelIdsWithPrograms) {
+          aliases.add(Triple(channelId, "id", channelId))
+        }
+        for ((channelId, name) in channelNames) {
+          aliases.add(Triple(channelId, "id", channelId))
+          if (name.isNotBlank()) aliases.add(Triple(channelId, "name", name))
+        }
+        for (channelId in channelLogos.keys) {
+          aliases.add(Triple(channelId, "id", channelId))
+        }
+        database.replaceChannelAliases(aliases)
+
+        // Soft guide epoch — independent of playlist last-good (no joint snapshot).
+        val guideEpoch = (database.getMeta("guide_epoch")?.toLongOrNull() ?: 0L) + 1L
+        database.setMeta("guide_epoch", guideEpoch.toString())
+        database.setMeta("guide_refreshed_at", now.toString())
+
+        val deleted = database.deleteExpired(now - GUIDE_HISTORY_MS)
+        // Rare idle reclaim only after a large expiry — never every refresh.
+        database.maybeIncrementalVacuum(MIN_VACUUM_DELETED_ROWS, deleted)
         rebuildCurrentCache(now)
 
         val logos = Arguments.createMap()
@@ -75,6 +96,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
           putDouble("count", database.count().toDouble())
           putDouble("windowStartMs", (now - GUIDE_HISTORY_MS).toDouble())
           putDouble("windowEndMs", maxStart.toDouble())
+          putDouble("guideEpoch", guideEpoch.toDouble())
           putMap("channelLogos", logos)
           putMap("channelNames", names)
           putArray("channelIdsWithPrograms", programIds)
@@ -177,6 +199,8 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     putString("title", program.title)
     if (program.description != null) putString("description", program.description)
     else putNull("description")
+    if (!program.category.isNullOrBlank()) putString("category", program.category)
+    else putNull("category")
     putDouble("startMs", program.startMs.toDouble())
     putDouble("endMs", program.endMs.toDouble())
   }
@@ -202,6 +226,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
       var keepProgram = false
       var title = ""
       var description: String? = null
+      var category: String? = null
 
       while (event != XmlPullParser.END_DOCUMENT) {
         when (event) {
@@ -227,6 +252,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
               channelId = parser.getAttributeValue(null, "channel")?.trim()
               startMs = parseXmltvTime(parser.getAttributeValue(null, "start"))
               // Match JS resolveXmltvStop: missing/invalid/absurd stop → +30 minutes.
+              // Next-program inference runs once on staging after ingest.
               val parsedStop = parseXmltvTime(parser.getAttributeValue(null, "stop"))
               endMs = resolveProgrammeStop(startMs, parsedStop)
               keepProgram =
@@ -237,9 +263,13 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
                   startMs <= maxStart
               title = ""
               description = null
+              category = null
             }
             "title" -> if (keepProgram) title = parser.nextText().trim()
             "desc" -> if (keepProgram) description = parser.nextText().trim().ifEmpty { null }
+            "category" -> if (keepProgram && category.isNullOrBlank()) {
+              category = parser.nextText().trim().ifEmpty { null }
+            }
           }
           XmlPullParser.END_TAG -> when (parser.name) {
             "channel" -> metadataChannelId = null
@@ -252,6 +282,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
                     channelId = id,
                     title = title.ifBlank { "No Information" },
                     description = description,
+                    category = category,
                     startMs = startMs,
                     endMs = endMs,
                   )
@@ -401,5 +432,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     private const val CURRENT_CACHE_REFRESH_MS = 30_000L
     private const val DEFAULT_PROGRAMME_DURATION_MS = 30L * 60L * 1000L
     private const val MAX_PROGRAMME_DURATION_MS = 24L * 60L * 60L * 1000L
+    /** Only vacuum after a large expiry purge — never on every refresh. */
+    private const val MIN_VACUUM_DELETED_ROWS = 5_000
   }
 }

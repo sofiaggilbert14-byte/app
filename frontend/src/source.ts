@@ -6,15 +6,18 @@ import type { Channel, Program, GuideResponse, SourceStatus } from "@/src/api";
 import {
   MAX_PLAYLIST_BYTES,
   enforcePlaylistTextLimit,
+  inferMissingStopsFromNextProgram,
   parseM3UWithStats,
   parseXmltvTime,
   resolveXmltvStop,
   streamType,
 } from "@/src/core/sourceParsing";
 import {
+  applyXmltvMatchesToChannels,
   buildXmltvMatchIndexes,
+  emptyMatchQuality,
   formatNativeEpgError,
-  matchPlaylistChannelToXmltv,
+  type EpgMatchQuality,
 } from "@/src/core/epgMatching";
 import {
   clearIndexedEpg,
@@ -57,7 +60,21 @@ type Parsed = {
   epgChannelCount?: number;
   channels: Channel[];
   programs: Record<string, Program[]>;
+  matchQuality?: EpgMatchQuality;
+  playlistEpoch?: number;
+  guideEpoch?: number;
+  playlistRefreshedAt?: number;
+  guideRefreshedAt?: number;
 };
+
+/** Web stubs — native source owns these; keep exports so shared settings compile. */
+let preferTvgIdOnly = false;
+export function setPreferTvgIdOnlyMatching(value: boolean): void {
+  preferTvgIdOnly = !!value;
+}
+export function setPriorityMatchChannelIds(_ids: string[]): void {
+  /* native-only huge-list priority */
+}
 
 function sortChannelsAlphabetically(channels: Channel[]): Channel[] {
   return [...channels].sort((a, b) =>
@@ -835,6 +852,8 @@ function loadEpg(channels: Channel[], force = false): Promise<void> {
       }
 
       setProgress({ phase: "indexing", ratio: 0.9, etaSeconds: null }, true);
+      // Next-stop inference once after ingest — never during guide paint.
+      inferMissingStopsFromNextProgram(programs);
       await nextTick();
       const indexes = buildXmltvMatchIndexes({
         channelIds: Object.keys(programs),
@@ -842,18 +861,13 @@ function loadEpg(channels: Channel[], force = false): Promise<void> {
         idsWithPrograms: Object.keys(programs).filter((id) => programs[id]?.length),
       });
 
-      let matchedChannels = 0;
-      for (const channel of channels) {
-        const { sourceId, logoId } = matchPlaylistChannelToXmltv(channel, indexes, icons);
-        if (!sourceId || !programs[sourceId]?.length) continue;
-        channel.tvg_id = sourceId;
-        matchedChannels++;
-        if (!channel.logo && logoId && icons[logoId]) channel.logo = icons[logoId];
-        else if (!channel.logo && icons[sourceId]) channel.logo = icons[sourceId];
-      }
+      const applied = applyXmltvMatchesToChannels(channels, indexes, icons, { preferTvgIdOnly });
+      channels = applied.channels;
+      const matchedChannels = applied.quality.matched;
       if (!matchedChannels) throw new Error("EPG loaded, but its channel IDs did not match the playlist");
 
       epgChunks.length = 0;
+      const guideRefreshedAt = Date.now();
       MEM = {
         ts: attemptTs,
         epgAttemptTs: attemptTs,
@@ -861,6 +875,11 @@ function loadEpg(channels: Channel[], force = false): Promise<void> {
         programs,
         epgProgramCount: Object.values(programs).reduce((total, list) => total + list.length, 0),
         epgChannelCount: matchedChannels,
+        matchQuality: applied.quality,
+        guideEpoch: (MEM?.guideEpoch || 0) + 1,
+        guideRefreshedAt,
+        playlistEpoch: MEM?.playlistEpoch,
+        playlistRefreshedAt: MEM?.playlistRefreshedAt,
       };
       lastSourceError = null;
       setProgress({ phase: "caching", ratio: 0.92, etaSeconds: null }, true);
@@ -934,6 +953,11 @@ async function doFetchParse(): Promise<Parsed> {
     programs: previous?.programs || {},
     epgProgramCount: previous?.epgProgramCount,
     epgChannelCount: previous?.epgChannelCount,
+    matchQuality: previous?.matchQuality,
+    playlistEpoch: (previous?.playlistEpoch || 0) + 1,
+    playlistRefreshedAt: Date.now(),
+    guideEpoch: previous?.guideEpoch,
+    guideRefreshedAt: previous?.guideRefreshedAt,
   };
   // Do not rewrite a large existing EPG before starting a refresh.
   if (Object.keys(MEM.programs).length === 0 && !(MEM.epgProgramCount || 0)) await persist();
@@ -1050,6 +1074,11 @@ export type SourceDiagnostics = {
   refreshInFlight: boolean;
   epgError: string | null;
   nextAutoRefresh: string | null;
+  matchQuality: EpgMatchQuality | null;
+  playlistRefreshedAt: string | null;
+  guideRefreshedAt: string | null;
+  playlistEpoch: number | null;
+  guideEpoch: number | null;
 };
 
 export async function sourceDiagnostics(): Promise<SourceDiagnostics> {
@@ -1079,6 +1108,17 @@ export async function sourceDiagnostics(): Promise<SourceDiagnostics> {
     refreshInFlight: !!fetchPromise || epgLoading,
     epgError: MEM?.epgError || lastSourceError,
     nextAutoRefresh: MEM ? new Date(MEM.ts + TTL_MS).toISOString() : null,
+    matchQuality: MEM?.matchQuality || emptyMatchQuality(),
+    playlistRefreshedAt:
+      MEM?.playlistRefreshedAt && MEM.playlistRefreshedAt > 0
+        ? new Date(MEM.playlistRefreshedAt).toISOString()
+        : null,
+    guideRefreshedAt:
+      MEM?.guideRefreshedAt && MEM.guideRefreshedAt > 0
+        ? new Date(MEM.guideRefreshedAt).toISOString()
+        : null,
+    playlistEpoch: MEM?.playlistEpoch ?? null,
+    guideEpoch: MEM?.guideEpoch ?? null,
   };
 }
 
