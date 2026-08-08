@@ -65,6 +65,7 @@ internal class EpgDatabase(context: Context) :
     createMatchTable(db)
     db.execSQL("CREATE INDEX IF NOT EXISTS idx_epg_lookup ON $LIVE_TABLE(channel_id, start_time, end_time)")
     db.execSQL("CREATE INDEX IF NOT EXISTS idx_epg_window ON $LIVE_TABLE(start_time, end_time)")
+    db.execSQL("CREATE INDEX IF NOT EXISTS idx_epg_staging_order ON $STAGING_TABLE(channel_id, start_time, id)")
     db.execSQL("CREATE INDEX IF NOT EXISTS idx_epg_alias_norm ON $ALIAS_TABLE(normalized_key)")
     db.execSQL("CREATE INDEX IF NOT EXISTS idx_playlist_norm_id ON $PLAYLIST_TABLE(norm_id)")
     db.execSQL("CREATE INDEX IF NOT EXISTS idx_playlist_norm_name ON $PLAYLIST_TABLE(norm_name)")
@@ -155,6 +156,7 @@ internal class EpgDatabase(context: Context) :
       createMetaTable(db)
       db.execSQL("CREATE INDEX IF NOT EXISTS idx_epg_lookup ON $LIVE_TABLE(channel_id, start_time, end_time)")
       db.execSQL("CREATE INDEX IF NOT EXISTS idx_epg_window ON $LIVE_TABLE(start_time, end_time)")
+      db.execSQL("CREATE INDEX IF NOT EXISTS idx_epg_staging_order ON $STAGING_TABLE(channel_id, start_time, id)")
       db.execSQL("CREATE INDEX IF NOT EXISTS idx_epg_alias_norm ON $ALIAS_TABLE(normalized_key)")
     }
     if (oldVersion < 4) {
@@ -163,6 +165,9 @@ internal class EpgDatabase(context: Context) :
       db.execSQL("CREATE INDEX IF NOT EXISTS idx_playlist_norm_id ON $PLAYLIST_TABLE(norm_id)")
       db.execSQL("CREATE INDEX IF NOT EXISTS idx_playlist_norm_name ON $PLAYLIST_TABLE(norm_name)")
       db.execSQL("CREATE INDEX IF NOT EXISTS idx_match_xmltv ON $MATCH_TABLE(xmltv_id)")
+    }
+    if (oldVersion < 5) {
+      db.execSQL("CREATE INDEX IF NOT EXISTS idx_epg_staging_order ON $STAGING_TABLE(channel_id, start_time, id)")
     }
   }
 
@@ -213,6 +218,10 @@ internal class EpgDatabase(context: Context) :
       db.execSQL("DROP TABLE IF EXISTS $STAGING_TABLE")
       db.execSQL("DROP TABLE IF EXISTS $ALIAS_TABLE")
       db.execSQL("DROP TABLE IF EXISTS $META_TABLE")
+      // A recovered programme table must never join against stale playlist /
+      // match rows from the corrupted database generation.
+      db.execSQL("DROP TABLE IF EXISTS $PLAYLIST_TABLE")
+      db.execSQL("DROP TABLE IF EXISTS $MATCH_TABLE")
       onCreate(db)
       db.setTransactionSuccessful()
     } finally {
@@ -674,7 +683,7 @@ internal class EpgDatabase(context: Context) :
   fun count(): Long = countTable(LIVE_TABLE)
 
   companion object {
-    private const val DATABASE_VERSION = 4
+    private const val DATABASE_VERSION = 5
     private const val LIVE_TABLE = "epg_programmes"
     private const val STAGING_TABLE = "epg_programmes_staging"
     private const val ALIAS_TABLE = "epg_channel_aliases"

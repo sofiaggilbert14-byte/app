@@ -13,12 +13,13 @@ test("native EPG v4 adds playlist/match tables and joined queryGuideWindow", asy
     source("android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt"),
     source("src/nativeEpg.ts"),
   ]);
-  assert.match(db, /DATABASE_VERSION = 4/);
+  assert.match(db, /DATABASE_VERSION = 5/);
   assert.match(db, /playlist_channels/);
   assert.match(db, /playlist_epg_matches/);
   assert.match(db, /fun queryGuideWindow/);
   assert.match(db, /fun replacePlaylistChannels/);
   assert.match(db, /fun replacePlaylistEpgMatches/);
+  assert.match(db, /idx_epg_staging_order/);
   assert.match(db, /INNER JOIN \$LIVE_TABLE p ON p\.channel_id = m\.xmltv_id/);
   assert.match(mod, /fun queryGuideWindow/);
   assert.match(mod, /fun upsertPlaylistChannels/);
