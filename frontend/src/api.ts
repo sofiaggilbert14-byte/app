@@ -26,6 +26,8 @@ export type GuideResponse = {
   channels: Channel[];
   /** Normalized programme map keyed by playlist channel id (preferred over channel.programs). */
   programsByChannelId?: Record<string, Program[]>;
+  /** Native XMLTV epoch so programme rows never survive a fresh guide swap. */
+  guideEpoch?: number;
 };
 
 export type SourceStatus = {

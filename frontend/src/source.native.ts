@@ -786,6 +786,7 @@ export async function loadGuide(startISO?: string, hours = 8, force = false): Pr
     now: now.toISOString(),
     channels,
     programsByChannelId,
+    guideEpoch: parsed.guideEpoch || 0,
   };
 }
 

@@ -97,8 +97,8 @@ export function clearGuidePrograms(): void {
   for (const id of ids) notify(id);
 }
 
-export function makeGuideProgramWindowKey(start: string, end: string): string {
-  return `${start}|${end}`;
+export function makeGuideProgramWindowKey(start: string, end: string, guideEpoch = 0): string {
+  return `${start}|${end}|${guideEpoch}`;
 }
 
 /** Subscribe a rendered guide row to only its own programme pointer. */

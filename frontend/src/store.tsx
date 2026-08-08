@@ -210,6 +210,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const pendingPatchIdsRef = useRef(new Set<string>());
   const windowStartRef = useRef("");
   const windowEndRef = useRef("");
+  const guideEpochRef = useRef(0);
 
   const [favorites, setFavorites] = useState<string[]>([]);
   const [recentIds, setRecentIds] = useState<string[]>([]);
@@ -595,7 +596,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
             );
       windowStartRef.current = data.start;
       windowEndRef.current = data.end;
-      applyGuidePrograms(makeGuideProgramWindowKey(data.start, data.end), nextPrograms);
+      guideEpochRef.current = data.guideEpoch || 0;
+      applyGuidePrograms(makeGuideProgramWindowKey(data.start, data.end, guideEpochRef.current), nextPrograms);
       setChannels((prev) => {
         if (
           prev.length === nextChannels.length &&
@@ -673,7 +675,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       // Date/window changed while SQLite was reading. Do not paint an old day.
       if (start !== windowStartRef.current || end !== windowEndRef.current) return;
       if (delta && Object.keys(delta).length) {
-        applyGuidePrograms(makeGuideProgramWindowKey(start, end), delta);
+        applyGuidePrograms(makeGuideProgramWindowKey(start, end, guideEpochRef.current), delta);
       }
     } catch {
       /* keep last-good programmes on the glass */
