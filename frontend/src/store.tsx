@@ -12,6 +12,11 @@ import {
   subscribeSource,
 } from "@/src/source";
 import { isGuideSurfing, onGuideSurfSettled } from "@/src/utils/guideSurfGate";
+import {
+  applyGuidePrograms,
+  getGuidePrograms,
+  makeGuideProgramWindowKey,
+} from "@/src/core/guideProgramsStore";
 import { reminderKey, setTimeFormat24h } from "@/src/utils/time";
 import { sanitizeFavoriteIds, toggleFavoriteId } from "@/src/utils/favoriteIds";
 import { pushRecentId, sanitizeRecentIds } from "@/src/utils/recentIds";
@@ -102,8 +107,6 @@ export type ActiveProgram = { program: Program; channel: Channel } | null;
 
 export type Store = {
   channels: Channel[];
-  /** Normalized EPG programmes keyed by playlist channel id — patchable without remounting channels. */
-  programsByChannelId: Record<string, Program[]>;
   windowStart: string;
   windowEnd: string;
   loading: boolean;
@@ -192,7 +195,6 @@ export function useStore(): Store {
 
 export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [channels, setChannels] = useState<Channel[]>([]);
-  const [programsByChannelId, setProgramsByChannelId] = useState<Record<string, Program[]>>({});
   const [windowStart, setWindowStart] = useState("");
   const [windowEnd, setWindowEnd] = useState("");
   const [loading, setLoading] = useState(true);
@@ -204,7 +206,10 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const refreshSilentRef = useRef<(silent?: boolean) => Promise<void>>(async () => undefined);
   const pendingSilentRefreshRef = useRef(false);
   const patchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const patchRequestRef = useRef(0);
+  const patchInFlightRef = useRef(false);
+  const pendingPatchIdsRef = useRef(new Set<string>());
+  const windowStartRef = useRef("");
+  const windowEndRef = useRef("");
 
   const [favorites, setFavorites] = useState<string[]>([]);
   const [recentIds, setRecentIds] = useState<string[]>([]);
@@ -419,12 +424,12 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     (id: string) => {
       const channel = channelByIdMap.get(id);
       if (!channel) return undefined;
-      const programs = programsByChannelId[id];
+      const programs = getGuidePrograms(id);
       if (!programs?.length) return channel;
       if (channel.programs === programs) return channel;
-      return { ...channel, programs };
+      return { ...channel, programs: [...programs] };
     },
-    [channelByIdMap, programsByChannelId],
+    [channelByIdMap],
   );
 
   const isFavorite = useCallback((id: string) => favoritesSet.has(id), [favoritesSet]);
@@ -571,6 +576,13 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       const start = isToday ? undefined : day.startOf("day").toISOString();
       const data = await loadGuide(start, guideWindowHoursRef.current);
       if (requestId !== refreshRequestRef.current) return;
+      // A refresh that began just before held D-pad input must never land a
+      // whole-guide update under native focus. Keep its data out of React and
+      // request one fresh, scoped refresh after surf settles.
+      if (silent && isGuideSurfing()) {
+        pendingSilentRefreshRef.current = true;
+        return;
+      }
       // Keep channel meta stable when identity/order unchanged; always merge programmes.
       const nextChannels = applyManualEpgRemaps(data.channels, epgManualRemapsRef.current);
       const nextPrograms =
@@ -581,7 +593,9 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
                 .filter((channel) => Array.isArray(channel.programs) && channel.programs.length)
                 .map((channel) => [channel.id, channel.programs as Program[]]),
             );
-      setProgramsByChannelId((prev) => ({ ...prev, ...nextPrograms }));
+      windowStartRef.current = data.start;
+      windowEndRef.current = data.end;
+      applyGuidePrograms(makeGuideProgramWindowKey(data.start, data.end), nextPrograms);
       setChannels((prev) => {
         if (
           prev.length === nextChannels.length &&
@@ -600,19 +614,18 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
         ) {
           return prev;
         }
-        // Strip nested programs from channel objects — UI reads programsByChannelId.
-        return nextChannels.map((channel) => {
-          if (!channel.programs?.length) return channel;
-          return {
-            id: channel.id,
-            tvg_id: channel.tvg_id,
-            name: channel.name,
-            logo: channel.logo,
-            group: channel.group,
-            url: channel.url,
-            stream_type: channel.stream_type,
-          };
-        });
+        // Strip all nested programs from meta rows. Rendered guide rows subscribe
+        // to their own external programme pointer, so one viewport delta cannot
+        // replace the FlashList data for every channel.
+        return nextChannels.map((channel) => ({
+          id: channel.id,
+          tvg_id: channel.tvg_id,
+          name: channel.name,
+          logo: channel.logo,
+          group: channel.group,
+          url: channel.url,
+          stream_type: channel.stream_type,
+        }));
       });
       setWindowStart(data.start);
       setWindowEnd(data.end);
@@ -646,38 +659,49 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
 
   refreshSilentRef.current = refresh;
 
-  const patchProgramsForChannelIds = useCallback(async (channelIds: string[]) => {
-    if (!channelIds.length) return;
-    const requestId = ++patchRequestRef.current;
-    if (patchTimerRef.current) clearTimeout(patchTimerRef.current);
-    await new Promise<void>((resolve) => {
-      patchTimerRef.current = setTimeout(() => resolve(), isGuideSurfing() ? 90 : 140);
-    });
-    if (requestId !== patchRequestRef.current) return;
+  const flushProgramPatchQueue = useCallback(async () => {
+    if (patchInFlightRef.current || pendingPatchIdsRef.current.size === 0) return;
+    if (!windowStartRef.current || !windowEndRef.current) return;
+
+    patchInFlightRef.current = true;
+    const ids = Array.from(pendingPatchIdsRef.current);
+    pendingPatchIdsRef.current.clear();
+    const start = windowStartRef.current;
+    const end = windowEndRef.current;
     try {
-      const day = dayjs(dateRef.current);
-      const isToday = day.isSame(dayjs(), "day");
-      const start = isToday ? undefined : day.startOf("day").toISOString();
-      const delta = await loadGuideProgramsForChannelIds(channelIds, start, guideWindowHoursRef.current);
-      if (requestId !== patchRequestRef.current) return;
-      if (!delta || !Object.keys(delta).length) return;
-      startTransition(() => {
-        setProgramsByChannelId((prev) => {
-          let changed = false;
-          const next = { ...prev };
-          for (const [id, list] of Object.entries(delta)) {
-            if (!list?.length) continue;
-            if (prev[id] === list) continue;
-            next[id] = list;
-            changed = true;
-          }
-          return changed ? next : prev;
-        });
-      });
+      const delta = await loadGuideProgramsForChannelIds(ids, start, guideWindowHoursRef.current);
+      // Date/window changed while SQLite was reading. Do not paint an old day.
+      if (start !== windowStartRef.current || end !== windowEndRef.current) return;
+      if (delta && Object.keys(delta).length) {
+        applyGuidePrograms(makeGuideProgramWindowKey(start, end), delta);
+      }
     } catch {
       /* keep last-good programmes on the glass */
+    } finally {
+      patchInFlightRef.current = false;
+      if (pendingPatchIdsRef.current.size > 0) {
+        if (patchTimerRef.current) clearTimeout(patchTimerRef.current);
+        patchTimerRef.current = setTimeout(() => {
+          patchTimerRef.current = null;
+          void flushProgramPatchQueue();
+        }, isGuideSurfing() ? 24 : 0);
+      }
     }
   }, []);
+
+  const patchProgramsForChannelIds = useCallback(async (channelIds: string[]) => {
+    for (const id of channelIds) {
+      if (id) pendingPatchIdsRef.current.add(id);
+    }
+    if (!pendingPatchIdsRef.current.size || patchInFlightRef.current || patchTimerRef.current) return;
+    // Leading-edge work keeps the next rows populated while the key is held;
+    // subsequent focus changes merge into one bounded request instead of
+    // cancelling the previous promise and leaving a blank corridor.
+    patchTimerRef.current = setTimeout(() => {
+      patchTimerRef.current = null;
+      void flushProgramPatchQueue();
+    }, isGuideSurfing() ? 16 : 32);
+  }, [flushProgramPatchQueue]);
 
   const setSelectedDate = useCallback(
     (d: string) => {
@@ -823,6 +847,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(
     () => () => {
+      if (patchTimerRef.current) clearTimeout(patchTimerRef.current);
+      pendingPatchIdsRef.current.clear();
       if (favoritesPersistTimer.current) clearTimeout(favoritesPersistTimer.current);
       if (favoritesPendingRef.current) void storage.setItem(FAV_KEY, favoritesPendingRef.current);
       if (recentPersistTimer.current) clearTimeout(recentPersistTimer.current);
@@ -870,7 +896,6 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const value: Store = useMemo(
     () => ({
       channels,
-      programsByChannelId,
       windowStart,
       windowEnd,
       loading,
@@ -942,7 +967,6 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     }),
     [
       channels,
-      programsByChannelId,
       windowStart,
       windowEnd,
       loading,

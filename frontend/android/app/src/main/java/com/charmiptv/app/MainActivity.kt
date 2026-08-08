@@ -24,11 +24,10 @@ class MainActivity : ReactActivity() {
         event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT ||
         event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT
 
-    // Keep the first press instant, but cap Android's very aggressive held-key
-    // repeat stream. Some Fire TV/remotes can produce focus moves faster than
-    // FlashList/Fabric can recycle rows, eventually leaving competing focus
-    // targets and a flashing/blank guide. ~15 moves/sec remains snappy for surfing
-    // while giving weak Fire TV hardware two frames to recycle each destination.
+    // Keep the first press instant and preserve normal Android TV remote repeat
+    // cadence. The TV guide now keeps a native-sized focus runway and does not
+    // rebuild FlashList data per row, so high-end Android TV devices must not be
+    // artificially capped at an old weak-stick navigation rate.
     if (event.action == android.view.KeyEvent.ACTION_DOWN && directional) {
       if (event.repeatCount == 0) {
         lastAcceptedDirectionalKeyCode = event.keyCode
@@ -123,6 +122,6 @@ class MainActivity : ReactActivity() {
   }
 
   companion object {
-    private const val MIN_DPAD_REPEAT_MS = 64L
+    private const val MIN_DPAD_REPEAT_MS = 40L
   }
 }

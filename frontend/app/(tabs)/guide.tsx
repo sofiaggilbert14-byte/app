@@ -26,6 +26,7 @@ import { Channel } from "@/src/api";
 import { useStore } from "@/src/store";
 import { setPriorityMatchChannelIds, setViewportGuideChannelIds } from "@/src/source";
 import { markGuideSurfing } from "@/src/utils/guideSurfGate";
+import { hasGuidePrograms, useGuidePrograms } from "@/src/core/guideProgramsStore";
 import { getPowerProfileTuning } from "@/src/core/devicePowerProfile";
 import { channelHasEpgMatch } from "@/src/core/epgUserOverrides";
 import { fonts, radius, spacing, tvColors } from "@/src/theme";
@@ -74,7 +75,6 @@ export default function PurpleGuideScreen() {
   const { width: screenWidth } = useWindowDimensions();
   const {
     channels,
-    programsByChannelId,
     windowStart,
     windowEnd,
     loading,
@@ -283,31 +283,9 @@ export default function PurpleGuideScreen() {
     return list.filter((c) => !channelHasEpgMatch(c));
   }, [channels, epgGuideFilter, epgManualRemaps, favoriteSet, group, recent]);
 
-  // Attach programmes from the normalized map without rewriting stable channel meta refs
-  // when the programme pointer for that row is unchanged.
-  const filtered = useMemo(() => {
-    let changed = false;
-    const next = filteredMeta.map((channel) => {
-      const programs = programsByChannelId[channel.id];
-      if (!programs?.length) {
-        if (!channel.programs?.length) return channel;
-        changed = true;
-        return {
-          id: channel.id,
-          tvg_id: channel.tvg_id,
-          name: channel.name,
-          logo: channel.logo,
-          group: channel.group,
-          url: channel.url,
-          stream_type: channel.stream_type,
-        };
-      }
-      if (channel.programs === programs) return channel;
-      changed = true;
-      return { ...channel, programs };
-    });
-    return changed ? next : filteredMeta;
-  }, [filteredMeta, programsByChannelId]);
+  // Programme rows subscribe independently inside the grid. Keep FlashList's
+  // channel metadata array stable while a viewport EPG delta arrives.
+  const filtered = filteredMeta;
 
   const onViewportChannelIds = useCallback((ids: string[]) => {
     setViewportGuideChannelIds(ids);
@@ -364,8 +342,9 @@ export default function PurpleGuideScreen() {
     const focused = focusedId ? filtered.find((c) => c.id === focusedId) : null;
     if (focused) return focused;
     const last = lastChannelId ? filtered.find((c) => c.id === lastChannelId) : null;
-    return last || filtered.find((c) => (programsByChannelId[c.id] || c.programs)?.length) || filtered[0] || null;
-  }, [filtered, focusedId, lastChannelId, programsByChannelId]);
+    return last || filtered.find((c) => hasGuidePrograms(c.id)) || filtered[0] || null;
+  }, [filtered, focusedId, lastChannelId]);
+  const previewPrograms = useGuidePrograms(previewChannel?.id);
 
   const epgSourceChoices = useMemo(() => {
     type Choice = { id: string; label: string; score: number };
@@ -377,7 +356,7 @@ export default function PurpleGuideScreen() {
       if (!id) continue;
       const label = channel.name || id;
       const hay = `${label} ${id}`.toLowerCase();
-      const hasPrograms = !!(programsByChannelId[channel.id]?.length || channel.programs?.length);
+      const hasPrograms = hasGuidePrograms(channel.id);
       let score = hasPrograms ? 1000 : 0;
       if (focusToken && hay.includes(focusToken)) score += 200;
       if (focusName && hay.includes(focusName.slice(0, Math.min(12, focusName.length)))) score += 80;
@@ -389,7 +368,7 @@ export default function PurpleGuideScreen() {
     return Array.from(byId.values())
       .sort((a, b) => b.score - a.score || a.label.localeCompare(b.label))
       .slice(0, 200);
-  }, [channels, previewChannel?.name, programsByChannelId]);
+  }, [channels, previewChannel?.name]);
 
   const applyRemap = useCallback(
     (sourceId: string) => {
@@ -413,8 +392,8 @@ export default function PurpleGuideScreen() {
   }, [epgManualRemaps, focusedId, previewChannel?.id, setEpgManualRemaps]);
 
   const current = useMemo(
-    () => (previewChannel ? nowNext(previewChannel.programs, new Date(now)).current : undefined),
-    [now, previewChannel],
+    () => (previewChannel ? nowNext(previewPrograms, new Date(now)).current : undefined),
+    [now, previewChannel, previewPrograms],
   );
   const progress = current ? progressPct(current, new Date(now)) : 0;
   const previewVisible =

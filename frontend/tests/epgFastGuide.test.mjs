@@ -43,22 +43,32 @@ test("source loadGuide uses SQL join path and focus-ring programme patches", asy
   );
 });
 
-test("store normalizes programmes and defers silent refresh while surfing", async () => {
-  const [store, gate, guide] = await Promise.all([
+test("store patches per-row programmes and defers silent refresh while surfing", async () => {
+  const [store, gate, guide, timeline, programStore] = await Promise.all([
     source("src/store.tsx"),
     source("src/utils/guideSurfGate.ts"),
     source("app/(tabs)/guide.tsx"),
+    source("src/components/TimelineGrid.tsx"),
+    source("src/core/guideProgramsStore.ts"),
   ]);
-  assert.match(store, /programsByChannelId/);
+  assert.match(store, /applyGuidePrograms/);
+  assert.doesNotMatch(store, /const \[programsByChannelId, setProgramsByChannelId\]/);
   assert.match(store, /patchProgramsForChannelIds/);
+  assert.match(store, /pendingPatchIdsRef/);
+  assert.match(store, /patchInFlightRef/);
   assert.match(store, /isGuideSurfing/);
   assert.match(store, /pendingSilentRefreshRef/);
   assert.match(store, /onGuideSurfSettled/);
+  assert.match(programStore, /useSyncExternalStore/);
+  assert.match(programStore, /MAX_PROGRAMME_ROWS = 700/);
   assert.match(gate, /export function markGuideSurfing/);
   assert.match(gate, /export function isGuideSurfing/);
   assert.match(guide, /markGuideSurfing/);
   assert.match(guide, /patchProgramsForChannelIds/);
   assert.match(guide, /void patchProgramsForChannelIds\(ids\)/);
+  assert.match(timeline, /useGuidePrograms/);
+  assert.match(timeline, /data=\{channels\}/);
+  assert.doesNotMatch(timeline, /preparedRows/);
 });
 
 test("Media3 silent audio soft-fails into VLC engine swap", async () => {
