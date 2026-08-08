@@ -71,6 +71,19 @@ test("pauseSessionDecoders does not invalidate generation", () => {
   assert.equal(stops, 1);
 });
 
+test("begin/stop clear stale decoder callbacks after invoking them once", () => {
+  resetPlaybackSessionsForTests();
+  const gen1 = beginSession("fullscreen");
+  let stops = 0;
+  registerSessionStop("fullscreen", gen1, () => {
+    stops += 1;
+  });
+  beginSession("fullscreen");
+  assert.equal(stops, 1);
+  stopFullscreenSession();
+  assert.equal(stops, 1);
+});
+
 test("fullscreen stop does not tear down a later preview session", () => {
   resetPlaybackSessionsForTests();
   beginSession("fullscreen");
@@ -119,10 +132,13 @@ test("play entry points hand off through openFullscreenPlayer", async () => {
 });
 
 test("StreamPlayer and player route use role-scoped session teardown", async () => {
-  const [playerComp, playerRoute, lifecycle] = await Promise.all([
+  const [playerComp, playerRoute, lifecycle, handoff, vlcPatch, packageJson] = await Promise.all([
     source("src/components/StreamPlayer.tsx"),
     source("app/player.tsx"),
     source("src/utils/streamLifecycle.ts"),
+    source("src/utils/openFullscreenPlayer.ts"),
+    source("patches/react-native-vlc-media-player+1.0.98.patch"),
+    source("package.json"),
   ]);
   assert.match(playerComp, /pauseSessionDecoders\(role\)/);
   assert.match(playerComp, /beginSession\(role\)/);
@@ -131,10 +147,20 @@ test("StreamPlayer and player route use role-scoped session teardown", async () 
   assert.match(playerComp, /role === "preview"/);
   assert.match(playerComp, /rapidBurstRef\.current >= 2/);
   assert.match(playerComp, /clearFullscreenCircuit/);
+  assert.match(playerComp, /clear: true/);
+  assert.match(playerComp, /AppState\.addEventListener/);
+  assert.match(playerComp, /replaceQueueRef/);
+  assert.doesNotMatch(playerComp, /key=\{`vlc:\$\{uri\}:\$\{sessionGeneration\}`\}/);
   assert.doesNotMatch(playerComp, /forceStopAllStreams\(\)/);
   assert.match(playerRoute, /pauseSessionDecoders\("fullscreen"\)/);
   assert.match(playerRoute, /stopFullscreenSession/);
   assert.match(playerRoute, /sessionRole="fullscreen"/);
   assert.match(playerRoute, /clearFullscreenCircuit/);
+  assert.match(playerRoute, /MAX_AUTO_STREAM_RETRIES/);
+  assert.match(playerRoute, /restartStream\(false\)/);
+  assert.match(handoff, /FULLSCREEN_HANDOFF_SETTLE_MS = 90/);
+  assert.match(vlcPatch, /removeLifecycleEventListener/);
+  assert.match(vlcPatch, /mMediaPlayer = null/);
+  assert.match(packageJson, /"postinstall": "patch-package"/);
   assert.match(lifecycle, /playbackSession/);
 });

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Platform, UIManager, StyleProp, ViewStyle } from "react-native";
+import { AppState, Platform, UIManager, StyleProp, ViewStyle } from "react-native";
 import { VideoView, useVideoPlayer } from "expo-video";
 import { usePathname } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
@@ -243,7 +243,6 @@ function VlcStream({
   const activeRef = useRef(true);
   const tearingDownRef = useRef(false);
   const playerRef = useRef<any>(null);
-  const [paused, setPaused] = useState(false);
   const { uri, headers } = useMemo(() => parsePipeHeaders(rawUri), [rawUri]);
   const { blocked, setBlocked } = useCircuitCooldown(sessionRole, engine, uri, setStatus);
   const referer = headers.Referer || headers.referer;
@@ -279,23 +278,18 @@ function VlcStream({
   const hardStop = useCallback(() => {
     tearingDownRef.current = true;
     activeRef.current = false;
-    setPaused(true);
+    // Android's wrapper does not export stopPlayer as a native command.
+    // `clear` is the supported prop that calls cleanUpResources/releasePlayer.
     try {
-      playerRef.current?.stopPlayer?.();
+      playerRef.current?.setNativeProps?.({ clear: true });
     } catch {
       /* native teardown best-effort */
-    }
-    try {
-      playerRef.current?.setNativeProps?.({ paused: true });
-    } catch {
-      /* optional */
     }
   }, []);
 
   useEffect(() => {
     activeRef.current = true;
     tearingDownRef.current = false;
-    setPaused(false);
     const unregister = registerSessionStop(sessionRole, sessionGeneration, hardStop);
     return () => {
       unregister();
@@ -322,8 +316,8 @@ function VlcStream({
       ref={playerRef}
       style={style}
       source={{ uri, initType: 2, initOptions }}
-      paused={paused}
-      autoplay={!paused}
+      paused={false}
+      autoplay
       autoAspectRatio
       resizeMode="contain"
       acceptInvalidCertificates
@@ -338,10 +332,10 @@ function VlcStream({
           : [];
         onTracksAvailable?.({ audio, text });
       }}
-      onOpen={() => activeRef.current && !tearingDownRef.current && !paused && emit("loading")}
-      onBuffering={() => activeRef.current && !tearingDownRef.current && !paused && emit("loading")}
+      onOpen={() => activeRef.current && !tearingDownRef.current && emit("loading")}
+      onBuffering={() => activeRef.current && !tearingDownRef.current && emit("loading")}
       onPlaying={() => {
-        if (!activeRef.current || tearingDownRef.current || paused) return;
+        if (!activeRef.current || tearingDownRef.current) return;
         if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
         recordStablePlayback(sessionRole, engine, uri);
         emit("playing");
@@ -362,6 +356,8 @@ function ExpoStream({
 }: EngineProps) {
   const mountedRef = useRef(true);
   const tearingDownRef = useRef(false);
+  const loadIdRef = useRef(0);
+  const replaceQueueRef = useRef<Promise<void>>(Promise.resolve());
   const { uri, headers } = useMemo(() => parsePipeHeaders(rawUri), [rawUri]);
   const kind = useMemo(() => detectStreamKind(uri), [uri]);
   const { blocked, setBlocked } = useCircuitCooldown(sessionRole, engine, uri, setStatus);
@@ -389,6 +385,7 @@ function ExpoStream({
   }, [mode, player]);
 
   const hardStop = useCallback(() => {
+    loadIdRef.current += 1;
     tearingDownRef.current = true;
     mountedRef.current = false;
     try {
@@ -397,9 +394,10 @@ function ExpoStream({
     try {
       (player as any).muted = true;
     } catch {}
-    try {
-      void player.replaceAsync(null as any);
-    } catch {}
+    replaceQueueRef.current = replaceQueueRef.current
+      .catch(() => undefined)
+      .then(() => player.replaceAsync(null as any))
+      .catch(() => undefined);
   }, [player]);
 
   useEffect(() => {
@@ -417,15 +415,24 @@ function ExpoStream({
     if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
 
     let cancelled = false;
+    const loadId = ++loadIdRef.current;
     mountedRef.current = true;
     tearingDownRef.current = false;
     emit("loading");
     (async () => {
       try {
         const contentType = media3ContentType(kind);
-        await player.replaceAsync({ uri, headers, contentType });
+        const load = replaceQueueRef.current
+          .catch(() => undefined)
+          .then(async () => {
+            if (cancelled || loadId !== loadIdRef.current) return;
+            await player.replaceAsync({ uri, headers, contentType });
+          });
+        replaceQueueRef.current = load.catch(() => undefined);
+        await load;
         if (
           !cancelled &&
+          loadId === loadIdRef.current &&
           mountedRef.current &&
           !tearingDownRef.current &&
           isSessionCurrent(sessionRole, sessionGeneration)
@@ -452,13 +459,15 @@ function ExpoStream({
 
     return () => {
       cancelled = true;
+      loadIdRef.current += 1;
       tearingDownRef.current = true;
       try {
         player.pause();
       } catch {}
-      try {
-        void player.replaceAsync(null as any);
-      } catch {}
+      replaceQueueRef.current = replaceQueueRef.current
+        .catch(() => undefined)
+        .then(() => player.replaceAsync(null as any))
+        .catch(() => undefined);
     };
   }, [blocked, emit, engine, headers, kind, player, sessionGeneration, sessionRole, setBlocked, uri]);
 
@@ -512,6 +521,8 @@ export function StreamPlayer({
   const isGuidePreview = pathname === "/guide";
   const playbackMode = mode ?? (isGuidePreview ? "preview" : "full");
   const role: SessionRole = sessionRole ?? (playbackMode === "preview" ? "preview" : "fullscreen");
+  const [appActive, setAppActive] = useState(() => AppState.currentState === "active");
+  const playbackFocused = isFocused && appActive;
   // Player route owns zap/strip pause itself — avoid dual rapid-scan controllers.
   const pauseOnRapidScan = role === "preview";
   const [playerEnginePreference] = usePlayerEnginePreference();
@@ -520,7 +531,7 @@ export function StreamPlayer({
   const lastDirectionalAt = useRef(0);
   const rapidBurstRef = useRef(0);
   const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [sessionGeneration, setSessionGeneration] = useState(0);
+  const [session, setSession] = useState({ key: "", generation: 0 });
 
   const setStatus = useStatusTracker(onStatus, `${role}:${uri}`);
   const cleanUri = useMemo(() => parsePipeHeaders(uri).uri, [uri]);
@@ -536,7 +547,14 @@ export function StreamPlayer({
   const startTimeoutMs = role === "preview" ? PREVIEW_START_TIMEOUT_MS : FULLSCREEN_START_TIMEOUT_MS;
 
   useEffect(() => {
-    if (!isFocused || !pauseOnRapidScan || Platform.OS === "web") {
+    const sub = AppState.addEventListener("change", (state) => {
+      setAppActive(state === "active");
+    });
+    return () => sub.remove();
+  }, []);
+
+  useEffect(() => {
+    if (!playbackFocused || !pauseOnRapidScan || Platform.OS === "web") {
       setGuideScanSettled(true);
       rapidBurstRef.current = 0;
       return;
@@ -565,14 +583,14 @@ export function StreamPlayer({
         setGuideScanSettled(true);
       }, DECODER_RESUME_SETTLE_MS);
     });
-  }, [isFocused, pathname, pauseOnRapidScan, role]);
+  }, [pathname, pauseOnRapidScan, playbackFocused, role]);
 
   useEffect(() => {
-    if (!isFocused && settleTimer.current) {
+    if (!playbackFocused && settleTimer.current) {
       clearTimeout(settleTimer.current);
       settleTimer.current = null;
     }
-  }, [isFocused]);
+  }, [playbackFocused]);
 
   useEffect(
     () => () => {
@@ -581,18 +599,24 @@ export function StreamPlayer({
     [],
   );
 
+  const sessionKey = `${role}:${uri}:${initialEngine}`;
   useEffect(() => {
     const generation = beginSession(role);
-    setSessionGeneration(generation);
+    setSession({ key: sessionKey, generation });
     setSessionPhase(role, generation, "preparing");
     stableRef.current = false;
     setFallbackUsed(false);
     setEngine(initialEngine);
     setStatus("loading");
-  }, [initialEngine, role, setStatus, uri]);
+  }, [initialEngine, role, sessionKey, setStatus, uri]);
+
+  // URI changes render no child until beginSession has invalidated/released the
+  // previous decoder. This avoids mounting newUri:oldGeneration and immediately
+  // remounting it again when the generation effect runs.
+  const sessionGeneration = session.key === sessionKey ? session.generation : 0;
 
   useEffect(() => {
-    if (stableRef.current || !isFocused || !guideScanSettled || !sessionGeneration) return;
+    if (stableRef.current || !playbackFocused || !guideScanSettled || !sessionGeneration) return;
     // Preview: one engine only — no swap thrash while surfing the guide.
     if (role === "preview") {
       const timer = setTimeout(() => {
@@ -618,7 +642,7 @@ export function StreamPlayer({
       setStatus("loading", "start-timeout");
     }, startTimeoutMs);
     return () => clearTimeout(timer);
-  }, [engine, fallbackUsed, guideScanSettled, isFocused, role, sessionGeneration, setStatus, startTimeoutMs, uri]);
+  }, [engine, fallbackUsed, guideScanSettled, playbackFocused, role, sessionGeneration, setStatus, startTimeoutMs, uri]);
 
   const handleStatus = useCallback(
     (status: StreamStatus, reason?: SessionFailReason | null) => {
@@ -653,12 +677,12 @@ export function StreamPlayer({
     [engine, fallbackUsed, forceVlc, role, sessionGeneration, setStatus],
   );
 
-  if (!isFocused || !uri || (pauseOnRapidScan && !guideScanSettled) || !sessionGeneration) return null;
+  if (!playbackFocused || !uri || (pauseOnRapidScan && !guideScanSettled) || !sessionGeneration) return null;
 
   if (engine === "vlc") {
     return (
       <VlcStream
-        key={`vlc:${uri}:${sessionGeneration}`}
+        key={`vlc:${uri}`}
         uri={uri}
         onStatus={handleStatus}
         style={style}
@@ -674,7 +698,7 @@ export function StreamPlayer({
   }
   return (
     <ExpoStream
-      key={`media3:${uri}:${sessionGeneration}`}
+      key={`media3:${uri}`}
       uri={uri}
       onStatus={handleStatus}
       style={style}

@@ -30,6 +30,7 @@ import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
 const CHANNEL_PREVIEW_DELAY_MS = 650;
 const CHANNEL_ZAP_SETTLE_MS = 850;
 const STREAM_RETRY_MS = 3000;
+const MAX_AUTO_STREAM_RETRIES = 4;
 const SWITCH_NOTICE_MS = 1800;
 
 const FAIL_REASON_LABEL: Record<SessionFailReason, string> = {
@@ -292,12 +293,14 @@ export default function PlayerScreen() {
     changeChannel(target.id, true);
   }, [changeChannel, streamChannels]);
 
-  const retryNow = useCallback(() => {
+  const restartStream = useCallback((clearCircuit: boolean) => {
     if (!hasStream) return;
     if (retryTimer.current) clearTimeout(retryTimer.current);
     if (zapTimer.current) clearTimeout(zapTimer.current);
     const generation = generationRef.current;
-    clearFullscreenCircuit(channel?.url);
+    // Only a deliberate Retry button clears the breaker. Auto retry must honor
+    // accumulated failures or a bad source remounts native decoders forever.
+    if (clearCircuit) clearFullscreenCircuit(channel?.url);
     pauseSessionDecoders("fullscreen");
     setDecoderArmed(true);
     setStatus("loading");
@@ -308,6 +311,11 @@ export default function PlayerScreen() {
       if (generation === generationRef.current) setRetryToken((value) => value + 1);
     });
   }, [channel?.name, channel?.url, hasStream, showNotice]);
+
+  const retryNow = useCallback(() => {
+    setRetryAttempt(0);
+    restartStream(true);
+  }, [restartStream]);
 
   useEffect(() => {
     controlsRef.current = controls;
@@ -363,12 +371,14 @@ export default function PlayerScreen() {
 
   useEffect(() => {
     if (!autoRetryStreams || !hasStream || status !== "error") return;
+    if (retryAttempt >= MAX_AUTO_STREAM_RETRIES) return;
     if (retryTimer.current) clearTimeout(retryTimer.current);
-    retryTimer.current = setTimeout(retryNow, STREAM_RETRY_MS);
+    const delay = STREAM_RETRY_MS * Math.min(4, 2 ** retryAttempt);
+    retryTimer.current = setTimeout(() => restartStream(false), delay);
     return () => {
       if (retryTimer.current) clearTimeout(retryTimer.current);
     };
-  }, [autoRetryStreams, hasStream, retryNow, status]);
+  }, [autoRetryStreams, hasStream, restartStream, retryAttempt, status]);
 
   useEffect(() => {
     if (!isTV) return;

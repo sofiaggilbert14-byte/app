@@ -1,0 +1,81 @@
+diff --git a/node_modules/react-native-vlc-media-player/android/src/main/java/com/yuanzhou/vlc/vlcplayer/ReactVlcPlayerView.java b/node_modules/react-native-vlc-media-player/android/src/main/java/com/yuanzhou/vlc/vlcplayer/ReactVlcPlayerView.java
+index 8c7acdf..7544e21 100755
+--- a/node_modules/react-native-vlc-media-player/android/src/main/java/com/yuanzhou/vlc/vlcplayer/ReactVlcPlayerView.java
++++ b/node_modules/react-native-vlc-media-player/android/src/main/java/com/yuanzhou/vlc/vlcplayer/ReactVlcPlayerView.java
+@@ -363,7 +363,7 @@ class ReactVlcPlayerView extends TextureView implements
+ 
+             if (initOptions != null) {
+                 ArrayList options = initOptions.toArrayList();
+-                for (int i = 0; i < options.size() - 1; i++) {
++                for (int i = 0; i < options.size(); i++) {
+                     String option = (String) options.get(i);
+                     cOptions.add(option);
+                 }
+@@ -443,7 +443,7 @@ class ReactVlcPlayerView extends TextureView implements
+             //添加media  option
+             if (mediaOptions != null) {
+                 ArrayList options = mediaOptions.toArrayList();
+-                for (int i = 0; i < options.size() - 1; i++) {
++                for (int i = 0; i < options.size(); i++) {
+                     String option = (String) options.get(i);
+                     m.addOption(option);
+                 }
+@@ -491,16 +491,20 @@ class ReactVlcPlayerView extends TextureView implements
+         if (libvlc == null)
+             return;
+ 
+-        final IVLCVout vout = mMediaPlayer.getVLCVout();
+-        vout.removeCallback(callback);
+-        vout.detachViews();
+-        //surfaceView.removeOnLayoutChangeListener(onLayoutChangeListener);
+-        mMediaPlayer.release();
++        if (mMediaPlayer != null) {
++            final IVLCVout vout = mMediaPlayer.getVLCVout();
++            vout.removeCallback(callback);
++            vout.detachViews();
++            //surfaceView.removeOnLayoutChangeListener(onLayoutChangeListener);
++            mMediaPlayer.release();
++            mMediaPlayer = null;
++        }
+         libvlc.release();
+         libvlc = null;
+ 
+         if(mProgressUpdateRunnable != null){
+             mProgressUpdateHandler.removeCallbacks(mProgressUpdateRunnable);
++            mProgressUpdateRunnable = null;
+         }
+     }
+ 
+@@ -752,6 +756,7 @@ class ReactVlcPlayerView extends TextureView implements
+     }
+ 
+     public void cleanUpResources() {
++        themedReactContext.removeLifecycleEventListener(this);
+         if (surfaceView != null) {
+             surfaceView.removeOnLayoutChangeListener(onLayoutChangeListener);
+         }
+diff --git a/node_modules/react-native-vlc-media-player/android/src/main/java/com/yuanzhou/vlc/vlcplayer/ReactVlcPlayerViewManager.java b/node_modules/react-native-vlc-media-player/android/src/main/java/com/yuanzhou/vlc/vlcplayer/ReactVlcPlayerViewManager.java
+index b935a4d..80ed6db 100755
+--- a/node_modules/react-native-vlc-media-player/android/src/main/java/com/yuanzhou/vlc/vlcplayer/ReactVlcPlayerViewManager.java
++++ b/node_modules/react-native-vlc-media-player/android/src/main/java/com/yuanzhou/vlc/vlcplayer/ReactVlcPlayerViewManager.java
+@@ -179,7 +179,8 @@ public class ReactVlcPlayerViewManager extends SimpleViewManager<ReactVlcPlayerV
+         return MapBuilder.of(
+             "startRecording", 1,
+             "stopRecording", 2,
+-            "snapshot", 3
++            "snapshot", 3,
++            "stopPlayer", 4
+         );
+     }
+ 
+@@ -204,6 +205,10 @@ public class ReactVlcPlayerViewManager extends SimpleViewManager<ReactVlcPlayerV
+                 }
+                 break;
+ 
++            case 4:
++                root.stopPlayer();
++                break;
++
+             default:
+                 break;
+         }
