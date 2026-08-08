@@ -24,9 +24,12 @@ test("Expo Video patch disables chunkless HLS prep and exposes renderer track ca
   const patch = await source("patches/expo-video+3.0.16.patch");
   assert.match(patch, /HlsMediaSource/);
   assert.match(patch, /setAllowChunklessPreparation\(false\)/);
+  assert.match(patch, /HlsAudioRecoveryPlaylistParserFactory/);
+  assert.match(patch, /setPlaylistParserFactory/);
   assert.match(patch, /EXTENSION_RENDERER_MODE_PREFER/);
   assert.match(patch, /mimeType/);
   assert.match(patch, /isSupported/);
+  assert.match(patch, /IPTV HLS manifests often omit a stable FORMAT id/);
 });
 
 test("Android TV build includes a pinned LGPL Media3 FFmpeg audio extension", async () => {

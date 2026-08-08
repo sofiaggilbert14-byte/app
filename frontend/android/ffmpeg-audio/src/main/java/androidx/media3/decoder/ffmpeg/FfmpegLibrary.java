@@ -22,7 +22,6 @@ import androidx.media3.common.MimeTypes;
 import androidx.media3.common.util.LibraryLoader;
 import androidx.media3.common.util.Log;
 import androidx.media3.common.util.UnstableApi;
-import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 
 /** Configures and queries the underlying native library. */
 @UnstableApi
@@ -42,7 +41,7 @@ public final class FfmpegLibrary {
         }
       };
 
-  private static @MonotonicNonNull String version;
+  @Nullable private static String version;
   private static int inputBufferPaddingSize = C.LENGTH_UNSET;
 
   private FfmpegLibrary() {}

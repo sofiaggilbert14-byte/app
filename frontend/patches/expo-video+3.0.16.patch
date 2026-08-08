@@ -1,3 +1,110 @@
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/HlsAudioRecoveryPlaylistParserFactory.java b/node_modules/expo-video/android/src/main/java/expo/modules/video/HlsAudioRecoveryPlaylistParserFactory.java
+new file mode 100644
+index 0000000..32688b5
+--- /dev/null
++++ b/node_modules/expo-video/android/src/main/java/expo/modules/video/HlsAudioRecoveryPlaylistParserFactory.java
+@@ -0,0 +1,101 @@
++package expo.modules.video;
++
++import android.net.Uri;
++import androidx.annotation.Nullable;
++import androidx.media3.common.util.UnstableApi;
++import androidx.media3.exoplayer.hls.playlist.DefaultHlsPlaylistParserFactory;
++import androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist;
++import androidx.media3.exoplayer.hls.playlist.HlsMultivariantPlaylist;
++import androidx.media3.exoplayer.hls.playlist.HlsPlaylist;
++import androidx.media3.exoplayer.hls.playlist.HlsPlaylistParserFactory;
++import androidx.media3.exoplayer.upstream.ParsingLoadable;
++import java.io.IOException;
++import java.io.InputStream;
++import java.util.ArrayList;
++import java.util.LinkedHashSet;
++import java.util.List;
++import java.util.Set;
++
++/**
++ * Conservatively repairs one common IPTV HLS defect: a master playlist declares
++ * an external AUDIO rendition group but variants refer to a different group
++ * spelling. There is no safe general repair when the provider omits the audio
++ * URI entirely, so this class never invents an unlinked playlist URL.
++ */
++@UnstableApi
++public final class HlsAudioRecoveryPlaylistParserFactory implements HlsPlaylistParserFactory {
++  private final DefaultHlsPlaylistParserFactory delegate = new DefaultHlsPlaylistParserFactory();
++
++  @Override
++  public ParsingLoadable.Parser<HlsPlaylist> createPlaylistParser() {
++    return new RepairingParser(delegate.createPlaylistParser());
++  }
++
++  @Override
++  public ParsingLoadable.Parser<HlsPlaylist> createPlaylistParser(
++      HlsMultivariantPlaylist multivariantPlaylist,
++      @Nullable HlsMediaPlaylist previousMediaPlaylist) {
++    return new RepairingParser(delegate.createPlaylistParser(multivariantPlaylist, previousMediaPlaylist));
++  }
++
++  private static final class RepairingParser implements ParsingLoadable.Parser<HlsPlaylist> {
++    private final ParsingLoadable.Parser<HlsPlaylist> delegate;
++
++    RepairingParser(ParsingLoadable.Parser<HlsPlaylist> delegate) {
++      this.delegate = delegate;
++    }
++
++    @Override
++    public HlsPlaylist parse(Uri uri, InputStream inputStream) throws IOException {
++      return repair(delegate.parse(uri, inputStream));
++    }
++  }
++
++  private static HlsPlaylist repair(HlsPlaylist playlist) {
++    if (!(playlist instanceof HlsMultivariantPlaylist)) return playlist;
++    HlsMultivariantPlaylist master = (HlsMultivariantPlaylist) playlist;
++
++    Set<String> groups = new LinkedHashSet<>();
++    for (HlsMultivariantPlaylist.Rendition rendition : master.audios) {
++      // A null URI is muxed audio and cannot repair an external linkage.
++      if (rendition.url != null && !rendition.groupId.isEmpty()) groups.add(rendition.groupId);
++    }
++    if (groups.size() != 1) return master;
++
++    String declaredAudioGroup = groups.iterator().next();
++    boolean changed = false;
++    List<HlsMultivariantPlaylist.Variant> variants = new ArrayList<>(master.variants.size());
++    for (HlsMultivariantPlaylist.Variant variant : master.variants) {
++      // Repair only an explicitly broken reference. A missing AUDIO attribute
++      // may be genuine muxed audio, and guessing would attach wrong language.
++      if (variant.audioGroupId != null && !declaredAudioGroup.equals(variant.audioGroupId)) {
++        changed = true;
++        variants.add(
++            new HlsMultivariantPlaylist.Variant(
++                variant.url,
++                variant.format,
++                variant.videoGroupId,
++                declaredAudioGroup,
++                variant.subtitleGroupId,
++                variant.captionGroupId));
++      } else {
++        variants.add(variant);
++      }
++    }
++    if (!changed) return master;
++
++    return new HlsMultivariantPlaylist(
++        master.baseUri,
++        master.tags,
++        variants,
++        master.videos,
++        master.audios,
++        master.subtitles,
++        master.closedCaptions,
++        master.muxedAudioFormat,
++        master.muxedCaptionFormats,
++        master.hasIndependentSegments,
++        master.variableDefinitions,
++        master.sessionKeyDrmInitData);
++  }
++}
 diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayer.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayer.kt
 index 1c7a55c..3a5a5e9 100644
 --- a/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayer.kt
@@ -15,7 +122,7 @@ index 1c7a55c..3a5a5e9 100644
      .setEnableDecoderFallback(true)
    private var listeners: MutableList<WeakReference<VideoPlayerListener>> = mutableListOf()
 diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerAudioTracks.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerAudioTracks.kt
-index 0cdcc0b..57983ed 100644
+index 0cdcc0b..d29e80c 100644
 --- a/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerAudioTracks.kt
 +++ b/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerAudioTracks.kt
 @@ -60,7 +60,7 @@ class VideoPlayerAudioTracks(owner: VideoPlayer) : VideoPlayerListener {
@@ -27,11 +134,20 @@ index 0cdcc0b..57983ed 100644
            availableAudioTracks.add(track)
          }
        }
+@@ -83,7 +83,7 @@ class VideoPlayerAudioTracks(owner: VideoPlayer) : VideoPlayerListener {
+       return
+     }
+     val format = formatsToGroups.keys.firstOrNull {
+-      it.id == audioTrack.id
++      AudioTrack.fromFormat(it)?.id == audioTrack.id
+     }
+     format?.let {
+       formatsToGroups[it]?.let { subtitlePair ->
 diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/records/Tracks.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/records/Tracks.kt
-index 20dcbb7..ffd0bd3 100644
+index 20dcbb7..c365bff 100644
 --- a/node_modules/expo-video/android/src/main/java/expo/modules/video/records/Tracks.kt
 +++ b/node_modules/expo-video/android/src/main/java/expo/modules/video/records/Tracks.kt
-@@ -32,10 +32,14 @@ class SubtitleTrack(
+@@ -32,19 +32,34 @@ class SubtitleTrack(
  class AudioTrack(
    @Field val id: String,
    @Field val language: String?,
@@ -46,9 +162,20 @@ index 20dcbb7..ffd0bd3 100644
 -    fun fromFormat(format: Format?): AudioTrack? {
 +    fun fromFormat(format: Format?, isSupported: Boolean = true): AudioTrack? {
        format ?: return null
-       val id = format.id ?: return null
+-      val id = format.id ?: return null
++      // IPTV HLS manifests often omit a stable FORMAT id. Keep the track
++      // selectable by deriving a deterministic identity instead of dropping it
++      // from availableAudioTracks altogether.
++      val id = format.id
++        ?: listOf(
++          format.sampleMimeType ?: "audio",
++          format.language ?: "und",
++          format.channelCount.toString(),
++          format.sampleRate.toString()
++        ).joinToString(":")
        val language = format.language
-@@ -44,7 +48,9 @@ class AudioTrack(
+       val label = language?.let { Locale(it).displayLanguage } ?: "Unknown"
+ 
        return AudioTrack(
          id = id,
          language = language,
@@ -60,10 +187,10 @@ index 20dcbb7..ffd0bd3 100644
      }
    }
 diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/DataSourceUtils.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/DataSourceUtils.kt
-index 7e213f7..2ded70b 100644
+index 7e213f7..13bd7aa 100644
 --- a/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/DataSourceUtils.kt
 +++ b/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/DataSourceUtils.kt
-@@ -10,8 +10,10 @@ import androidx.media3.datasource.DefaultDataSource
+@@ -10,8 +10,11 @@ import androidx.media3.datasource.DefaultDataSource
  import androidx.media3.datasource.cache.CacheDataSource
  import androidx.media3.datasource.okhttp.OkHttpDataSource
  import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -71,10 +198,11 @@ index 7e213f7..2ded70b 100644
  import androidx.media3.exoplayer.source.MediaSource
  import expo.modules.video.records.VideoSource
 +import expo.modules.video.enums.ContentType
++import expo.modules.video.HlsAudioRecoveryPlaylistParserFactory
  import okhttp3.OkHttpClient
  
  @OptIn(UnstableApi::class)
-@@ -63,8 +65,17 @@ fun buildExpoVideoMediaSource(context: Context, videoSource: VideoSource): Media
+@@ -63,8 +66,18 @@ fun buildExpoVideoMediaSource(context: Context, videoSource: VideoSource): Media
    } else {
      buildBaseDataSourceFactory(context, videoSource)
    }
@@ -87,6 +215,7 @@ index 7e213f7..2ded70b 100644
 +  if (videoSource.contentType == ContentType.HLS) {
 +    return HlsMediaSource.Factory(dataSourceFactory)
 +      .setAllowChunklessPreparation(false)
++      .setPlaylistParserFactory(HlsAudioRecoveryPlaylistParserFactory())
 +      .createMediaSource(mediaItem)
 +  }
 +  val mediaSourceFactory = buildMediaSourceFactory(context, dataSourceFactory)
