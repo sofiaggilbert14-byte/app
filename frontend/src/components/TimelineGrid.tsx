@@ -896,9 +896,6 @@ export const TimelineGrid = memo(function TimelineGrid({
             ref={listRef}
             keyExtractor={(row) => row.channel.id}
             drawDistance={Math.max(480, ROW_H * 8)}
-            overrideItemLayout={(layout) => {
-              layout.size = ROW_H;
-            }}
             removeClippedSubviews={false}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingBottom: 120 }}

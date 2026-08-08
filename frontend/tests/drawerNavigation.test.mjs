@@ -105,7 +105,6 @@ test("grids never open the drawer from D-pad Left", async () => {
   assert.match(box, /armGuideLeftFocusLock/);
   assert.match(box, /lockFocusLeft/);
   assert.match(timeline, /viewPosition: rapidVertical \? 0\.22 : 0\.45/);
-  assert.match(timeline, /overrideItemLayout/);
   assert.match(box, /viewPosition: 0\.25/);
   assert.doesNotMatch(timeline, /onLeftBoundary\?\.\(\)/);
   assert.doesNotMatch(box, /onLeftBoundary\?\.\(\)/);
