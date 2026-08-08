@@ -136,6 +136,8 @@ function useStatusTracker(
   resetKey: string,
 ) {
   const lastRef = useRef<StreamStatus | null>(null);
+  const onStatusRef = useRef(onStatus);
+  onStatusRef.current = onStatus;
 
   useEffect(() => {
     lastRef.current = null;
@@ -145,11 +147,11 @@ function useStatusTracker(
     if (lastRef.current === status && reason === undefined) return;
     lastRef.current = status;
     try {
-      onStatus(status, reason);
+      onStatusRef.current(status, reason);
     } catch (error) {
       console.warn("CharmIPTV stream status listener failed", error);
     }
-  }, [onStatus]);
+  }, []);
 }
 
 export const vlcAvailable = Platform.OS !== "web" && !!UIManager.getViewManagerConfig?.("RCTVLCPlayer");
@@ -398,9 +400,6 @@ function ExpoStream({
     try {
       player.pause();
     } catch {}
-    try {
-      (player as any).muted = true;
-    } catch {}
     if (mode === "preview") {
       void player.replaceAsync(null as any).catch(() => undefined);
     } else {
@@ -450,6 +449,10 @@ function ExpoStream({
           !tearingDownRef.current &&
           isSessionCurrent(sessionRole, sessionGeneration)
         ) {
+          try {
+            player.muted = false;
+            player.volume = 1;
+          } catch {}
           player.play();
         }
       } catch {
@@ -517,8 +520,8 @@ function ExpoStream({
       style={style}
       player={player}
       contentFit="contain"
+      surfaceType={Platform.OS === "android" ? "textureView" : undefined}
       nativeControls={false}
-      allowsFullscreen
     />
   );
 }
@@ -586,16 +589,6 @@ export function StreamPlayer({
 
   useEffect(() => {
     if (stableRef.current || !playbackFocused || !sessionGeneration) return;
-    // Preview: one engine only — no swap thrash while surfing the guide.
-    if (role === "preview") {
-      const timer = setTimeout(() => {
-        if (stableRef.current || !isSessionCurrent(role, sessionGeneration)) return;
-        setSessionPhase(role, sessionGeneration, "failed", "start-timeout");
-        setStatus("error", "start-timeout");
-      }, startTimeoutMs);
-      return () => clearTimeout(timer);
-    }
-
     const timer = setTimeout(() => {
       if (stableRef.current || fallbackUsed) return;
       if (!isSessionCurrent(role, sessionGeneration)) return;
@@ -623,8 +616,9 @@ export function StreamPlayer({
         setStatus("playing");
         return;
       }
-      // Preview stays on the first engine — logo fallback is better than swap flicker.
-      if (status === "error" && role === "fullscreen" && !forceVlc && !fallbackUsed) {
+      // One alternate-engine attempt handles HLS/codec differences between
+      // Media3 and VLC for both preview and fullscreen.
+      if (status === "error" && !forceVlc && !fallbackUsed) {
         const alternate = alternateEngine(engine, vlcAvailable);
         if (alternate) {
           setFallbackUsed(true);

@@ -410,6 +410,15 @@ export default function PlayerScreen() {
     router.back();
   }, [router]);
 
+  const handleStreamStatus = useCallback(
+    (next: StreamStatus, reason?: SessionFailReason | null) => {
+      setStatus(next);
+      if (reason !== undefined) setFailReason(reason);
+      if (next === "playing") setFailReason(null);
+    },
+    [],
+  );
+
   const goGuide = useCallback(() => {
     void Haptics.selectionAsync().catch(() => undefined);
     if (zapTimer.current) clearTimeout(zapTimer.current);
@@ -484,11 +493,7 @@ export default function PlayerScreen() {
               setAudioTracks(tracks.audio.filter((t) => Number.isFinite(t.id)));
               setTextTracks(tracks.text.filter((t) => Number.isFinite(t.id)));
             }}
-            onStatus={(next, reason) => {
-              setStatus(next);
-              if (reason !== undefined) setFailReason(reason);
-              if (next === "playing") setFailReason(null);
-            }}
+            onStatus={handleStreamStatus}
             style={StyleSheet.absoluteFill}
           />
         </ErrorBoundary>

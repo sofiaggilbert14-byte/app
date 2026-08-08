@@ -152,6 +152,11 @@ test("StreamPlayer and player route use role-scoped session teardown", async () 
   assert.match(playerComp, /replaceQueueRef/);
   assert.match(playerComp, /mode === "preview"/);
   assert.match(playerComp, /mediaOptions/);
+  assert.match(playerComp, /onStatusRef\.current/);
+  assert.match(playerComp, /surfaceType=\{Platform\.OS === "android" \? "textureView"/);
+  assert.match(playerComp, /player\.muted = false/);
+  assert.match(playerRoute, /onStatus=\{handleStreamStatus\}/);
+  assert.doesNotMatch(playerRoute, /onStatus=\{\(next, reason\) =>/);
   assert.doesNotMatch(playerComp, /key=\{`vlc:\$\{uri\}:\$\{sessionGeneration\}`\}/);
   assert.doesNotMatch(playerComp, /forceStopAllStreams\(\)/);
   assert.match(playerRoute, /pauseSessionDecoders\("fullscreen"\)/);
@@ -162,6 +167,7 @@ test("StreamPlayer and player route use role-scoped session teardown", async () 
   assert.match(playerRoute, /restartStream\(false\)/);
   assert.match(handoff, /FULLSCREEN_HANDOFF_SETTLE_MS = 90/);
   assert.match(vlcPatch, /removeLifecycleEventListener/);
+  assert.match(vlcPatch, /requestPlaybackAudioFocus/);
   assert.match(vlcPatch, /mMediaPlayer = null/);
   assert.match(packageJson, /"postinstall": "patch-package"/);
   assert.match(lifecycle, /playbackSession/);
