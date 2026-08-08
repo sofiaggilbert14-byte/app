@@ -45,7 +45,13 @@ test("Android TV build includes a pinned LGPL Media3 FFmpeg audio extension", as
   assert.match(appBuild, /implementation project\(':ffmpeg-audio'\)/);
   assert.match(settings, /include ':ffmpeg-audio'/);
   assert.match(workflow, /Build LGPL Media3 FFmpeg audio extension/);
+  assert.match(workflow, /ndk;27\.1\.12297006/);
+  assert.match(workflow, /cmake;3\.22\.1/);
+  assert.match(workflow, /build-media3-ffmpeg-audio\.sh/);
   assert.match(script, /ac3 eac3 dca truehd mlp/);
+  assert.match(script, /n6\.0/);
   assert.match(nativeBuildScript, /--disable-gpl/);
+  assert.match(nativeBuildScript, /--disable-nonfree/);
   assert.match(notice, /LGPL/i);
+  assert.match(notice, /patent/i);
 });
