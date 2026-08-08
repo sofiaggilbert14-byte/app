@@ -292,8 +292,15 @@ export default function PurpleGuideScreen() {
       if (!programs?.length) {
         if (!channel.programs?.length) return channel;
         changed = true;
-        const { programs: _drop, ...meta } = channel;
-        return meta;
+        return {
+          id: channel.id,
+          tvg_id: channel.tvg_id,
+          name: channel.name,
+          logo: channel.logo,
+          group: channel.group,
+          url: channel.url,
+          stream_type: channel.stream_type,
+        };
       }
       if (channel.programs === programs) return channel;
       changed = true;

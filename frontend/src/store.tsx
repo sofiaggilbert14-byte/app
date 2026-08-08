@@ -603,8 +603,15 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
         // Strip nested programs from channel objects — UI reads programsByChannelId.
         return nextChannels.map((channel) => {
           if (!channel.programs?.length) return channel;
-          const { programs: _programs, ...meta } = channel;
-          return meta;
+          return {
+            id: channel.id,
+            tvg_id: channel.tvg_id,
+            name: channel.name,
+            logo: channel.logo,
+            group: channel.group,
+            url: channel.url,
+            stream_type: channel.stream_type,
+          };
         });
       });
       setWindowStart(data.start);
