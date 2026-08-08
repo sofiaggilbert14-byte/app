@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Platform, StyleProp, View, ViewStyle } from "react-native";
+import { StyleProp, View, ViewStyle } from "react-native";
 import { storage } from "@/src/utils/storage";
 
 export type TvCalibration = {
@@ -109,25 +109,7 @@ export function useTvCalibration(): TvCalibrationContextValue {
 }
 
 export function TvCalibrationFrame({ children, style }: { children: React.ReactNode; style?: StyleProp<ViewStyle> }) {
-  const { calibration } = useTvCalibration();
-
-  // Zero fills the normal reported Android window. Positive values move an edge
-  // inward; negative values use negative margins to stretch that edge outward.
-  // This restores the old full-screen behavior while still letting users correct
-  // TVs that crop too much or expose unwanted borders.
-  const calibratedStyle: StyleProp<ViewStyle> = Platform.isTV
-    ? {
-        flex: 1,
-        marginLeft: Math.min(0, calibration.left),
-        marginRight: Math.min(0, calibration.right),
-        marginTop: Math.min(0, calibration.top),
-        marginBottom: Math.min(0, calibration.bottom),
-        paddingLeft: Math.max(0, calibration.left),
-        paddingRight: Math.max(0, calibration.right),
-        paddingTop: Math.max(0, calibration.top),
-        paddingBottom: Math.max(0, calibration.bottom),
-      }
-    : { flex: 1 };
-
-  return <View style={[calibratedStyle, style]}>{children}</View>;
+  // Edge insets are applied once in PurpleTvShell via combineTvEdgeInsets(safe, calibration).
+  // Applying padding here too permanently double-letterboxed large TVs and made +/− feel identical.
+  return <View style={[{ flex: 1 }, style]}>{children}</View>;
 }

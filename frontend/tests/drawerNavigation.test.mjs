@@ -40,7 +40,7 @@ test("drawer uses bounded native motion and excludes hidden controls from TV foc
     readFile(join(root, "app/(tabs)/_layout.tsx"), "utf8"),
   ]);
   assert.match(shell, /useNativeDriver: true/);
-  assert.match(shell, /width: drawerOpen \? PURPLE_SIDEBAR_WIDTH : 0/);
+  assert.match(shell, /styles\.sidebarSpacer|sidebarSpacer/);
   assert.match(shell, /focusable=\{drawerOpen\}/);
   assert.match(shell, /trapFocusRight/);
   assert.match(shell, /closeDrawer\(\);/);
@@ -51,9 +51,11 @@ test("drawer uses bounded native motion and excludes hidden controls from TV foc
   assert.match(shell, /close-drawer/);
   assert.match(shell, /closeDrawer\(\)/);
   assert.match(shell, /PURPLE_RAIL_PEEK_WIDTH/);
+  assert.match(shell, /sidebarOverlay/);
   assert.match(shell, /onLongPress=\{exit\}/);
   assert.match(shell, /Hold Exit/);
   assert.match(shell, /purple-rail-open-drawer/);
+  assert.match(shell, /combineTvEdgeInsets/);
   assert.doesNotMatch(shell, /NAV\.slice\(0,\s*6\)/);
   assert.doesNotMatch(shell, /useNativeDriver: false/);
   assert.doesNotMatch(shell, /AsyncStorage|refreshSource|clearGuideCache|SQLite|database/i);
@@ -71,11 +73,22 @@ test("guide tabs reclaim the left edge and top-row Up restores the active tab", 
   assert.match(guide, /openDrawer\(\)/);
   assert.match(guide, /openFullscreenPlayer/);
   assert.match(guide, /drawerWasOpenForFocusRef/);
-  assert.match(guide, /requestNativeFocusWithRetry\(lastGuideFocusNodeRef\.current, \[80, 180, 300\]\)/);
+  assert.match(guide, /requestNativeFocusWithRetry\(lastGuideFocusNodeRef\.current/);
   assert.match(guide, /setGuideNavigationActive/);
   assert.match(guide, /activeProgram \|\| drawerOpen/);
   assert.match(guide, /Preview recovering/);
   assert.match(guide, /setPreviewId\(null\)/);
+  assert.match(guide, /useTvBackHandler/);
+  assert.match(guide, /onBackTargetChange/);
+  assert.doesNotMatch(guide, /openDrawer\(\);\s*\n\s*return true/);
+});
+
+test("settings and reminders never open the drawer on a single Back", async () => {
+  const settings = await readFile(join(root, "app/(tabs)/settings.tsx"), "utf8");
+  const reminders = await readFile(join(root, "app/(tabs)/reminders.tsx"), "utf8");
+  assert.doesNotMatch(settings, /openDrawer\(\)/);
+  assert.doesNotMatch(reminders, /openDrawer\(\)/);
+  assert.match(settings, /Defer to PurpleTvShell/);
 });
 
 test("legacy route-level guide redirects cannot override the drawer", async () => {

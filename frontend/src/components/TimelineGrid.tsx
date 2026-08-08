@@ -101,7 +101,7 @@ type TimelineRowProps = {
   onChannelLongPress?: (channel: Channel) => void;
   onProgramPress: (program: Program, channel: Channel) => void;
   onProgramFocus: (program: PreparedProgram, channel: Channel, rowIndex: number) => void;
-  onRowChannelFocus: (channel: Channel, rowIndex: number) => void;
+  onRowChannelFocus: (channel: Channel, rowIndex: number, logoNode?: unknown) => void;
   onFocusNode?: (node: unknown) => void;
   preferInitialFocus?: boolean;
   lockFocusDown?: boolean;
@@ -282,7 +282,7 @@ const TimelineRow = memo(function TimelineRow({
   const handleChannelPress = useCallback(() => onChannelPress(item), [onChannelPress, item]);
   const handleChannelFocus = useCallback(() => {
     onFocusNode?.(logoPressableRef.current);
-    onRowChannelFocus(item, index);
+    onRowChannelFocus(item, index, logoPressableRef.current);
   }, [onFocusNode, onRowChannelFocus, item, index]);
   const handleChannelLongPress = useCallback(() => onChannelLongPress?.(item), [onChannelLongPress, item]);
   const handleProgramFocus = useCallback(
@@ -411,6 +411,8 @@ export const TimelineGrid = memo(function TimelineGrid({
   onFocusedRowChange,
   onGuideFocusNode,
   onViewportChannelIds,
+  onBackTargetChange,
+  reclaimToken = 0,
 }: {
   channels: Channel[];
   windowStart: string;
@@ -438,6 +440,10 @@ export const TimelineGrid = memo(function TimelineGrid({
   onGuideFocusNode?: (node: unknown) => void;
   /** Visible-ish channel ids around the focused row (viewport + overscan) for EPG query scoping. */
   onViewportChannelIds?: (ids: string[]) => void;
+  /** Tell parent whether focus is on channel logo vs programme (for Back step-left). */
+  onBackTargetChange?: (region: "channel" | "program", logoNode: unknown) => void;
+  /** Bumped after drawer close when restore may have missed — re-prefer row 0 logo. */
+  reclaimToken?: number;
 }) {
   const { width } = useWindowDimensions();
   const big = width >= 900;
@@ -614,6 +620,14 @@ export const TimelineGrid = memo(function TimelineGrid({
     } catch {}
   }, [resetToken, setHorizontalOffset]);
 
+  // Drawer-close reclaim: briefly re-prefer row 0 so focus can re-enter the grid.
+  useEffect(() => {
+    if (!reclaimToken) return;
+    setPreferFirstRow(true);
+    const clearPreferred = setTimeout(() => setPreferFirstRow(false), 420);
+    return () => clearTimeout(clearPreferred);
+  }, [reclaimToken]);
+
   useEffect(
     () => () => {
       if (escapeTimer.current) clearTimeout(escapeTimer.current);
@@ -714,23 +728,26 @@ export const TimelineGrid = memo(function TimelineGrid({
   }, [onChannelFocus, programViewportW, setHorizontalOffset, timelineWidth]);
 
   const onRowChannelFocus = useCallback(
-    (channel: Channel, rowIndex: number) => {
+    (channel: Channel, rowIndex: number, logoNode?: unknown) => {
       focusRegionRef.current = "channel";
       reportFocusedRow(rowIndex);
       onChannelFocus?.(channel);
+      onBackTargetChange?.("channel", logoNode || focusedNodeRef.current);
       if (preferFirstRow && rowIndex !== 0) setPreferFirstRow(false);
     },
-    [onChannelFocus, preferFirstRow, reportFocusedRow],
+    [onBackTargetChange, onChannelFocus, preferFirstRow, reportFocusedRow],
   );
 
   const onRowProgramFocus = useCallback(
     (prepared: PreparedProgram, channel: Channel, rowIndex: number) => {
+      focusRegionRef.current = "program";
       reportFocusedRow(rowIndex);
       focusedProgramKeyRef.current = prepared.key;
       keepProgramVisible(prepared, channel);
+      onBackTargetChange?.("program", null);
       if (preferFirstRow && rowIndex !== 0) setPreferFirstRow(false);
     },
-    [keepProgramVisible, preferFirstRow, reportFocusedRow],
+    [keepProgramVisible, onBackTargetChange, preferFirstRow, reportFocusedRow],
   );
 
   const lastRowIndex = Math.max(0, preparedRows.length - 1);

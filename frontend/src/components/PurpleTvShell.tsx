@@ -14,11 +14,12 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { fonts, radius, spacing, tvColors } from "@/src/theme";
-import { getTvSafeInsets } from "@/src/utils/tvLayout";
+import { combineTvEdgeInsets, getTvSafeInsets } from "@/src/utils/tvLayout";
 import { reclaimGuideBottomFocusIfArmed } from "@/src/utils/tvGuideFocusLock";
 import { requestNativeFocusWithRetry } from "@/src/utils/tvFocus";
 import { useStore } from "@/src/store";
 import { evaluateDrawerBack } from "@/src/core/drawerNavigationPolicy";
+import { useTvCalibration } from "@/src/tvCalibration";
 
 /** One-shot: first shell mount prefers the Live TV sidebar item at cold start. */
 let bootSidebarFocusPending = true;
@@ -134,10 +135,11 @@ export function PurpleTvShell({
   const { drawerOpen, drawerProgress, openDrawer, closeDrawer } = usePurpleTvDrawer();
   const { width, height } = useWindowDimensions();
   const { deviceLayoutMode, activeProgram } = useStore();
-  const safe = useMemo(
-    () => getTvSafeInsets(width, height, deviceLayoutMode),
-    [deviceLayoutMode, width, height],
-  );
+  const { calibration } = useTvCalibration();
+  const edges = useMemo(() => {
+    const safe = getTvSafeInsets(width, height, deviceLayoutMode);
+    return combineTvEdgeInsets(safe, calibration);
+  }, [calibration, deviceLayoutMode, height, width]);
   const [bootSidebarFocus] = useState(() => {
     if (!bootSidebarFocusPending) return false;
     bootSidebarFocusPending = false;
@@ -183,6 +185,8 @@ export function PurpleTvShell({
           return false;
         }
         if (decision === "arm-reopen") {
+          // First Back only arms — never opens. Guide may also consume Back first
+          // to step left in the timeline before this listener runs.
           reopenArmedAtRef.current = Date.now();
           return true;
         }
@@ -230,6 +234,7 @@ export function PurpleTvShell({
     [],
   );
 
+  // Fully off-screen when closed — never leave a half-drawer visible on large TVs.
   const drawerTranslateX = drawerProgress.interpolate({
     inputRange: [0, 1],
     outputRange: [-PURPLE_SIDEBAR_WIDTH, 0],
@@ -240,15 +245,112 @@ export function PurpleTvShell({
       style={[
         styles.root,
         {
-          paddingTop: safe.top,
-          paddingBottom: safe.bottom,
-          paddingLeft: safe.left,
-          paddingRight: safe.right,
+          paddingTop: edges.padding.top,
+          paddingBottom: edges.padding.bottom,
+          paddingLeft: edges.padding.left,
+          paddingRight: edges.padding.right,
+          marginTop: edges.margin.top,
+          marginBottom: edges.margin.bottom,
+          marginLeft: edges.margin.left,
+          marginRight: edges.margin.right,
         },
       ]}
     >
-      {!drawerOpen ? (
-        <FocusGuide style={styles.railPeek} trapFocusUp trapFocusDown trapFocusLeft>
+      {/* Absolute overlay drawer — slides completely past the left edge when closed. */}
+      <Animated.View
+        pointerEvents={drawerOpen ? "auto" : "none"}
+        style={[styles.sidebarOverlay, { transform: [{ translateX: drawerTranslateX }] }]}
+      >
+        <FocusGuide
+          style={styles.sidebar}
+          trapFocusUp
+          trapFocusDown
+          trapFocusLeft
+          trapFocusRight
+        >
+          <SmallBrand />
+          <View style={styles.nav}>
+            {NAV.map((item) => {
+              const selected = item.route === active;
+              const preferBootLiveTv = bootSidebarFocus && !bootFocusConsumed.current && item.route === "/";
+              return (
+                <Pressable
+                  key={item.route}
+                  ref={(node) => {
+                    if (node) navRefs.current.set(item.route, node);
+                    else navRefs.current.delete(item.route);
+                  }}
+                  focusable={drawerOpen}
+                  hasTVPreferredFocus={preferBootLiveTv}
+                  onFocus={() => {
+                    if (preferBootLiveTv) bootFocusConsumed.current = true;
+                  }}
+                  onPress={() => navigate(item.route)}
+                  style={({ focused }: any) => [
+                    styles.navRow,
+                    selected && styles.navRowSelected,
+                    selected && styles.navRowActiveMark,
+                    focused && styles.navRowFocused,
+                  ]}
+                  testID={`purple-nav-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
+                >
+                  <Ionicons
+                    name={selected ? (item.icon.replace("-outline", "") as any) : item.icon}
+                    size={15}
+                    color={selected ? "#fff" : tvColors.textMuted}
+                  />
+                  <Text numberOfLines={1} style={[styles.navText, selected && styles.navTextSelected]}>
+                    {item.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <View style={[styles.sidebarFooter, footerAction && styles.sidebarFooterRow]}>
+            {footerAction ? (
+              <Pressable
+                focusable={drawerOpen}
+                disabled={footerAction.disabled}
+                onPress={footerAction.onPress}
+                onFocus={() => {
+                  if (active === "/guide") reclaimGuideBottomFocusIfArmed();
+                }}
+                style={({ focused }: any) => [
+                  styles.footerCompact,
+                  footerAction.disabled && styles.footerDisabled,
+                  focused && styles.navRowFocused,
+                ]}
+                testID={footerAction.testID}
+              >
+                <Ionicons name={footerAction.icon} size={13} color={tvColors.textMuted} />
+                <Text numberOfLines={1} style={styles.footerCompactText}>{footerAction.label}</Text>
+              </Pressable>
+            ) : null}
+            <Pressable
+              focusable={drawerOpen}
+              onPress={promptHoldToExit}
+              onLongPress={exit}
+              delayLongPress={650}
+              onFocus={() => {
+                if (active === "/guide") reclaimGuideBottomFocusIfArmed();
+              }}
+              style={({ focused }: any) => [footerAction ? styles.footerCompact : styles.power, focused && styles.navRowFocused]}
+              testID="purple-nav-power"
+            >
+              <Ionicons name="power-outline" size={14} color={tvColors.textMuted} />
+              <Text numberOfLines={1} style={footerAction ? styles.footerCompactText : styles.powerText}>
+                {exitHint ? "Hold Exit" : "Exit"}
+              </Text>
+            </Pressable>
+          </View>
+        </FocusGuide>
+      </Animated.View>
+
+      {/* Spacer when open so content sits beside the drawer; menu-only peek when closed. */}
+      {drawerOpen ? (
+        <View style={styles.sidebarSpacer} />
+      ) : (
+        <View style={styles.railPeek}>
           <Pressable
             onPress={openDrawer}
             style={({ focused }: any) => [styles.railPeekHit, focused && styles.navRowFocused]}
@@ -256,106 +358,14 @@ export function PurpleTvShell({
           >
             <Ionicons name="menu-outline" size={16} color={tvColors.purpleSoft} />
           </Pressable>
-        </FocusGuide>
-      ) : null}
-
-      <View style={[styles.sidebarSlot, { width: drawerOpen ? PURPLE_SIDEBAR_WIDTH : 0 }]}>
-        <Animated.View
-          pointerEvents={drawerOpen ? "auto" : "none"}
-          style={[styles.sidebarMotion, { transform: [{ translateX: drawerTranslateX }] }]}
-        >
-          <FocusGuide
-            style={styles.sidebar}
-            trapFocusUp
-            trapFocusDown
-            trapFocusLeft
-            trapFocusRight
-          >
-            <SmallBrand />
-            <View style={styles.nav}>
-          {NAV.map((item) => {
-            const selected = item.route === active;
-            const preferBootLiveTv = bootSidebarFocus && !bootFocusConsumed.current && item.route === "/";
-            return (
-              <Pressable
-                key={item.route}
-                ref={(node) => {
-                  if (node) navRefs.current.set(item.route, node);
-                  else navRefs.current.delete(item.route);
-                }}
-                focusable={drawerOpen}
-                hasTVPreferredFocus={preferBootLiveTv}
-                onFocus={() => {
-                  if (preferBootLiveTv) bootFocusConsumed.current = true;
-                }}
-                onPress={() => navigate(item.route)}
-                style={({ focused }: any) => [
-                  styles.navRow,
-                  selected && styles.navRowSelected,
-                  selected && styles.navRowActiveMark,
-                  focused && styles.navRowFocused,
-                ]}
-                testID={`purple-nav-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
-              >
-                <Ionicons
-                  name={selected ? (item.icon.replace("-outline", "") as any) : item.icon}
-                  size={15}
-                  color={selected ? "#fff" : tvColors.textMuted}
-                />
-                <Text numberOfLines={1} style={[styles.navText, selected && styles.navTextSelected]}>
-                  {item.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-            </View>
-            <View style={[styles.sidebarFooter, footerAction && styles.sidebarFooterRow]}>
-          {footerAction ? (
-            <Pressable
-              focusable={drawerOpen}
-              disabled={footerAction.disabled}
-              onPress={footerAction.onPress}
-              onFocus={() => {
-                if (active === "/guide") reclaimGuideBottomFocusIfArmed();
-              }}
-              style={({ focused }: any) => [
-                styles.footerCompact,
-                footerAction.disabled && styles.footerDisabled,
-                focused && styles.navRowFocused,
-              ]}
-              testID={footerAction.testID}
-            >
-              <Ionicons name={footerAction.icon} size={13} color={tvColors.textMuted} />
-              <Text numberOfLines={1} style={styles.footerCompactText}>{footerAction.label}</Text>
-            </Pressable>
-          ) : null}
-          <Pressable
-            focusable={drawerOpen}
-            onPress={promptHoldToExit}
-            onLongPress={exit}
-            delayLongPress={650}
-            onFocus={() => {
-              if (active === "/guide") reclaimGuideBottomFocusIfArmed();
-            }}
-            style={({ focused }: any) => [footerAction ? styles.footerCompact : styles.power, focused && styles.navRowFocused]}
-            testID="purple-nav-power"
-          >
-            <Ionicons name="power-outline" size={14} color={tvColors.textMuted} />
-            <Text numberOfLines={1} style={footerAction ? styles.footerCompactText : styles.powerText}>
-              {exitHint ? "Hold Exit" : "Exit"}
-            </Text>
-          </Pressable>
-            </View>
-          </FocusGuide>
-        </Animated.View>
-      </View>
+        </View>
+      )}
 
       <FocusGuide
         style={[styles.content, contentStyle]}
         // Do not remount on every route (key churn steals focus). Guide owns its own
         // mount-once preferred focus; other screens get a short autoFocus pulse only.
         autoFocus={contentAutoFocus}
-        trapFocusDown
       >
         {children}
       </FocusGuide>
@@ -371,9 +381,17 @@ const styles = StyleSheet.create({
     backgroundColor: tvColors.canvas,
     overflow: "hidden",
   },
-  sidebarSlot: {
+  sidebarOverlay: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: PURPLE_SIDEBAR_WIDTH,
+    zIndex: 20,
+  },
+  sidebarSpacer: {
+    width: PURPLE_SIDEBAR_WIDTH,
     height: "100%",
-    zIndex: 10,
   },
   railPeek: {
     width: PURPLE_RAIL_PEEK_WIDTH,
@@ -395,13 +413,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 2,
     borderColor: "transparent",
-  },
-  sidebarMotion: {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: PURPLE_SIDEBAR_WIDTH,
   },
   sidebar: {
     width: PURPLE_SIDEBAR_WIDTH,

@@ -37,7 +37,7 @@ const EMPTY_PROGRAMS: Program[] = [];
 const TTL_MS = 24 * 60 * 60 * 1000;
 const PROGRESS_THROTTLE_MS = 150;
 /** Above this, match current-group / priority ids first, then the rest (keeps channels-first paint snappy). */
-const HUGE_PLAYLIST_MATCH_THRESHOLD = 2500;
+const HUGE_PLAYLIST_MATCH_THRESHOLD = 800;
 const CACHE_ROOT = FileSystem.documentDirectory || "";
 const CHANNEL_CACHE = CACHE_ROOT ? `${CACHE_ROOT}charm_native_channels_v2.json` : "";
 const LEGACY_CHANNEL_CACHE = CACHE_ROOT ? `${CACHE_ROOT}charm_native_channels_v1.json` : "";
@@ -530,8 +530,9 @@ export async function loadGuide(startISO?: string, hours = 8, force = false): Pr
 
   // Huge lists: query viewport (+ priority group) first for felt speed, then merge into cache
   // so off-screen rows keep previously fetched programmes instead of being wiped.
+  // Also scope the first paint when a viewport has already been reported (any list size).
   const huge = remapped.length >= HUGE_PLAYLIST_MATCH_THRESHOLD;
-  if (huge && viewportGuideChannelIds?.length) {
+  if ((huge || viewportGuideChannelIds?.length) && viewportGuideChannelIds?.length) {
     const want = new Set<string>([
       ...viewportGuideChannelIds,
       ...priorityMatchChannelIds.slice(0, 400),

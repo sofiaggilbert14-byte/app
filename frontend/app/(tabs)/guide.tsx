@@ -33,6 +33,7 @@ import { requestNativeFocus, requestNativeFocusWithRetry } from "@/src/utils/tvF
 import { setGuideNavigationActive } from "@/src/utils/tvRemote";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 import { MODAL_FOCUS_RETRY_DELAYS_MS } from "@/src/core/guideRegressionPolicy";
+import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
 
 const BASE_GROUPS = ["All", "Favorites", "Recently Watched", "Sports", "News", "Movies", "Kids", "Music"];
 
@@ -157,11 +158,20 @@ export default function PurpleGuideScreen() {
   // After the drawer closes on Guide, restore the last grid cell — content autoFocus
   // is intentionally skipped on /guide, so without this Left→drawer→close loses focus.
   const drawerWasOpenForFocusRef = useRef(drawerOpen);
+  const [gridReclaimToken, setGridReclaimToken] = useState(0);
   useEffect(() => {
     const wasOpen = drawerWasOpenForFocusRef.current;
     drawerWasOpenForFocusRef.current = drawerOpen;
     if (!wasOpen || drawerOpen || activeProgram) return;
-    return requestNativeFocusWithRetry(lastGuideFocusNodeRef.current, [80, 180, 300]);
+    // Longer retries — rail peek mounts on close and can win a short race.
+    const cancel = requestNativeFocusWithRetry(lastGuideFocusNodeRef.current, [120, 280, 480, 720, 1100]);
+    const fallback = setTimeout(() => {
+      setGridReclaimToken((value) => value + 1);
+    }, 500);
+    return () => {
+      cancel?.();
+      clearTimeout(fallback);
+    };
   }, [activeProgram, drawerOpen]);
 
   // After Remind/Cancel sheet closes, return focus to the guide cell — never Live TV.
@@ -176,15 +186,40 @@ export default function PurpleGuideScreen() {
     if (node) lastGuideFocusNodeRef.current = node;
   }, []);
 
+  const guideFocusRegionRef = useRef<"channel" | "program">("program");
+  const channelLogoNodeRef = useRef<unknown>(null);
+  const onGuideBackTarget = useCallback((region: "channel" | "program", logoNode: unknown) => {
+    guideFocusRegionRef.current = region;
+    if (logoNode) channelLogoNodeRef.current = logoNode;
+  }, []);
+
+  // Back in the guide: step to the channel logo first. Only at the left edge does
+  // Back defer to the shell double-Back drawer arm — never opens on a single press.
+  useTvBackHandler(
+    useCallback(() => {
+      if (drawerOpen || activeProgram) return false;
+      if (guideFocusRegionRef.current === "program" && channelLogoNodeRef.current) {
+        requestNativeFocus(channelLogoNodeRef.current);
+        guideFocusRegionRef.current = "channel";
+        return true;
+      }
+      return false;
+    }, [activeProgram, drawerOpen]),
+  );
+
   // While the guide owns vertical surf, consume D-pad natively so OS focus
   // does not race FlashList / TimelineGrid. Release while the drawer/modal owns focus.
+  // Wait a beat after drawer close so restore can land in the grid first.
   useEffect(() => {
     if (activeProgram || drawerOpen) {
       setGuideNavigationActive(false);
       return;
     }
-    setGuideNavigationActive(true);
-    return () => setGuideNavigationActive(false);
+    const timer = setTimeout(() => setGuideNavigationActive(true), 220);
+    return () => {
+      clearTimeout(timer);
+      setGuideNavigationActive(false);
+    };
   }, [activeProgram, drawerOpen]);
   useEffect(() => {
     if (loading || refreshing || channels.length > 0) return;
@@ -251,7 +286,7 @@ export default function PurpleGuideScreen() {
 
   // Huge playlists: prefer matching the visible group first on the next EPG refresh.
   useEffect(() => {
-    if (channels.length < 2500) {
+    if (channels.length < 800) {
       setPriorityMatchChannelIds([]);
       return;
     }
@@ -260,10 +295,16 @@ export default function PurpleGuideScreen() {
 
   const onViewportChannelIds = useCallback((ids: string[]) => {
     setViewportGuideChannelIds(ids);
-    if (channels.length >= 2500) {
+    if (channels.length >= 800) {
       setPriorityMatchChannelIds(ids.slice(0, 400));
     }
   }, [channels.length]);
+
+  // Seed viewport with the first page so cold guide paint is scoped before first focus.
+  useEffect(() => {
+    if (!filtered.length) return;
+    setViewportGuideChannelIds(filtered.slice(0, 24).map((c) => c.id));
+  }, [filtered]);
 
   const [remapOpen, setRemapOpen] = useState(false);
 
@@ -638,6 +679,8 @@ export default function PurpleGuideScreen() {
                   onFocusedRowChange={onFocusedGuideRow}
                   onGuideFocusNode={onGuideFocusNode}
                   onViewportChannelIds={onViewportChannelIds}
+                  onBackTargetChange={onGuideBackTarget}
+                  reclaimToken={gridReclaimToken}
                 />
               )}
             </FocusGuide>
