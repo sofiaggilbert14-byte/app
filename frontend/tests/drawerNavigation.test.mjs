@@ -54,7 +54,9 @@ test("drawer uses bounded native motion and excludes hidden controls from TV foc
   assert.match(shell, /sidebarOverlay/);
   assert.match(shell, /onLongPress=\{exit\}/);
   assert.match(shell, /Hold Exit/);
-  assert.match(shell, /purple-rail-open-drawer/);
+  assert.match(shell, /purple-rail-double-back-hint/);
+  assert.doesNotMatch(shell, /testID="purple-rail-open-drawer"/);
+  assert.match(shell, /decorative rail when closed/);
   assert.match(shell, /combineTvEdgeInsets/);
   assert.doesNotMatch(shell, /NAV\.slice\(0,\s*6\)/);
   assert.doesNotMatch(shell, /useNativeDriver: false/);
@@ -69,6 +71,7 @@ test("guide tabs reclaim the left edge and top-row Up restores the active tab", 
   assert.match(guide, /transform: \[\{ translateX: groupSlideX \}\]/);
   assert.match(guide, /requestNativeFocusWithRetry\(chip, \[0, 40, 120\]\)/);
   assert.match(guide, /onUpBoundary=\{onGuideUpBoundary\}/);
+  assert.match(guide, /trapFocusLeft/);
   assert.doesNotMatch(guide, /onLeftBoundary=\{onGuideLeftBoundary\}/);
   assert.doesNotMatch(guide, /onGuideLeftBoundary/);
   assert.doesNotMatch(guide, /openDrawer\(\)/);
@@ -90,7 +93,9 @@ test("grids never open the drawer from D-pad Left", async () => {
     readFile(join(root, "src/components/BoxGrid.tsx"), "utf8"),
   ]);
   assert.match(timeline, /armGuideLeftFocusLock/);
+  assert.match(timeline, /applyLeftFocusLock\(node, true\)/);
   assert.match(box, /armGuideLeftFocusLock/);
+  assert.match(box, /lockFocusLeft/);
   assert.doesNotMatch(timeline, /onLeftBoundary\?\.\(\)/);
   assert.doesNotMatch(box, /onLeftBoundary\?\.\(\)/);
   assert.match(timeline, /epg-timeline-now-indicator/);

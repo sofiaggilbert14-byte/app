@@ -17,7 +17,11 @@ import { ChannelLogo } from "./ChannelLogo";
 import { nowNext, progressPct, fmtTime, reminderKey } from "@/src/utils/time";
 import { useStore } from "@/src/store";
 import { requestNativeFocus } from "@/src/utils/tvFocus";
-import { armGuideBottomFocusLock, armGuideLeftFocusLock } from "@/src/utils/tvGuideFocusLock";
+import {
+  applyLeftFocusLock,
+  armGuideBottomFocusLock,
+  armGuideLeftFocusLock,
+} from "@/src/utils/tvGuideFocusLock";
 import { evaluateGuideNavigation } from "@/src/core/guideNavigationPolicy";
 
 const ACCENT = "#A855F7";
@@ -53,6 +57,7 @@ type ChannelCardProps = {
   preferInitialFocus?: boolean;
   hasReminder?: boolean;
   lockFocusDown?: boolean;
+  lockFocusLeft?: boolean;
 };
 
 const ChannelCard = memo(function ChannelCard({
@@ -72,6 +77,7 @@ const ChannelCard = memo(function ChannelCard({
   preferInitialFocus = false,
   hasReminder = false,
   lockFocusDown = false,
+  lockFocusLeft = false,
 }: ChannelCardProps) {
   const { current, next } = nowNext(item.programs, nowDate);
   const pct = progressPct(current, nowDate);
@@ -80,14 +86,16 @@ const ChannelCard = memo(function ChannelCard({
   const setCardRef = useCallback(
     (node: any) => {
       cardRef.current = node;
+      applyLeftFocusLock(node, lockFocusLeft);
       applyDownFocusLock(node, lockFocusDown);
     },
-    [lockFocusDown],
+    [lockFocusDown, lockFocusLeft],
   );
 
   useEffect(() => {
+    applyLeftFocusLock(cardRef.current, lockFocusLeft);
     applyDownFocusLock(cardRef.current, lockFocusDown);
-  }, [lockFocusDown]);
+  }, [lockFocusDown, lockFocusLeft]);
 
   const handleChannelPress = useCallback(() => onChannelPress(item), [item, onChannelPress]);
   const handleCurrentPress = useCallback(() => {
@@ -348,6 +356,7 @@ export function BoxGrid({
           preferInitialFocus={preferFirst && index === 0}
           hasReminder={reminded}
           lockFocusDown={row >= lastRowIndex}
+          lockFocusLeft={index % Math.max(1, numColumns) === 0}
         />
       );
     },

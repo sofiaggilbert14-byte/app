@@ -163,8 +163,8 @@ export default function PurpleGuideScreen() {
     const wasOpen = drawerWasOpenForFocusRef.current;
     drawerWasOpenForFocusRef.current = drawerOpen;
     if (!wasOpen || drawerOpen || activeProgram) return;
-    // Longer retries — rail peek mounts on close and can win a short race.
-    const cancel = requestNativeFocusWithRetry(lastGuideFocusNodeRef.current, [120, 280, 480, 720, 1100]);
+    // Reclaim immediately; the closed rail is decorative and cannot win focus.
+    const cancel = requestNativeFocusWithRetry(lastGuideFocusNodeRef.current, [0, 40, 120, 280, 480, 720]);
     const fallback = setTimeout(() => {
       setGridReclaimToken((value) => value + 1);
     }, 500);
@@ -276,27 +276,27 @@ export default function PurpleGuideScreen() {
     return list.filter((c) => !channelHasEpgMatch(c));
   }, [channels, epgGuideFilter, epgManualRemaps, favoriteSet, group, recent]);
 
-  // Huge playlists: prefer matching the visible group first on the next EPG refresh.
-  useEffect(() => {
-    if (channels.length < 400) {
-      setPriorityMatchChannelIds([]);
-      return;
-    }
-    setPriorityMatchChannelIds(filtered.slice(0, 400).map((c) => c.id));
-  }, [channels.length, filtered]);
-
   const onViewportChannelIds = useCallback((ids: string[]) => {
     setViewportGuideChannelIds(ids);
     if (channels.length >= 400) {
       setPriorityMatchChannelIds(ids.slice(0, 400));
+    } else {
+      setPriorityMatchChannelIds([]);
     }
   }, [channels.length]);
 
-  // Seed viewport with the first page so cold guide paint is scoped before first focus.
+  const viewportSeedKeyRef = useRef("");
+  // Seed only on cold load/group/reset. A silent refresh must not yank a deeply
+  // scrolled guide's EPG query scope back to the first channels.
   useEffect(() => {
     if (!filtered.length) return;
-    setViewportGuideChannelIds(filtered.slice(0, 24).map((c) => c.id));
-  }, [filtered]);
+    const key = `${group}:${resetToken}`;
+    if (viewportSeedKeyRef.current === key) return;
+    viewportSeedKeyRef.current = key;
+    const ids = filtered.slice(0, 24).map((c) => c.id);
+    setViewportGuideChannelIds(ids);
+    setPriorityMatchChannelIds(channels.length >= 400 ? ids : []);
+  }, [channels.length, filtered, group, resetToken]);
 
   const [remapOpen, setRemapOpen] = useState(false);
 
@@ -620,7 +620,7 @@ export default function PurpleGuideScreen() {
           <View style={styles.body}>
             {/* No autoFocus / trapFocusUp — preferred focus is mount-once on row 0, and Up-escape
                 is gated inside the grid. Flipping traps mid-surf freezes Fire TV focus. */}
-            <FocusGuide style={styles.gridPanel} trapFocusDown trapFocusRight>
+            <FocusGuide style={styles.gridPanel} trapFocusDown trapFocusLeft trapFocusRight>
               {guideLayout === "compact" ? (
                 <BoxGrid
                   channels={filtered}

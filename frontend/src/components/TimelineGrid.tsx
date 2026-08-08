@@ -20,7 +20,11 @@ import { Channel, Program } from "@/src/api";
 import { ChannelLogo } from "./ChannelLogo";
 import { reminderKey } from "@/src/utils/time";
 import { requestNativeFocus } from "@/src/utils/tvFocus";
-import { armGuideBottomFocusLock, armGuideLeftFocusLock } from "@/src/utils/tvGuideFocusLock";
+import {
+  applyLeftFocusLock,
+  armGuideBottomFocusLock,
+  armGuideLeftFocusLock,
+} from "@/src/utils/tvGuideFocusLock";
 import { CHANNEL_NAME_MAX_LINES, getGuideRailMetrics } from "@/src/core/guideLayoutPolicy";
 import { evaluateGuideNavigation } from "@/src/core/guideNavigationPolicy";
 
@@ -273,6 +277,9 @@ const TimelineRow = memo(function TimelineRow({
   const setLogoRef = useCallback(
     (node: any) => {
       logoPressableRef.current = node;
+      // Proactive self-target means the very first Left cannot escape into the
+      // closed rail before the JS boundary handler runs.
+      applyLeftFocusLock(node, true);
       applyDownFocusLock(node, lockFocusDown);
       if (preferredHandleRef.current) {
         try {

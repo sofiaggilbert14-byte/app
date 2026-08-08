@@ -346,18 +346,15 @@ export function PurpleTvShell({
         </FocusGuide>
       </Animated.View>
 
-      {/* Spacer when open so content sits beside the drawer; menu-only peek when closed. */}
+      {/* Spacer when open; decorative rail when closed. It is deliberately not
+          focusable/clickable: the drawer opens only from double-Back. */}
       {drawerOpen ? (
         <View style={styles.sidebarSpacer} />
       ) : (
-        <View style={styles.railPeek}>
-          <Pressable
-            onPress={openDrawer}
-            style={({ focused }: any) => [styles.railPeekHit, focused && styles.navRowFocused]}
-            testID="purple-rail-open-drawer"
-          >
+        <View style={styles.railPeek} pointerEvents="none" testID="purple-rail-double-back-hint">
+          <View style={styles.railPeekHit}>
             <Ionicons name="menu-outline" size={16} color={tvColors.purpleSoft} />
-          </Pressable>
+          </View>
         </View>
       )}
 
