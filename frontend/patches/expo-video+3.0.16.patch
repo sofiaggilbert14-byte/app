@@ -126,7 +126,7 @@ index 0cdcc0b..d29e80c 100644
 --- a/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerAudioTracks.kt
 +++ b/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerAudioTracks.kt
 @@ -60,7 +60,7 @@ class VideoPlayerAudioTracks(owner: VideoPlayer) : VideoPlayerListener {
- 
+
          if (MimeTypes.isAudio(format.sampleMimeType)) {
            formatsToGroups[format] = group.mediaTrackGroup to i
 -          val track = AudioTrack.fromFormat(format) ?: continue
@@ -175,7 +175,7 @@ index 20dcbb7..c365bff 100644
 +        ).joinToString(":")
        val language = format.language
        val label = language?.let { Locale(it).displayLanguage } ?: "Unknown"
- 
+
        return AudioTrack(
          id = id,
          language = language,
@@ -200,7 +200,7 @@ index 7e213f7..13bd7aa 100644
 +import expo.modules.video.enums.ContentType
 +import expo.modules.video.HlsAudioRecoveryPlaylistParserFactory
  import okhttp3.OkHttpClient
- 
+
  @OptIn(UnstableApi::class)
 @@ -63,8 +66,18 @@ fun buildExpoVideoMediaSource(context: Context, videoSource: VideoSource): Media
    } else {
@@ -221,7 +221,7 @@ index 7e213f7..13bd7aa 100644
 +  val mediaSourceFactory = buildMediaSourceFactory(context, dataSourceFactory)
    return mediaSourceFactory.createMediaSource(mediaItem)
  }
- 
+
 diff --git a/node_modules/expo-video/build/VideoPlayer.types.d.ts b/node_modules/expo-video/build/VideoPlayer.types.d.ts
 index 204f98d..f10de9a 100644
 --- a/node_modules/expo-video/build/VideoPlayer.types.d.ts
