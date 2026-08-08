@@ -382,7 +382,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     } finally {
       if (!silent && requestId === refreshRequestRef.current) setLoading(false);
     }
-  }, []);
+  }, [persistRecent]);
 
   const setSelectedDate = useCallback(
     (d: string) => {

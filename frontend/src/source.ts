@@ -25,7 +25,7 @@ import {
 } from "@/src/epgDb";
 
 /** Shared empty programmes array for channels with nothing in the guide window. */
-const EMPTY_GUIDE_PROGRAMS: Program[] = Object.freeze([]) as Program[];
+const EMPTY_GUIDE_PROGRAMS: Program[] = [];
 
 /**
  * WEB / non-native source path.

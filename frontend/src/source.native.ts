@@ -26,7 +26,7 @@ export const SOURCE_M3U = (process.env.EXPO_PUBLIC_M3U_URL || "").trim();
 export const SOURCE_EPG = (process.env.EXPO_PUBLIC_EPG_URL || "").trim();
 
 /** Shared empty programmes array — reused for channels with no EPG in-window. */
-const EMPTY_PROGRAMS: Program[] = Object.freeze([]) as Program[];
+const EMPTY_PROGRAMS: Program[] = [];
 
 const TTL_MS = 24 * 60 * 60 * 1000;
 const PROGRESS_THROTTLE_MS = 150;

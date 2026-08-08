@@ -123,6 +123,8 @@ test("playlist ingest keeps last-good and enforces protocol/size guards", async 
   assert.match(web, /parseM3UWithStats/);
   assert.match(web, /MAX_PLAYLIST_BYTES/);
   assert.match(web, /EMPTY_GUIDE_PROGRAMS/);
+  assert.match(web, /phase: "channels"/);
+  assert.match(native, /phase: "channels"/);
   assert.match(web, /previous\?\.channels\?\.length/);
   assert.match(web, /Playlist contained no playable channels/);
 });
