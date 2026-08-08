@@ -6,5 +6,6 @@ import "./guideTorture.test.mjs";
 import "./drawerNavigation.test.mjs";
 import "./epgMatching.test.mjs";
 import "./epgFastGuide.test.mjs";
+import "./media3Audio.test.mjs";
 import "./rc1Hardening.test.mjs";
 import "./playbackSession.test.mjs";

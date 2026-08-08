@@ -18,7 +18,13 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { ErrorBoundary } from "@/src/components/ErrorBoundary";
-import { StreamPlayer, StreamStatus, vlcAvailable, clearFullscreenCircuit } from "@/src/components/StreamPlayer";
+import {
+  StreamPlayer,
+  StreamStatus,
+  vlcAvailable,
+  clearFullscreenCircuit,
+  type StreamTrack,
+} from "@/src/components/StreamPlayer";
 import { useStore } from "@/src/store";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { addTvKeyListener } from "@/src/utils/tvRemote";
@@ -85,10 +91,10 @@ export default function PlayerScreen() {
   const [playerNow, setPlayerNow] = useState(() => new Date());
   // Decoder is disarmed while rapid Next/Prev or strip surfing — prevents VLC pile-up / audio leaks.
   const [decoderArmed, setDecoderArmed] = useState(true);
-  const [audioTracks, setAudioTracks] = useState<{ id: number; name: string }[]>([]);
-  const [textTracks, setTextTracks] = useState<{ id: number; name: string }[]>([]);
-  const [audioTrackId, setAudioTrackId] = useState<number | undefined>(undefined);
-  const [textTrackId, setTextTrackId] = useState<number | undefined>(undefined);
+  const [audioTracks, setAudioTracks] = useState<StreamTrack[]>([]);
+  const [textTracks, setTextTracks] = useState<StreamTrack[]>([]);
+  const [audioTrackId, setAudioTrackId] = useState<string | number | undefined>(undefined);
+  const [textTrackId, setTextTrackId] = useState<string | number | undefined>(undefined);
   const [tracksOpen, setTracksOpen] = useState(false);
 
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -491,8 +497,8 @@ export default function PlayerScreen() {
             audioTrack={audioTrackId}
             textTrack={textTrackId}
             onTracksAvailable={(tracks) => {
-              setAudioTracks(tracks.audio.filter((t) => Number.isFinite(t.id)));
-              setTextTracks(tracks.text.filter((t) => Number.isFinite(t.id)));
+              setAudioTracks(tracks.audio.filter((track) => track.id !== "" && track.id != null));
+              setTextTracks(tracks.text.filter((track) => track.id !== "" && track.id != null));
             }}
             onStatus={handleStreamStatus}
             style={StyleSheet.absoluteFill}
@@ -675,10 +681,18 @@ export default function PlayerScreen() {
                 {audioTracks.length ? audioTracks.map((track) => (
                   <Pressable
                     key={`a-${track.id}`}
+                    disabled={track.isSupported === false}
                     onPress={() => setAudioTrackId(track.id)}
-                    style={({ focused }: any) => [styles.trackRow, audioTrackId === track.id && styles.controlActive, focused && styles.focused]}
+                    style={({ focused }: any) => [
+                      styles.trackRow,
+                      audioTrackId === track.id && styles.controlActive,
+                      track.isSupported === false && styles.trackUnsupported,
+                      focused && styles.focused,
+                    ]}
                   >
-                    <Text style={styles.controlLabel}>{track.name}</Text>
+                    <Text style={styles.controlLabel}>
+                      {track.name}{track.isSupported === false ? " · unsupported on this decoder" : ""}
+                    </Text>
                   </Pressable>
                 )) : <Text style={styles.errorText}>No audio tracks reported</Text>}
                 <Text style={[styles.controlLabel, { marginTop: 8 }]}>Subtitles</Text>
@@ -769,6 +783,7 @@ const styles = StyleSheet.create({
   channelStrip: { gap: 6, paddingTop: 5 },
   tracksPanel: { maxHeight: 160, marginTop: 6, padding: 8, borderRadius: radius.sm, backgroundColor: "rgba(16,16,30,0.94)", gap: 4 },
   trackRow: { minHeight: 28, justifyContent: "center", paddingHorizontal: 8, borderRadius: 5, borderWidth: 2, borderColor: "transparent" },
+  trackUnsupported: { opacity: 0.45 },
   channelCard: { width: 96, minHeight: 54, alignItems: "center", justifyContent: "center", gap: 3, borderRadius: radius.sm, borderWidth: 2, borderColor: "transparent", backgroundColor: "rgba(16,16,30,0.94)", padding: 4 },
   channelCardActive: { backgroundColor: tvColors.purpleDeep, borderColor: tvColors.purpleBright },
   channelCardName: { color: "#fff", fontFamily: fonts.medium, fontSize: 7.5, textAlign: "center" },

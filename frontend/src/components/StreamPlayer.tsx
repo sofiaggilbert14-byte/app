@@ -22,6 +22,12 @@ import {
 } from "@/src/core/playbackSession";
 
 export type StreamStatus = "loading" | "playing" | "error";
+export type StreamTrack = {
+  id: string | number;
+  name: string;
+  mimeType?: string | null;
+  isSupported?: boolean;
+};
 
 const FAILURE_WINDOW_MS = 60_000;
 const MAX_FAILURES_PER_WINDOW = 6;
@@ -170,11 +176,11 @@ type Props = {
   style?: StyleProp<ViewStyle>;
   mode?: "preview" | "full";
   sessionRole?: SessionRole;
-  audioTrack?: number;
-  textTrack?: number;
+  audioTrack?: string | number;
+  textTrack?: string | number;
   onTracksAvailable?: (tracks: {
-    audio: { id: number; name: string }[];
-    text: { id: number; name: string }[];
+    audio: StreamTrack[];
+    text: StreamTrack[];
   }) => void;
 };
 
@@ -333,8 +339,8 @@ function VlcStream({
       autoAspectRatio
       resizeMode="contain"
       acceptInvalidCertificates
-      audioTrack={audioTrack}
-      textTrack={textTrack}
+      audioTrack={typeof audioTrack === "number" ? audioTrack : undefined}
+      textTrack={typeof textTrack === "number" ? textTrack : undefined}
       onLoad={(info: any) => {
         const audio = Array.isArray(info?.audioTracks)
           ? info.audioTracks.map((t: any) => ({ id: Number(t.id), name: String(t.name || t.language || `Audio ${t.id}`) }))
@@ -365,11 +371,17 @@ function ExpoStream({
   mode = "full",
   sessionRole,
   sessionGeneration,
+  audioTrack,
+  textTrack,
+  onTracksAvailable,
 }: EngineProps) {
   const mountedRef = useRef(true);
   const tearingDownRef = useRef(false);
   const loadIdRef = useRef(0);
   const replaceQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const tracksCallbackRef = useRef(onTracksAvailable);
+  tracksCallbackRef.current = onTracksAvailable;
+  const [mediaReady, setMediaReady] = useState(false);
   const { uri, headers } = useMemo(() => parsePipeHeaders(rawUri), [rawUri]);
   const kind = useMemo(() => detectStreamKind(uri), [uri]);
   const { blocked, setBlocked } = useCircuitCooldown(sessionRole, engine, uri, setStatus);
@@ -394,7 +406,58 @@ function ExpoStream({
     } catch {
       /* older native builds may ignore bufferOptions */
     }
+    try {
+      // Fullscreen TV playback must own AUDIOFOCUS_GAIN. Expo's default "auto"
+      // usually does this too; doNotMix makes it deterministic after preview /
+      // decoder handoff and avoids a silent focused player losing focus to a
+      // stale background audio session.
+      player.audioMixingMode = mode === "preview" ? "mixWithOthers" : "doNotMix";
+    } catch {
+      /* older native builds may not expose audio mixing mode */
+    }
   }, [mode, player]);
+
+  const reportAndSelectMedia3Tracks = useCallback(() => {
+    try {
+      const audioTracks = Array.isArray(player.availableAudioTracks) ? player.availableAudioTracks : [];
+      const requestedAudio = audioTrack == null
+        ? null
+        : audioTracks.find((track) => String(track.id) === String(audioTrack)) || null;
+      const currentAudio = player.audioTrack;
+      const automaticAudio =
+        audioTracks.find((track: any) => track.isSupported !== false) ||
+        audioTracks[0] ||
+        null;
+      const selectedAudio = requestedAudio || currentAudio || automaticAudio;
+      if (selectedAudio && player.audioTrack?.id !== selectedAudio.id) {
+        player.audioTrack = selectedAudio;
+      }
+
+      const subtitleTracks = Array.isArray(player.availableSubtitleTracks) ? player.availableSubtitleTracks : [];
+      if (textTrack != null) {
+        const selectedText = subtitleTracks.find((track) => String(track.id) === String(textTrack));
+        if (selectedText && player.subtitleTrack?.id !== selectedText.id) {
+          player.subtitleTrack = selectedText;
+        }
+      }
+
+      tracksCallbackRef.current?.({
+        audio: audioTracks.map((track: any) => ({
+          id: track.id,
+          name: [track.label || track.language || `Audio ${track.id}`, track.mimeType].filter(Boolean).join(" · "),
+          mimeType: track.mimeType,
+          isSupported: track.isSupported !== false,
+        })),
+        text: subtitleTracks.map((track: any) => ({
+          id: track.id,
+          name: String(track.label || track.language || `CC ${track.id}`),
+        })),
+      });
+      return audioTracks.some((track: any) => track.isSupported !== false);
+    } catch {
+      return false;
+    }
+  }, [audioTrack, player, textTrack]);
 
   const hardStop = useCallback(() => {
     loadIdRef.current += 1;
@@ -431,6 +494,7 @@ function ExpoStream({
     const loadId = ++loadIdRef.current;
     mountedRef.current = true;
     tearingDownRef.current = false;
+    setMediaReady(false);
     emit("loading");
     (async () => {
       try {
@@ -499,6 +563,8 @@ function ExpoStream({
       if (!mountedRef.current || tearingDownRef.current || blocked) return;
       if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
       if (status === "readyToPlay") {
+        setMediaReady(true);
+        reportAndSelectMedia3Tracks();
         recordStablePlayback(sessionRole, engine, uri);
         emit("playing");
       } else if (status === "loading") {
@@ -514,33 +580,32 @@ function ExpoStream({
       }
     });
     return () => sub.remove();
-  }, [blocked, emit, engine, player, sessionGeneration, sessionRole, setBlocked, uri]);
+  }, [blocked, emit, engine, player, reportAndSelectMedia3Tracks, sessionGeneration, sessionRole, setBlocked, uri]);
+
+  useEffect(() => {
+    const onTracksChanged = () => {
+      reportAndSelectMedia3Tracks();
+    };
+    const audioSub = player.addListener("availableAudioTracksChange", onTracksChanged);
+    const textSub = player.addListener("availableSubtitleTracksChange", onTracksChanged);
+    reportAndSelectMedia3Tracks();
+    return () => {
+      audioSub.remove();
+      textSub.remove();
+    };
+  }, [player, reportAndSelectMedia3Tracks, uri]);
 
   // Media3 can paint video while failing to expose/decode audio (AC-3 etc.).
   // If no audio track appears after a short grace, soft-fail so StreamPlayer swaps to VLC.
   useEffect(() => {
-    if (blocked || mode === "preview") return;
+    if (blocked || mode === "preview" || !mediaReady) return;
     let cancelled = false;
     let sawAudio = false;
     const markAudio = () => {
-      try {
-        const tracks = (player as { availableAudioTracks?: unknown[] }).availableAudioTracks;
-        if (Array.isArray(tracks) && tracks.length > 0) sawAudio = true;
-        const selected = (player as { audioTrack?: unknown }).audioTrack;
-        if (selected) sawAudio = true;
-      } catch {
-        /* older expo-video builds */
-      }
+      sawAudio = reportAndSelectMedia3Tracks() || sawAudio;
     };
     markAudio();
-    let trackSub: { remove: () => void } | null = null;
-    try {
-      trackSub = player.addListener("availableAudioTracksChange", () => {
-        markAudio();
-      }) as { remove: () => void };
-    } catch {
-      trackSub = null;
-    }
+    const trackSub = player.addListener("availableAudioTracksChange", markAudio);
     const timer = setTimeout(() => {
       if (cancelled || !mountedRef.current || tearingDownRef.current) return;
       if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
@@ -552,10 +617,10 @@ function ExpoStream({
       cancelled = true;
       clearTimeout(timer);
       try {
-        trackSub?.remove();
+        trackSub.remove();
       } catch {}
     };
-  }, [blocked, emit, mode, player, sessionGeneration, sessionRole, uri]);
+  }, [blocked, emit, mediaReady, mode, player, reportAndSelectMedia3Tracks, sessionGeneration, sessionRole, uri]);
 
   if (blocked) return null;
 
@@ -715,6 +780,9 @@ export function StreamPlayer({
       mode={playbackMode}
       sessionRole={role}
       sessionGeneration={sessionGeneration}
+      audioTrack={audioTrack}
+      textTrack={textTrack}
+      onTracksAvailable={onTracksAvailable}
     />
   );
 }

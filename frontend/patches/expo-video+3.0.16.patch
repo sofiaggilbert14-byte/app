@@ -1,0 +1,119 @@
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayer.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayer.kt
+index 1c7a55c..3a5a5e9 100644
+--- a/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayer.kt
++++ b/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayer.kt
+@@ -53,6 +53,11 @@ import java.lang.ref.WeakReference
+ class VideoPlayer(val context: Context, appContext: AppContext, source: VideoSource?) : AutoCloseable, SharedObject(appContext), IntervalUpdateEmitter {
+   // This improves the performance of playing DRM-protected content
+   private var renderersFactory = DefaultRenderersFactory(context)
++    // When an app packages a Media3 extension renderer (for example an
++    // FFmpeg audio extension), prefer it for formats the platform decoder
++    // cannot reliably handle. With no extension on the classpath this is a
++    // safe no-op and platform MediaCodec remains first available fallback.
++    .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+     .forceEnableMediaCodecAsynchronousQueueing()
+     .setEnableDecoderFallback(true)
+   private var listeners: MutableList<WeakReference<VideoPlayerListener>> = mutableListOf()
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerAudioTracks.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerAudioTracks.kt
+index 0cdcc0b..57983ed 100644
+--- a/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerAudioTracks.kt
++++ b/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerAudioTracks.kt
+@@ -60,7 +60,7 @@ class VideoPlayerAudioTracks(owner: VideoPlayer) : VideoPlayerListener {
+ 
+         if (MimeTypes.isAudio(format.sampleMimeType)) {
+           formatsToGroups[format] = group.mediaTrackGroup to i
+-          val track = AudioTrack.fromFormat(format) ?: continue
++          val track = AudioTrack.fromFormat(format, group.isTrackSupported(i)) ?: continue
+           availableAudioTracks.add(track)
+         }
+       }
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/records/Tracks.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/records/Tracks.kt
+index 20dcbb7..ffd0bd3 100644
+--- a/node_modules/expo-video/android/src/main/java/expo/modules/video/records/Tracks.kt
++++ b/node_modules/expo-video/android/src/main/java/expo/modules/video/records/Tracks.kt
+@@ -32,10 +32,14 @@ class SubtitleTrack(
+ class AudioTrack(
+   @Field val id: String,
+   @Field val language: String?,
+-  @Field val label: String?
++  @Field val label: String?,
++  /** Media3 sample MIME type, e.g. audio/mp4a-latm or audio/ac3. */
++  @Field val mimeType: String? = null,
++  /** Whether the current renderer reports this track as supported. */
++  @Field val isSupported: Boolean = true
+ ) : Record, Serializable {
+   companion object {
+-    fun fromFormat(format: Format?): AudioTrack? {
++    fun fromFormat(format: Format?, isSupported: Boolean = true): AudioTrack? {
+       format ?: return null
+       val id = format.id ?: return null
+       val language = format.language
+@@ -44,7 +48,9 @@ class AudioTrack(
+       return AudioTrack(
+         id = id,
+         language = language,
+-        label = label
++        label = label,
++        mimeType = format.sampleMimeType,
++        isSupported = isSupported
+       )
+     }
+   }
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/DataSourceUtils.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/DataSourceUtils.kt
+index 7e213f7..2ded70b 100644
+--- a/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/DataSourceUtils.kt
++++ b/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/DataSourceUtils.kt
+@@ -10,8 +10,10 @@ import androidx.media3.datasource.DefaultDataSource
+ import androidx.media3.datasource.cache.CacheDataSource
+ import androidx.media3.datasource.okhttp.OkHttpDataSource
+ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
++import androidx.media3.exoplayer.hls.HlsMediaSource
+ import androidx.media3.exoplayer.source.MediaSource
+ import expo.modules.video.records.VideoSource
++import expo.modules.video.enums.ContentType
+ import okhttp3.OkHttpClient
+ 
+ @OptIn(UnstableApi::class)
+@@ -63,8 +65,17 @@ fun buildExpoVideoMediaSource(context: Context, videoSource: VideoSource): Media
+   } else {
+     buildBaseDataSourceFactory(context, videoSource)
+   }
+-  val mediaSourceFactory = buildMediaSourceFactory(context, dataSourceFactory)
+   val mediaItem = videoSource.toMediaItem(context)
++  // IPTV master manifests frequently omit or misstate AUDIO/CODECS metadata.
++  // Chunkless preparation trusts that manifest and can leave a valid muxed
++  // audio PID undiscovered. For explicitly HLS media, inspect media chunks
++  // before publishing tracks; other source types retain Expo's default path.
++  if (videoSource.contentType == ContentType.HLS) {
++    return HlsMediaSource.Factory(dataSourceFactory)
++      .setAllowChunklessPreparation(false)
++      .createMediaSource(mediaItem)
++  }
++  val mediaSourceFactory = buildMediaSourceFactory(context, dataSourceFactory)
+   return mediaSourceFactory.createMediaSource(mediaItem)
+ }
+ 
+diff --git a/node_modules/expo-video/build/VideoPlayer.types.d.ts b/node_modules/expo-video/build/VideoPlayer.types.d.ts
+index 204f98d..f10de9a 100644
+--- a/node_modules/expo-video/build/VideoPlayer.types.d.ts
++++ b/node_modules/expo-video/build/VideoPlayer.types.d.ts
+@@ -551,5 +551,18 @@ export type AudioTrack = {
+      * Label of the audio track in the language of the device.
+      */
+     label: string;
++    /**
++     * Media3 sample MIME type when the Android source exposes it, for example
++     * `audio/mp4a-latm`, `audio/ac3`, or `audio/eac3`.
++     *
++     * @platform android
++     */
++    mimeType?: string | null;
++    /**
++     * Whether the active Media3 renderer can decode this track.
++     *
++     * @platform android
++     */
++    isSupported?: boolean;
+ };
+ //# sourceMappingURL=VideoPlayer.types.d.ts.map
+\ No newline at end of file
