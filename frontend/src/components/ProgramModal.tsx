@@ -159,7 +159,7 @@ export function ProgramModal() {
                   testID="program-reminder-btn"
                 >
                   <Ionicons
-                    name={reminded ? "notifications-off" : "notifications-outline"}
+                    name={reminded ? "notifications" : "notifications-outline"}
                     size={16}
                     color={reminded ? "#FACC15" : colors.onSurface}
                   />
