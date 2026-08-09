@@ -16,7 +16,6 @@ import * as Haptics from "expo-haptics";
 import {
   PurpleTvShell,
   PURPLE_DRAWER_ANIMATION_MS,
-  focusPurpleIconRail,
   usePurpleTvDrawer,
 } from "@/src/components/PurpleTvShell";
 import { TimelineGrid } from "@/src/components/TimelineGrid";
@@ -24,7 +23,6 @@ import { BoxGrid } from "@/src/components/BoxGrid";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { GuidePreviewRail } from "@/src/components/GuidePreviewRail";
 import { EpgProgressBar } from "@/src/components/EpgProgressBar";
-import { NowPlayingBar } from "@/src/components/NowPlayingBar";
 import { Channel, Program } from "@/src/api";
 import { useStore } from "@/src/store";
 import { setPriorityMatchChannelIds, setViewportGuideChannelIds } from "@/src/source";
@@ -48,11 +46,13 @@ import { failedStreamCount, isFailedChannel, noteStreamFailure } from "@/src/cor
 import { consumeGuideJump } from "@/src/core/guideSearchJump";
 import { fonts, radius, spacing, tvColors } from "@/src/theme";
 import { nowNext, reminderKey } from "@/src/utils/time";
-import { requestNativeFocus, requestNativeFocusWithRetry } from "@/src/utils/tvFocus";
-import { focusGuidePreviewSurface, focusGuideSurface } from "@/src/utils/tvGuideFocusLock";
-import { setGuideNavigationActive } from "@/src/utils/tvRemote";
+import { requestNativeFocus } from "@/src/utils/tvFocus";
+import {
+  cancelGuideFocusRestore,
+  focusGuidePreviewSurface,
+  focusGuideSurface,
+} from "@/src/utils/tvGuideFocusLock";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
-import { MODAL_FOCUS_RETRY_DELAYS_MS } from "@/src/core/guideRegressionPolicy";
 import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
 import type { StreamStatus } from "@/src/components/StreamPlayer";
 
@@ -143,7 +143,6 @@ export default function PurpleGuideScreen() {
   const groupChipRefs = useRef(new Map<string, any>());
   const lastFocusAtRef = useRef(0);
   const rapidSurfUntilRef = useRef(0);
-  const lastGuideFocusNodeRef = useRef<unknown>(null);
   const hadProgramModalRef = useRef(false);
   const previousDrawerOpenRef = useRef(drawerOpen);
   const headerTitleProgress = useRef(new Animated.Value(drawerOpen ? 1 : 0)).current;
@@ -191,18 +190,15 @@ export default function PurpleGuideScreen() {
   useEffect(() => {
     const wasOpen = drawerWasOpenForFocusRef.current;
     drawerWasOpenForFocusRef.current = drawerOpen;
+    if (drawerOpen) {
+      cancelGuideFocusRestore();
+      return;
+    }
     if (!wasOpen || drawerOpen || activeProgram) return;
-    const restoredByChannel = focusGuideSurface(guideSessionChannelId);
-    const cancel = restoredByChannel
-      ? undefined
-      : requestNativeFocusWithRetry(lastGuideFocusNodeRef.current, [0, 40, 120, 280, 480]);
-    const fallback = setTimeout(() => {
-      focusGuideSurface(guideSessionChannelId);
-    }, 420);
-    return () => {
-      cancel?.();
-      clearTimeout(fallback);
-    };
+    // Restore only through currently registered channel rows. A recycled native
+    // node must never be treated as a successful fallback.
+    focusGuideSurface(guideSessionChannelId);
+    return cancelGuideFocusRestore;
   }, [activeProgram, drawerOpen]);
 
   // After Remind/Cancel sheet closes, return focus to the guide cell — never Live TV.
@@ -210,13 +206,9 @@ export default function PurpleGuideScreen() {
     if (activeProgram) return;
     if (!hadProgramModalRef.current) return;
     hadProgramModalRef.current = false;
-    if (focusGuideSurface(guideSessionChannelId)) return;
-    return requestNativeFocusWithRetry(lastGuideFocusNodeRef.current, [...MODAL_FOCUS_RETRY_DELAYS_MS]);
+    focusGuideSurface(guideSessionChannelId);
+    return cancelGuideFocusRestore;
   }, [activeProgram]);
-
-  const onGuideFocusNode = useCallback((node: unknown) => {
-    if (node) lastGuideFocusNodeRef.current = node;
-  }, []);
 
   const guideFocusRegionRef = useRef<"channel" | "program">("program");
   const channelLogoNodeRef = useRef<unknown>(null);
@@ -239,11 +231,6 @@ export default function PurpleGuideScreen() {
     }, [activeProgram, drawerOpen]),
   );
 
-  // Never arm native Up/Down consumption — Android must move guide focus freely.
-  useEffect(() => {
-    setGuideNavigationActive(false);
-    return () => setGuideNavigationActive(false);
-  }, []);
   useEffect(() => {
     if (loading || refreshing || channels.length > 0) return;
     if (bootRetryRef.current >= 1) return;
@@ -578,15 +565,17 @@ export default function PurpleGuideScreen() {
   }, []);
 
   const onGuideUpBoundary = useCallback(() => {
+    cancelGuideFocusRestore();
     const chip = groupChipRefs.current.get(group);
-    if (chip) requestNativeFocusWithRetry(chip, [0, 40, 120]);
+    // Group chips are permanently mounted. One synchronous request avoids a
+    // delayed retry pulling focus back after the user moves across the tabs.
+    if (chip) requestNativeFocus(chip);
   }, [group]);
 
   const onGuideLeftBoundary = useCallback(() => {
-    // The preview/details/actions panel is now the Guide's left neighbor. Only
-    // fall back to the shell rail if the panel has not mounted yet.
-    if (!focusGuidePreviewSurface() && !drawerOpen) focusPurpleIconRail("menu");
-  }, [drawerOpen]);
+    // The preview/details/actions panel is the Guide's only left neighbor.
+    focusGuidePreviewSurface();
+  }, []);
 
   const resetGuide = useCallback(() => {
     void Haptics.selectionAsync().catch(() => undefined);
@@ -701,7 +690,7 @@ export default function PurpleGuideScreen() {
               style={[
                 styles.groupScroller,
                 {
-                  // Full-bleed when the closed icon rail overlays; title shift only while drawer open.
+                  // Keep group chips full-bleed until the full drawer is open.
                   marginLeft: drawerOpen ? 140 : 0,
                   transform: [{ translateX: groupSlideX }],
                 },
@@ -759,8 +748,6 @@ export default function PurpleGuideScreen() {
         ) : null}
 
         <EpgProgressBar />
-        <NowPlayingBar testID="guide-now-playing" />
-
         {loading && channels.length === 0 ? (
           <View style={styles.center}>
             <ActivityIndicator color={tvColors.purpleBright} size="large" />
@@ -889,7 +876,6 @@ export default function PurpleGuideScreen() {
                   onLeftBoundary={onGuideLeftBoundary}
                   onFocusedRowChange={onFocusedGuideRow}
                   onViewportChannelIds={onViewportChannelIds}
-                  onGuideFocusNode={onGuideFocusNode}
                 />
               ) : (
                 <TimelineGrid
@@ -916,7 +902,6 @@ export default function PurpleGuideScreen() {
                   onUpBoundary={onGuideUpBoundary}
                   onLeftBoundary={onGuideLeftBoundary}
                   onFocusedRowChange={onFocusedGuideRow}
-                  onGuideFocusNode={onGuideFocusNode}
                   onViewportChannelIds={onViewportChannelIds}
                   onBackTargetChange={onGuideBackTarget}
                 />

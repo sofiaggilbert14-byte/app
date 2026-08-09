@@ -26,6 +26,10 @@ import {
 } from "@/src/utils/tvGuideFocusLock";
 import { evaluateGuideNavigation } from "@/src/core/guideNavigationPolicy";
 import { useGuidePrograms } from "@/src/core/guideProgramsStore";
+import {
+  buildGuideRunwayIds,
+  type GuideScanDirection,
+} from "@/src/core/guideRunwayPolicy";
 
 const ACCENT = "#A855F7";
 const ACCENT_SOFT = "#E9D5FF";
@@ -185,7 +189,6 @@ export function BoxGrid({
   onLeftBoundary,
   onFocusedRowChange,
   onViewportChannelIds,
-  onGuideFocusNode,
   ListHeaderComponent,
   refreshing,
   onRefresh,
@@ -207,7 +210,6 @@ export function BoxGrid({
   onLeftBoundary?: () => void;
   onFocusedRowChange?: (index: number) => void;
   onViewportChannelIds?: (ids: string[]) => void;
-  onGuideFocusNode?: (node: unknown) => void;
   ListHeaderComponent?: React.ReactElement;
   refreshing?: boolean;
   onRefresh?: () => void;
@@ -220,7 +222,7 @@ export function BoxGrid({
   lockLeftEdge?: boolean;
   restoreChannelId?: string | null;
 }) {
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const numColumns = width >= 1400 ? 6 : width >= 1150 ? 5 : width >= 900 ? 4 : width >= 600 ? 3 : 2;
   const nowDate = useMemo(() => new Date(now), [now]);
   const { favorites, toggleFavorite } = useStore();
@@ -233,6 +235,9 @@ export function BoxGrid({
   const focusedNodeRef = useRef<unknown>(null);
   const lastRowIndexRef = useRef(0);
   const lastReportedDeepRef = useRef(false);
+  const lastViewportBucketRef = useRef("");
+  const lastPrefetchIndexRef = useRef(0);
+  const scanDirectionRef = useRef<GuideScanDirection>(1);
   const guideEscapeInFlight = useRef(false);
   const escapeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasClaimedFocusRef = useRef(false);
@@ -240,8 +245,7 @@ export function BoxGrid({
   const [preferFirst, setPreferFirst] = useState(() => !hasClaimedFocusRef.current);
   const rememberFocusNode = useCallback((node: unknown) => {
     if (node) focusedNodeRef.current = node;
-    onGuideFocusNode?.(node);
-  }, [onGuideFocusNode]);
+  }, []);
 
   const reportViewport = useCallback(
     (index: number) => {
@@ -249,14 +253,17 @@ export function BoxGrid({
       const list = channelsRef.current;
       if (!list.length) return;
       const cols = Math.max(1, numColumns);
-      const runwayRows = 16;
-      const start = Math.max(0, index - cols * runwayRows);
-      const end = Math.min(list.length, index + cols * runwayRows + 1);
-      const ids: string[] = [];
-      for (let i = start; i < end; i++) ids.push(list[i].id);
-      onViewportChannelIds(ids);
+      const visibleCardRows = Math.max(3, Math.ceil(height / 148));
+      const itemsPerPage = cols * visibleCardRows;
+      if (index > lastPrefetchIndexRef.current) scanDirectionRef.current = 1;
+      else if (index < lastPrefetchIndexRef.current) scanDirectionRef.current = -1;
+      lastPrefetchIndexRef.current = index;
+      const viewportBucket = `${Math.floor(Math.max(0, index) / itemsPerPage)}:${scanDirectionRef.current}`;
+      if (lastViewportBucketRef.current === viewportBucket) return;
+      lastViewportBucketRef.current = viewportBucket;
+      onViewportChannelIds(buildGuideRunwayIds(list, index, itemsPerPage, scanDirectionRef.current));
     },
-    [numColumns, onViewportChannelIds],
+    [height, numColumns, onViewportChannelIds],
   );
 
   const reportFocusedRow = useCallback(
@@ -296,6 +303,9 @@ export function BoxGrid({
   useEffect(() => {
     if (!resetToken) return;
     lastReportedDeepRef.current = false;
+    lastViewportBucketRef.current = "";
+    lastPrefetchIndexRef.current = 0;
+    scanDirectionRef.current = 1;
     focusedRowRef.current = 0;
     try {
       listRef.current?.scrollToOffset({ offset: 0, animated: false });
@@ -317,7 +327,7 @@ export function BoxGrid({
       (event) => {
         if (!active) return;
         const key = event?.eventType;
-        // Left edge of compact grid — hand focus to icon rail when provided.
+        // Left edge of compact grid hands focus to the preview/actions panel.
         if (key === "left" && gridOwnsFocusRef.current) {
           const col = focusedIndexRef.current % Math.max(1, numColumns);
           if (col === 0) {

@@ -7,23 +7,23 @@ import { requestNativeFocus, requestNativeFocusWithRetry } from "@/src/utils/tvF
  */
 let armedUntil = 0;
 let armedNode: unknown = null;
-/** Stable entry target used by the preview rail's explicit Guide action. */
-let guideEntryNode: unknown = null;
 let focusedGuideChannelId: string | null = null;
 const guideChannelNodes = new Map<string, unknown>();
 /** Stable auxiliary-panel target used when leaving the guide to the left. */
 let guidePreviewEntryNode: unknown = null;
+let cancelGuideRestoreTimers: (() => void) | null = null;
 
 export function armGuideBottomFocusLock(node: unknown, ms = 500) {
   armedUntil = Date.now() + ms;
   if (node) {
     armedNode = node;
-    guideEntryNode = node;
   }
 }
 
-export function clearGuideBottomFocusLock() {
-  armedUntil = 0;
+export function cancelGuideFocusRestore(): void {
+  const cancel = cancelGuideRestoreTimers;
+  cancelGuideRestoreTimers = null;
+  cancel?.();
 }
 
 export function reclaimGuideBottomFocusIfArmed(): boolean {
@@ -37,25 +37,38 @@ export function reclaimGuideBottomFocusIfArmed(): boolean {
  */
 export function registerGuideChannelNode(channelId: string, node: unknown): void {
   if (!channelId) return;
-  if (node) guideChannelNodes.set(channelId, node);
-  else guideChannelNodes.delete(channelId);
+  if (node) {
+    guideChannelNodes.set(channelId, node);
+    return;
+  }
+  guideChannelNodes.delete(channelId);
+  // FlashList recycled the row that owned focus. Never retain its program/logo
+  // host as a successful restoration target.
+  if (focusedGuideChannelId === channelId) {
+    cancelGuideFocusRestore();
+    focusedGuideChannelId = null;
+    armedNode = null;
+    armedUntil = 0;
+  }
 }
 
 /** Record a real focus event, never a merely mounted/recycled row. */
 export function noteGuideChannelFocus(channelId: string, node: unknown): void {
   if (!channelId || !node) return;
+  // A real native focus event proves restoration succeeded. Cancel every later
+  // retry so it cannot yank focus back after the user moves to tabs/preview.
+  cancelGuideFocusRestore();
   focusedGuideChannelId = channelId;
-  guideEntryNode = node;
   if (!guideChannelNodes.has(channelId)) guideChannelNodes.set(channelId, node);
 }
 
 export function focusGuideSurface(channelId?: string | null): boolean {
   const target =
     (channelId ? guideChannelNodes.get(channelId) : undefined) ||
-    (focusedGuideChannelId ? guideChannelNodes.get(focusedGuideChannelId) : undefined) ||
-    guideEntryNode;
+    (focusedGuideChannelId ? guideChannelNodes.get(focusedGuideChannelId) : undefined);
   if (!target) return false;
-  requestNativeFocusWithRetry(target, [0, 40, 120, 240]);
+  cancelGuideFocusRestore();
+  cancelGuideRestoreTimers = requestNativeFocusWithRetry(target, [0, 40, 120, 240]);
   return true;
 }
 
@@ -67,8 +80,10 @@ export function registerGuidePreviewEntry(node: unknown): void {
 /** Move focus from the guide's left boundary into the preview/actions panel. */
 export function focusGuidePreviewSurface(): boolean {
   if (!guidePreviewEntryNode) return false;
-  requestNativeFocusWithRetry(guidePreviewEntryNode, [0, 40, 120, 240]);
-  return true;
+  cancelGuideFocusRestore();
+  // Preview controls are permanently mounted; retrying after focus has moved on
+  // only creates a delayed focus yank.
+  return requestNativeFocus(guidePreviewEntryNode);
 }
 
 /** Pin Left on guide cells so D-pad Left never unexpectedly opens the drawer. */
@@ -84,7 +99,6 @@ export function applyLeftFocusLock(node: any, locked: boolean) {
 }
 
 export function armGuideLeftFocusLock(node: unknown, ms = 400) {
-  if (node) guideEntryNode = node;
   applyLeftFocusLock(node, true);
   if (node) requestNativeFocus(node);
   if (ms > 0) {

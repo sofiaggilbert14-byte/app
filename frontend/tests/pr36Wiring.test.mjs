@@ -10,8 +10,8 @@ const source = (path) => readFile(join(root, path), "utf8");
 test("PR #36 guide recovery wiring remains present", async () => {
   const guide = await source("app/(tabs)/guide.tsx");
   assert.match(guide, /previewEpoch/);
-  assert.match(guide, /requestNativeFocusWithRetry\(lastGuideFocusNodeRef\.current/);
-  assert.match(guide, /onGuideFocusNode=/);
+  assert.match(guide, /focusGuideSurface\(guideSessionChannelId\)/);
+  assert.doesNotMatch(guide, /lastGuideFocusNodeRef|onGuideFocusNode=/);
 });
 
 test("PR #36 rapid-surf and player focus protections remain present", async () => {
@@ -19,7 +19,9 @@ test("PR #36 rapid-surf and player focus protections remain present", async () =
     source("src/components/TimelineGrid.tsx"), source("app/player.tsx"),
   ]);
   assert.doesNotMatch(grid, /disableProgramCull/);
-  assert.match(grid, /programViewportW,\s*2\.25/);
+  assert.match(grid, /viewport \* 0\.3/);
+  assert.match(grid, /preservePendingFocus/);
+  assert.match(grid, /lastViewportBucketRef/);
   assert.match(grid, /armGuideBottomFocusLock/);
   assert.match(player, /preferControlRef/);
   assert.match(player, /which === "next" \? nextButtonRef\.current : prevButtonRef\.current/);

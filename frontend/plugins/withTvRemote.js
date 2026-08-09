@@ -17,7 +17,6 @@ function moduleKt(pkg) {
 
 import android.os.SystemClock
 import android.view.MotionEvent
-import android.view.View
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
@@ -32,46 +31,11 @@ class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBas
     @JvmField
     var pointerActive: Boolean = false
 
-    @JvmField
-    var guideNavigationActive: Boolean = false
   }
 
   @ReactMethod
   fun setPointerActive(active: Boolean) {
     pointerActive = active
-  }
-
-  @ReactMethod
-  fun setGuideNavigationActive(active: Boolean) {
-    guideNavigationActive = active
-  }
-
-  @ReactMethod
-  fun focusView(reactTag: Double) {
-    val activity = ctx.currentActivity ?: return
-    activity.runOnUiThread {
-      try {
-        activity.findViewById<View>(reactTag.toInt())?.requestFocus()
-      } catch (e: Throwable) {}
-    }
-  }
-
-  @ReactMethod
-  fun moveFocus(direction: String) {
-    val activity = ctx.currentActivity ?: return
-    activity.runOnUiThread {
-      try {
-        val current = activity.currentFocus ?: return@runOnUiThread
-        val nativeDirection = when (direction.uppercase()) {
-          "UP" -> View.FOCUS_UP
-          "DOWN" -> View.FOCUS_DOWN
-          "LEFT" -> View.FOCUS_LEFT
-          "RIGHT" -> View.FOCUS_RIGHT
-          else -> return@runOnUiThread
-        }
-        current.focusSearch(nativeDirection)?.requestFocus()
-      } catch (e: Throwable) {}
-    }
   }
 
   @ReactMethod
@@ -178,6 +142,10 @@ function withTvRemotePackageRegistered(config) {
 }
 
 function hardenMainActivity(src) {
+  src = src
+    .replace(/private val minDpadRepeatMs = \d+L/, "private val minDpadRepeatMs = 32L")
+    .replace(/private const val MIN_DPAD_REPEAT_MS = \d+L/, "private const val MIN_DPAD_REPEAT_MS = 32L")
+    .replace(/\n\s*TvRemoteModule\.guideNavigationActive = false/g, "");
   const classMatch = src.match(/class\s+MainActivity[^{]*\{/);
   if (classMatch && !src.includes("lastAcceptedDirectionalRepeatAt")) {
     const idx = src.indexOf(classMatch[0]) + classMatch[0].length;
@@ -185,7 +153,7 @@ function hardenMainActivity(src) {
 
   private var lastAcceptedDirectionalRepeatAt = 0L
   private var lastAcceptedDirectionalKeyCode = -1
-  private val minDpadRepeatMs = 16L
+  private val minDpadRepeatMs = 32L
 `;
     src = src.slice(0, idx) + fields + src.slice(idx);
     src = src.replace(
@@ -227,7 +195,6 @@ function hardenMainActivity(src) {
   override fun onDestroy() {
     // Static remote flags must never survive an Activity/bridge teardown.
     TvRemoteModule.pointerActive = false
-    TvRemoteModule.guideNavigationActive = false
     super.onDestroy()
   }
 

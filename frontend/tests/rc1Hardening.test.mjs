@@ -88,20 +88,20 @@ test("favorites backup offers SAF portable export", async () => {
   assert.match(backup, /requestDirectoryPermissionsAsync/);
 });
 
-test("TvRemote checked-in Android matches plugin guide APIs", async () => {
+test("TvRemote checked-in Android keeps only active pointer and key APIs", async () => {
   const [plugin, mod, activity] = await Promise.all([
     source("plugins/withTvRemote.js"),
     source("android/app/src/main/java/com/charmiptv/app/TvRemoteModule.kt"),
     source("android/app/src/main/java/com/charmiptv/app/MainActivity.kt"),
   ]);
   for (const needle of ["guideNavigationActive", "setGuideNavigationActive", "moveFocus", "focusView"]) {
-    assert.match(plugin, new RegExp(needle));
-    assert.match(mod, new RegExp(needle));
+    assert.doesNotMatch(mod, new RegExp(needle));
   }
+  assert.doesNotMatch(plugin, /fun setGuideNavigationActive|fun moveFocus|fun focusView/);
   assert.match(plugin, /KOTLIN_NAMESPACE/);
   assert.match(plugin, /hardenMainActivity/);
-  assert.match(plugin, /minDpadRepeatMs = 16L/);
-  assert.match(activity, /MIN_DPAD_REPEAT_MS = 16L/);
+  assert.match(plugin, /minDpadRepeatMs = 32L/);
+  assert.match(activity, /MIN_DPAD_REPEAT_MS = 32L/);
   assert.match(activity, /Static remote flags must never survive/);
   assert.match(activity, /TvRemoteModule\.pointerActive = false/);
   // Guide surfing must use Android focus — never consume Up/Down when "active".

@@ -63,7 +63,7 @@ const CLOCK_24H_KEY = "gs_clock_24h";
 const START_SCREEN_KEY = "gs_start_screen";
 const SLEEP_TIMER_MINUTES_KEY = "gs_sleep_timer_minutes";
 
-const DEFAULT_GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 8);
+const DEFAULT_GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 6);
 
 function readGuideWindowHours(value: string | number | null | undefined, fallback: GuideWindowHours): GuideWindowHours {
   const n = Number(value || fallback);
@@ -739,13 +739,15 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const patchProgramsForChannelIds = useCallback(async (channelIds: string[]) => {
+    // Each call is a complete five-page runway. Keep only the newest pending
+    // window while SQLite is busy; the previous completed/in-flight pages remain
+    // cached, so held-D-pad scanning cannot create an ever-growing bridge queue.
+    pendingPatchIdsRef.current.clear();
     for (const id of channelIds) {
       if (id) pendingPatchIdsRef.current.add(id);
     }
     if (!pendingPatchIdsRef.current.size || patchInFlightRef.current || patchTimerRef.current) return;
-    // Leading-edge work keeps the next rows populated while the key is held;
-    // subsequent focus changes merge into one bounded request instead of
-    // cancelling the previous promise and leaving a blank corridor.
+    // Leading-edge work keeps the next rows populated while the key is held.
     patchTimerRef.current = setTimeout(() => {
       patchTimerRef.current = null;
       void flushProgramPatchQueue();

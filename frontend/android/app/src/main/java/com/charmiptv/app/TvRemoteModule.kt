@@ -2,7 +2,6 @@ package com.charmiptv.app
 
 import android.os.SystemClock
 import android.view.MotionEvent
-import android.view.View
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
@@ -17,46 +16,11 @@ class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBas
     @JvmField
     var pointerActive: Boolean = false
 
-    @JvmField
-    var guideNavigationActive: Boolean = false
   }
 
   @ReactMethod
   fun setPointerActive(active: Boolean) {
     pointerActive = active
-  }
-
-  @ReactMethod
-  fun setGuideNavigationActive(active: Boolean) {
-    guideNavigationActive = active
-  }
-
-  @ReactMethod
-  fun focusView(reactTag: Double) {
-    val activity = ctx.currentActivity ?: return
-    activity.runOnUiThread {
-      try {
-        activity.findViewById<View>(reactTag.toInt())?.requestFocus()
-      } catch (e: Throwable) {}
-    }
-  }
-
-  @ReactMethod
-  fun moveFocus(direction: String) {
-    val activity = ctx.currentActivity ?: return
-    activity.runOnUiThread {
-      try {
-        val current = activity.currentFocus ?: return@runOnUiThread
-        val nativeDirection = when (direction.uppercase()) {
-          "UP" -> View.FOCUS_UP
-          "DOWN" -> View.FOCUS_DOWN
-          "LEFT" -> View.FOCUS_LEFT
-          "RIGHT" -> View.FOCUS_RIGHT
-          else -> return@runOnUiThread
-        }
-        current.focusSearch(nativeDirection)?.requestFocus()
-      } catch (e: Throwable) {}
-    }
   }
 
   @ReactMethod

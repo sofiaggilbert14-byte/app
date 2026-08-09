@@ -35,6 +35,7 @@ test("guide is a fixed left details panel plus right grid without drawer extras"
   assert.ok(railPosition >= 0 && gridPosition > railPosition);
   assert.match(guide, /const detailsRailWidth = useMemo/);
   assert.match(guide, /flex: 1/);
+  assert.doesNotMatch(guide, /NowPlayingBar|guide-now-playing/);
   assert.doesNotMatch(shell, /contextActions|recentChannels|onRecentPress|recentStrip/);
 });
 
@@ -53,8 +54,36 @@ test("focus metadata is immediate while decoder tune stays delayed and restores 
   assert.match(box, /noteGuideChannelFocus\(item\.id/);
   assert.match(focusLock, /registerGuideChannelNode/);
   assert.match(focusLock, /focusedGuideChannelId/);
+  assert.match(focusLock, /cancelGuideFocusRestore/);
+  assert.match(focusLock, /cancelGuideRestoreTimers/);
+  assert.match(focusLock, /guideChannelNodes\.delete\(channelId\)/);
+  assert.doesNotMatch(focusLock, /\|\|\s*guideEntryNode/);
+  assert.match(timeline, /preservePendingFocus/);
+  assert.match(timeline, /lastViewportBucketRef/);
+  assert.match(timeline, /viewport \* 0\.3/);
+  assert.match(box, /lastViewportBucketRef/);
   assert.doesNotMatch(timeline, /reclaimToken|mountedBandRef|disableProgramCull/);
   assert.doesNotMatch(box, /mountedRowBandRef/);
+});
+
+test("EPG screen delivery uses a five-page runway with retained bounded caches", async () => {
+  const [native, programStore, store, runway] = await Promise.all([
+    source("src/source.native.ts"),
+    source("src/core/guideProgramsStore.ts"),
+    source("src/store.tsx"),
+    source("src/core/guideRunwayPolicy.ts"),
+  ]);
+  assert.match(runway, /GUIDE_PREFETCH_PAGES_AHEAD = 5/);
+  assert.match(runway, /GUIDE_PREFETCH_PAGES_BEHIND = 2/);
+  assert.match(native, /programmeWindowInFlight/);
+  assert.match(native, /programmeWindowAccessOrder/);
+  assert.match(native, /programmeWindowCacheKey === requestCacheKey/);
+  assert.match(native, /for \(const id of unique\)/);
+  assert.match(native, /queriedPlaylistIds\.has\(channel\.id\)/);
+  assert.match(store, /pendingPatchIdsRef\.current\.clear\(\)/);
+  assert.match(native, /hours = 6/);
+  assert.match(programStore, /MAX_PROGRAMME_ROWS = 2400/);
+  assert.match(store, /EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 6/);
 });
 
 test("EPG finalization reports truthful late phases and skips identical match writes", async () => {

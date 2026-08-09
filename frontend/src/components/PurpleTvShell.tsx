@@ -63,34 +63,8 @@ const NAV: NavItem[] = [
   { route: "/settings", label: "Settings", icon: "settings-outline" },
 ];
 
-/** Compact icon-rail destinations when the full drawer is closed. */
-const ICON_RAIL: NavItem[] = [
-  { route: "/", label: "Live TV", icon: "tv-outline" },
-  { route: "/guide", label: "TV Guide", icon: "calendar-outline" },
-  { route: "/favorites", label: "Favorites", icon: "heart-outline" },
-  { route: "/search", label: "Search", icon: "search-outline" },
-  { route: "/settings", label: "Settings", icon: "settings-outline" },
-];
-
 export const PURPLE_SIDEBAR_WIDTH = 156;
-/** Overlay icon-rail width (does not reserve flex layout space). */
-export const PURPLE_ICON_RAIL_WIDTH = 48;
-/** Kept for tests / callers — same as overlay icon-rail width. */
-export const PURPLE_RAIL_PEEK_WIDTH = PURPLE_ICON_RAIL_WIDTH;
 export const PURPLE_DRAWER_ANIMATION_MS = 180;
-
-const iconRailRefMap = new Map<string, unknown>();
-let purpleIconRailMenuNode: unknown = null;
-
-export function getPurpleIconRailMenuNode(): unknown {
-  return purpleIconRailMenuNode;
-}
-
-/** Focus the closed-drawer icon rail (Menu by default, or a rail route key). */
-export function focusPurpleIconRail(target: "menu" | Route = "menu"): void {
-  const node = target === "menu" ? purpleIconRailMenuNode : iconRailRefMap.get(target);
-  requestNativeFocusWithRetry(node, [0, 40, 120]);
-}
 
 type DrawerContextValue = {
   drawerOpen: boolean;
@@ -177,6 +151,7 @@ export function PurpleTvShell({
   });
   const bootFocusConsumed = useRef(false);
   const navRefs = useRef(new Map<Route, unknown>());
+  const drawerFocusCancelRef = useRef<(() => void) | null>(null);
   const isWatching = !!watchingChannelId;
   // Mount-once content autoFocus so child preferred-focus can stick after first paint.
   const [contentAutoFocus, setContentAutoFocus] = useState(
@@ -190,6 +165,8 @@ export function PurpleTvShell({
   }, [contentAutoFocus]);
 
   useEffect(() => {
+    drawerFocusCancelRef.current?.();
+    drawerFocusCancelRef.current = null;
     if (!drawerOpen) {
       setDrawerAutoFocus(false);
       // Guide owns mount-once preferred focus — never pulse content autoFocus there
@@ -205,9 +182,11 @@ export function PurpleTvShell({
       navRefs.current.get(active),
       [0, PURPLE_DRAWER_ANIMATION_MS, 280, 420, 650],
     );
+    drawerFocusCancelRef.current = cancelFocus;
     return () => {
       clearTimeout(clearPreferred);
       cancelFocus?.();
+      if (drawerFocusCancelRef.current === cancelFocus) drawerFocusCancelRef.current = null;
     };
   }, [active, drawerOpen]);
 
@@ -326,6 +305,8 @@ export function PurpleTvShell({
                   focusable={drawerOpen}
                   hasTVPreferredFocus={preferBootLiveTv || (drawerAutoFocus && selected)}
                   onFocus={() => {
+                    drawerFocusCancelRef.current?.();
+                    drawerFocusCancelRef.current = null;
                     if (preferBootLiveTv) bootFocusConsumed.current = true;
                   }}
                   onPress={() => navigate(item.route)}
@@ -359,6 +340,8 @@ export function PurpleTvShell({
                 disabled={footerAction.disabled}
                 onPress={footerAction.onPress}
                 onFocus={() => {
+                  drawerFocusCancelRef.current?.();
+                  drawerFocusCancelRef.current = null;
                   if (active === "/guide") reclaimGuideBottomFocusIfArmed();
                 }}
                 style={({ focused }: any) => [
@@ -378,6 +361,8 @@ export function PurpleTvShell({
               onLongPress={exit}
               delayLongPress={650}
               onFocus={() => {
+                drawerFocusCancelRef.current?.();
+                drawerFocusCancelRef.current = null;
                 if (active === "/guide") reclaimGuideBottomFocusIfArmed();
               }}
               style={({ focused }: any) => [footerAction ? styles.footerCompact : styles.power, focused && styles.navRowFocused]}
@@ -394,61 +379,6 @@ export function PurpleTvShell({
 
       {/* Layout spacer only while the full drawer is open — closed state is full-bleed. */}
       {drawerOpen ? <View style={styles.sidebarSpacer} /> : null}
-
-      {/* Absolute icon rail overlay — no flex space when closed. */}
-      {!drawerOpen ? (
-        <View
-          style={styles.iconRail}
-          pointerEvents="box-none"
-          testID="purple-icon-rail"
-        >
-          {ICON_RAIL.map((item) => {
-            const selected = item.route === active;
-            const showWatching = item.route === "/" && isWatching;
-            return (
-              <Pressable
-                key={item.route}
-                ref={(node) => {
-                  if (node) iconRailRefMap.set(item.route, node);
-                  else iconRailRefMap.delete(item.route);
-                }}
-                focusable={!drawerOpen}
-                onPress={() => navigate(item.route)}
-                onLongPress={openDrawer}
-                delayLongPress={450}
-                style={({ focused }: any) => [
-                  styles.iconRailHit,
-                  selected && styles.iconRailHitSelected,
-                  focused && styles.navRowFocused,
-                ]}
-                testID={`purple-rail-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
-              >
-                <View style={styles.navIconWrap}>
-                  <Ionicons
-                    name={selected ? (item.icon.replace("-outline", "") as any) : item.icon}
-                    size={18}
-                    color={selected ? "#fff" : tvColors.purpleSoft}
-                  />
-                  {showWatching ? <WatchingDot testID="purple-rail-live-watching" /> : null}
-                </View>
-              </Pressable>
-            );
-          })}
-          <Pressable
-            ref={(node) => {
-              purpleIconRailMenuNode = node;
-            }}
-            focusable={!drawerOpen}
-            onPress={openDrawer}
-            onLongPress={openDrawer}
-            delayLongPress={450}
-            style={({ focused }: any) => [styles.iconRailHit, focused && styles.navRowFocused]}
-            testID="purple-rail-menu"
-          >
-            <Ionicons name="menu-outline" size={18} color={tvColors.purpleSoft} />
-          </Pressable>
-        </View>
-      ) : null}
 
       <FocusGuide
         style={[styles.content, contentStyle]}
@@ -481,31 +411,6 @@ const styles = StyleSheet.create({
   sidebarSpacer: {
     width: PURPLE_SIDEBAR_WIDTH,
     height: "100%",
-  },
-  iconRail: {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: PURPLE_ICON_RAIL_WIDTH,
-    zIndex: 15,
-    paddingTop: 10,
-    paddingBottom: 8,
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "transparent",
-  },
-  iconRailHit: {
-    width: 40,
-    height: 36,
-    borderRadius: radius.sm,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "transparent",
-  },
-  iconRailHitSelected: {
-    backgroundColor: tvColors.purpleDeep,
   },
   sidebar: {
     width: PURPLE_SIDEBAR_WIDTH,

@@ -53,16 +53,14 @@ test("drawer uses bounded native motion and excludes hidden controls from TV foc
   assert.match(shell, /evaluateDrawerBack/);
   assert.match(shell, /close-drawer/);
   assert.match(shell, /closeDrawer\(\)/);
-  assert.match(shell, /PURPLE_RAIL_PEEK_WIDTH/);
-  assert.match(shell, /PURPLE_ICON_RAIL_WIDTH/);
   assert.match(shell, /sidebarOverlay/);
   assert.match(shell, /onLongPress=\{exit\}/);
   assert.match(shell, /Hold Exit/);
-  // Closed drawer: absolute icon rail overlay (no layout peek strip).
-  assert.match(shell, /purple-icon-rail/);
-  assert.match(shell, /focusPurpleIconRail|getPurpleIconRailMenuNode/);
+  // Closed drawer leaves no controls or layout peek strip.
+  assert.doesNotMatch(shell, /purple-icon-rail|focusPurpleIconRail|getPurpleIconRailMenuNode/);
+  assert.doesNotMatch(shell, /PURPLE_RAIL_PEEK_WIDTH|PURPLE_ICON_RAIL_WIDTH|ICON_RAIL/);
   assert.match(shell, /openDrawer/);
-  assert.match(shell, /testID="purple-rail-menu"/);
+  assert.doesNotMatch(shell, /testID="purple-rail-menu"|purple-rail-/);
   assert.doesNotMatch(shell, /purple-rail-double-back-hint/);
   assert.doesNotMatch(shell, /decorative rail when closed/);
   assert.doesNotMatch(shell, /testID="purple-rail-open-drawer"/);
@@ -77,22 +75,24 @@ test("drawer uses bounded native motion and excludes hidden controls from TV foc
 
 test("guide tabs reclaim the left edge and top-row Up restores the active tab", async () => {
   const guide = await readFile(join(root, "app/(tabs)/guide.tsx"), "utf8");
-  // Closed icon rail is full-bleed overlay — only shift group chips while the full drawer is open.
+  // Only shift group chips while the full drawer is open.
   assert.match(guide, /marginLeft: drawerOpen \? 140 : 0/);
   assert.match(guide, /transform: \[\{ translateX: groupSlideX \}\]/);
-  assert.match(guide, /requestNativeFocusWithRetry\(chip, \[0, 40, 120\]\)/);
+  assert.match(guide, /if \(chip\) requestNativeFocus\(chip\)/);
+  assert.doesNotMatch(guide, /requestNativeFocusWithRetry\(chip/);
   assert.match(guide, /onUpBoundary=\{onGuideUpBoundary\}/);
   assert.match(guide, /onLeftBoundary=\{onGuideLeftBoundary\}/);
-  assert.match(guide, /focusPurpleIconRail\("menu"\)/);
+  assert.match(guide, /focusGuidePreviewSurface\(\)/);
+  assert.doesNotMatch(guide, /focusPurpleIconRail/);
   assert.match(guide, /trapFocusLeft=\{!drawerOpen\}/);
   assert.match(guide, /active=\{!activeProgram && !drawerOpen\}/);
   assert.match(guide, /lockLeftEdge=\{!drawerOpen\}/);
   assert.doesNotMatch(guide, /openDrawer\(\)/);
   assert.match(guide, /openFullscreenPlayer/);
   assert.match(guide, /drawerWasOpenForFocusRef/);
-  assert.match(guide, /requestNativeFocusWithRetry\(lastGuideFocusNodeRef\.current/);
-  assert.match(guide, /setGuideNavigationActive\(false\)/);
-  assert.doesNotMatch(guide, /setGuideNavigationActive\(true\)/);
+  assert.match(guide, /focusGuideSurface\(guideSessionChannelId\)/);
+  assert.doesNotMatch(guide, /lastGuideFocusNodeRef/);
+  assert.doesNotMatch(guide, /setGuideNavigationActive|guideNavigationActive/);
   assert.match(guide, /GuidePreviewRail/);
   assert.match(guide, /setPreviewId\(null\)/);
   assert.match(guide, /useTvBackHandler/);
@@ -113,7 +113,7 @@ test("grids never open the drawer from D-pad Left", async () => {
   assert.match(box, /lockFocusLeft/);
   assert.doesNotMatch(timeline, /mountedBandRef|viewPosition: 0\.12/);
   assert.doesNotMatch(box, /mountedRowBandRef|viewPosition: 0\.12/);
-  // Left boundary may focus the icon rail — never openDrawer / optional-chain fire-and-forget.
+  // Left boundary focuses the preview panel and never opens the drawer.
   assert.match(timeline, /onLeftBoundary\?: \(\) => void/);
   assert.match(box, /onLeftBoundary\?: \(\) => void/);
   assert.doesNotMatch(timeline, /onLeftBoundary\?\.\(\)/);

@@ -30,11 +30,11 @@ test("native EPG v4 adds playlist/match tables and joined queryGuideWindow", asy
   assert.match(bridge, /upsertNativePlaylistEpgMatches/);
 });
 
-test("source loadGuide uses SQL join path and focus-ring programme patches", async () => {
+test("source loadGuide uses SQL join path and exact-runway programme patches", async () => {
   const native = await source("src/source.native.ts");
   assert.match(native, /queryNativeGuideWindow/);
   assert.match(native, /loadGuideProgramsForChannelIds/);
-  assert.match(native, /buildFocusRing/);
+  assert.doesNotMatch(native, /buildFocusRing/);
   assert.match(native, /syncPlaylistToNative/);
   assert.match(native, /syncMatchesToNative/);
   assert.match(native, /programsByChannelId/);
@@ -64,7 +64,7 @@ test("store patches per-row programmes and defers silent refresh while surfing",
   assert.match(store, /pendingSilentRefreshRef/);
   assert.match(store, /onGuideSurfSettled/);
   assert.match(programStore, /useSyncExternalStore/);
-  assert.match(programStore, /MAX_PROGRAMME_ROWS = 1600/);
+  assert.match(programStore, /MAX_PROGRAMME_ROWS = 2400/);
   assert.match(gate, /export function markGuideSurfing/);
   assert.match(gate, /export function isGuideSurfing/);
   assert.match(guide, /markGuideSurfing/);
@@ -79,15 +79,19 @@ test("store patches per-row programmes and defers silent refresh while surfing",
   assert.match(timeline, /drawDistance=\{Math\.max\(2200, ROW_H \* 36\)\}/);
 });
 
-test("programme window deltas include explicit empty rows and wide native warm rings", async () => {
-  const [native, bridge, box] = await Promise.all([
+test("programme deltas keep explicit empty rows and use the exact screen runway", async () => {
+  const [native, bridge, box, policy] = await Promise.all([
     source("src/source.native.ts"),
     source("src/nativeEpg.ts"),
     source("src/components/BoxGrid.tsx"),
+    source("src/core/guideRunwayPolicy.ts"),
   ]);
   assert.match(bridge, /: EMPTY_NATIVE_PROGRAMS/);
   assert.match(native, /delta\[id\] = cached\?\.length \? cached : EMPTY_PROGRAMS/);
-  assert.match(native, /buildFocusRing\(allPlaylistIds, new Set\(unique\), unique, 192\)/);
+  assert.match(native, /Object\.fromEntries\(unique\.map\(\(id\) => \[id, EMPTY_PROGRAMS\]\)\)/);
+  assert.match(native, /loadProgrammeCacheMisses\(remapped, unique, startMs, endMs\)/);
+  assert.doesNotMatch(native, /buildFocusRing|PROGRAMME_WARM_RING_ROWS/);
+  assert.match(policy, /GUIDE_PREFETCH_PAGES_AHEAD = 5/);
   assert.match(native, /allPlaylistIds\.slice\(0, 96\)/);
   assert.doesNotMatch(box, /mountedRowBandRef/);
   assert.match(box, /drawDistance=\{2400\}/);

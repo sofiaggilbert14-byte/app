@@ -29,7 +29,7 @@ jobs:
       # Optional vars.EXPO_PUBLIC_* remain as fallbacks for older Phoenix wiring.
       EXPO_PUBLIC_M3U_URL: ${{ secrets.M3U_URL || vars.EXPO_PUBLIC_M3U_URL }}
       EXPO_PUBLIC_EPG_URL: ${{ secrets.EPG_URL || vars.EXPO_PUBLIC_EPG_URL }}
-      EXPO_PUBLIC_GUIDE_WINDOW_HOURS: ${{ vars.EXPO_PUBLIC_GUIDE_WINDOW_HOURS || '8' }}
+      EXPO_PUBLIC_GUIDE_WINDOW_HOURS: ${{ vars.EXPO_PUBLIC_GUIDE_WINDOW_HOURS || '6' }}
 
     steps:
       - name: Checkout purple TV UI

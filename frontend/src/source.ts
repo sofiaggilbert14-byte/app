@@ -84,7 +84,7 @@ export function setViewportGuideChannelIds(_ids: string[] | null): void {
 export async function loadGuideProgramsForChannelIds(
   _channelIds: string[],
   _startISO?: string,
-  _hours = 12,
+  _hours = 6,
 ): Promise<Record<string, Program[]>> {
   return {};
 }
@@ -1030,7 +1030,7 @@ function windowPrograms(list: Program[] | undefined, startMs: number, endMs: num
   return out;
 }
 
-export async function loadGuide(startISO?: string, hours = 12, force = false): Promise<GuideResponse> {
+export async function loadGuide(startISO?: string, hours = 6, force = false): Promise<GuideResponse> {
   const parsed = await ensureParsed(force);
   const now = dayjs();
   const winStart = startISO ? dayjs(startISO) : now.subtract(1, "hour");

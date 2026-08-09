@@ -14,7 +14,10 @@ import type { Program } from "@/src/api";
  * update completing first.
  */
 const EMPTY_PROGRAMS: Program[] = [];
-const MAX_PROGRAMME_ROWS = 1600;
+// Programme arrays are shared with the source cache rather than copied. A wider
+// bounded row index lets a 2,000-channel playlist reverse direction without
+// immediately rebuilding rows that were already visited.
+const MAX_PROGRAMME_ROWS = 2400;
 
 let activeWindowKey = "";
 const programsByChannelId = new Map<string, Program[]>();
