@@ -33,6 +33,13 @@ import { requestNativeFocus } from "@/src/utils/tvFocus";
 import { stopFullscreenSession, stopAllPlaybackSessions, pauseSessionDecoders, type SessionFailReason } from "@/src/core/playbackSession";
 import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
 import { useGuidePrograms } from "@/src/core/guideProgramsStore";
+import {
+  audioDiagnosticsExtras,
+  getLastAudioDiagnostics,
+} from "@/src/core/audioDiagnostics";
+import { pickDefaultSubtitleTrack, useSubtitlePreferences } from "@/src/core/subtitlePreferences";
+import { noteStreamFailure } from "@/src/core/streamFailureRegistry";
+import * as FileSystem from "expo-file-system/legacy";
 
 const CHANNEL_PREVIEW_DELAY_MS = 650;
 const CHANNEL_ZAP_SETTLE_MS = 850;
@@ -97,6 +104,7 @@ export default function PlayerScreen() {
   const [audioTrackId, setAudioTrackId] = useState<string | number | undefined>(undefined);
   const [textTrackId, setTextTrackId] = useState<string | number | undefined>(undefined);
   const [tracksOpen, setTracksOpen] = useState(false);
+  const { defaultLanguage: subtitleDefaultLanguage } = useSubtitlePreferences();
 
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -114,6 +122,9 @@ export default function PlayerScreen() {
   const rapidStripUntilRef = useRef(0);
   const pendingChannelIdRef = useRef(params.channelId);
   const channelIdRef = useRef(params.channelId);
+  const textTrackIdRef = useRef<string | number | undefined>(undefined);
+  const subtitleDefaultLanguageRef = useRef(subtitleDefaultLanguage);
+  const subtitleAutoAppliedRef = useRef<string | null>(null);
 
   const isTV = Platform.OS !== "web" && Platform.isTV;
   const overlayHideMs = playerControlsTimeoutMs;
@@ -156,10 +167,20 @@ export default function PlayerScreen() {
   }, [router, setSleepTimerMinutes, sleepTimerMinutes]);
 
   useEffect(() => {
+    textTrackIdRef.current = textTrackId;
+  }, [textTrackId]);
+
+  useEffect(() => {
+    subtitleDefaultLanguageRef.current = subtitleDefaultLanguage;
+  }, [subtitleDefaultLanguage]);
+
+  useEffect(() => {
     setAudioTracks([]);
     setTextTracks([]);
     setAudioTrackId(undefined);
     setTextTrackId(undefined);
+    textTrackIdRef.current = undefined;
+    subtitleAutoAppliedRef.current = null;
     setTracksOpen(false);
   }, [channelId, retryToken]);
 
@@ -431,12 +452,40 @@ export default function PlayerScreen() {
       if (reason === "silent-audio" || reason === "engine-swap") {
         setAudioTrackId(undefined);
         setTextTrackId(undefined);
+        textTrackIdRef.current = undefined;
         setTracksOpen(false);
+      }
+      if (next === "error" || reason === "silent-audio") {
+        noteStreamFailure(channelIdRef.current);
       }
       if (next === "playing") setFailReason(null);
     },
     [],
   );
+
+  const saveAudioReport = useCallback(async () => {
+    void Haptics.selectionAsync().catch(() => undefined);
+    try {
+      const snap = getLastAudioDiagnostics();
+      const extras = audioDiagnosticsExtras(snap);
+      const lines = [
+        `channelId=${channelIdRef.current}`,
+        `channelName=${channelMeta?.name || ""}`,
+        failReason ? `failReason=${failReason}` : null,
+        ...Object.entries(extras).map(([key, value]) => `${key}=${value == null ? "" : String(value)}`),
+      ].filter((line): line is string => !!line);
+      const root = FileSystem.documentDirectory || "";
+      if (!root || Platform.OS === "web") {
+        showNotice("Diagnostics unavailable");
+        return;
+      }
+      const path = `${root}charmiptv-audio-${Date.now()}.txt`;
+      await FileSystem.writeAsStringAsync(path, lines.join("\n"));
+      showNotice("Diagnostics saved");
+    } catch {
+      showNotice("Diagnostics failed");
+    }
+  }, [channelMeta?.name, failReason, showNotice]);
 
   const goGuide = useCallback(() => {
     void Haptics.selectionAsync().catch(() => undefined);
@@ -509,8 +558,24 @@ export default function PlayerScreen() {
             audioTrack={audioTrackId}
             textTrack={textTrackId}
             onTracksAvailable={(tracks) => {
-              setAudioTracks(tracks.audio.filter((track) => track.id !== "" && track.id != null));
-              setTextTracks(tracks.text.filter((track) => track.id !== "" && track.id != null));
+              const audio = tracks.audio.filter((track) => track.id !== "" && track.id != null);
+              const text = tracks.text.filter((track) => track.id !== "" && track.id != null);
+              setAudioTracks(audio);
+              setTextTracks(text);
+              // Auto-pick default subtitle language once per channel; Off keeps textTrackId undefined.
+              const appliedFor = channelIdRef.current;
+              if (
+                textTrackIdRef.current === undefined &&
+                subtitleAutoAppliedRef.current !== appliedFor &&
+                subtitleDefaultLanguageRef.current
+              ) {
+                const picked = pickDefaultSubtitleTrack(text, subtitleDefaultLanguageRef.current);
+                if (picked) {
+                  textTrackIdRef.current = picked.id;
+                  setTextTrackId(picked.id);
+                }
+                subtitleAutoAppliedRef.current = appliedFor;
+              }
             }}
             onStatus={handleStreamStatus}
             style={StyleSheet.absoluteFill}
@@ -649,6 +714,16 @@ export default function PlayerScreen() {
               >
                 <Ionicons name="musical-notes-outline" size={15} color="#fff" />
                 <Text style={styles.controlLabel}>Audio/CC</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  void saveAudioReport();
+                }}
+                style={({ focused }: any) => [styles.textControl, focused && styles.focused]}
+                testID="player-report-audio"
+              >
+                <Ionicons name="bug-outline" size={15} color="#fff" />
+                <Text style={styles.controlLabel}>Report</Text>
               </Pressable>
               <View style={styles.controlsSpacer} />
               <Pressable

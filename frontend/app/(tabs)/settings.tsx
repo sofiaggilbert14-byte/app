@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -35,13 +35,33 @@ import { formatDiagnosticsExport } from "@/src/core/diagnosticsExport";
 import { audioDiagnosticsExtras } from "@/src/core/audioDiagnostics";
 import { POWER_PROFILE_OPTIONS } from "@/src/core/devicePowerProfile";
 import { channelHasEpgMatch } from "@/src/core/epgUserOverrides";
+import { useChannelCustomize } from "@/src/core/channelCustomize";
+import { useGuideUiPreferences } from "@/src/core/guideUiPreferences";
+import { useParentalPin } from "@/src/core/parentalPin";
+import { failedStreamCount, listFailedChannelIds } from "@/src/core/streamFailureRegistry";
+import {
+  useSubtitlePreferences,
+  type SubtitleBg,
+  type SubtitleSize,
+} from "@/src/core/subtitlePreferences";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
 import dayjs from "dayjs";
 import * as FileSystem from "expo-file-system/legacy";
 import { formatRelativeAge } from "@/src/utils/time";
 
-type Section = "general" | "player" | "remote" | "epg" | "appearance" | "backup" | "account" | "about";
+type Section =
+  | "general"
+  | "player"
+  | "remote"
+  | "epg"
+  | "appearance"
+  | "health"
+  | "channels"
+  | "parental"
+  | "backup"
+  | "account"
+  | "about";
 
 type Tile = {
   id: Section;
@@ -55,10 +75,15 @@ const TILES: Tile[] = [
   { id: "remote", label: "Remote Control", icon: "game-controller-outline" },
   { id: "epg", label: "EPG", icon: "calendar-outline" },
   { id: "appearance", label: "Appearance", icon: "color-palette-outline" },
+  { id: "health", label: "Health", icon: "pulse-outline" },
+  { id: "channels", label: "Channels", icon: "list-circle-outline" },
+  { id: "parental", label: "Parental", icon: "lock-closed-outline" },
   { id: "backup", label: "Backup & Restore", icon: "cloud-download-outline" },
   { id: "account", label: "Account", icon: "person-outline" },
   { id: "about", label: "About", icon: "information-circle-outline" },
 ];
+
+const ADULT_GROUP_RE = /adult|xxx|porn/i;
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -103,18 +128,24 @@ export default function SettingsScreen() {
     setSleepTimerMinutes,
   } = useStore();
   const [playerEnginePreference, setPlayerEnginePreference] = usePlayerEnginePreference();
+  const channelCustomize = useChannelCustomize();
+  const guideUi = useGuideUiPreferences();
+  const parental = useParentalPin();
+  const subtitles = useSubtitlePreferences();
   const [section, setSection] = useState<Section | null>(null);
   const [busy, setBusy] = useState(false);
   const [backupStatus, setBackupStatus] = useState<string | null>(null);
   const [clearFavoritesArmed, setClearFavoritesArmed] = useState(false);
   const [diagnostics, setDiagnostics] = useState<SourceDiagnostics | null>(null);
+  const [pinDraft, setPinDraft] = useState("");
+  const [focusedCustomizeId, setFocusedCustomizeId] = useState<string | null>(null);
   const clearFavoritesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Mount-once preferred focus — sticky hasTVPreferredFocus steals focus on re-render.
   const [preferTileFocus, setPreferTileFocus] = useState(true);
   const [preferBackFocus, setPreferBackFocus] = useState(false);
 
   useEffect(() => {
-    if (section !== "general" && section !== "backup" && section !== "about") return;
+    if (section !== "general" && section !== "backup" && section !== "about" && section !== "health") return;
     void sourceDiagnostics().then(setDiagnostics).catch(() => undefined);
   }, [section, busy]);
 
@@ -170,6 +201,30 @@ export default function SettingsScreen() {
       .map(([name, counts]) => ({ name, ...counts }))
       .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name))
       .slice(0, 6);
+  }, [channels]);
+
+  const customizeChannels = useMemo(() => channels.slice(0, 30), [channels]);
+  const hiddenSet = useMemo(() => new Set(channelCustomize.hiddenIds), [channelCustomize.hiddenIds]);
+  const failedChannelRows = useMemo(() => {
+    if (section !== "health") return [] as { id: string; name: string }[];
+    return listFailedChannelIds()
+      .slice(0, 8)
+      .map((id) => {
+        const channel = channels.find((item) => item.id === id);
+        return { id, name: channel?.name || id };
+      });
+  }, [channels, section]);
+  const lockableGroups = useMemo(() => {
+    const groups = ["Movies", "Kids"];
+    const seen = new Set(groups);
+    for (const channel of channels) {
+      const name = String(channel.group || "").trim();
+      if (!name || seen.has(name) || !ADULT_GROUP_RE.test(name)) continue;
+      seen.add(name);
+      groups.push(name);
+      if (groups.length >= 10) break;
+    }
+    return groups;
   }, [channels]);
 
   const choose = useCallback((id: Section) => {
@@ -558,6 +613,226 @@ export default function SettingsScreen() {
                 <Text style={styles.help}>
                   Media3 exposes audio/CC tracks and uses the Android TV codec path. Choose Media3 to keep one player engine; VLC remains an optional compatibility mode.
                 </Text>
+                <View style={styles.divider} />
+                <Text style={styles.settingLabel}>Subtitles</Text>
+                <Text style={styles.help}>Default language auto-selects when tracks appear. Size/background are stored for Settings (native burn-in styling is not available yet).</Text>
+                <View style={styles.pinInputRow}>
+                  <Text style={styles.infoLabel}>Default language</Text>
+                  <TextInput
+                    value={subtitles.defaultLanguage}
+                    onChangeText={subtitles.setDefaultLanguage}
+                    placeholder="eng"
+                    placeholderTextColor={tvColors.textMuted}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    maxLength={16}
+                    style={styles.pinInput}
+                    testID="settings-subtitle-lang"
+                  />
+                </View>
+                <ChoiceRow<SubtitleSize>
+                  label="Subtitle size"
+                  value={subtitles.size}
+                  options={[
+                    { label: "Small", value: "small" },
+                    { label: "Normal", value: "normal" },
+                    { label: "Large", value: "large" },
+                  ]}
+                  onChange={subtitles.setSize}
+                />
+                <ChoiceRow<SubtitleBg>
+                  label="Subtitle background"
+                  value={subtitles.background}
+                  options={[
+                    { label: "None", value: "none" },
+                    { label: "Dim", value: "dim" },
+                    { label: "Solid", value: "solid" },
+                  ]}
+                  onChange={subtitles.setBackground}
+                />
+                <View style={styles.divider} />
+                <Text style={styles.settingLabel}>Guide preview</Text>
+                <ChoiceRow<"horizontal" | "vertical">
+                  label="Group layout"
+                  value={guideUi.groupLayout}
+                  options={[
+                    { label: "Horizontal", value: "horizontal" },
+                    { label: "Vertical", value: "vertical" },
+                  ]}
+                  onChange={guideUi.setGroupLayout}
+                />
+                <ToggleRow label="Mute preview by default" value={guideUi.mutePreview} onChange={guideUi.setMutePreview} />
+                <ToggleRow label="Hide preview by default" value={guideUi.hidePreview} onChange={guideUi.setHidePreview} />
+              </SettingsCard>
+            ) : null}
+
+            {section === "health" ? (
+              <SettingsCard title="Health" icon="pulse-outline">
+                <InfoRow label="Channels" value={String(channels.length)} />
+                <InfoRow label="Matched" value={String(diagnostics?.matchQuality?.matched ?? "—")} />
+                <InfoRow label="Unmatched" value={String(diagnostics?.matchQuality?.unmatched ?? "—")} />
+                <InfoRow label="Failed streams" value={String(failedStreamCount())} />
+                <InfoRow
+                  label="Playlist refreshed"
+                  value={
+                    diagnostics?.playlistRefreshedAt
+                      ? `${formatRelativeAge(diagnostics.playlistRefreshedAt)} · ${dayjs(diagnostics.playlistRefreshedAt).format(clock24h ? "MMM D, HH:mm" : "MMM D, h:mm A")}`
+                      : "—"
+                  }
+                />
+                <InfoRow
+                  label="Guide refreshed"
+                  value={
+                    diagnostics?.guideRefreshedAt
+                      ? `${formatRelativeAge(diagnostics.guideRefreshedAt)} · ${dayjs(diagnostics.guideRefreshedAt).format(clock24h ? "MMM D, HH:mm" : "MMM D, h:mm A")}`
+                      : "—"
+                  }
+                />
+                <Action label={busy ? "Working…" : "Export diagnostics"} icon="document-text-outline" onPress={exportDiagnostics} disabled={busy} />
+                {backupStatus && section === "health" ? <Text style={styles.status}>{backupStatus}</Text> : null}
+                {failedChannelRows.length ? (
+                  <View style={styles.matchBlock}>
+                    <Text style={styles.settingLabel}>Recent failed channels</Text>
+                    {failedChannelRows.map((row) => (
+                      <InfoRow key={row.id} label={row.name} value={row.id.slice(0, 18)} />
+                    ))}
+                  </View>
+                ) : (
+                  <Text style={styles.help}>No recent stream failures recorded this session.</Text>
+                )}
+              </SettingsCard>
+            ) : null}
+
+            {section === "channels" ? (
+              <SettingsCard title="Channels" icon="list-circle-outline">
+                <Text style={styles.help}>
+                  Cap of 30 rows for TV memory. Focus a channel, then Hide or Move up/down. Custom numbers keypad is deferred — clear custom order resets sort.
+                </Text>
+                <Action
+                  label="Clear custom order"
+                  icon="refresh-outline"
+                  onPress={() => {
+                    void Haptics.selectionAsync().catch(() => undefined);
+                    channelCustomize.clearCustomOrder();
+                    setBackupStatus("Custom channel order cleared.");
+                  }}
+                />
+                {backupStatus && section === "channels" ? <Text style={styles.status}>{backupStatus}</Text> : null}
+                {customizeChannels.map((channel) => {
+                  const hidden = hiddenSet.has(channel.id);
+                  const focused = focusedCustomizeId === channel.id;
+                  return (
+                    <View key={channel.id} style={styles.channelEditBlock}>
+                      <Pressable
+                        onFocus={() => setFocusedCustomizeId(channel.id)}
+                        onPress={() => setFocusedCustomizeId(channel.id)}
+                        style={({ focused: rowFocused }: any) => [
+                          styles.settingRow,
+                          (focused || rowFocused) && styles.focused,
+                        ]}
+                      >
+                        <Text numberOfLines={1} style={styles.settingLabel}>
+                          {channel.name}
+                        </Text>
+                        <Text style={styles.infoValue}>{hidden ? "Hidden" : "Visible"}</Text>
+                      </Pressable>
+                      {focused ? (
+                        <View style={styles.channelEditActions}>
+                          <Pressable
+                            onPress={() => channelCustomize.toggleHidden(channel.id)}
+                            style={({ focused: btnFocused }: any) => [styles.miniAction, btnFocused && styles.focused]}
+                          >
+                            <Text style={styles.miniActionText}>{hidden ? "Show" : "Hide"}</Text>
+                          </Pressable>
+                          <Pressable
+                            onPress={() => channelCustomize.moveInCustomOrder(channel.id, -1)}
+                            style={({ focused: btnFocused }: any) => [styles.miniAction, btnFocused && styles.focused]}
+                          >
+                            <Text style={styles.miniActionText}>Up</Text>
+                          </Pressable>
+                          <Pressable
+                            onPress={() => channelCustomize.moveInCustomOrder(channel.id, 1)}
+                            style={({ focused: btnFocused }: any) => [styles.miniAction, btnFocused && styles.focused]}
+                          >
+                            <Text style={styles.miniActionText}>Down</Text>
+                          </Pressable>
+                        </View>
+                      ) : null}
+                    </View>
+                  );
+                })}
+              </SettingsCard>
+            ) : null}
+
+            {section === "parental" ? (
+              <SettingsCard title="Parental" icon="lock-closed-outline">
+                <Text style={styles.help}>
+                  PIN unlocks locked groups for this app session. Lock session again to re-require the PIN.
+                </Text>
+                <InfoRow label="PIN" value={parental.hasPin ? "Set" : "Not set"} />
+                <View style={styles.pinInputRow}>
+                  <TextInput
+                    value={pinDraft}
+                    onChangeText={(value) => setPinDraft(value.replace(/\D/g, "").slice(0, 8))}
+                    placeholder="4–8 digit PIN"
+                    placeholderTextColor={tvColors.textMuted}
+                    keyboardType="number-pad"
+                    secureTextEntry
+                    maxLength={8}
+                    style={styles.pinInput}
+                    testID="settings-parental-pin"
+                  />
+                </View>
+                <View style={styles.backupActions}>
+                  <Action
+                    label="Set PIN"
+                    icon="key-outline"
+                    onPress={() => {
+                      if (pinDraft.replace(/\D/g, "").length < 4) {
+                        setBackupStatus("PIN must be at least 4 digits.");
+                        return;
+                      }
+                      parental.setPin(pinDraft);
+                      setPinDraft("");
+                      setBackupStatus("Parental PIN saved.");
+                    }}
+                  />
+                  <Action
+                    label="Clear PIN"
+                    icon="trash-outline"
+                    onPress={() => {
+                      parental.setPin(null);
+                      setPinDraft("");
+                      setBackupStatus("Parental PIN cleared.");
+                    }}
+                  />
+                  <Action
+                    label="Lock session now"
+                    icon="lock-closed-outline"
+                    onPress={() => {
+                      parental.lockSession();
+                      setBackupStatus("Session locked. Locked groups require PIN again.");
+                    }}
+                  />
+                </View>
+                {backupStatus && section === "parental" ? <Text style={styles.status}>{backupStatus}</Text> : null}
+                <Text style={[styles.settingLabel, { marginTop: 6 }]}>Locked groups</Text>
+                {lockableGroups.map((group) => {
+                  const locked = parental.lockedGroups.includes(group);
+                  return (
+                    <ToggleRow
+                      key={group}
+                      label={group}
+                      value={locked}
+                      onChange={(next) => {
+                        const set = new Set(parental.lockedGroups);
+                        if (next) set.add(group);
+                        else set.delete(group);
+                        parental.setLockedGroups(Array.from(set));
+                      }}
+                    />
+                  );
+                })}
               </SettingsCard>
             ) : null}
 
@@ -582,6 +857,17 @@ export default function SettingsScreen() {
                   options={[{ label: "Comfortable", value: "large" }, { label: "Normal", value: "normal" }, { label: "Compact", value: "compact" }]}
                   onChange={setGuideDensity}
                 />
+                <ChoiceRow<"horizontal" | "vertical">
+                  label="Guide group layout"
+                  value={guideUi.groupLayout}
+                  options={[
+                    { label: "Horizontal", value: "horizontal" },
+                    { label: "Vertical", value: "vertical" },
+                  ]}
+                  onChange={guideUi.setGroupLayout}
+                />
+                <ToggleRow label="Mute guide preview" value={guideUi.mutePreview} onChange={guideUi.setMutePreview} />
+                <ToggleRow label="Hide guide preview" value={guideUi.hidePreview} onChange={guideUi.setHidePreview} />
                 <View style={styles.calibrationWrap}><TvCalibrationControls /></View>
               </SettingsCard>
             ) : null}
@@ -746,5 +1032,30 @@ const styles = StyleSheet.create({
   matchBlock: { gap: 2, paddingTop: 4, borderTopWidth: 1, borderTopColor: tvColors.line },
   matchGroups: { gap: 1, paddingTop: 4 },
   calibrationWrap: { borderTopWidth: 1, borderTopColor: tvColors.line, marginTop: 4, paddingTop: 8 },
+  pinInputRow: { gap: 6 },
+  pinInput: {
+    minHeight: 36,
+    borderWidth: 1,
+    borderColor: tvColors.lineStrong,
+    borderRadius: 5,
+    paddingHorizontal: 10,
+    color: "#fff",
+    fontFamily: fonts.medium,
+    fontSize: 11,
+    backgroundColor: tvColors.panelRaised,
+  },
+  channelEditBlock: { gap: 3 },
+  channelEditActions: { flexDirection: "row", flexWrap: "wrap", gap: 6, paddingLeft: 8, paddingBottom: 4 },
+  miniAction: {
+    minHeight: 28,
+    paddingHorizontal: 10,
+    borderRadius: 5,
+    borderWidth: 2,
+    borderColor: "transparent",
+    backgroundColor: tvColors.panelRaised,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  miniActionText: { color: "#fff", fontFamily: fonts.medium, fontSize: 8 },
   focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
 });
