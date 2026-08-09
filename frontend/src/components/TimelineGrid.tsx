@@ -488,6 +488,7 @@ export const TimelineGrid = memo(function TimelineGrid({
   active = true,
   lockLeftEdge = true,
   onUpBoundary,
+  onLeftBoundary,
   onFocusedRowChange,
   onGuideFocusNode,
   onViewportChannelIds,
@@ -515,6 +516,8 @@ export const TimelineGrid = memo(function TimelineGrid({
   lockLeftEdge?: boolean;
   /** Fired when Up is pressed on the first guide row so focus can exit to group chips. */
   onUpBoundary?: () => void;
+  /** Fired when Left is pressed on the channel rail — parent may focus the icon rail (never open drawer). */
+  onLeftBoundary?: () => void;
   /** Reports the currently focused row index so the parent can relax trapFocusUp on row 0. */
   onFocusedRowChange?: (index: number) => void;
   /** Parent can restore focus after modal close. */
@@ -766,8 +769,13 @@ export const TimelineGrid = memo(function TimelineGrid({
           lastAxisRef.current = "h";
           lastAxisAtRef.current = Date.now();
         }
-        // Left edge: pin focus — never open the drawer (double-Back only).
+        // Left edge: hand focus to the closed icon rail when provided; never open the drawer.
         if (decision.boundary === "left-boundary") {
+          if (onLeftBoundary) {
+            gridOwnsFocusRef.current = false;
+            onLeftBoundary();
+            return;
+          }
           armGuideLeftFocusLock(focusedNodeRef.current);
           return;
         }
@@ -791,7 +799,7 @@ export const TimelineGrid = memo(function TimelineGrid({
           }, GUIDE_ESCAPE_GUARD_MS);
         }
       },
-      [active, onUpBoundary],
+      [active, onLeftBoundary, onUpBoundary],
     ),
   );
 

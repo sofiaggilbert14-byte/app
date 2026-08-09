@@ -180,8 +180,10 @@ type Props = {
   style?: StyleProp<ViewStyle>;
   mode?: "preview" | "full";
   sessionRole?: SessionRole;
+  /** When true, Media3/VLC start muted (guide preview default). */
+  muted?: boolean;
   audioTrack?: string | number;
-  textTrack?: string | number;
+  textTrack?: string | number | null;
   onTracksAvailable?: (tracks: {
     audio: StreamTrack[];
     text: StreamTrack[];
@@ -245,6 +247,7 @@ function VlcStream({
   mode = "full",
   sessionRole,
   sessionGeneration,
+  muted = false,
   audioTrack,
   textTrack,
   onTracksAvailable,
@@ -343,6 +346,8 @@ function VlcStream({
       autoAspectRatio
       resizeMode="contain"
       acceptInvalidCertificates
+      muted={muted}
+      volume={muted ? 0 : 100}
       audioTrack={typeof audioTrack === "number" ? audioTrack : undefined}
       textTrack={typeof textTrack === "number" ? textTrack : undefined}
       onLoad={(info: any) => {
@@ -375,6 +380,7 @@ function ExpoStream({
   mode = "full",
   sessionRole,
   sessionGeneration,
+  muted = false,
   audioTrack,
   textTrack,
   onTracksAvailable,
@@ -464,7 +470,16 @@ function ExpoStream({
       }
 
       const subtitleTracks = Array.isArray(player.availableSubtitleTracks) ? player.availableSubtitleTracks : [];
-      if (textTrack != null) {
+      if (textTrack == null) {
+        // Explicit Off — clear any engine-selected subtitle so CC does not stick.
+        if (player.subtitleTrack != null) {
+          try {
+            player.subtitleTrack = null;
+          } catch {
+            /* older expo-video */
+          }
+        }
+      } else {
         const selectedText = subtitleTracks.find((track) => String(track.id) === String(textTrack));
         if (selectedText && player.subtitleTrack?.id !== selectedText.id) {
           player.subtitleTrack = selectedText;
@@ -564,8 +579,8 @@ function ExpoStream({
           isSessionCurrent(sessionRole, sessionGeneration)
         ) {
           try {
-            player.muted = false;
-            player.volume = 1;
+            player.muted = muted;
+            player.volume = muted ? 0 : 1;
           } catch {}
           player.play();
         }
@@ -603,7 +618,16 @@ function ExpoStream({
           .catch(() => undefined);
       }
     };
-  }, [blocked, emit, engine, headers, kind, player, sessionGeneration, sessionRole, setBlocked, uri]);
+  }, [blocked, emit, engine, headers, kind, muted, player, sessionGeneration, sessionRole, setBlocked, uri]);
+
+  useEffect(() => {
+    try {
+      player.muted = muted;
+      player.volume = muted ? 0 : 1;
+    } catch {
+      /* older native builds */
+    }
+  }, [muted, player]);
 
   useEffect(() => {
     const sub = player.addListener("statusChange", ({ status, error }) => {
@@ -704,6 +728,7 @@ export function StreamPlayer({
   style,
   mode,
   sessionRole,
+  muted = false,
   audioTrack,
   textTrack,
   onTracksAvailable,
@@ -829,6 +854,7 @@ export function StreamPlayer({
         mode={playbackMode}
         sessionRole={role}
         sessionGeneration={sessionGeneration}
+        muted={muted}
         audioTrack={audioTrack}
         textTrack={textTrack}
         onTracksAvailable={onTracksAvailable}
@@ -845,6 +871,7 @@ export function StreamPlayer({
       mode={playbackMode}
       sessionRole={role}
       sessionGeneration={sessionGeneration}
+      muted={muted}
       audioTrack={audioTrack}
       textTrack={textTrack}
       onTracksAvailable={onTracksAvailable}

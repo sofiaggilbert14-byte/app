@@ -178,6 +178,7 @@ export function BoxGrid({
   onProgramPress,
   onChannelFocus,
   onUpBoundary,
+  onLeftBoundary,
   onFocusedRowChange,
   onViewportChannelIds,
   onGuideFocusNode,
@@ -199,6 +200,7 @@ export function BoxGrid({
   onProgramPress: (p: Program, c: Channel) => void;
   onChannelFocus?: (c: Channel) => void;
   onUpBoundary?: () => void;
+  onLeftBoundary?: () => void;
   onFocusedRowChange?: (index: number) => void;
   onViewportChannelIds?: (ids: string[]) => void;
   onGuideFocusNode?: (node: unknown) => void;
@@ -328,10 +330,15 @@ export function BoxGrid({
       (event) => {
         if (!active) return;
         const key = event?.eventType;
-        // Left edge of compact grid — pin focus; never open the drawer.
+        // Left edge of compact grid — hand focus to icon rail when provided.
         if (key === "left" && gridOwnsFocusRef.current) {
           const col = focusedIndexRef.current % Math.max(1, numColumns);
           if (col === 0) {
+            if (onLeftBoundary) {
+              gridOwnsFocusRef.current = false;
+              onLeftBoundary();
+              return;
+            }
             armGuideLeftFocusLock(focusedNodeRef.current);
             return;
           }
@@ -359,7 +366,7 @@ export function BoxGrid({
           guideEscapeInFlight.current = false;
         }, GUIDE_ESCAPE_GUARD_MS);
       },
-      [active, numColumns, onUpBoundary],
+      [active, numColumns, onLeftBoundary, onUpBoundary],
     ),
   );
 
