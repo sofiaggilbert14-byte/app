@@ -7,7 +7,7 @@ import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { StreamPlayer, type StreamStatus } from "@/src/components/StreamPlayer";
 import { getLastAudioDiagnostics } from "@/src/core/audioDiagnostics";
-import { focusGuideSurface } from "@/src/utils/tvGuideFocusLock";
+import { focusGuideSurface, registerGuidePreviewEntry } from "@/src/utils/tvGuideFocusLock";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { fmtTime, progressPct } from "@/src/utils/time";
 
@@ -31,7 +31,6 @@ type Props = {
   onPlay: () => void;
   onFavorite: () => void;
   onRemind: () => void;
-  onInfo: () => void;
   onHideToggle: () => void;
   clock24h: boolean;
 };
@@ -56,12 +55,9 @@ export function GuidePreviewRail({
   onPlay,
   onFavorite,
   onRemind,
-  onInfo,
   onHideToggle,
   clock24h,
 }: Props) {
-  // Kept for API compatibility; Info is intentionally removed from the action row.
-  void onInfo;
   void clock24h;
   const nowDate = useMemo(() => new Date(now), [now]);
   const progress = current ? progressPct(current, nowDate) : 0;
@@ -155,7 +151,9 @@ export function GuidePreviewRail({
           </Text>
         ) : null}
         <Text style={styles.descLabel}>ABOUT</Text>
-        <Text style={styles.description} numberOfLines={5}>{about}</Text>
+        <Text accessibilityRole="text" accessibilityLabel={about} style={styles.description} numberOfLines={5}>
+          {about}
+        </Text>
 
         <View style={styles.actions}>
           <Pressable
@@ -188,6 +186,7 @@ export function GuidePreviewRail({
             <Text style={styles.secondaryText}>Remind</Text>
           </Pressable>
           <Pressable
+            ref={(node) => registerGuidePreviewEntry(node)}
             onPress={() => focusGuideSurface()}
             style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
             testID="guide-preview-guide"
