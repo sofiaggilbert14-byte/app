@@ -55,7 +55,7 @@ def enableMinifyInReleaseBuilds = (findProperty('android.enableMinifyInReleaseBu
 /**
  * Preferred JavaScriptCore flavor when Hermes is disabled.
  */
-def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
+def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.0.0'
 
 def releaseSigning = [
     storeFile: System.getenv("CHARM_UPLOAD_STORE_FILE") ?: findProperty("CHARM_UPLOAD_STORE_FILE"),
@@ -88,8 +88,8 @@ android {
         applicationId 'com.charmiptv.app.purple.next'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 5
-        versionName "2.1.0-rc.2"
+        versionCode 6
+        versionName "2.1.0-rc.3"
         manifestPlaceholders = [allowCleartextStreams: "false"]
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""

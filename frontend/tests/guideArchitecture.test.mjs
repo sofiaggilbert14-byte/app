@@ -36,7 +36,8 @@ test("guide is a fixed left details panel plus right grid without drawer extras"
   assert.match(guide, /const detailsRailWidth = useMemo/);
   assert.match(guide, /flex: 1/);
   assert.doesNotMatch(guide, /NowPlayingBar|guide-now-playing/);
-  assert.doesNotMatch(shell, /contextActions|recentChannels|onRecentPress|recentStrip/);
+  assert.doesNotMatch(guide, /footerAction|purple-guide-reset/);
+  assert.doesNotMatch(shell, /contextActions|recentChannels|onRecentPress|recentStrip|footerAction/);
 });
 
 test("focus metadata is immediate while decoder tune stays delayed and restores by channel id", async () => {
@@ -64,6 +65,15 @@ test("focus metadata is immediate while decoder tune stays delayed and restores 
   assert.match(box, /lastViewportBucketRef/);
   assert.doesNotMatch(timeline, /reclaimToken|mountedBandRef|disableProgramCull/);
   assert.doesNotMatch(box, /mountedRowBandRef/);
+  assert.match(timeline, /key: `\$\{item\.id\}:slot:\$\{logicalSlot\}`/);
+  assert.doesNotMatch(timeline, /key: `\$\{item\.id\}:\$\{program\.start\}/);
+});
+
+test("Home programme metadata advances on a minute-aligned clock", async () => {
+  const nowPlaying = await source("src/components/NowPlayingBar.tsx");
+  assert.match(nowPlaying, /60_000 - \(Date\.now\(\) % 60_000\)/);
+  assert.match(nowPlaying, /setInterval\(\(\) => setNowMs\(Date\.now\(\)\), 60_000\)/);
+  assert.match(nowPlaying, /new Date\(nowMs\)/);
 });
 
 test("EPG screen delivery uses a five-page runway with retained bounded caches", async () => {

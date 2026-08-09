@@ -54,6 +54,8 @@ jobs:
           ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/27.1.12297006" ./scripts/build-media3-ffmpeg-audio.sh
       - name: Install dependencies deterministically
         run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Verify checked-in Android configuration
+        run: npm run verify:native-config
       - name: Phase 1 and 2 regression tests
         run: npm test
       - name: Typecheck

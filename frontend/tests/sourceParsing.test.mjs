@@ -29,6 +29,7 @@ test("M3U parser preserves metadata, classifies streams, and uses stable collisi
   assert.equal(channels[1].id, "sports.1");
   assert.equal(channels[2].id, `news.1~${backupFp}`);
   assert.equal(channels[0].logo, "https://img.example/news.png");
+  assert.equal(channels[0].raw_tvg_id, "news.1");
   assert.equal(channels[0].stream_type, "hls");
   assert.equal(channels[1].stream_type, "ts");
 

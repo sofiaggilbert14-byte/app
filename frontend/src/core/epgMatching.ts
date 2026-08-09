@@ -6,8 +6,8 @@ export function normalizeGuideKey(value: string | undefined | null): string {
 }
 
 /** Identity used for rematch decisions — logo URL changes must not force a full rematch. */
-export function channelMatchIdentity(channel: Pick<Channel, "id" | "tvg_id" | "name">): string {
-  return `${channel.id}\0${(channel.tvg_id || "").trim()}\0${(channel.name || "").trim()}`;
+export function channelMatchIdentity(channel: Pick<Channel, "id" | "raw_tvg_id" | "tvg_id" | "name">): string {
+  return `${channel.id}\0${(channel.raw_tvg_id || channel.tvg_id || "").trim()}\0${(channel.name || "").trim()}`;
 }
 
 export type XmltvMatchIndexes = {
@@ -122,12 +122,12 @@ function resolveNormalizedId(
  * Logos may still resolve from channel metadata alone when unambiguous.
  */
 export function matchPlaylistChannelToXmltv(
-  channel: Pick<Channel, "id" | "tvg_id" | "name">,
+  channel: Pick<Channel, "id" | "raw_tvg_id" | "tvg_id" | "name">,
   indexes: XmltvMatchIndexes,
   logos: Record<string, string> = {},
   options: EpgMatchOptions = {},
 ): PlaylistXmltvMatch {
-  const tvgId = (channel.tvg_id || "").trim();
+  const tvgId = (channel.raw_tvg_id || channel.tvg_id || "").trim();
   const {
     idByNormalizedId,
     idByNormalizedName,

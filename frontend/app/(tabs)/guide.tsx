@@ -577,20 +577,6 @@ export default function PurpleGuideScreen() {
     focusGuidePreviewSurface();
   }, []);
 
-  const resetGuide = useCallback(() => {
-    void Haptics.selectionAsync().catch(() => undefined);
-    if (previewTimer.current) clearTimeout(previewTimer.current);
-    groupChangedAt.current = Date.now();
-    guideSessionGroup = "All";
-    guideSessionChannelId = null;
-    setGroup("All");
-    setFocusedId(null);
-    setPreviewId(null);
-    setGroupQuery("");
-    setResetToken((value) => value + 1);
-    void hardRefresh();
-  }, [hardRefresh]);
-
   // One-shot Search/Health jump — apply on focus/mount only.
   useFocusEffect(
     useCallback(() => {
@@ -667,13 +653,6 @@ export default function PurpleGuideScreen() {
   return (
     <PurpleTvShell
       active="/guide"
-      footerAction={{
-        label: "Reset",
-        icon: "refresh-outline",
-        onPress: resetGuide,
-        disabled: refreshing,
-        testID: "purple-guide-reset",
-      }}
       watchingChannelId={lastChannelId}
     >
       <View style={styles.page}>

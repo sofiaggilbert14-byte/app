@@ -125,9 +125,9 @@ test("release packaging requires upload signing and keeps tester sideload separa
     source("android/app/build.gradle"),
     source("android/app/src/main/AndroidManifest.xml"),
   ]);
-  assert.match(appJson, /"versionCode": 5/);
-  assert.match(appJson, /2\.1\.0-rc\.2/);
-  assert.match(gradle, /versionCode 5/);
+  assert.match(appJson, /"versionCode": 6/);
+  assert.match(appJson, /2\.1\.0-rc\.3/);
+  assert.match(gradle, /versionCode 6/);
   assert.match(gradle, /CHARM_UPLOAD_STORE_FILE/);
   assert.match(gradle, /signingConfigs\.release/);
   assert.match(gradle, /releaseTaskRequested && !releaseSigningConfigured/);
@@ -151,7 +151,49 @@ test("legacy backend proxy blocks private destinations", async () => {
   assert.match(server, /_assert_safe_proxy_url/);
   assert.match(server, /is_private/);
   assert.match(server, /allow_redirects=False/);
-  assert.match(server, /try:\r?\n\s+epg_text = _fetch\(epg_url\)/);
+  assert.match(server, /PROXY_ALLOW_HOSTS/);
+  assert.match(server, /if not allowlist_raw/);
+  assert.match(server, /_fetch_spooled/);
+  assert.match(server, /ET\.iterparse/);
+  assert.match(server, /MAX_EPG_DECOMPRESSED_BYTES/);
+  assert.doesNotMatch(server, /ET\.fromstring/);
+  assert.doesNotMatch(server, /content=r\.content/);
+  assert.doesNotMatch(server, /detail=f"Proxy fetch failed/);
+  assert.match(server, /async def force_refresh\(_:\s*str = Depends\(require_admin\)\)/);
+  assert.match(server, /async def get_settings\(_:\s*str = Depends\(require_admin\)\)/);
+  assert.doesNotMatch(server, /allow_origins=\["\*"\]/);
+});
+
+test("release build verifies native drift and pins the JSC fallback", async () => {
+  const [pkg, gradle, verify, frontendCi, apkCi] = await Promise.all([
+    source("package.json"),
+    source("android/app/build.gradle"),
+    source("scripts/verify-native-config.mjs"),
+    repoSource(".github/workflows/frontend-ci.yml"),
+    repoSource(".github/workflows/purple-next-ci.yml"),
+  ]);
+  assert.match(pkg, /"verify:native-config"/);
+  assert.match(pkg, /"overrides"/);
+  assert.doesNotMatch(pkg, /"packageManager"|"resolutions"/);
+  assert.match(gradle, /jsc-android:2026004\.0\.0/);
+  assert.doesNotMatch(gradle, /jsc-android:[^'"\r\n]*\+/);
+  assert.match(verify, /Native config verified/);
+  assert.match(frontendCi, /npm run verify:native-config/);
+  assert.match(apkCi, /npm run verify:native-config/);
+});
+
+test("Cloudflare builder and worker bound provider data and hide internal failures", async () => {
+  const [builder, worker] = await Promise.all([
+    repoSource("cloudflare-backend/scripts/build-and-upload.mjs"),
+    repoSource("cloudflare-backend/worker/src/index.js"),
+  ]);
+  assert.match(builder, /MAX_PLAYLIST_DOWNLOAD_BYTES/);
+  assert.match(builder, /MAX_EPG_DECOMPRESSED_BYTES/);
+  assert.match(builder, /readGuideWindowHours\(process\.env\.GUIDE_WINDOW_HOURS, 6\)/);
+  assert.match(builder, /getReader\(\)/);
+  assert.doesNotMatch(worker, /detail:\s*String\(e\)/);
+  assert.match(worker, /Request could not be completed/);
+  assert.doesNotMatch(worker, /allowed\.includes\("\*"\)/);
 });
 
 test("playlist ingest keeps last-good and enforces protocol/size guards", async () => {

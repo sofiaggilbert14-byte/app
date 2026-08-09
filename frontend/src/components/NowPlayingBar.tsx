@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -16,9 +16,24 @@ export function NowPlayingBar({ testID = "now-playing-bar" }: { testID?: string 
   const { lastChannelId, channelById, channelLogos } = useStore();
   const channel = lastChannelId ? channelById(lastChannelId) : null;
   const programs = useGuidePrograms(lastChannelId);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval> | null = null;
+    const untilNextMinute = 60_000 - (Date.now() % 60_000) + 25;
+    const timeout = setTimeout(() => {
+      setNowMs(Date.now());
+      interval = setInterval(() => setNowMs(Date.now()), 60_000);
+    }, untilNextMinute);
+    return () => {
+      clearTimeout(timeout);
+      if (interval) clearInterval(interval);
+    };
+  }, []);
+
   const current = useMemo(
-    () => (channel ? nowNext(programs, new Date()).current : undefined),
-    [channel, programs],
+    () => (channel ? nowNext(programs, new Date(nowMs)).current : undefined),
+    [channel, nowMs, programs],
   );
 
   if (!channel?.url) return null;

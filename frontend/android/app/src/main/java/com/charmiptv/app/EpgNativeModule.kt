@@ -179,7 +179,23 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   }
 
   @ReactMethod
-  fun upsertPlaylistChannels(channels: ReadableArray, playlistEpoch: Double, promise: Promise) {
+  fun isPlaylistCurrent(contentFingerprint: String, promise: Promise) {
+    queryExecutor.execute {
+      try {
+        promise.resolve(database.playlistFingerprintMatches(contentFingerprint.trim()))
+      } catch (t: Throwable) {
+        promise.reject("EPG_PLAYLIST_FINGERPRINT_FAILED", t.message ?: "Could not read playlist fingerprint", t)
+      }
+    }
+  }
+
+  @ReactMethod
+  fun upsertPlaylistChannels(
+    channels: ReadableArray,
+    playlistEpoch: Double,
+    contentFingerprint: String,
+    promise: Promise,
+  ) {
     refreshExecutor.execute {
       try {
         val rows = ArrayList<PlaylistChannelRow>(channels.size())
@@ -197,8 +213,9 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
             )
           )
         }
-        database.replacePlaylistChannels(rows, playlistEpoch.toLong())
-        promise.resolve(true)
+        promise.resolve(
+          database.replacePlaylistChannels(rows, playlistEpoch.toLong(), contentFingerprint.trim())
+        )
       } catch (t: Throwable) {
         promise.reject("EPG_PLAYLIST_UPSERT_FAILED", t.message ?: "Could not upsert playlist channels", t)
       }
@@ -335,6 +352,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
       var title = ""
       var description: String? = null
       var category: String? = null
+      var rawProgrammeCount = 0L
 
       while (event != XmlPullParser.END_DOCUMENT) {
         when (event) {
@@ -357,6 +375,12 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
               }
             }
             "programme" -> {
+              rawProgrammeCount += 1L
+              if (rawProgrammeCount > MAX_PROGRAMME_COUNT) {
+                throw IllegalStateException(
+                  "EPG contains more than $MAX_PROGRAMME_COUNT programmes; keeping last-good guide"
+                )
+              }
               channelId = parser.getAttributeValue(null, "channel")?.trim()
               startMs = parseXmltvTime(parser.getAttributeValue(null, "start"))
               // Match JS resolveXmltvStop: missing/invalid/absurd stop → +30 minutes.
@@ -446,9 +470,16 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     }
     validators.etag = connection.getHeaderField("ETag")?.trim().orEmpty()
     validators.lastModified = connection.getHeaderField("Last-Modified")?.trim().orEmpty()
+    val declaredLength = connection.contentLengthLong
+    if (declaredLength > MAX_COMPRESSED_EPG_BYTES) {
+      connection.disconnect()
+      throw IllegalStateException(
+        "EPG download exceeds the ${MAX_COMPRESSED_EPG_BYTES / (1024L * 1024L)} MiB compressed safety limit"
+      )
+    }
 
     try {
-      val networkStream = object : FilterInputStream(connection.inputStream) {
+      val connectionStream = object : FilterInputStream(connection.inputStream) {
         override fun close() {
           try {
             super.close()
@@ -457,17 +488,23 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
           }
         }
       }
+      val networkStream = BoundedInputStream(
+        connectionStream,
+        MAX_COMPRESSED_EPG_BYTES,
+        "compressed EPG download",
+      )
       val buffered = BufferedInputStream(networkStream, NETWORK_BUFFER_SIZE)
       buffered.mark(2)
       val b1 = buffered.read()
       val b2 = buffered.read()
       buffered.reset()
 
-      return if (b1 == 0x1f && b2 == 0x8b) {
+      val decoded = if (b1 == 0x1f && b2 == 0x8b) {
         GZIPInputStream(buffered, NETWORK_BUFFER_SIZE)
       } else {
         buffered
       }
+      return BoundedInputStream(decoded, MAX_DECOMPRESSED_EPG_BYTES, "decompressed EPG data")
     } catch (t: Throwable) {
       connection.disconnect()
       throw t
@@ -560,6 +597,48 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   }
 
   companion object {
+    private class BoundedInputStream(
+      input: InputStream,
+      private val maxBytes: Long,
+      private val label: String,
+    ) : FilterInputStream(input) {
+      private var bytesRead = 0L
+
+      private fun account(count: Int): Int {
+        if (count <= 0) return count
+        bytesRead += count.toLong()
+        if (bytesRead > maxBytes) {
+          throw IllegalStateException(
+            "$label exceeds the ${maxBytes / (1024L * 1024L)} MiB safety limit"
+          )
+        }
+        return count
+      }
+
+      override fun read(): Int {
+        val value = super.read()
+        if (value >= 0) account(1)
+        return value
+      }
+
+      override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+        return account(super.read(buffer, offset, length))
+      }
+
+      override fun skip(count: Long): Long {
+        val skipped = super.skip(count)
+        if (skipped > 0L) {
+          bytesRead += skipped
+          if (bytesRead > maxBytes) {
+            throw IllegalStateException(
+              "$label exceeds the ${maxBytes / (1024L * 1024L)} MiB safety limit"
+            )
+          }
+        }
+        return skipped
+      }
+    }
+
     private class EpgNotModifiedException : Exception()
     private data class EpgHttpValidators(
       var sourceHash: String = "",
@@ -572,6 +651,9 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     private const val HTTP_LAST_MODIFIED_KEY = "epg_http_last_modified"
     private const val BATCH_SIZE = 1000
     private const val NETWORK_BUFFER_SIZE = 64 * 1024
+    private const val MAX_COMPRESSED_EPG_BYTES = 256L * 1024L * 1024L
+    private const val MAX_DECOMPRESSED_EPG_BYTES = 1024L * 1024L * 1024L
+    private const val MAX_PROGRAMME_COUNT = 2_000_000L
     private const val GUIDE_HISTORY_MS = 6L * 60L * 60L * 1000L
     private const val GUIDE_WINDOW_MS = 24L * 60L * 60L * 1000L
     private const val MAX_QUERY_WINDOW_MS = 24L * 60L * 60L * 1000L

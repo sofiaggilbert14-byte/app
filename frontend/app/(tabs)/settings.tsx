@@ -532,7 +532,7 @@ export default function SettingsScreen() {
                   onChange={setPreferTvgIdOnly}
                 />
                 <Text style={styles.help}>
-                  For messy providers: match playlist channels by tvg-id only (never by display name). Ambiguous names never invent a match. Use the guide details rail EPG button to set a manual remap for the focused channel.
+                  For messy providers: match playlist channels by tvg-id only (never by display name). Ambiguous names never invent a match. Turn this off to allow conservative display-name matching.
                 </Text>
                 <Action label={busy ? "Refreshing…" : "Refresh playlist & EPG"} icon="refresh" onPress={hardReload} disabled={busy} />
                 <Action label={busy ? "Working…" : "Refresh EPG only"} icon="calendar-outline" onPress={reloadEpgOnly} disabled={busy} />

@@ -64,6 +64,7 @@ internal class EpgDatabase(context: Context) :
     createMetaTable(db)
     createPlaylistTable(db)
     createMatchTable(db)
+    createStopUpdateTable(db)
     db.execSQL("CREATE INDEX IF NOT EXISTS idx_epg_lookup ON $LIVE_TABLE(channel_id, start_time, end_time)")
     db.execSQL("CREATE INDEX IF NOT EXISTS idx_epg_window ON $LIVE_TABLE(start_time, end_time)")
     db.execSQL("CREATE INDEX IF NOT EXISTS idx_epg_staging_order ON $STAGING_TABLE(channel_id, start_time, id)")
@@ -148,6 +149,13 @@ internal class EpgDatabase(context: Context) :
     )
   }
 
+  private fun createStopUpdateTable(db: SQLiteDatabase) {
+    db.execSQL(
+      "CREATE TABLE IF NOT EXISTS $STOP_UPDATE_TABLE " +
+        "(row_id INTEGER PRIMARY KEY NOT NULL, end_time INTEGER NOT NULL)"
+    )
+  }
+
   override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
     // Additive only — never DROP live guide on upgrade (would fight last-good / Phase 4).
     if (oldVersion < 3) {
@@ -169,6 +177,9 @@ internal class EpgDatabase(context: Context) :
     }
     if (oldVersion < 5) {
       db.execSQL("CREATE INDEX IF NOT EXISTS idx_epg_staging_order ON $STAGING_TABLE(channel_id, start_time, id)")
+    }
+    if (oldVersion < 6) {
+      createStopUpdateTable(db)
     }
   }
 
@@ -278,58 +289,69 @@ internal class EpgDatabase(context: Context) :
     maxDurationMs: Long,
   ) {
     val db = writableDatabase
-    db.rawQuery(
-      """
-      SELECT id, channel_id, start_time, end_time
-      FROM $STAGING_TABLE
-      ORDER BY channel_id ASC, start_time ASC, id ASC
-      """.trimIndent(),
-      null,
-    ).use { cursor ->
-      var prevId = -1L
-      var prevChannel = ""
-      var prevStart = 0L
-      var prevEnd = 0L
-      val updates = ArrayList<Pair<Long, Long>>()
-      while (cursor.moveToNext()) {
-        val id = cursor.getLong(0)
-        val channelId = cursor.getString(1)
-        val startMs = cursor.getLong(2)
-        val endMs = cursor.getLong(3)
-        if (prevId >= 0L && prevChannel == channelId && startMs > prevStart) {
-          val usedDefault = prevEnd == prevStart + defaultDurationMs
-          val overlapsNext = prevEnd > startMs
-          if (usedDefault || overlapsNext) {
-            val inferred = startMs
-            val duration = inferred - prevStart
-            if (duration > 0L && duration <= maxDurationMs) {
-              updates.add(prevId to inferred)
-            }
-          }
-        }
-        prevId = id
-        prevChannel = channelId
-        prevStart = startMs
-        prevEnd = endMs
-      }
-      if (updates.isEmpty()) return
-      db.beginTransaction()
+    db.beginTransaction()
+    try {
+      // Stage corrections in SQLite rather than retaining one Pair object for
+      // every programme in the JVM heap. Very large provider feeds therefore
+      // keep constant Java/Kotlin memory during finalization.
+      createStopUpdateTable(db)
+      db.delete(STOP_UPDATE_TABLE, null, null)
+      val insertUpdate = db.compileStatement(
+        "INSERT OR REPLACE INTO $STOP_UPDATE_TABLE(row_id, end_time) VALUES (?, ?)"
+      )
       try {
-        val statement = db.compileStatement("UPDATE $STAGING_TABLE SET end_time = ? WHERE id = ?")
-        try {
-          for ((rowId, endTime) in updates) {
-            statement.clearBindings()
-            statement.bindLong(1, endTime)
-            statement.bindLong(2, rowId)
-            statement.executeUpdateDelete()
+        db.rawQuery(
+          """
+          SELECT id, channel_id, start_time, end_time
+          FROM $STAGING_TABLE
+          ORDER BY channel_id ASC, start_time ASC, id ASC
+          """.trimIndent(),
+          null,
+        ).use { cursor ->
+          var prevId = -1L
+          var prevChannel = ""
+          var prevStart = 0L
+          var prevEnd = 0L
+          while (cursor.moveToNext()) {
+            val id = cursor.getLong(0)
+            val channelId = cursor.getString(1)
+            val startMs = cursor.getLong(2)
+            val endMs = cursor.getLong(3)
+            if (prevId >= 0L && prevChannel == channelId && startMs > prevStart) {
+              val usedDefault = prevEnd == prevStart + defaultDurationMs
+              val overlapsNext = prevEnd > startMs
+              if (usedDefault || overlapsNext) {
+                val duration = startMs - prevStart
+                if (duration > 0L && duration <= maxDurationMs) {
+                  insertUpdate.clearBindings()
+                  insertUpdate.bindLong(1, prevId)
+                  insertUpdate.bindLong(2, startMs)
+                  insertUpdate.executeInsert()
+                }
+              }
+            }
+            prevId = id
+            prevChannel = channelId
+            prevStart = startMs
+            prevEnd = endMs
           }
-        } finally {
-          statement.close()
         }
-        db.setTransactionSuccessful()
       } finally {
-        db.endTransaction()
+        insertUpdate.close()
       }
+      db.execSQL(
+        """
+        UPDATE $STAGING_TABLE
+        SET end_time = (
+          SELECT end_time FROM $STOP_UPDATE_TABLE u WHERE u.row_id = $STAGING_TABLE.id
+        )
+        WHERE id IN (SELECT row_id FROM $STOP_UPDATE_TABLE)
+        """.trimIndent()
+      )
+      db.delete(STOP_UPDATE_TABLE, null, null)
+      db.setTransactionSuccessful()
+    } finally {
+      db.endTransaction()
     }
   }
 
@@ -370,7 +392,17 @@ internal class EpgDatabase(context: Context) :
   }
 
   /** Replace playlist channel rows (independent of EPG live table). */
-  fun replacePlaylistChannels(rows: List<PlaylistChannelRow>, playlistEpoch: Long) {
+  fun playlistFingerprintMatches(fingerprint: String): Boolean {
+    return fingerprint.isNotBlank() && getMeta(PLAYLIST_CONTENT_FINGERPRINT_KEY) == fingerprint
+  }
+
+  fun replacePlaylistChannels(
+    rows: List<PlaylistChannelRow>,
+    playlistEpoch: Long,
+    contentFingerprint: String,
+  ): Boolean {
+    val fingerprint = contentFingerprint.ifBlank { fingerprintPlaylistChannels(rows) }
+    if (getMeta(PLAYLIST_CONTENT_FINGERPRINT_KEY) == fingerprint) return false
     val db = writableDatabase
     val now = System.currentTimeMillis()
     db.beginTransaction()
@@ -405,10 +437,28 @@ internal class EpgDatabase(context: Context) :
         }
       }
       setMeta("playlist_epoch", playlistEpoch.toString())
+      setMeta(PLAYLIST_CONTENT_FINGERPRINT_KEY, fingerprint)
       db.setTransactionSuccessful()
     } finally {
       db.endTransaction()
     }
+    return true
+  }
+
+  private fun fingerprintPlaylistChannels(rows: List<PlaylistChannelRow>): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    fun add(value: String) {
+      digest.update(value.toByteArray(Charsets.UTF_8))
+      digest.update(0.toByte())
+    }
+    for (row in rows) {
+      add(row.playlistId)
+      add(row.rawTvgId)
+      add(row.name)
+      add(row.logo)
+      add(row.groupTitle)
+    }
+    return digest.digest().joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
   }
 
   /** Replace resolved playlist→XMLTV matches used by queryGuideWindow joins. */
@@ -696,6 +746,7 @@ internal class EpgDatabase(context: Context) :
       db.delete(ALIAS_TABLE, null, null)
       db.delete(PLAYLIST_TABLE, null, null)
       db.delete(MATCH_TABLE, null, null)
+      db.delete(STOP_UPDATE_TABLE, null, null)
       db.delete(META_TABLE, null, null)
       db.setTransactionSuccessful()
     } finally {
@@ -706,13 +757,15 @@ internal class EpgDatabase(context: Context) :
   fun count(): Long = countTable(LIVE_TABLE)
 
   companion object {
-    private const val DATABASE_VERSION = 5
+    private const val DATABASE_VERSION = 6
     private const val LIVE_TABLE = "epg_programmes"
     private const val STAGING_TABLE = "epg_programmes_staging"
     private const val ALIAS_TABLE = "epg_channel_aliases"
     private const val META_TABLE = "epg_meta"
     private const val PLAYLIST_TABLE = "playlist_channels"
     private const val MATCH_TABLE = "playlist_epg_matches"
+    private const val STOP_UPDATE_TABLE = "epg_stop_updates"
+    private const val PLAYLIST_CONTENT_FINGERPRINT_KEY = "playlist_content_fingerprint"
     private const val MATCH_CONTENT_FINGERPRINT_KEY = "match_content_fingerprint"
     private const val IN_CLAUSE_CHUNK = 400
     private const val DEFAULT_PROGRAMME_DURATION_MS = 30L * 60L * 1000L

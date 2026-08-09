@@ -13,7 +13,7 @@ test("native EPG v4 adds playlist/match tables and joined queryGuideWindow", asy
     source("android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt"),
     source("src/nativeEpg.ts"),
   ]);
-  assert.match(db, /DATABASE_VERSION = 5/);
+  assert.match(db, /DATABASE_VERSION = 6/);
   assert.match(db, /playlist_channels/);
   assert.match(db, /playlist_epg_matches/);
   assert.match(db, /fun queryGuideWindow/);
@@ -28,6 +28,8 @@ test("native EPG v4 adds playlist/match tables and joined queryGuideWindow", asy
   assert.match(bridge, /queryNativeGuideWindow/);
   assert.match(bridge, /upsertNativePlaylistChannels/);
   assert.match(bridge, /upsertNativePlaylistEpgMatches/);
+  assert.match(mod, /fun isPlaylistCurrent/);
+  assert.match(bridge, /nativePlaylistIsCurrent/);
 });
 
 test("source loadGuide uses SQL join path and exact-runway programme patches", async () => {
@@ -36,6 +38,8 @@ test("source loadGuide uses SQL join path and exact-runway programme patches", a
   assert.match(native, /loadGuideProgramsForChannelIds/);
   assert.doesNotMatch(native, /buildFocusRing/);
   assert.match(native, /syncPlaylistToNative/);
+  assert.match(native, /playlistNativeContentFingerprint/);
+  assert.match(native, /nativePlaylistIsCurrent/);
   assert.match(native, /syncMatchesToNative/);
   assert.match(native, /programsByChannelId/);
   assert.match(native, /now\.startOf\("minute"\)\.subtract\(1, "hour"\)/);

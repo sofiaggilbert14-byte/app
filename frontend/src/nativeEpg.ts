@@ -46,7 +46,12 @@ type CharmEpgModule = {
   refresh(url: string, allowNotModified: boolean): Promise<NativeRefreshResult>;
   getWindow(startMs: number, endMs: number, channelIds: string[]): Promise<NativeWindow>;
   queryGuideWindow?(startMs: number, endMs: number, playlistChannelIds: string[]): Promise<NativeWindow>;
-  upsertPlaylistChannels?(channels: NativePlaylistChannelRow[], playlistEpoch: number): Promise<boolean>;
+  isPlaylistCurrent?(contentFingerprint: string): Promise<boolean>;
+  upsertPlaylistChannels?(
+    channels: NativePlaylistChannelRow[],
+    playlistEpoch: number,
+    contentFingerprint: string,
+  ): Promise<boolean>;
   upsertPlaylistEpgMatches?(matches: NativePlaylistEpgMatchRow[], guideEpoch: number): Promise<boolean>;
   getCurrent(): Promise<NativeCurrent>;
   clear(): Promise<boolean>;
@@ -117,10 +122,17 @@ export async function queryNativeGuideWindow(
 export async function upsertNativePlaylistChannels(
   channels: NativePlaylistChannelRow[],
   playlistEpoch: number,
-): Promise<void> {
-  if (!nativeModule || typeof nativeModule.upsertPlaylistChannels !== "function") return;
-  if (!channels.length) return;
-  await nativeModule.upsertPlaylistChannels(channels, playlistEpoch);
+  contentFingerprint: string,
+): Promise<boolean> {
+  if (!nativeModule || typeof nativeModule.upsertPlaylistChannels !== "function") return false;
+  if (!channels.length) return false;
+  return nativeModule.upsertPlaylistChannels(channels, playlistEpoch, contentFingerprint);
+}
+
+export async function nativePlaylistIsCurrent(contentFingerprint: string): Promise<boolean> {
+  if (!nativeModule || typeof nativeModule.isPlaylistCurrent !== "function") return false;
+  if (!contentFingerprint) return false;
+  return nativeModule.isPlaylistCurrent(contentFingerprint);
 }
 
 export async function upsertNativePlaylistEpgMatches(

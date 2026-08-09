@@ -10,6 +10,7 @@ import {
   clearNativeEpg,
   loadNativeEpgWindow,
   nativeEpgAvailable,
+  nativePlaylistIsCurrent,
   queryNativeGuideWindow,
   refreshNativeEpg,
   upsertNativePlaylistChannels,
@@ -118,16 +119,36 @@ export function setViewportGuideChannelIds(ids: string[] | null): void {
 
 async function syncPlaylistToNative(channels: Channel[], playlistEpoch: number): Promise<void> {
   if (!nativeEpgAvailable || !channels.length) return;
+  const contentFingerprint = playlistNativeContentFingerprint(channels);
+  if (await nativePlaylistIsCurrent(contentFingerprint)) return;
   await upsertNativePlaylistChannels(
     channels.map((channel) => ({
       playlistId: channel.id,
-      rawTvgId: channel.tvg_id || "",
+      rawTvgId: channel.raw_tvg_id || channel.tvg_id || "",
       name: channel.name || "",
       logo: channel.logo || "",
       group: channel.group || "",
     })),
     playlistEpoch,
+    contentFingerprint,
   );
+}
+
+/** Two independent 32-bit hashes keep the cold-start native handshake compact. */
+function playlistNativeContentFingerprint(channels: Channel[]): string {
+  let h1 = 0x811c9dc5;
+  let h2 = 0x9e3779b9;
+  let charCount = 0;
+  for (const channel of channels) {
+    const value = `${channel.id}\0${channel.raw_tvg_id || channel.tvg_id || ""}\0${channel.name || ""}\0${channel.logo || ""}\0${channel.group || ""}\x01`;
+    charCount += value.length;
+    for (let i = 0; i < value.length; i++) {
+      const code = value.charCodeAt(i);
+      h1 = Math.imul(h1 ^ code, 0x01000193);
+      h2 = Math.imul(h2 ^ (code + i), 0x85ebca6b);
+    }
+  }
+  return `playlist-v1:${channels.length}:${charCount}:${(h1 >>> 0).toString(16)}:${(h2 >>> 0).toString(16)}`;
 }
 
 async function syncMatchesToNative(channels: Channel[], guideEpoch: number): Promise<void> {

@@ -281,9 +281,13 @@ const TimelineRow = memo(function TimelineRow({
       const visibleStart = Math.max(startMs, windowStartMs);
       const visibleEnd = Math.min(endMs, windowEndMs);
       const isLive = liveNow >= startMs && liveNow < endMs;
+      // Programme times and titles can be corrected by a silent provider
+      // refresh. Keep the native Pressable identity tied to its ordered row
+      // slot so those metadata corrections do not unmount the focused cell.
+      const logicalSlot = result.length;
       result.push({
         program,
-        key: `${item.id}:${program.start}:${program.stop || "open"}`,
+        key: `${item.id}:slot:${logicalSlot}`,
         left: ((visibleStart - windowStartMs) / MINUTE_MS) * pxPerMinute,
         width: Math.max(24, ((visibleEnd - visibleStart) / MINUTE_MS) * pxPerMinute - 3),
         isLive,

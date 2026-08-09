@@ -9,6 +9,8 @@ on:
       - "frontend/plugins/**"
       - "frontend/package.json"
       - "frontend/package-lock.json"
+      - "frontend/app.json"
+      - "frontend/scripts/verify-native-config.mjs"
       - ".github/workflows/android-native-ci.yml"
   push:
     branches:
@@ -18,6 +20,8 @@ on:
       - "frontend/plugins/**"
       - "frontend/package.json"
       - "frontend/package-lock.json"
+      - "frontend/app.json"
+      - "frontend/scripts/verify-native-config.mjs"
       - ".github/workflows/android-native-ci.yml"
   workflow_dispatch:
 
@@ -65,6 +69,9 @@ jobs:
 
       - name: Install JavaScript dependencies
         run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: Verify checked-in Android configuration
+        run: npm run verify:native-config
 
       - name: Compile native Kotlin and Java only
         env:
