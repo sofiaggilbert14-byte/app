@@ -1,0 +1,15 @@
+{
+  "name": "CharmIPTV: Phoenix",
+  "install": "cd frontend && npm ci --legacy-peer-deps --no-audit --no-fund && { [ -f .env ] || printf 'EXPO_PUBLIC_CHARM_API_URL=http://localhost:8787\\n' > .env; } && cd ../cloudflare-backend/worker && npm install --no-audit --no-fund",
+  "terminals": [
+    {
+      "name": "worker",
+      "command": "cd cloudflare-backend/worker && npx wrangler dev --port 8787 --local"
+    },
+    {
+      "name": "metro",
+      "command": "cd frontend && npx expo start --port 8081"
+    }
+  ],
+  "ports": [8081, 8787]
+}
