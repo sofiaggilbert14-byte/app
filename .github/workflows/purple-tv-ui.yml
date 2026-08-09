@@ -1,16 +1,12 @@
 name: Build CharmIPTV Purple TV APK
 
 on:
+  # APK builds burn ~20–50 Actions minutes each. Do not run on every PR —
+  # only main pushes + manual dispatch (saves budget when the org is near quota).
   push:
     branches:
       - main
       - experimental/purple-tv-ui
-    paths:
-      - 'frontend/**'
-      - '.github/workflows/purple-tv-ui.yml'
-  pull_request:
-    branches:
-      - main
     paths:
       - 'frontend/**'
       - '.github/workflows/purple-tv-ui.yml'
