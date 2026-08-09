@@ -965,20 +965,30 @@ export default function PurpleGuideScreen() {
                 </Pressable>
               </View>
               <ScrollView style={styles.overlayList} showsVerticalScrollIndicator={false}>
-                {overflowGroups.map((item) => (
-                  <Pressable
-                    key={item}
-                    onPress={() => chooseGroup(item)}
-                    onLongPress={() => togglePinGroup(item)}
-                    delayLongPress={420}
-                    style={({ focused }: any) => [styles.overlayRow, focused && styles.focused]}
-                  >
-                    <Text style={styles.overlayRowText} numberOfLines={1}>
-                      {item}
-                      {groupCounts[item] ? `  ${groupCounts[item]}` : ""}
-                    </Text>
-                  </Pressable>
-                ))}
+                {(() => {
+                  let lastLetter = "";
+                  return overflowGroups.map((item) => {
+                    const letter = (item.trim().charAt(0) || "#").toUpperCase();
+                    const showLetter = letter !== lastLetter;
+                    if (showLetter) lastLetter = letter;
+                    return (
+                      <View key={item}>
+                        {showLetter ? <Text style={styles.overlayLetter}>{letter}</Text> : null}
+                        <Pressable
+                          onPress={() => chooseGroup(item)}
+                          onLongPress={() => togglePinGroup(item)}
+                          delayLongPress={420}
+                          style={({ focused }: any) => [styles.overlayRow, focused && styles.focused]}
+                        >
+                          <Text style={styles.overlayRowText} numberOfLines={1}>
+                            {item}
+                            {groupCounts[item] ? `  ${groupCounts[item]}` : ""}
+                          </Text>
+                        </Pressable>
+                      </View>
+                    );
+                  });
+                })()}
               </ScrollView>
             </View>
           </View>
@@ -1154,6 +1164,14 @@ const styles = StyleSheet.create({
     backgroundColor: tvColors.panelRaised,
   },
   overlayList: { maxHeight: 280 },
+  overlayLetter: {
+    color: tvColors.purpleSoft,
+    fontFamily: fonts.bold,
+    fontSize: 10,
+    marginTop: 6,
+    marginBottom: 2,
+    paddingHorizontal: 4,
+  },
   overlayRow: {
     minHeight: 32,
     justifyContent: "center",
