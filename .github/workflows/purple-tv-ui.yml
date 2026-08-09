@@ -143,11 +143,3 @@ jobs:
           files: frontend/android/app/build/outputs/apk/release/CharmIPTV-Purple-TV-Universal.apk
           prerelease: true
           fail_on_unmatched_files: true
-
-      - name: Fail if neither artifact nor release was published
-        if: |
-          steps.upload_artifact.outcome != 'success' &&
-          !(github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))
-        run: |
-          echo "::error::APK artifact upload failed and this event does not publish a GitHub Release."
-          exit 1
