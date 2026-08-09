@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { storage } from "@/src/utils/storage";
+import {
+  normalizeParentalPin,
+  setParentalPinMemory,
+  verifyParentalPin as verifyParentalPinCore,
+} from "./parentalPinCore";
 
 const PIN_KEY = "gs_parental_pin";
 const LOCKED_GROUPS_KEY = "gs_parental_locked_groups";
@@ -25,21 +30,17 @@ function emit() {
   }
 }
 
-function normalizePin(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const pin = value.replace(/\D/g, "").slice(0, 8);
-  return pin.length >= 4 ? pin : null;
-}
-
 async function load(): Promise<Snapshot> {
   if (loaded) return cached;
   if (loadPromise) return loadPromise;
   loadPromise = (async () => {
-    const securePin = normalizePin(await storage.secureGet<string>(PIN_KEY, ""));
-    const plainPin = normalizePin(await storage.getItem<string>(PIN_KEY, ""));
+    const securePin = normalizeParentalPin(await storage.secureGet<string>(PIN_KEY, ""));
+    const plainPin = normalizeParentalPin(await storage.getItem<string>(PIN_KEY, ""));
     const locked = await storage.getItem<string[]>(LOCKED_GROUPS_KEY, []);
+    const pin = securePin || plainPin;
+    setParentalPinMemory(pin);
     cached = {
-      pin: securePin || plainPin,
+      pin,
       lockedGroups: Array.isArray(locked) ? locked.filter((item) => typeof item === "string").slice(0, 40) : [],
     };
     loaded = true;
@@ -53,12 +54,11 @@ async function load(): Promise<Snapshot> {
 }
 
 export function verifyParentalPin(candidate: string): boolean {
-  const pin = normalizePin(candidate);
-  return !!pin && pin === cached.pin;
+  return verifyParentalPinCore(candidate);
 }
 
 export async function setParentalPin(pin: string | null): Promise<void> {
-  const next = normalizePin(pin);
+  const next = setParentalPinMemory(pin);
   cached = { ...cached, pin: next };
   loaded = true;
   if (!next) sessionUnlocked.clear();
