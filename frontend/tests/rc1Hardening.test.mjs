@@ -32,6 +32,19 @@ test("CI pins third-party actions and separates native compile from APK packagin
   assert.match(testerBuild, /SHA256SUMS/);
 });
 
+test("Expo dependency validation is an explicit release gate", async () => {
+  const [packageJson, frontendCi, apkCi] = await Promise.all([
+    source("package.json"),
+    repoSource(".github/workflows/frontend-ci.yml"),
+    repoSource(".github/workflows/purple-next-ci.yml"),
+  ]);
+  assert.match(packageJson, /"doctor": "expo-doctor"/);
+  assert.match(packageJson, /"appConfigFieldsNotSyncedCheck"/);
+  assert.match(packageJson, /"reactNativeDirectoryCheck"/);
+  assert.match(frontendCi, /npm run doctor/);
+  assert.match(apkCi, /npm run doctor/);
+});
+
 test("source modules never hardcode provider playlist/EPG URLs", async () => {
   const [native, web] = await Promise.all([
     source("src/source.native.ts"),

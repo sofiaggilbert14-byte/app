@@ -56,6 +56,8 @@ jobs:
         run: npm ci --legacy-peer-deps --no-audit --no-fund
       - name: Verify checked-in Android configuration
         run: npm run verify:native-config
+      - name: Validate Expo and React Native dependencies
+        run: npm run doctor
       - name: Phase 1 and 2 regression tests
         run: npm test
       - name: Typecheck

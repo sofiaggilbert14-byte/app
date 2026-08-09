@@ -41,6 +41,9 @@ jobs:
       - name: Verify checked-in Android configuration
         run: npm run verify:native-config
 
+      - name: Validate Expo and React Native dependencies
+        run: npm run doctor
+
       - name: Unit and wiring tests
         run: npm test
 
