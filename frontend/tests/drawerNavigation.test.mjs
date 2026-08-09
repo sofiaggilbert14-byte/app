@@ -54,12 +54,18 @@ test("drawer uses bounded native motion and excludes hidden controls from TV foc
   assert.match(shell, /close-drawer/);
   assert.match(shell, /closeDrawer\(\)/);
   assert.match(shell, /PURPLE_RAIL_PEEK_WIDTH/);
+  assert.match(shell, /PURPLE_ICON_RAIL_WIDTH/);
   assert.match(shell, /sidebarOverlay/);
   assert.match(shell, /onLongPress=\{exit\}/);
   assert.match(shell, /Hold Exit/);
-  assert.match(shell, /purple-rail-double-back-hint/);
+  // Closed drawer: absolute icon rail overlay (no layout peek strip).
+  assert.match(shell, /purple-icon-rail/);
+  assert.match(shell, /focusPurpleIconRail|getPurpleIconRailMenuNode/);
+  assert.match(shell, /openDrawer/);
+  assert.match(shell, /testID="purple-rail-menu"/);
+  assert.doesNotMatch(shell, /purple-rail-double-back-hint/);
+  assert.doesNotMatch(shell, /decorative rail when closed/);
   assert.doesNotMatch(shell, /testID="purple-rail-open-drawer"/);
-  assert.match(shell, /decorative rail when closed/);
   assert.match(shell, /combineTvEdgeInsets/);
   assert.doesNotMatch(shell, /NAV\.slice\(0,\s*6\)/);
   assert.doesNotMatch(shell, /useNativeDriver: false/);
