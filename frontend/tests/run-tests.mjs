@@ -10,3 +10,4 @@ import "./media3Audio.test.mjs";
 import "./rc1Hardening.test.mjs";
 import "./playbackSession.test.mjs";
 import "./guideShellPolish.test.mjs";
+import "./guideArchitecture.test.mjs";

@@ -9,6 +9,8 @@ let armedUntil = 0;
 let armedNode: unknown = null;
 /** Stable entry target used by the preview rail's explicit Guide action. */
 let guideEntryNode: unknown = null;
+let focusedGuideChannelId: string | null = null;
+const guideChannelNodes = new Map<string, unknown>();
 /** Stable auxiliary-panel target used when leaving the guide to the left. */
 let guidePreviewEntryNode: unknown = null;
 
@@ -33,15 +35,33 @@ export function reclaimGuideBottomFocusIfArmed(): boolean {
  * Re-enter the guide from an auxiliary panel without relying on users knowing
  * a particular D-pad direction. Row/card refs register here as they mount.
  */
-export function focusGuideSurface(): boolean {
-  if (!guideEntryNode) return false;
-  requestNativeFocusWithRetry(guideEntryNode, [0, 40, 120, 240]);
+export function registerGuideChannelNode(channelId: string, node: unknown): void {
+  if (!channelId) return;
+  if (node) guideChannelNodes.set(channelId, node);
+  else guideChannelNodes.delete(channelId);
+}
+
+/** Record a real focus event, never a merely mounted/recycled row. */
+export function noteGuideChannelFocus(channelId: string, node: unknown): void {
+  if (!channelId || !node) return;
+  focusedGuideChannelId = channelId;
+  guideEntryNode = node;
+  if (!guideChannelNodes.has(channelId)) guideChannelNodes.set(channelId, node);
+}
+
+export function focusGuideSurface(channelId?: string | null): boolean {
+  const target =
+    (channelId ? guideChannelNodes.get(channelId) : undefined) ||
+    (focusedGuideChannelId ? guideChannelNodes.get(focusedGuideChannelId) : undefined) ||
+    guideEntryNode;
+  if (!target) return false;
+  requestNativeFocusWithRetry(target, [0, 40, 120, 240]);
   return true;
 }
 
 /** Register the preview/actions panel's stable entry control. */
 export function registerGuidePreviewEntry(node: unknown): void {
-  if (node) guidePreviewEntryNode = node;
+  guidePreviewEntryNode = node || null;
 }
 
 /** Move focus from the guide's left boundary into the preview/actions panel. */
@@ -56,7 +76,6 @@ export function applyLeftFocusLock(node: any, locked: boolean) {
   if (!node) return;
   const handle = findNodeHandle(node);
   if (!handle) return;
-  if (locked) guideEntryNode = node;
   try {
     node.setNativeProps?.({ nextFocusLeft: locked ? handle : -1 });
   } catch {

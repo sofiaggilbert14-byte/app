@@ -64,7 +64,7 @@ test("store patches per-row programmes and defers silent refresh while surfing",
   assert.match(store, /pendingSilentRefreshRef/);
   assert.match(store, /onGuideSurfSettled/);
   assert.match(programStore, /useSyncExternalStore/);
-  assert.match(programStore, /MAX_PROGRAMME_ROWS = 700/);
+  assert.match(programStore, /MAX_PROGRAMME_ROWS = 1600/);
   assert.match(gate, /export function markGuideSurfing/);
   assert.match(gate, /export function isGuideSurfing/);
   assert.match(guide, /markGuideSurfing/);
@@ -73,6 +73,24 @@ test("store patches per-row programmes and defers silent refresh while surfing",
   assert.match(timeline, /useGuidePrograms/);
   assert.match(timeline, /data=\{channels\}/);
   assert.doesNotMatch(timeline, /preparedRows/);
+  assert.doesNotMatch(timeline, /reclaimToken/);
+  assert.doesNotMatch(timeline, /mountedBandRef/);
+  assert.doesNotMatch(timeline, /disableProgramCull/);
+  assert.match(timeline, /drawDistance=\{Math\.max\(2200, ROW_H \* 36\)\}/);
+});
+
+test("programme window deltas include explicit empty rows and wide native warm rings", async () => {
+  const [native, bridge, box] = await Promise.all([
+    source("src/source.native.ts"),
+    source("src/nativeEpg.ts"),
+    source("src/components/BoxGrid.tsx"),
+  ]);
+  assert.match(bridge, /: EMPTY_NATIVE_PROGRAMS/);
+  assert.match(native, /delta\[id\] = cached\?\.length \? cached : EMPTY_PROGRAMS/);
+  assert.match(native, /buildFocusRing\(allPlaylistIds, new Set\(unique\), unique, 192\)/);
+  assert.match(native, /allPlaylistIds\.slice\(0, 96\)/);
+  assert.doesNotMatch(box, /mountedRowBandRef/);
+  assert.match(box, /drawDistance=\{2400\}/);
 });
 
 test("Media3 silent audio soft-fails into VLC engine swap", async () => {

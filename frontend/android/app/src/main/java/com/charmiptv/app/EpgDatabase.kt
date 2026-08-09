@@ -3,6 +3,7 @@ package com.charmiptv.app
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import java.security.MessageDigest
 
 internal data class NativeEpgProgram(
   val channelId: String,
@@ -411,7 +412,9 @@ internal class EpgDatabase(context: Context) :
   }
 
   /** Replace resolved playlist→XMLTV matches used by queryGuideWindow joins. */
-  fun replacePlaylistEpgMatches(rows: List<PlaylistEpgMatchRow>, guideEpoch: Long) {
+  fun replacePlaylistEpgMatches(rows: List<PlaylistEpgMatchRow>, guideEpoch: Long): Boolean {
+    val fingerprint = fingerprintPlaylistEpgMatches(rows)
+    if (getMeta(MATCH_CONTENT_FINGERPRINT_KEY) == fingerprint) return false
     val db = writableDatabase
     val now = System.currentTimeMillis()
     db.beginTransaction()
@@ -444,10 +447,29 @@ internal class EpgDatabase(context: Context) :
         }
       }
       setMeta("match_guide_epoch", guideEpoch.toString())
+      setMeta(MATCH_CONTENT_FINGERPRINT_KEY, fingerprint)
       db.setTransactionSuccessful()
     } finally {
       db.endTransaction()
     }
+    return true
+  }
+
+  private fun fingerprintPlaylistEpgMatches(rows: List<PlaylistEpgMatchRow>): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    fun add(value: String) {
+      digest.update(value.toByteArray(Charsets.UTF_8))
+      digest.update(0.toByte())
+    }
+    for (row in rows) {
+      add(row.playlistId)
+      add(row.xmltvId)
+      add(row.logoXmltvId)
+      add(if (row.ambiguous) "1" else "0")
+      add(row.matchPolicy)
+      add(if (row.manual) "1" else "0")
+    }
+    return digest.digest().joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
   }
 
   /**
@@ -674,6 +696,7 @@ internal class EpgDatabase(context: Context) :
       db.delete(ALIAS_TABLE, null, null)
       db.delete(PLAYLIST_TABLE, null, null)
       db.delete(MATCH_TABLE, null, null)
+      db.delete(META_TABLE, null, null)
       db.setTransactionSuccessful()
     } finally {
       db.endTransaction()
@@ -690,6 +713,7 @@ internal class EpgDatabase(context: Context) :
     private const val META_TABLE = "epg_meta"
     private const val PLAYLIST_TABLE = "playlist_channels"
     private const val MATCH_TABLE = "playlist_epg_matches"
+    private const val MATCH_CONTENT_FINGERPRINT_KEY = "match_content_fingerprint"
     private const val IN_CLAUSE_CHUNK = 400
     private const val DEFAULT_PROGRAMME_DURATION_MS = 30L * 60L * 1000L
     private const val MAX_PROGRAMME_DURATION_MS = 24L * 60L * 60L * 1000L

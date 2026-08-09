@@ -111,10 +111,8 @@ test("grids never open the drawer from D-pad Left", async () => {
   assert.match(timeline, /applyLeftFocusLock\(node, lockFocusLeft\)/);
   assert.match(box, /armGuideLeftFocusLock/);
   assert.match(box, /lockFocusLeft/);
-  assert.match(timeline, /mountedBandRef/);
-  assert.match(timeline, /viewPosition: 0\.12/);
-  assert.match(box, /mountedRowBandRef/);
-  assert.match(box, /viewPosition: 0\.12/);
+  assert.doesNotMatch(timeline, /mountedBandRef|viewPosition: 0\.12/);
+  assert.doesNotMatch(box, /mountedRowBandRef|viewPosition: 0\.12/);
   // Left boundary may focus the icon rail — never openDrawer / optional-chain fire-and-forget.
   assert.match(timeline, /onLeftBoundary\?: \(\) => void/);
   assert.match(box, /onLeftBoundary\?: \(\) => void/);

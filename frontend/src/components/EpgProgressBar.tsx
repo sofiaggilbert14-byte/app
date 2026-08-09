@@ -43,7 +43,9 @@ export function EpgProgressBar() {
     phase === "decompressing" ||
     phase === "parsing" ||
     phase === "indexing" ||
+    phase === "matching" ||
     phase === "caching" ||
+    phase === "finalizing" ||
     phase === "error";
 
   useEffect(() => {
@@ -64,8 +66,12 @@ export function EpgProgressBar() {
           : phase === "parsing"
             ? "Building programme guide…"
             : phase === "indexing"
-              ? "Matching guide channels…"
-              : "Saving guide for fast launch…";
+              ? "Indexing guide channels..."
+              : phase === "matching"
+                ? "Matching guide channels..."
+                : phase === "finalizing"
+                  ? "Finalizing guide..."
+                  : "Saving guide for fast launch...";
   const pct = isErr ? "" : `${Math.round(Math.min(1, ratio) * 100)}%`;
   const eta = isErr ? "" : fmtEta(etaSeconds);
 

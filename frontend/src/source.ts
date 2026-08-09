@@ -528,7 +528,7 @@ function emit() {
 }
 
 // ---- EPG load progress (for the on-screen status bar + ETA) ----------------
-export type LoadPhase = "idle" | "channels" | "downloading" | "decompressing" | "parsing" | "indexing" | "caching" | "ready" | "error";
+export type LoadPhase = "idle" | "channels" | "downloading" | "decompressing" | "parsing" | "indexing" | "matching" | "caching" | "finalizing" | "ready" | "error";
 export type EpgProgress = {
   phase: LoadPhase;
   ratio: number; // 0..1 across the whole EPG step (download + parse)
@@ -867,7 +867,7 @@ function loadEpg(channels: Channel[], force = false): Promise<void> {
         await parseXMLTVChunks(epgChunks, epgSink);
       }
 
-      setProgress({ phase: "indexing", ratio: 0.9, etaSeconds: null }, true);
+      setProgress({ phase: "indexing", ratio: 0.91, etaSeconds: null }, true);
       // Next-stop inference once after ingest — never during guide paint.
       inferMissingStopsFromNextProgram(programs);
       await nextTick();
@@ -877,6 +877,7 @@ function loadEpg(channels: Channel[], force = false): Promise<void> {
         idsWithPrograms: Object.keys(programs).filter((id) => programs[id]?.length),
       });
 
+      setProgress({ phase: "matching", ratio: 0.94, etaSeconds: null }, true);
       const applied = applyXmltvMatchesToChannels(channels, indexes, icons, { preferTvgIdOnly });
       channels = applied.channels;
       const matchedChannels = applied.quality.matched;
@@ -898,9 +899,9 @@ function loadEpg(channels: Channel[], force = false): Promise<void> {
         playlistRefreshedAt: MEM?.playlistRefreshedAt,
       };
       lastSourceError = null;
-      setProgress({ phase: "caching", ratio: 0.92, etaSeconds: null }, true);
+      setProgress({ phase: "caching", ratio: 0.96, etaSeconds: null }, true);
       const indexed = await persist((ratio) => {
-        setProgress({ phase: "caching", ratio: 0.92 + ratio * 0.08, etaSeconds: null });
+        setProgress({ phase: "caching", ratio: 0.96 + ratio * 0.03, etaSeconds: null });
       });
       // SQLite is the source of truth only when indexing actually succeeded.
       // If the DB is unavailable, keep the in-memory programme map so the guide stays populated.
@@ -912,6 +913,7 @@ function loadEpg(channels: Channel[], force = false): Promise<void> {
           epgChannelCount: indexed.channelCount,
         };
       }
+      setProgress({ phase: "finalizing", ratio: 0.99, etaSeconds: null }, true);
       emit();
       setProgress({ phase: "ready", ratio: 1, etaSeconds: 0 }, true);
     } catch (error) {

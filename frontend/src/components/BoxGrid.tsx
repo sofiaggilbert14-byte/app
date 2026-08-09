@@ -21,6 +21,8 @@ import {
   applyLeftFocusLock,
   armGuideBottomFocusLock,
   armGuideLeftFocusLock,
+  noteGuideChannelFocus,
+  registerGuideChannelNode,
 } from "@/src/utils/tvGuideFocusLock";
 import { evaluateGuideNavigation } from "@/src/core/guideNavigationPolicy";
 import { useGuidePrograms } from "@/src/core/guideProgramsStore";
@@ -89,10 +91,11 @@ const ChannelCard = memo(function ChannelCard({
   const setCardRef = useCallback(
     (node: any) => {
       cardRef.current = node;
+      registerGuideChannelNode(item.id, node);
       applyLeftFocusLock(node, lockFocusLeft);
       applyDownFocusLock(node, lockFocusDown);
     },
-    [lockFocusDown, lockFocusLeft],
+    [item.id, lockFocusDown, lockFocusLeft],
   );
 
   useEffect(() => {
@@ -109,6 +112,7 @@ const ChannelCard = memo(function ChannelCard({
   }, [item, next, onProgramPress]);
   const handleFavorite = useCallback(() => toggleFavorite(item.id), [item.id, toggleFavorite]);
   const handleFocus = useCallback(() => {
+    noteGuideChannelFocus(item.id, cardRef.current);
     onFocusNode?.(cardRef.current);
     onRowFocus?.(index);
     onChannelFocus?.(item);
@@ -226,7 +230,6 @@ export function BoxGrid({
   channelsRef.current = channels;
   const focusedRowRef = useRef(0);
   const focusedIndexRef = useRef(0);
-  const mountedRowBandRef = useRef({ start: 0, end: -1 });
   const focusedNodeRef = useRef<unknown>(null);
   const lastRowIndexRef = useRef(0);
   const lastReportedDeepRef = useRef(false);
@@ -246,9 +249,9 @@ export function BoxGrid({
       const list = channelsRef.current;
       if (!list.length) return;
       const cols = Math.max(1, numColumns);
-      const visibleRows = 4;
-      const start = Math.max(0, index - cols);
-      const end = Math.min(list.length, start + cols * visibleRows);
+      const runwayRows = 16;
+      const start = Math.max(0, index - cols * runwayRows);
+      const end = Math.min(list.length, index + cols * runwayRows + 1);
       const ids: string[] = [];
       for (let i = start; i < end; i++) ids.push(list[i].id);
       onViewportChannelIds(ids);
@@ -262,29 +265,14 @@ export function BoxGrid({
       focusedIndexRef.current = index;
       focusedRowRef.current = row;
       gridOwnsFocusRef.current = true;
-      const visibleRows = 6;
-      const band = mountedRowBandRef.current;
-      if (row <= band.start + 1 || row >= band.end - 1 || band.end < band.start) {
-        const targetRow = Math.max(0, row - 2);
-        const targetIndex = Math.min(Math.max(0, channelsRef.current.length - 1), targetRow * Math.max(1, numColumns));
-        mountedRowBandRef.current = { start: targetRow, end: targetRow + visibleRows };
-        try {
-          listRef.current?.scrollToIndex({ index: targetIndex, animated: false, viewPosition: 0.12 });
-        } catch {
-          try {
-            listRef.current?.scrollToOffset({ offset: Math.max(0, targetRow * 132), animated: false });
-          } catch {}
-        }
-      }
       const deep = row > 0;
-      if (preferFirst && deep) setPreferFirst(false);
       if (lastReportedDeepRef.current !== deep) {
         lastReportedDeepRef.current = deep;
         onFocusedRowChange?.(row);
       }
       reportViewport(index);
     },
-    [numColumns, onFocusedRowChange, preferFirst, reportViewport],
+    [numColumns, onFocusedRowChange, reportViewport],
   );
 
   // Mount-once preferred focus — restore the last watched card after player.
@@ -309,7 +297,6 @@ export function BoxGrid({
     if (!resetToken) return;
     lastReportedDeepRef.current = false;
     focusedRowRef.current = 0;
-    mountedRowBandRef.current = { start: 0, end: -1 };
     try {
       listRef.current?.scrollToOffset({ offset: 0, animated: false });
     } catch {}
@@ -414,7 +401,7 @@ export function BoxGrid({
         keyExtractor={(c) => c.id}
         // Re-render visible hearts when favorites change without recreating renderItem.
         extraData={favorites}
-        drawDistance={720}
+        drawDistance={2400}
         removeClippedSubviews={false}
         contentContainerStyle={{ paddingBottom: 130, paddingHorizontal: spacing.xs, paddingTop: spacing.xs }}
         ListHeaderComponent={ListHeaderComponent}

@@ -41,8 +41,8 @@ const TTL_MS = 24 * 60 * 60 * 1000;
 const PROGRESS_THROTTLE_MS = 150;
 /** Above this, match current-group / priority ids first, then the rest (keeps channels-first paint snappy). */
 const HUGE_PLAYLIST_MATCH_THRESHOLD = 400;
-/** Cap merged programme rows held in JS — weak Fire TVs thrash if this grows with the full playlist. */
-const MAX_PROGRAMME_WINDOW_KEYS = 700;
+/** Bounded JS row cache; the native SQLite index remains authoritative. */
+const MAX_PROGRAMME_WINDOW_KEYS = 1600;
 const CACHE_ROOT = FileSystem.documentDirectory || "";
 const CHANNEL_CACHE = CACHE_ROOT ? `${CACHE_ROOT}charm_native_channels_v2.json` : "";
 const LEGACY_CHANNEL_CACHE = CACHE_ROOT ? `${CACHE_ROOT}charm_native_channels_v1.json` : "";
@@ -86,6 +86,7 @@ let programmeWindowCache: Record<string, Program[]> = {};
 /** Negative cache avoids re-querying unmatched/no-data rows on every D-pad move. */
 let programmeWindowEmptyKeys = new Set<string>();
 let programmeWindowCacheKey = "";
+let lastNativeMatchWriteFingerprint = "";
 
 export function setPreferTvgIdOnlyMatching(value: boolean): void {
   preferTvgIdOnly = !!value;
@@ -141,7 +142,15 @@ async function syncMatchesToNative(channels: Channel[], guideEpoch: number): Pro
       manual,
     };
   });
+  const writeFingerprint = rows
+    .map((row) => `${row.playlistId}\u0001${row.xmltvId}\u0001${row.logoXmltvId}\u0001${row.matchPolicy}\u0001${row.manual ? 1 : 0}`)
+    .join("\u0002");
+  if (writeFingerprint === lastNativeMatchWriteFingerprint) {
+    lastNativeMatchWriteFingerprint = writeFingerprint;
+    return;
+  }
   await upsertNativePlaylistEpgMatches(rows, guideEpoch);
+  lastNativeMatchWriteFingerprint = writeFingerprint;
 }
 
 function resolveGuideWindowBounds(startISO?: string, hours = 8): {
@@ -325,7 +334,7 @@ async function matchChannelsWithPhases(
   return { channels: applied.channels, quality: applied.quality };
 }
 
-export type LoadPhase = "idle" | "channels" | "downloading" | "decompressing" | "parsing" | "indexing" | "caching" | "ready" | "error";
+export type LoadPhase = "idle" | "channels" | "downloading" | "decompressing" | "parsing" | "indexing" | "matching" | "caching" | "finalizing" | "ready" | "error";
 export type EpgProgress = {
   phase: LoadPhase;
   ratio: number;
@@ -570,7 +579,7 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
       if (!SOURCE_EPG) throw new Error("EPG is not configured for this build (missing EXPO_PUBLIC_EPG_URL).");
       setProgress({ phase: "downloading", ratio: 0.2, etaSeconds: null, message: null }, true);
       const epg = await refreshNativeEpg(https(SOURCE_EPG));
-      setProgress({ phase: "caching", ratio: 0.9, etaSeconds: null }, true);
+      setProgress({ phase: "indexing", ratio: 0.91, etaSeconds: null }, true);
 
       const epgLogos = epg.channelLogos || {};
       const epgNames = epg.channelNames || {};
@@ -591,6 +600,7 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
 
       let matchedChannelsWithLogos: Channel[];
       let quality: EpgMatchQuality;
+      setProgress({ phase: "matching", ratio: 0.94, etaSeconds: null }, true);
 
       if (playlistUnchanged && policyUnchanged && epgUnchanged && cached?.channels?.length) {
         // Same playlist identity + same EPG indexes: keep prior matches, logos only.
@@ -645,7 +655,9 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
         matchPolicy: policy,
         playlistIdentityFingerprint: playlistFp,
       };
+      setProgress({ phase: "caching", ratio: 0.975, etaSeconds: null }, true);
       await persistMeta(MEM);
+      setProgress({ phase: "finalizing", ratio: 0.99, etaSeconds: null }, true);
       await syncMatchesToNative(matchedChannelsWithLogos, guideEpoch).catch(() => undefined);
       if (LEGACY_CHANNEL_CACHE) {
         void FileSystem.deleteAsync(LEGACY_CHANNEL_CACHE, { idempotent: true }).catch(() => undefined);
@@ -735,7 +747,7 @@ export async function loadGuide(startISO?: string, hours = 8, force = false): Pr
   if ((huge || viewportGuideChannelIds?.length) && viewportGuideChannelIds?.length) {
     const want = new Set<string>([
       ...viewportGuideChannelIds,
-      ...priorityMatchChannelIds.slice(0, 96),
+      ...priorityMatchChannelIds.slice(0, 192),
     ]);
     const scoped = Array.from(want).filter((id) => id);
     if (scoped.length) playlistIds = scoped;
@@ -743,7 +755,7 @@ export async function loadGuide(startISO?: string, hours = 8, force = false): Pr
     // Do not bridge a whole 400+ channel guide before the screen has reported
     // its first viewport. The leading page is immediately navigable through
     // focusable pending cells and the queue fills the real viewport next.
-    playlistIds = allPlaylistIds.slice(0, 48);
+    playlistIds = allPlaylistIds.slice(0, 96);
   }
   playlistIds = Array.from(new Set(playlistIds));
 
@@ -755,7 +767,7 @@ export async function loadGuide(startISO?: string, hours = 8, force = false): Pr
   if (huge && nativeEpgAvailable && playlistIds.length < allPlaylistIds.length) {
     const warmKey = cacheKey;
     const focusIds = viewportGuideChannelIds?.length ? viewportGuideChannelIds : playlistIds;
-    const ring = buildFocusRing(allPlaylistIds, new Set(playlistIds), focusIds, 48);
+    const ring = buildFocusRing(allPlaylistIds, new Set(playlistIds), focusIds, 192);
     if (ring.length) {
       void loadProgrammeCacheMisses(remapped, ring, startMs, endMs)
         .then(() => {
@@ -813,14 +825,14 @@ export async function loadGuideProgramsForChannelIds(
   const remapped = withManualRemaps(parsed.channels);
   const allPlaylistIds = remapped.map((channel) => channel.id).filter(Boolean);
   const unique = Array.from(new Set(channelIds.filter(Boolean)));
-  const ring = buildFocusRing(allPlaylistIds, new Set(unique), unique, 48);
+  const ring = buildFocusRing(allPlaylistIds, new Set(unique), unique, 192);
   const queryIds = Array.from(new Set([...unique, ...ring]));
 
   await loadProgrammeCacheMisses(remapped, queryIds, startMs, endMs);
   const delta: Record<string, Program[]> = {};
   for (const id of queryIds) {
     const cached = programmeWindowCache[id];
-    if (cached?.length) delta[id] = cached;
+    delta[id] = cached?.length ? cached : EMPTY_PROGRAMS;
   }
   trimProgrammeWindowCache(queryIds);
   return delta;
@@ -846,7 +858,7 @@ export async function refreshEpgOnly(): Promise<SourceStatus> {
       if (!SOURCE_EPG) throw new Error("EPG is not configured for this build (missing EXPO_PUBLIC_EPG_URL).");
       setProgress({ phase: "downloading", ratio: 0.2, etaSeconds: null, message: null }, true);
       const epg = await refreshNativeEpg(https(SOURCE_EPG));
-      setProgress({ phase: "caching", ratio: 0.9, etaSeconds: null }, true);
+      setProgress({ phase: "indexing", ratio: 0.91, etaSeconds: null }, true);
       const epgLogos = epg.channelLogos || {};
       const epgNames = epg.channelNames || {};
       const indexes = buildXmltvMatchIndexes({
@@ -858,16 +870,31 @@ export async function refreshEpgOnly(): Promise<SourceStatus> {
         channelNames: epgNames,
         idsWithPrograms: epg.channelIdsWithPrograms || [],
       });
-      const applied = await matchChannelsWithPhases(cached.channels, indexes, epgLogos, async (partial, quality) => {
-        MEM = {
-          ...cached,
-          ...MEM,
-          channels: partial,
-          epgChannelCount: quality.matched,
-          matchQuality: quality,
-        };
-        emit();
-      });
+      const policy = matchPolicyKey();
+      const policyUnchanged = (cached.matchPolicy || policy) === policy;
+      const epgUnchanged = !!cached.matchFingerprint && cached.matchFingerprint === indexes.fingerprint;
+      let refreshedChannels: Channel[];
+      let quality: EpgMatchQuality;
+      setProgress({ phase: "matching", ratio: 0.94, etaSeconds: null }, true);
+      if (policyUnchanged && epgUnchanged) {
+        refreshedChannels =
+          applyLogoOnlyUpdates(cached.channels, epgLogos, indexes.fingerprint, indexes.fingerprint) ||
+          cached.channels;
+        quality = cached.matchQuality || emptyMatchQuality();
+      } else {
+        const applied = await matchChannelsWithPhases(cached.channels, indexes, epgLogos, async (partial, partialQuality) => {
+          MEM = {
+            ...cached,
+            ...MEM,
+            channels: partial,
+            epgChannelCount: partialQuality.matched,
+            matchQuality: partialQuality,
+          };
+          emit();
+        });
+        refreshedChannels = applied.channels;
+        quality = applied.quality;
+      }
       const guideRefreshedAt = Date.now();
       const guideEpoch =
         typeof epg.guideEpoch === "number" && Number.isFinite(epg.guideEpoch)
@@ -878,18 +905,20 @@ export async function refreshEpgOnly(): Promise<SourceStatus> {
         ...cached,
         ...MEM,
         ts: guideRefreshedAt,
-        channels: applied.channels,
+        channels: refreshedChannels,
         epgProgramCount: Math.max(0, Math.round(epg.count || 0)),
-        epgChannelCount: applied.quality.matched,
+        epgChannelCount: quality.matched,
         epgError: undefined,
         guideEpoch,
         guideRefreshedAt,
         matchFingerprint: indexes.fingerprint,
-        matchQuality: applied.quality,
-        matchPolicy: matchPolicyKey(),
+        matchQuality: quality,
+        matchPolicy: policy,
       };
+      setProgress({ phase: "caching", ratio: 0.975, etaSeconds: null }, true);
       await persistMeta(MEM);
-      await syncMatchesToNative(applied.channels, guideEpoch).catch(() => undefined);
+      setProgress({ phase: "finalizing", ratio: 0.99, etaSeconds: null }, true);
+      await syncMatchesToNative(refreshedChannels, guideEpoch).catch(() => undefined);
       emit();
       setProgress({ phase: "ready", ratio: 1, etaSeconds: 0, message: null }, true);
       return MEM;
@@ -980,6 +1009,7 @@ export async function sourceDiagnostics(): Promise<SourceDiagnostics> {
  */
 export async function clearGuideCache(): Promise<void> {
   MEM = null;
+  lastNativeMatchWriteFingerprint = "";
   lastSourceError = null;
   clearProgrammeWindowCache();
   viewportGuideChannelIds = null;

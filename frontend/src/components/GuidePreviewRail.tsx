@@ -11,6 +11,8 @@ import { focusGuideSurface, registerGuidePreviewEntry } from "@/src/utils/tvGuid
 import { fonts, radius, tvColors } from "@/src/theme";
 import { fmtTime, progressPct } from "@/src/utils/time";
 
+const REMINDER_COLOR = "#FACC15";
+
 type Props = {
   width: number;
   channel: Channel | null;
@@ -30,9 +32,10 @@ type Props = {
   onPreviewErrorRemount: () => void;
   onPlay: () => void;
   onFavorite: () => void;
-  onRemind: () => void;
+  canRemind: boolean;
+  isReminded: boolean;
+  onToggleReminder: () => void;
   onHideToggle: () => void;
-  clock24h: boolean;
 };
 
 export function GuidePreviewRail({
@@ -54,11 +57,11 @@ export function GuidePreviewRail({
   onPreviewErrorRemount,
   onPlay,
   onFavorite,
-  onRemind,
+  canRemind,
+  isReminded,
+  onToggleReminder,
   onHideToggle,
-  clock24h,
 }: Props) {
-  void clock24h;
   const nowDate = useMemo(() => new Date(now), [now]);
   const progress = current ? progressPct(current, nowDate) : 0;
   const endsIn = current?.stop
@@ -177,17 +180,27 @@ export function GuidePreviewRail({
         </View>
         <View style={styles.actions}>
           <Pressable
-            disabled={!channel || !current}
-            onPress={onRemind}
-            style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
+            disabled={!channel || !current || !canRemind}
+            onPress={onToggleReminder}
+            style={({ focused }: any) => [
+              styles.secondaryButton,
+              isReminded && styles.reminderActive,
+              focused && styles.focused,
+            ]}
             testID="guide-preview-remind"
           >
-            <Ionicons name="notifications-outline" size={12} color={tvColors.purpleSoft} />
-            <Text style={styles.secondaryText}>Remind</Text>
+            <Ionicons
+              name={isReminded ? "notifications-off-outline" : "notifications-outline"}
+              size={12}
+              color={isReminded ? REMINDER_COLOR : tvColors.purpleSoft}
+            />
+            <Text style={[styles.secondaryText, isReminded && styles.reminderActiveText]}>
+              {isReminded ? "Cancel" : "Remind"}
+            </Text>
           </Pressable>
           <Pressable
             ref={(node) => registerGuidePreviewEntry(node)}
-            onPress={() => focusGuideSurface()}
+            onPress={() => focusGuideSurface(channel?.id)}
             style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
             testID="guide-preview-guide"
           >
@@ -331,5 +344,7 @@ const styles = StyleSheet.create({
     borderColor: "transparent",
   },
   secondaryText: { color: "#fff", fontFamily: fonts.medium, fontSize: 7.5 },
+  reminderActive: { borderColor: REMINDER_COLOR, backgroundColor: "rgba(250,204,21,0.12)" },
+  reminderActiveText: { color: REMINDER_COLOR },
   focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
 });

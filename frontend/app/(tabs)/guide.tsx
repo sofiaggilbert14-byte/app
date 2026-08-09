@@ -25,7 +25,7 @@ import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { GuidePreviewRail } from "@/src/components/GuidePreviewRail";
 import { EpgProgressBar } from "@/src/components/EpgProgressBar";
 import { NowPlayingBar } from "@/src/components/NowPlayingBar";
-import { Channel } from "@/src/api";
+import { Channel, Program } from "@/src/api";
 import { useStore } from "@/src/store";
 import { setPriorityMatchChannelIds, setViewportGuideChannelIds } from "@/src/source";
 import { markGuideSurfing } from "@/src/utils/guideSurfGate";
@@ -47,7 +47,7 @@ import { useParentalPin } from "@/src/core/parentalPin";
 import { failedStreamCount, isFailedChannel, noteStreamFailure } from "@/src/core/streamFailureRegistry";
 import { consumeGuideJump } from "@/src/core/guideSearchJump";
 import { fonts, radius, spacing, tvColors } from "@/src/theme";
-import { nowNext } from "@/src/utils/time";
+import { nowNext, reminderKey } from "@/src/utils/time";
 import { requestNativeFocus, requestNativeFocusWithRetry } from "@/src/utils/tvFocus";
 import { focusGuidePreviewSurface, focusGuideSurface } from "@/src/utils/tvGuideFocusLock";
 import { setGuideNavigationActive } from "@/src/utils/tvRemote";
@@ -84,7 +84,7 @@ export default function PurpleGuideScreen() {
     hardRefresh,
     patchProgramsForChannelIds,
     addRecent,
-    addReminder,
+    toggleReminder,
     openProgram,
     activeProgram,
     favorites,
@@ -102,7 +102,6 @@ export default function PurpleGuideScreen() {
     powerProfile,
     logosOffWhileSurfing,
     epgGuideFilter,
-    clock24h,
   } = useStore();
 
   const {
@@ -124,6 +123,10 @@ export default function PurpleGuideScreen() {
   const [now, setNow] = useState(() => new Date().toISOString());
   const [group, setGroup] = useState(() => guideSessionGroup);
   const [focusedId, setFocusedId] = useState<string | null>(() => guideSessionChannelId);
+  const [focusedProgramSelection, setFocusedProgramSelection] = useState<{
+    channelId: string;
+    program: Program;
+  } | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewStatus, setPreviewStatus] = useState<StreamStatus>("loading");
   const [resetToken, setResetToken] = useState(0);
@@ -189,9 +192,12 @@ export default function PurpleGuideScreen() {
     const wasOpen = drawerWasOpenForFocusRef.current;
     drawerWasOpenForFocusRef.current = drawerOpen;
     if (!wasOpen || drawerOpen || activeProgram) return;
-    const cancel = requestNativeFocusWithRetry(lastGuideFocusNodeRef.current, [0, 40, 120, 280, 480]);
+    const restoredByChannel = focusGuideSurface(guideSessionChannelId);
+    const cancel = restoredByChannel
+      ? undefined
+      : requestNativeFocusWithRetry(lastGuideFocusNodeRef.current, [0, 40, 120, 280, 480]);
     const fallback = setTimeout(() => {
-      focusGuideSurface();
+      focusGuideSurface(guideSessionChannelId);
     }, 420);
     return () => {
       cancel?.();
@@ -204,6 +210,7 @@ export default function PurpleGuideScreen() {
     if (activeProgram) return;
     if (!hadProgramModalRef.current) return;
     hadProgramModalRef.current = false;
+    if (focusGuideSurface(guideSessionChannelId)) return;
     return requestNativeFocusWithRetry(lastGuideFocusNodeRef.current, [...MODAL_FOCUS_RETRY_DELAYS_MS]);
   }, [activeProgram]);
 
@@ -378,9 +385,28 @@ export default function PurpleGuideScreen() {
   }, [filtered, focusedId, lastChannelId]);
   const previewPrograms = useGuidePrograms(previewChannel?.id);
 
-  const { current, next: nextProgram } = useMemo(
+  const { current: liveCurrent, next: liveNext } = useMemo(
     () => (previewChannel ? nowNext(previewPrograms, new Date(now)) : {}),
     [now, previewChannel, previewPrograms],
+  );
+  const { displayedProgram, nextProgram } = useMemo(() => {
+    if (!previewChannel || focusedProgramSelection?.channelId !== previewChannel.id) {
+      return { displayedProgram: liveCurrent, nextProgram: liveNext };
+    }
+    const selected = focusedProgramSelection.program;
+    const index = previewPrograms.findIndex(
+      (program) => program.start === selected.start && program.stop === selected.stop,
+    );
+    return {
+      displayedProgram: selected,
+      nextProgram: index >= 0 ? previewPrograms[index + 1] : undefined,
+    };
+  }, [focusedProgramSelection, liveCurrent, liveNext, previewChannel, previewPrograms]);
+  const canRemindPreview = !!displayedProgram && Date.parse(displayedProgram.start) > Date.parse(now);
+  const previewReminderActive = !!(
+    previewChannel &&
+    displayedProgram &&
+    reminderKeys.has(reminderKey(previewChannel.id, displayedProgram.start))
   );
   const previewVisible =
     !hidePreview &&
@@ -433,6 +459,11 @@ export default function PurpleGuideScreen() {
       const requestedId = channel.id;
       guideSessionChannelId = requestedId;
       setFocusedId((previous) => (previous === requestedId ? previous : requestedId));
+      setFocusedProgramSelection(null);
+
+      // Moving left/right across programmes on the same channel updates details
+      // immediately but must not tear down and re-arm an unchanged decoder.
+      if (previewId === requestedId && previewStatus !== "error") return;
 
       const nowTs = Date.now();
       const rapid = nowTs - lastFocusAtRef.current < 240;
@@ -461,8 +492,14 @@ export default function PurpleGuideScreen() {
         : previewDelay;
       schedulePreview(requestedId, delay, !!channel.url);
     },
-    [logosOffWhileSurfing, powerTuning, previewDelay, schedulePreview, surfSettleExtraMs],
+    [logosOffWhileSurfing, powerTuning, previewDelay, previewId, previewStatus, schedulePreview, surfSettleExtraMs],
   );
+
+  const onFocusProgram = useCallback((program: Program, channel: Channel) => {
+    guideSessionChannelId = channel.id;
+    setFocusedId((previous) => (previous === channel.id ? previous : channel.id));
+    setFocusedProgramSelection({ channelId: channel.id, program });
+  }, []);
 
   const play = useCallback(
     (channel: Channel) => {
@@ -797,7 +834,7 @@ export default function PurpleGuideScreen() {
             <GuidePreviewRail
               width={detailsRailWidth}
               channel={previewChannel}
-              current={current}
+              current={displayedProgram}
               next={nextProgram}
               now={now}
               channelNumber={previewChannel ? channelNumberById[previewChannel.id] : undefined}
@@ -813,11 +850,14 @@ export default function PurpleGuideScreen() {
               onPreviewErrorRemount={onPreviewErrorRemount}
               onPlay={() => previewChannel && play(previewChannel)}
               onFavorite={() => previewChannel && toggleFavorite(previewChannel.id)}
-              onRemind={() => {
-                if (current && previewChannel) void addReminder(current, previewChannel);
+              canRemind={canRemindPreview}
+              isReminded={previewReminderActive}
+              onToggleReminder={() => {
+                if (displayedProgram && previewChannel) {
+                  void toggleReminder(displayedProgram, previewChannel);
+                }
               }}
               onHideToggle={() => setHidePreview(!hidePreview)}
-              clock24h={clock24h}
             />
 
             {/* The preview/details/actions rail is a fixed left sibling. The Guide
@@ -859,6 +899,7 @@ export default function PurpleGuideScreen() {
                   now={now}
                   onChannelPress={play}
                   onProgramPress={openProgram}
+                  onProgramFocus={onFocusProgram}
                   onChannelFocus={onFocusChannel}
                   onChannelLongPress={onChannelLongPress}
                   refreshing={refreshing}

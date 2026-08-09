@@ -480,7 +480,7 @@ export default function SettingsScreen() {
                   onChange={setSafePreviewMode}
                 />
                 <Text style={styles.help}>
-                  Off while surfing soft-clears preview during D-pad surfing and arms after settle (longer on weak sticks). Preview never shares a decoder with fullscreen.
+                  Off while surfing soft-clears preview during D-pad surfing and arms after settle. Preview never shares a decoder with fullscreen.
                 </Text>
                 <ToggleRow label="Channel numbers" value={channelNumbers} onChange={setChannelNumbers} />
                 <ToggleRow label="Channel logos" value={channelLogos} onChange={setChannelLogos} />
@@ -492,7 +492,7 @@ export default function SettingsScreen() {
                   onChange={setPowerProfile}
                 />
                 <Text style={styles.help}>
-                  Weak stick lengthens preview arm and settle times. Max preview arms sooner on stronger devices.
+                  Compatibility lengthens preview arm and settle times for older devices. Max preview arms sooner on stronger devices.
                 </Text>
                 <ChoiceRow<EpgGuideFilter>
                   label="Guide EPG filter"

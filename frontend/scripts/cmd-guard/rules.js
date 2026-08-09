@@ -33,7 +33,7 @@ function loadRules() {
   let parsed;
   try {
     parsed = JSON.parse(raw);
-  } catch (e) {
+  } catch (_e) {
     throw new Error(`cmd-guard: injected rules at ${RULES_PATH} are not valid JSON; refusing to fall back to baked rules`);
   }
   if (!isFlatList(parsed)) {

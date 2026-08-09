@@ -205,8 +205,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
             )
           )
         }
-        database.replacePlaylistEpgMatches(rows, guideEpoch.toLong())
-        promise.resolve(true)
+        promise.resolve(database.replacePlaylistEpgMatches(rows, guideEpoch.toLong()))
       } catch (t: Throwable) {
         promise.reject("EPG_MATCH_UPSERT_FAILED", t.message ?: "Could not upsert EPG matches", t)
       }

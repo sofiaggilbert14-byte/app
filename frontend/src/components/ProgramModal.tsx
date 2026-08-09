@@ -11,13 +11,12 @@ import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 
 export function ProgramModal() {
-  const { activeProgram, closeProgram, addReminder, removeReminder, reminders } = useStore();
+  const { activeProgram, closeProgram, toggleReminder, reminders } = useStore();
   const router = useRouter();
   const [msg, setMsg] = React.useState<string | null>(null);
   // Optimistic override so the label flips the instant the user presses Remind/Cancel.
   const [optimisticReminded, setOptimisticReminded] = React.useState<boolean | null>(null);
   // Ref-only busy guard — never disable the focused TV button (that crashes Fire TV).
-  const addInFlightRef = React.useRef(false);
   const mountedRef = React.useRef(true);
 
   React.useEffect(() => {
@@ -30,7 +29,6 @@ export function ProgramModal() {
   React.useEffect(() => {
     setMsg(null);
     setOptimisticReminded(null);
-    addInFlightRef.current = false;
   }, [activeProgram]);
 
   // Close on the hardware / remote BACK button while the sheet is open.
@@ -60,46 +58,30 @@ export function ProgramModal() {
   };
 
   const onReminder = () => {
-    // Cancel must always be allowed immediately, even if an add is still finishing.
-    if (reminded) {
-      setOptimisticReminded(false);
-      setMsg("Reminder removed");
-      void (async () => {
-        try {
-          await removeReminder(key);
-          void Haptics.selectionAsync().catch(() => {});
-        } catch {
-          if (mountedRef.current) {
-            setOptimisticReminded(null);
-            setMsg("Could not remove reminder — try again");
-          }
-        }
-      })();
-      return;
-    }
-
-    if (addInFlightRef.current) return;
-    addInFlightRef.current = true;
-    setOptimisticReminded(true);
-    setMsg("Reminder set — we'll alert you before it starts");
+    const targetReminded = !reminded;
+    setOptimisticReminded(targetReminded);
+    setMsg(targetReminded ? "Setting reminder…" : "Removing reminder…");
 
     void (async () => {
       try {
-        const ok = await addReminder(program, channel);
+        const result = await toggleReminder(program, channel);
         if (!mountedRef.current) return;
-        if (ok) {
+        if (result === "added") {
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
           setOptimisticReminded(null);
+          setMsg("Reminder set — we'll alert you before it starts");
+        } else if (result === "removed") {
+          void Haptics.selectionAsync().catch(() => {});
+          setOptimisticReminded(null);
+          setMsg("Reminder removed");
         } else {
-          setOptimisticReminded(false);
+          setOptimisticReminded(null);
           setMsg("Enable notifications to set reminders");
         }
       } catch {
         if (!mountedRef.current) return;
-        setOptimisticReminded(false);
-        setMsg("Could not set reminder — try again");
-      } finally {
-        addInFlightRef.current = false;
+        setOptimisticReminded(null);
+        setMsg("Could not update reminder — try again");
       }
     })();
   };

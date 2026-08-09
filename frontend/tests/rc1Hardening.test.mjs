@@ -77,8 +77,8 @@ test("TvRemote checked-in Android matches plugin guide APIs", async () => {
   }
   assert.match(plugin, /KOTLIN_NAMESPACE/);
   assert.match(plugin, /hardenMainActivity/);
-  assert.match(plugin, /minDpadRepeatMs = 40L/);
-  assert.match(activity, /MIN_DPAD_REPEAT_MS = 40L/);
+  assert.match(plugin, /minDpadRepeatMs = 16L/);
+  assert.match(activity, /MIN_DPAD_REPEAT_MS = 16L/);
   assert.match(activity, /Static remote flags must never survive/);
   assert.match(activity, /TvRemoteModule\.pointerActive = false/);
   // Guide surfing must use Android focus — never consume Up/Down when "active".
@@ -97,15 +97,23 @@ test("Cloudflare worker does not default CORS to wildcard", async () => {
 });
 
 test("release packaging bumps versionCode and supports upload keystore", async () => {
-  const [appJson, gradle] = await Promise.all([
+  const [appJson, gradle, manifest] = await Promise.all([
     source("app.json"),
     source("android/app/build.gradle"),
+    source("android/app/src/main/AndroidManifest.xml"),
   ]);
   assert.match(appJson, /"versionCode": 4/);
   assert.match(appJson, /2\.1\.0-rc\.1/);
   assert.match(gradle, /versionCode 4/);
   assert.match(gradle, /CHARM_UPLOAD_STORE_FILE/);
   assert.match(gradle, /signingConfigs\.release/);
+  assert.match(appJson, /"allowBackup": false/);
+  assert.match(appJson, /"blockedPermissions"/);
+  assert.match(manifest, /android:allowBackup="false"/);
+  assert.match(manifest, /android:scheme="charmiptv-purple"/);
+  for (const permission of ["READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE", "SYSTEM_ALERT_WINDOW"]) {
+    assert.match(manifest, new RegExp(`${permission}\\" tools:node=\\"remove`));
+  }
 });
 
 test("legacy backend proxy blocks private destinations", async () => {

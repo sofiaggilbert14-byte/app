@@ -618,7 +618,7 @@ function ExpoStream({
           .catch(() => undefined);
       }
     };
-  }, [blocked, emit, engine, headers, kind, muted, player, sessionGeneration, sessionRole, setBlocked, uri]);
+  }, [blocked, emit, engine, headers, kind, mode, muted, player, sessionGeneration, sessionRole, setBlocked, uri]);
 
   useEffect(() => {
     try {

@@ -50,19 +50,6 @@ type FooterAction = {
   testID?: string;
 };
 
-export type PurpleContextAction = {
-  label: string;
-  icon: React.ComponentProps<typeof Ionicons>["name"];
-  onPress: () => void;
-  testID?: string;
-};
-
-export type PurpleRecentChannel = {
-  id: string;
-  name: string;
-  logo?: string | null;
-};
-
 const NAV: NavItem[] = [
   { route: "/", label: "Live TV", icon: "tv-outline" },
   { route: "/guide", label: "TV Guide", icon: "calendar-outline" },
@@ -159,35 +146,20 @@ function WatchingDot({ testID }: { testID?: string }) {
   return <View style={styles.watchingDot} testID={testID} />;
 }
 
-function RecentLetterAvatar({ name }: { name: string }) {
-  const letter = (name.trim().charAt(0) || "?").toUpperCase();
-  return (
-    <View style={styles.recentAvatar}>
-      <Text style={styles.recentAvatarText}>{letter}</Text>
-    </View>
-  );
-}
-
 export function PurpleTvShell({
   active,
   children,
   headerRight,
   contentStyle,
   footerAction,
-  contextActions,
   watchingChannelId,
-  recentChannels,
-  onRecentPress,
 }: {
   active: Route;
   children: React.ReactNode;
   headerRight?: React.ReactNode;
   contentStyle?: any;
   footerAction?: FooterAction;
-  contextActions?: PurpleContextAction[];
   watchingChannelId?: string | null;
-  recentChannels?: PurpleRecentChannel[];
-  onRecentPress?: (channelId: string) => void;
 }) {
   const router = useRouter();
   const { drawerOpen, drawerProgress, openDrawer, closeDrawer } = usePurpleTvDrawer();
@@ -206,10 +178,6 @@ export function PurpleTvShell({
   const bootFocusConsumed = useRef(false);
   const navRefs = useRef(new Map<Route, unknown>());
   const isWatching = !!watchingChannelId;
-  const recentStrip = useMemo(
-    () => (recentChannels ?? []).slice(0, 5),
-    [recentChannels],
-  );
   // Mount-once content autoFocus so child preferred-focus can stick after first paint.
   const [contentAutoFocus, setContentAutoFocus] = useState(
     () => !drawerOpen && !bootSidebarFocus,
@@ -343,51 +311,6 @@ export function PurpleTvShell({
           trapFocusRight
         >
           <SmallBrand />
-          {contextActions && contextActions.length > 0 ? (
-            <View style={styles.contextActions}>
-              {contextActions.map((action) => (
-                <Pressable
-                  key={action.label}
-                  focusable={drawerOpen}
-                  onPress={action.onPress}
-                  style={({ focused }: any) => [
-                    styles.contextActionRow,
-                    focused && styles.navRowFocused,
-                  ]}
-                  testID={action.testID}
-                >
-                  <Ionicons name={action.icon} size={13} color={tvColors.purpleSoft} />
-                  <Text numberOfLines={1} style={styles.contextActionText}>
-                    {action.label}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          ) : null}
-          {recentStrip.length > 0 ? (
-            <View style={styles.recentStrip}>
-              <Text style={styles.recentLabel}>Recent</Text>
-              <View style={styles.recentRow}>
-                {recentStrip.map((channel) => (
-                  <Pressable
-                    key={channel.id}
-                    focusable={drawerOpen}
-                    onPress={() => onRecentPress?.(channel.id)}
-                    style={({ focused }: any) => [
-                      styles.recentChip,
-                      focused && styles.navRowFocused,
-                    ]}
-                    testID={`purple-recent-${channel.id}`}
-                  >
-                    <RecentLetterAvatar name={channel.name} />
-                    <Text numberOfLines={1} style={styles.recentName}>
-                      {channel.name}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-          ) : null}
           <View style={styles.nav}>
             {NAV.map((item) => {
               const selected = item.route === active;
@@ -623,78 +546,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     fontSize: 8,
     letterSpacing: 1.4,
-  },
-  contextActions: {
-    gap: 2,
-    marginBottom: 8,
-    paddingBottom: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: tvColors.line,
-  },
-  contextActionRow: {
-    minHeight: 30,
-    borderRadius: radius.sm,
-    borderWidth: 2,
-    borderColor: "transparent",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 9,
-  },
-  contextActionText: {
-    color: tvColors.textMuted,
-    fontFamily: fonts.medium,
-    fontSize: 10,
-    flex: 1,
-  },
-  recentStrip: {
-    marginBottom: 8,
-    paddingBottom: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: tvColors.line,
-    gap: 4,
-  },
-  recentLabel: {
-    color: tvColors.textMuted,
-    fontFamily: fonts.semibold,
-    fontSize: 8,
-    letterSpacing: 0.6,
-    paddingHorizontal: 6,
-    textTransform: "uppercase",
-  },
-  recentRow: {
-    gap: 2,
-  },
-  recentChip: {
-    minHeight: 28,
-    borderRadius: radius.sm,
-    borderWidth: 2,
-    borderColor: "transparent",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-    paddingHorizontal: 7,
-  },
-  recentAvatar: {
-    width: 18,
-    height: 18,
-    borderRadius: 4,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: tvColors.purpleDeep,
-    borderWidth: 1,
-    borderColor: tvColors.lineStrong,
-  },
-  recentAvatarText: {
-    color: "#fff",
-    fontFamily: fonts.bold,
-    fontSize: 9,
-  },
-  recentName: {
-    color: tvColors.textMuted,
-    fontFamily: fonts.medium,
-    fontSize: 9.5,
-    flex: 1,
   },
   nav: { flex: 1, gap: 2 },
   navRow: {

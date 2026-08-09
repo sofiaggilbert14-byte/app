@@ -8,12 +8,6 @@ on:
     paths:
       - 'frontend/**'
       - '.github/workflows/purple-tv-ui.yml'
-  pull_request:
-    branches:
-      - main
-    paths:
-      - 'frontend/**'
-      - '.github/workflows/purple-tv-ui.yml'
   workflow_dispatch:
 
 # Do not cancel in-progress APK builds — runner queues are long, and merge/retrigger
@@ -75,7 +69,7 @@ jobs:
           ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/27.1.12297006" ./scripts/build-media3-ffmpeg-audio.sh
 
       - name: Install JavaScript dependencies
-        run: npm install --legacy-peer-deps --no-audit --no-fund
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
 
       - name: Typecheck
         run: npm run typecheck

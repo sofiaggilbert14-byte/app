@@ -12,6 +12,7 @@ type NativeProgramme = {
 
 type NativeWindow = Record<string, NativeProgramme[]>;
 type NativeCurrent = Record<string, NativeProgramme>;
+const EMPTY_NATIVE_PROGRAMS: Program[] = [];
 
 type NativeRefreshResult = {
   count: number;
@@ -69,8 +70,9 @@ function windowToPrograms(window: NativeWindow, channelIds: string[]): Record<st
   for (const channelId of channelIds) {
     if (result[channelId]) continue;
     const programmes = window[channelId];
-    if (!programmes?.length) continue;
-    result[channelId] = programmes.map(toProgram);
+    result[channelId] = programmes?.length
+      ? programmes.map(toProgram)
+      : EMPTY_NATIVE_PROGRAMS;
   }
   return result;
 }

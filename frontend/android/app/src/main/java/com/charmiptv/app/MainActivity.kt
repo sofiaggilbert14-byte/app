@@ -122,6 +122,6 @@ class MainActivity : ReactActivity() {
   }
 
   companion object {
-    private const val MIN_DPAD_REPEAT_MS = 40L
+    private const val MIN_DPAD_REPEAT_MS = 16L
   }
 }

@@ -27,7 +27,6 @@ import { applyManualEpgRemaps, resolveEpgGuideFilter, sanitizeEpgManualRemap, ty
 import {
   createFavoriteFolder,
   DEFAULT_FOLDER_PRESETS,
-  nextFavoriteFolderName,
   renameFavoriteFolder,
   sanitizeFavoriteFolders,
   toggleChannelInFolder,
@@ -103,6 +102,8 @@ export type Reminder = {
   stop: string | null;
 };
 
+export type ReminderToggleResult = "added" | "removed" | "failed";
+
 export type ActiveProgram = { program: Program; channel: Channel } | null;
 
 export type Store = {
@@ -135,6 +136,8 @@ export type Store = {
   hasReminder: (key: string) => boolean;
   addReminder: (program: Program, channel: Channel) => Promise<boolean>;
   removeReminder: (key: string) => Promise<void>;
+  /** Single reminder mutation path shared by Guide preview and ProgramModal. */
+  toggleReminder: (program: Program, channel: Channel) => Promise<ReminderToggleResult>;
 
   activeProgram: ActiveProgram;
   openProgram: (program: Program, channel: Channel) => void;
@@ -217,6 +220,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [lastChannelId, setLastChannelId] = useState<string | null>(null);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const remindersRef = useRef<Reminder[]>([]);
+  const reminderDesiredStateRef = useRef(new Map<string, boolean>());
+  const reminderMutationRef = useRef(new Map<string, Promise<ReminderToggleResult>>());
   // Keep ref in sync during render so async add/remove see the latest list immediately
   // (useEffect would lag one frame and break hasReminder after setReminders).
   remindersRef.current = reminders;
@@ -562,6 +567,48 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       // Never let reminder cleanup take down the guide.
     }
   }, []);
+
+  const toggleReminder = useCallback(
+    (program: Program, channel: Channel): Promise<ReminderToggleResult> => {
+      if (!program?.start || !channel?.id) return Promise.resolve("failed");
+      const key = reminderKey(channel.id, program.start);
+      const actual = remindersRef.current.some((reminder) => reminder.key === key);
+      const desired = reminderDesiredStateRef.current.has(key)
+        ? !!reminderDesiredStateRef.current.get(key)
+        : actual;
+      reminderDesiredStateRef.current.set(key, !desired);
+
+      const inFlight = reminderMutationRef.current.get(key);
+      if (inFlight) return inFlight;
+
+      const mutation = (async (): Promise<ReminderToggleResult> => {
+        while (true) {
+          const current = remindersRef.current.some((reminder) => reminder.key === key);
+          const target = reminderDesiredStateRef.current.get(key) ?? current;
+          if (current === target) {
+            reminderDesiredStateRef.current.delete(key);
+            return current ? "added" : "removed";
+          }
+          if (target) {
+            const added = await addReminder(program, channel);
+            if (!added) {
+              reminderDesiredStateRef.current.delete(key);
+              return "failed";
+            }
+          } else {
+            await removeReminder(key);
+          }
+          // Re-read the desired state: a second press may have reversed intent
+          // while notification permission/scheduling was still in flight.
+        }
+      })().finally(() => {
+        reminderMutationRef.current.delete(key);
+      });
+      reminderMutationRef.current.set(key, mutation);
+      return mutation;
+    },
+    [addReminder, removeReminder],
+  );
 
   const refresh = useCallback(async (silent = false) => {
     if (silent && isGuideSurfing()) {
@@ -921,6 +968,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       hasReminder,
       addReminder,
       removeReminder,
+      toggleReminder,
       activeProgram,
       openProgram,
       closeProgram,
@@ -992,6 +1040,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       hasReminder,
       addReminder,
       removeReminder,
+      toggleReminder,
       activeProgram,
       openProgram,
       closeProgram,

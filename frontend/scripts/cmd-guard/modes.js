@@ -42,7 +42,7 @@ function runPreinstall() {
   try {
     // Read the package being installed via cwd (yarn runs preinstall from the package root), NOT __dirname: cmd-guard.js may be a symlink (mono/mobile -> expo), and __dirname would resolve to the expo source and validate the wrong package.json.
     pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8"));
-  } catch (e) {
+  } catch (_e) {
     process.exit(0);
   }
 
