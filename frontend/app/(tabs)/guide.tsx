@@ -49,6 +49,7 @@ import { consumeGuideJump } from "@/src/core/guideSearchJump";
 import { fonts, radius, spacing, tvColors } from "@/src/theme";
 import { nowNext } from "@/src/utils/time";
 import { requestNativeFocus, requestNativeFocusWithRetry } from "@/src/utils/tvFocus";
+import { focusGuidePreviewSurface, focusGuideSurface } from "@/src/utils/tvGuideFocusLock";
 import { setGuideNavigationActive } from "@/src/utils/tvRemote";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 import { MODAL_FOCUS_RETRY_DELAYS_MS } from "@/src/core/guideRegressionPolicy";
@@ -132,7 +133,6 @@ export default function PurpleGuideScreen() {
   const [pinPromptGroup, setPinPromptGroup] = useState<string | null>(null);
   const [pinDigits, setPinDigits] = useState("");
   const [pinError, setPinError] = useState(false);
-  const metadataTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewRecoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const groupChangedAt = useRef(0);
@@ -148,7 +148,7 @@ export default function PurpleGuideScreen() {
   const [previewEpoch, setPreviewEpoch] = useState(0);
   const reminderKeys = useMemo(() => new Set(reminders.map((item) => item.key)), [reminders]);
   // Freeze grid reminder badges while the program sheet is open so Cancel/Remind
-  // doesn't rebuild the FlashList under the modal (Fire TV crash / hitch source).
+  // doesn't rebuild the FlashList under the modal.
   const [gridReminderKeys, setGridReminderKeys] = useState(reminderKeys);
   useEffect(() => {
     if (activeProgram) {
@@ -181,19 +181,18 @@ export default function PurpleGuideScreen() {
     return () => animation.stop();
   }, [drawerOpen, groupSlideX, headerTitleProgress]);
 
-  // After the drawer closes on Guide, restore the last grid cell — content autoFocus
-  // is intentionally skipped on /guide, so without this Left→drawer→close loses focus.
+  // After the drawer closes on Guide, restore the last real guide cell. If that
+  // exact recycled native node is stale, use the registered guide surface entry
+  // instead of preferring row 0 and unexpectedly jumping to the first channel.
   const drawerWasOpenForFocusRef = useRef(drawerOpen);
-  const [gridReclaimToken, setGridReclaimToken] = useState(0);
   useEffect(() => {
     const wasOpen = drawerWasOpenForFocusRef.current;
     drawerWasOpenForFocusRef.current = drawerOpen;
     if (!wasOpen || drawerOpen || activeProgram) return;
-    // Reclaim immediately; the closed rail is decorative and cannot win focus.
-    const cancel = requestNativeFocusWithRetry(lastGuideFocusNodeRef.current, [0, 40, 120, 280, 480, 720]);
+    const cancel = requestNativeFocusWithRetry(lastGuideFocusNodeRef.current, [0, 40, 120, 280, 480]);
     const fallback = setTimeout(() => {
-      setGridReclaimToken((value) => value + 1);
-    }, 500);
+      focusGuideSurface();
+    }, 420);
     return () => {
       cancel?.();
       clearTimeout(fallback);
@@ -255,7 +254,6 @@ export default function PurpleGuideScreen() {
 
   useEffect(
     () => () => {
-      if (metadataTimer.current) clearTimeout(metadataTimer.current);
       if (previewTimer.current) clearTimeout(previewTimer.current);
       if (previewRecoverTimer.current) clearTimeout(previewRecoverTimer.current);
       setViewportGuideChannelIds(null);
@@ -397,15 +395,15 @@ export default function PurpleGuideScreen() {
     }
   }, [previewChannel?.id, previewStatus]);
 
-  // delayed: longest settle; surf: off while surfing + longer arm on weak sticks; on: normal.
+  // Decoder preview stays deliberately delayed during held navigation. Guide
+  // metadata does not: title/description must track the actual focused row now.
   const previewDelay =
     safePreviewMode === "delayed" || safePreviewMode === "surf"
       ? powerTuning.previewArmDelayedMs
       : powerTuning.previewArmOnMs;
-  /** Extra arm after rapid surf settles — weak Fire sticks need decoder breathing room. */
   const surfSettleExtraMs =
     safePreviewMode === "surf"
-      ? powerTuning.surfSettleExtraMs + 150
+      ? powerTuning.surfSettleExtraMs + 100
       : powerTuning.surfSettleExtraMs;
 
   const schedulePreview = useCallback((requestedId: string, delay: number, hasUrl: boolean) => {
@@ -424,20 +422,18 @@ export default function PurpleGuideScreen() {
   }, [safePreviewMode]);
 
   const detailsRailWidth = useMemo(() => {
-    // The former rail used a 0.78 / 1.9 flex relationship, clamped to 228–340.
-    // Recreate that effective width, then reduce it by exactly 30% so the
-    // reclaimed space always goes to the guide on both 720p and 1080p TVs.
-    const available = Math.max(480, screenWidth - 196);
-    const former = Math.min(340, Math.max(228, available * (0.78 / (1.9 + 0.78))));
-    return Math.round(Math.min(238, Math.max(160, former * 0.7)));
+    // Fixed left details panel sized for readable descriptions/actions on modern
+    // Android TV hardware. The guide owns all remaining width to the right.
+    return Math.round(Math.min(360, Math.max(260, screenWidth * 0.24)));
   }, [screenWidth]);
 
   const onFocusChannel = useCallback(
     (channel: Channel) => {
-      if (metadataTimer.current) clearTimeout(metadataTimer.current);
       if (previewTimer.current) clearTimeout(previewTimer.current);
       const requestedId = channel.id;
       guideSessionChannelId = requestedId;
+      setFocusedId((previous) => (previous === requestedId ? previous : requestedId));
+
       const nowTs = Date.now();
       const rapid = nowTs - lastFocusAtRef.current < 240;
       lastFocusAtRef.current = nowTs;
@@ -446,21 +442,16 @@ export default function PurpleGuideScreen() {
         markGuideSurfing(powerTuning.rapidSurfHoldMs);
       }
 
-      // While the user is holding/repeating directions: zero rail/preview work.
-      // "surf" mode (and delayed/on) soft-clear preview while surfing — never share decoder with fullscreen path.
       if (nowTs < rapidSurfUntilRef.current || rapid) {
-        // Soft surf: drop live preview so decoder/GPU do not fight FlashList focus.
+        // Keep decoder/GPU work out of the repeated-focus path. Only the last
+        // focused channel after the hold settles is allowed to tune preview.
         setPreviewId(null);
         if (logosOffWhileSurfing) setSurfLogosSuppressed(true);
-        metadataTimer.current = setTimeout(() => {
-          if (Date.now() < rapidSurfUntilRef.current) return;
-          setFocusedId(requestedId);
-          schedulePreview(
-            requestedId,
-            previewDelay + surfSettleExtraMs,
-            !!channel.url,
-          );
-        }, Math.max(750, powerTuning.rapidSurfHoldMs + 50));
+        schedulePreview(
+          requestedId,
+          Math.max(powerTuning.rapidSurfHoldMs + 80, previewDelay + surfSettleExtraMs),
+          !!channel.url,
+        );
         return;
       }
 
@@ -468,11 +459,7 @@ export default function PurpleGuideScreen() {
       const delay = recentlyChangedGroup
         ? Math.max(previewDelay + surfSettleExtraMs, powerTuning.previewArmDelayedMs)
         : previewDelay;
-
-      metadataTimer.current = setTimeout(() => {
-        setFocusedId((prev) => (prev === requestedId ? prev : requestedId));
-        schedulePreview(requestedId, delay, !!channel.url);
-      }, powerTuning.focusMetadataMs);
+      schedulePreview(requestedId, delay, !!channel.url);
     },
     [logosOffWhileSurfing, powerTuning, previewDelay, schedulePreview, surfSettleExtraMs],
   );
@@ -480,8 +467,7 @@ export default function PurpleGuideScreen() {
   const play = useCallback(
     (channel: Channel) => {
       void Haptics.selectionAsync().catch(() => undefined);
-      // Drop guide preview before fullscreen allocates a decoder (avoids dual VLC on Fire TV).
-      if (metadataTimer.current) clearTimeout(metadataTimer.current);
+      // Drop guide preview before fullscreen allocates a decoder.
       if (previewTimer.current) clearTimeout(previewTimer.current);
       setPreviewId(null);
       addRecent(channel);
@@ -492,7 +478,6 @@ export default function PurpleGuideScreen() {
 
   const applyGroup = useCallback((next: string) => {
     void Haptics.selectionAsync().catch(() => undefined);
-    if (metadataTimer.current) clearTimeout(metadataTimer.current);
     if (previewTimer.current) clearTimeout(previewTimer.current);
     groupChangedAt.current = Date.now();
     guideSessionGroup = next;
@@ -552,7 +537,7 @@ export default function PurpleGuideScreen() {
   );
 
   const onFocusedGuideRow = useCallback((_index: number) => {
-    // Intentionally no-op for trapFocus toggling — flipping traps mid-surf freezes Fire TV focus.
+    // Intentionally no-op for trapFocus toggling — flipping traps mid-surf freezes TV focus.
   }, []);
 
   const onGuideUpBoundary = useCallback(() => {
@@ -561,22 +546,13 @@ export default function PurpleGuideScreen() {
   }, [group]);
 
   const onGuideLeftBoundary = useCallback(() => {
-    if (!drawerOpen) focusPurpleIconRail("menu");
+    // The preview/details/actions panel is now the Guide's left neighbor. Only
+    // fall back to the shell rail if the panel has not mounted yet.
+    if (!focusGuidePreviewSurface() && !drawerOpen) focusPurpleIconRail("menu");
   }, [drawerOpen]);
-
-  const jumpToNow = useCallback(() => {
-    void Haptics.selectionAsync().catch(() => undefined);
-    setNow(new Date().toISOString());
-    setResetToken((value) => value + 1);
-    setGridReclaimToken((value) => value + 1);
-    requestAnimationFrame(() => {
-      requestNativeFocusWithRetry(lastGuideFocusNodeRef.current, [0, 40, 120, 280]);
-    });
-  }, []);
 
   const resetGuide = useCallback(() => {
     void Haptics.selectionAsync().catch(() => undefined);
-    if (metadataTimer.current) clearTimeout(metadataTimer.current);
     if (previewTimer.current) clearTimeout(previewTimer.current);
     groupChangedAt.current = Date.now();
     guideSessionGroup = "All";
@@ -588,40 +564,6 @@ export default function PurpleGuideScreen() {
     setResetToken((value) => value + 1);
     void hardRefresh();
   }, [hardRefresh]);
-
-  const contextActions = useMemo(
-    () => [
-      {
-        label: "Jump to Now",
-        icon: "locate-outline" as const,
-        onPress: jumpToNow,
-        testID: "purple-guide-jump-now",
-      },
-      {
-        label: "Favorites",
-        icon: "heart-outline" as const,
-        onPress: () => chooseGroup("Favorites"),
-        testID: "purple-guide-ctx-favorites",
-      },
-      {
-        label: "All Channels",
-        icon: "list-outline" as const,
-        onPress: () => chooseGroup("All"),
-        testID: "purple-guide-ctx-all",
-      },
-    ],
-    [chooseGroup, jumpToNow],
-  );
-
-  const recentChannels = useMemo(
-    () =>
-      recent.slice(0, 5).map((channel) => ({
-        id: channel.id,
-        name: channel.name,
-        logo: channel.logo,
-      })),
-    [recent],
-  );
 
   // One-shot Search/Health jump — apply on focus/mount only.
   useFocusEffect(
@@ -706,13 +648,7 @@ export default function PurpleGuideScreen() {
         disabled: refreshing,
         testID: "purple-guide-reset",
       }}
-      contextActions={contextActions}
       watchingChannelId={lastChannelId}
-      recentChannels={recentChannels}
-      onRecentPress={(id) => {
-        const ch = channelById(id);
-        if (ch) play(ch);
-      }}
     >
       <View style={styles.page}>
         <View style={styles.header}>
@@ -858,8 +794,34 @@ export default function PurpleGuideScreen() {
               </ScrollView>
             ) : null}
 
-            {/* No autoFocus / trapFocusUp — preferred focus is mount-once on row 0, and Up-escape
-                is gated inside the grid. Flipping traps mid-surf freezes Fire TV focus. */}
+            <GuidePreviewRail
+              width={detailsRailWidth}
+              channel={previewChannel}
+              current={current}
+              next={nextProgram}
+              now={now}
+              channelNumber={previewChannel ? channelNumberById[previewChannel.id] : undefined}
+              showChannelNumbers={channelNumbers}
+              showLogos={channelLogos && !surfLogosSuppressed}
+              isFavorite={!!previewChannel && favoriteSet.has(previewChannel.id)}
+              hidePreview={hidePreview}
+              muted={mutePreview}
+              onToggleMute={() => setMutePreview(!mutePreview)}
+              previewVisible={previewVisible}
+              previewEpoch={previewEpoch}
+              onPreviewStatus={onPreviewStatus}
+              onPreviewErrorRemount={onPreviewErrorRemount}
+              onPlay={() => previewChannel && play(previewChannel)}
+              onFavorite={() => previewChannel && toggleFavorite(previewChannel.id)}
+              onRemind={() => {
+                if (current && previewChannel) void addReminder(current, previewChannel);
+              }}
+              onHideToggle={() => setHidePreview(!hidePreview)}
+              clock24h={clock24h}
+            />
+
+            {/* The preview/details/actions rail is a fixed left sibling. The Guide
+                owns the remaining width on the right; neither panel overlaps the other. */}
             <FocusGuide
               style={styles.gridPanel}
               trapFocusDown
@@ -916,39 +878,9 @@ export default function PurpleGuideScreen() {
                   onGuideFocusNode={onGuideFocusNode}
                   onViewportChannelIds={onViewportChannelIds}
                   onBackTargetChange={onGuideBackTarget}
-                  reclaimToken={gridReclaimToken}
                 />
               )}
             </FocusGuide>
-
-            <GuidePreviewRail
-              width={detailsRailWidth}
-              channel={previewChannel}
-              current={current}
-              next={nextProgram}
-              now={now}
-              channelNumber={previewChannel ? channelNumberById[previewChannel.id] : undefined}
-              showChannelNumbers={channelNumbers}
-              showLogos={channelLogos && !surfLogosSuppressed}
-              isFavorite={!!previewChannel && favoriteSet.has(previewChannel.id)}
-              hidePreview={hidePreview}
-              muted={mutePreview}
-              onToggleMute={() => setMutePreview(!mutePreview)}
-              previewVisible={previewVisible}
-              previewEpoch={previewEpoch}
-              onPreviewStatus={onPreviewStatus}
-              onPreviewErrorRemount={onPreviewErrorRemount}
-              onPlay={() => previewChannel && play(previewChannel)}
-              onFavorite={() => previewChannel && toggleFavorite(previewChannel.id)}
-              onRemind={() => {
-                if (current && previewChannel) void addReminder(current, previewChannel);
-              }}
-              onInfo={() => {
-                if (current && previewChannel) openProgram(current, previewChannel);
-              }}
-              onHideToggle={() => setHidePreview(!hidePreview)}
-              clock24h={clock24h}
-            />
           </View>
         )}
 
