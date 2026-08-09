@@ -7,6 +7,7 @@ import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { StreamPlayer, type StreamStatus } from "@/src/components/StreamPlayer";
 import { getLastAudioDiagnostics } from "@/src/core/audioDiagnostics";
+import { focusGuideSurface } from "@/src/utils/tvGuideFocusLock";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { fmtTime, progressPct } from "@/src/utils/time";
 
@@ -59,7 +60,8 @@ export function GuidePreviewRail({
   onHideToggle,
   clock24h,
 }: Props) {
-  // fmtTime reads the global 24h preference; clock24h stays for callers/API symmetry.
+  // Kept for API compatibility; Info is intentionally removed from the action row.
+  void onInfo;
   void clock24h;
   const nowDate = useMemo(() => new Date(now), [now]);
   const progress = current ? progressPct(current, nowDate) : 0;
@@ -186,13 +188,12 @@ export function GuidePreviewRail({
             <Text style={styles.secondaryText}>Remind</Text>
           </Pressable>
           <Pressable
-            disabled={!channel || !current}
-            onPress={onInfo}
+            onPress={() => focusGuideSurface()}
             style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
-            testID="guide-preview-info"
+            testID="guide-preview-guide"
           >
-            <Ionicons name="information-circle-outline" size={12} color={tvColors.purpleSoft} />
-            <Text style={styles.secondaryText}>Info</Text>
+            <Ionicons name="grid-outline" size={12} color={tvColors.purpleSoft} />
+            <Text style={styles.secondaryText}>Guide</Text>
           </Pressable>
         </View>
         <View style={styles.actions}>
