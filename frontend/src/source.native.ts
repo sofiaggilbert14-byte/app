@@ -578,7 +578,7 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
       if (!nativeEpgAvailable) throw new Error("Native EPG engine is unavailable in this Android build");
       if (!SOURCE_EPG) throw new Error("EPG is not configured for this build (missing EXPO_PUBLIC_EPG_URL).");
       setProgress({ phase: "downloading", ratio: 0.2, etaSeconds: null, message: null }, true);
-      const epg = await refreshNativeEpg(https(SOURCE_EPG));
+      const epg = await refreshNativeEpg(https(SOURCE_EPG), false);
       setProgress({ phase: "indexing", ratio: 0.91, etaSeconds: null }, true);
 
       const epgLogos = epg.channelLogos || {};
@@ -857,7 +857,26 @@ export async function refreshEpgOnly(): Promise<SourceStatus> {
       if (!nativeEpgAvailable) throw new Error("Native EPG engine is unavailable in this Android build");
       if (!SOURCE_EPG) throw new Error("EPG is not configured for this build (missing EXPO_PUBLIC_EPG_URL).");
       setProgress({ phase: "downloading", ratio: 0.2, etaSeconds: null, message: null }, true);
-      const epg = await refreshNativeEpg(https(SOURCE_EPG));
+      const epg = await refreshNativeEpg(https(SOURCE_EPG), true);
+      if (epg.notModified) {
+        const checkedAt = Date.now();
+        MEM = {
+          ...cached,
+          ...MEM,
+          ts: checkedAt,
+          epgProgramCount: Math.max(0, Math.round(epg.count || cached.epgProgramCount || 0)),
+          epgError: undefined,
+          guideEpoch:
+            typeof epg.guideEpoch === "number" && Number.isFinite(epg.guideEpoch)
+              ? Math.round(epg.guideEpoch)
+              : cached.guideEpoch,
+        };
+        setProgress({ phase: "finalizing", ratio: 0.99, etaSeconds: null }, true);
+        await persistMeta(MEM);
+        emit();
+        setProgress({ phase: "ready", ratio: 1, etaSeconds: 0, message: null }, true);
+        return MEM;
+      }
       setProgress({ phase: "indexing", ratio: 0.91, etaSeconds: null }, true);
       const epgLogos = epg.channelLogos || {};
       const epgNames = epg.channelNames || {};

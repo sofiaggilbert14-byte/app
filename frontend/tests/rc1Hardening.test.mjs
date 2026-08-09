@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -8,6 +8,29 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const repo = join(root, "..");
 const source = (path) => readFile(join(root, path), "utf8");
 const repoSource = (path) => readFile(join(repo, path), "utf8");
+
+test("CI pins third-party actions and separates native compile from APK packaging", async () => {
+  const workflowDir = join(repo, ".github", "workflows");
+  const workflowFiles = (await readdir(workflowDir)).filter((name) => name.endsWith(".yml"));
+  const workflows = await Promise.all(
+    workflowFiles.map(async (name) => [name, await readFile(join(workflowDir, name), "utf8")]),
+  );
+  for (const [name, workflow] of workflows) {
+    assert.doesNotMatch(workflow, /uses:\s+[^\s#]+@v\d+/i, `${name} contains a floating action tag`);
+  }
+
+  const nativeCompile = await repoSource(".github/workflows/android-native-ci.yml");
+  assert.match(nativeCompile, /java-version: "17"/);
+  assert.match(nativeCompile, /platforms;android-36/);
+  assert.match(nativeCompile, /:app:compileDebugKotlin/);
+  assert.match(nativeCompile, /:app:compileDebugJavaWithJavac/);
+  assert.doesNotMatch(nativeCompile, /assemble|upload-artifact/i);
+
+  const testerBuild = await repoSource(".github/workflows/purple-tv-ui.yml");
+  assert.match(testerBuild, /assembleSideload/);
+  assert.match(testerBuild, /TESTER_RELEASE_NOTES/);
+  assert.match(testerBuild, /SHA256SUMS/);
+});
 
 test("source modules never hardcode provider playlist/EPG URLs", async () => {
   const [native, web] = await Promise.all([
@@ -96,20 +119,27 @@ test("Cloudflare worker does not default CORS to wildcard", async () => {
   assert.match(worker, /function corsHeaders/);
 });
 
-test("release packaging bumps versionCode and supports upload keystore", async () => {
+test("release packaging requires upload signing and keeps tester sideload separate", async () => {
   const [appJson, gradle, manifest] = await Promise.all([
     source("app.json"),
     source("android/app/build.gradle"),
     source("android/app/src/main/AndroidManifest.xml"),
   ]);
-  assert.match(appJson, /"versionCode": 4/);
-  assert.match(appJson, /2\.1\.0-rc\.1/);
-  assert.match(gradle, /versionCode 4/);
+  assert.match(appJson, /"versionCode": 5/);
+  assert.match(appJson, /2\.1\.0-rc\.2/);
+  assert.match(gradle, /versionCode 5/);
   assert.match(gradle, /CHARM_UPLOAD_STORE_FILE/);
   assert.match(gradle, /signingConfigs\.release/);
+  assert.match(gradle, /releaseTaskRequested && !releaseSigningConfigured/);
+  assert.match(gradle, /assembleSideload/);
+  assert.match(gradle, /applicationIdSuffix '\.sideload'/);
+  assert.match(gradle, /manifestPlaceholders\.allowCleartextStreams = "true"/);
+  assert.doesNotMatch(gradle, /Falls back to the debug keystore/);
   assert.match(appJson, /"allowBackup": false/);
   assert.match(appJson, /"blockedPermissions"/);
+  assert.match(appJson, /"usesCleartextTraffic": false/);
   assert.match(manifest, /android:allowBackup="false"/);
+  assert.match(manifest, /android:usesCleartextTraffic="\$\{allowCleartextStreams\}"/);
   assert.match(manifest, /android:scheme="charmiptv-purple"/);
   for (const permission of ["READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE", "SYSTEM_ALERT_WINDOW"]) {
     assert.match(manifest, new RegExp(`${permission}\\" tools:node=\\"remove`));
@@ -121,7 +151,7 @@ test("legacy backend proxy blocks private destinations", async () => {
   assert.match(server, /_assert_safe_proxy_url/);
   assert.match(server, /is_private/);
   assert.match(server, /allow_redirects=False/);
-  assert.match(server, /try:\n\s+epg_text = _fetch\(epg_url\)/);
+  assert.match(server, /try:\r?\n\s+epg_text = _fetch\(epg_url\)/);
 });
 
 test("playlist ingest keeps last-good and enforces protocol/size guards", async () => {

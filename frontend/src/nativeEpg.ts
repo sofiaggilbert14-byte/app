@@ -19,6 +19,7 @@ type NativeRefreshResult = {
   windowStartMs: number;
   windowEndMs: number;
   guideEpoch?: number;
+  notModified?: boolean;
   channelLogos?: Record<string, string>;
   channelNames?: Record<string, string>;
   channelIdsWithPrograms?: string[];
@@ -42,7 +43,7 @@ export type NativePlaylistEpgMatchRow = {
 };
 
 type CharmEpgModule = {
-  refresh(url: string): Promise<NativeRefreshResult>;
+  refresh(url: string, allowNotModified: boolean): Promise<NativeRefreshResult>;
   getWindow(startMs: number, endMs: number, channelIds: string[]): Promise<NativeWindow>;
   queryGuideWindow?(startMs: number, endMs: number, playlistChannelIds: string[]): Promise<NativeWindow>;
   upsertPlaylistChannels?(channels: NativePlaylistChannelRow[], playlistEpoch: number): Promise<boolean>;
@@ -77,9 +78,9 @@ function windowToPrograms(window: NativeWindow, channelIds: string[]): Record<st
   return result;
 }
 
-export async function refreshNativeEpg(url: string): Promise<NativeRefreshResult> {
+export async function refreshNativeEpg(url: string, allowNotModified: boolean): Promise<NativeRefreshResult> {
   if (!nativeModule) throw new Error("Native EPG engine is unavailable");
-  return nativeModule.refresh(url);
+  return nativeModule.refresh(url, allowNotModified);
 }
 
 export async function loadNativeEpgWindow(

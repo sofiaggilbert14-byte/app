@@ -16,6 +16,7 @@ import java.io.FilterInputStream
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 import java.util.concurrent.Executors
 import java.util.zip.GZIPInputStream
 
@@ -37,7 +38,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   override fun getName(): String = "CharmEpg"
 
   @ReactMethod
-  fun refresh(url: String, promise: Promise) {
+  fun refresh(url: String, allowNotModified: Boolean, promise: Promise) {
     refreshExecutor.execute {
       try {
         database.ensureHealthy()
@@ -47,15 +48,31 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         val channelLogos = LinkedHashMap<String, String>()
         val channelNames = LinkedHashMap<String, String>()
         val channelIdsWithPrograms = LinkedHashSet<String>()
-        val batches = streamProgramBatches(
-          url,
-          minStop,
-          maxStart,
-          channelLogos,
-          channelNames,
-          channelIdsWithPrograms,
-        )
-        database.replaceBatches(batches)
+        val httpValidators = EpgHttpValidators()
+        try {
+          val batches = streamProgramBatches(
+            url,
+            minStop,
+            maxStart,
+            channelLogos,
+            channelNames,
+            channelIdsWithPrograms,
+            httpValidators,
+            allowNotModified,
+          )
+          database.replaceBatches(batches)
+        } catch (_: EpgNotModifiedException) {
+          val guideEpoch = database.getMeta("guide_epoch")?.toLongOrNull() ?: 0L
+          val result = Arguments.createMap().apply {
+            putDouble("count", database.count().toDouble())
+            putDouble("windowStartMs", (now - GUIDE_HISTORY_MS).toDouble())
+            putDouble("windowEndMs", maxStart.toDouble())
+            putDouble("guideEpoch", guideEpoch.toDouble())
+            putBoolean("notModified", true)
+          }
+          promise.resolve(result)
+          return@execute
+        }
 
         // Soft guide epoch — independent of playlist last-good (no joint snapshot).
         // Persist aliases for SQL joins / future native rematch; JS still owns match policy.
@@ -75,6 +92,9 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         val guideEpoch = (database.getMeta("guide_epoch")?.toLongOrNull() ?: 0L) + 1L
         database.setMeta("guide_epoch", guideEpoch.toString())
         database.setMeta("guide_refreshed_at", now.toString())
+        database.setMeta(HTTP_SOURCE_HASH_KEY, httpValidators.sourceHash)
+        database.setMeta(HTTP_ETAG_KEY, httpValidators.etag)
+        database.setMeta(HTTP_LAST_MODIFIED_KEY, httpValidators.lastModified)
 
         val deleted = database.deleteExpired(now - GUIDE_HISTORY_MS)
         // Rare idle reclaim only after a large expiry — never every refresh.
@@ -298,8 +318,10 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     channelLogos: MutableMap<String, String>,
     channelNames: MutableMap<String, String>,
     channelIdsWithPrograms: MutableSet<String>,
+    httpValidators: EpgHttpValidators,
+    allowNotModified: Boolean,
   ): Sequence<List<NativeEpgProgram>> = sequence {
-    openPossiblyGzipped(url).use { input ->
+    openPossiblyGzipped(url, httpValidators, allowNotModified).use { input ->
       val parser = Xml.newPullParser()
       parser.setInput(input, "UTF-8")
 
@@ -389,19 +411,41 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     }
   }
 
-  private fun openPossiblyGzipped(urlString: String): InputStream {
+  private fun openPossiblyGzipped(
+    urlString: String,
+    validators: EpgHttpValidators,
+    allowNotModified: Boolean,
+  ): InputStream {
+    val sourceHash = sha256(urlString)
+    validators.sourceHash = sourceHash
     val connection = URL(urlString).openConnection() as HttpURLConnection
     connection.connectTimeout = 15_000
     connection.readTimeout = 45_000
     connection.instanceFollowRedirects = true
     connection.setRequestProperty("User-Agent", "CharmIPTV/Experimental-v3")
     connection.setRequestProperty("Accept-Encoding", "gzip")
+    val canUseValidators =
+      allowNotModified && database.count() > 0L && database.getMeta(HTTP_SOURCE_HASH_KEY) == sourceHash
+    if (canUseValidators) {
+      database.getMeta(HTTP_ETAG_KEY)?.takeIf { it.isNotBlank() }?.let {
+        connection.setRequestProperty("If-None-Match", it)
+      }
+      database.getMeta(HTTP_LAST_MODIFIED_KEY)?.takeIf { it.isNotBlank() }?.let {
+        connection.setRequestProperty("If-Modified-Since", it)
+      }
+    }
     connection.connect()
-    if (connection.responseCode !in 200..299) {
-      val status = connection.responseCode
+    val status = connection.responseCode
+    if (status == HttpURLConnection.HTTP_NOT_MODIFIED && canUseValidators) {
+      connection.disconnect()
+      throw EpgNotModifiedException()
+    }
+    if (status !in 200..299) {
       connection.disconnect()
       throw IllegalStateException("EPG HTTP $status")
     }
+    validators.etag = connection.getHeaderField("ETag")?.trim().orEmpty()
+    validators.lastModified = connection.getHeaderField("Last-Modified")?.trim().orEmpty()
 
     try {
       val networkStream = object : FilterInputStream(connection.inputStream) {
@@ -428,6 +472,12 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
       connection.disconnect()
       throw t
     }
+  }
+
+  private fun sha256(value: String): String {
+    return MessageDigest.getInstance("SHA-256")
+      .digest(value.toByteArray(Charsets.UTF_8))
+      .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
   }
 
   private fun resolveProgrammeStop(startMs: Long, parsedStopMs: Long): Long {
@@ -510,6 +560,16 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   }
 
   companion object {
+    private class EpgNotModifiedException : Exception()
+    private data class EpgHttpValidators(
+      var sourceHash: String = "",
+      var etag: String = "",
+      var lastModified: String = "",
+    )
+
+    private const val HTTP_SOURCE_HASH_KEY = "epg_http_source_hash"
+    private const val HTTP_ETAG_KEY = "epg_http_etag"
+    private const val HTTP_LAST_MODIFIED_KEY = "epg_http_last_modified"
     private const val BATCH_SIZE = 1000
     private const val NETWORK_BUFFER_SIZE = 64 * 1024
     private const val GUIDE_HISTORY_MS = 6L * 60L * 60L * 1000L

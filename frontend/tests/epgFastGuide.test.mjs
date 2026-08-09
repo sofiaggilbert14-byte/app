@@ -93,6 +93,23 @@ test("programme window deltas include explicit empty rows and wide native warm r
   assert.match(box, /drawDistance=\{2400\}/);
 });
 
+test("native EPG uses HTTP validators and skips all rematch work on 304", async () => {
+  const [mod, bridge, native] = await Promise.all([
+    source("android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt"),
+    source("src/nativeEpg.ts"),
+    source("src/source.native.ts"),
+  ]);
+  assert.match(mod, /If-None-Match/);
+  assert.match(mod, /If-Modified-Since/);
+  assert.match(mod, /HTTP_NOT_MODIFIED/);
+  assert.match(mod, /putBoolean\("notModified", true\)/);
+  assert.match(bridge, /notModified\?: boolean/);
+  assert.match(native, /refreshNativeEpg\(https\(SOURCE_EPG\), false\)/);
+  assert.match(native, /refreshNativeEpg\(https\(SOURCE_EPG\), true\)/);
+  assert.match(native, /if \(epg\.notModified\)/);
+  assert.match(native, /return MEM;/);
+});
+
 test("Media3 silent audio soft-fails into VLC engine swap", async () => {
   const [player, session, ui] = await Promise.all([
     source("src/components/StreamPlayer.tsx"),
