@@ -83,6 +83,8 @@ let manualEpgRemaps: EpgManualRemap = {};
 let viewportGuideChannelIds: string[] | null = null;
 /** Merged programme window — viewport fetches must not wipe off-screen rows. */
 let programmeWindowCache: Record<string, Program[]> = {};
+/** Negative cache avoids re-querying unmatched/no-data rows on every D-pad move. */
+let programmeWindowEmptyKeys = new Set<string>();
 let programmeWindowCacheKey = "";
 
 export function setPreferTvgIdOnlyMatching(value: boolean): void {
@@ -150,7 +152,11 @@ function resolveGuideWindowBounds(startISO?: string, hours = 8): {
   now: dayjs.Dayjs;
 } {
   const now = dayjs();
-  const winStart = startISO ? dayjs(startISO) : now.subtract(1, "hour");
+  // A live guide must keep one stable time window while focus moves. Including
+  // the current millisecond in the cache key cleared every programme row on
+  // every D-pad patch. Minute alignment is only a cold-start fallback; Store
+  // subsequently passes the exact rendered window start back to us.
+  const winStart = startISO ? dayjs(startISO) : now.startOf("minute").subtract(1, "hour");
   const winEnd = winStart.add(hours, "hour");
   return {
     winStart,
@@ -191,6 +197,7 @@ function buildFocusRing(allPlaylistIds: string[], have: Set<string>, focusIds: s
 
 function clearProgrammeWindowCache(): void {
   programmeWindowCache = {};
+  programmeWindowEmptyKeys.clear();
   programmeWindowCacheKey = "";
 }
 
@@ -198,20 +205,63 @@ function clearProgrammeWindowCache(): void {
 function trimProgrammeWindowCache(keepKeys: Iterable<string>): void {
   const keep = new Set(keepKeys);
   let keys = Object.keys(programmeWindowCache);
-  if (keys.length <= MAX_PROGRAMME_WINDOW_KEYS) return;
-  for (const key of keys) {
-    if (keep.has(key)) continue;
-    delete programmeWindowCache[key];
+  if (keys.length > MAX_PROGRAMME_WINDOW_KEYS) {
+    for (const key of keys) {
+      if (keep.has(key)) continue;
+      delete programmeWindowCache[key];
+    }
+    keys = Object.keys(programmeWindowCache);
+    if (keys.length > MAX_PROGRAMME_WINDOW_KEYS) {
+      const overflow = keys.length - MAX_PROGRAMME_WINDOW_KEYS;
+      let dropped = 0;
+      for (const key of keys) {
+        if (keep.has(key)) continue;
+        delete programmeWindowCache[key];
+        dropped += 1;
+        if (dropped >= overflow) break;
+      }
+    }
   }
-  keys = Object.keys(programmeWindowCache);
-  if (keys.length <= MAX_PROGRAMME_WINDOW_KEYS) return;
-  const overflow = keys.length - MAX_PROGRAMME_WINDOW_KEYS;
-  let dropped = 0;
-  for (const key of keys) {
-    if (keep.has(key)) continue;
-    delete programmeWindowCache[key];
-    dropped += 1;
-    if (dropped >= overflow) break;
+  // Negative rows are cheap but can also grow without bound on unmatched feeds.
+  let protectedPasses = programmeWindowEmptyKeys.size;
+  while (programmeWindowEmptyKeys.size > MAX_PROGRAMME_WINDOW_KEYS && protectedPasses > 0) {
+    const oldest = programmeWindowEmptyKeys.values().next().value as string | undefined;
+    if (!oldest) break;
+    if (keep.has(oldest)) {
+      // Refresh recency for protected rows and continue looking for an evictable key.
+      programmeWindowEmptyKeys.delete(oldest);
+      programmeWindowEmptyKeys.add(oldest);
+      protectedPasses -= 1;
+      continue;
+    }
+    programmeWindowEmptyKeys.delete(oldest);
+  }
+  // A very large active viewport should still remain bounded.
+  while (programmeWindowEmptyKeys.size > MAX_PROGRAMME_WINDOW_KEYS) {
+    const oldest = programmeWindowEmptyKeys.values().next().value as string | undefined;
+    if (!oldest) break;
+    programmeWindowEmptyKeys.delete(oldest);
+  }
+}
+
+function hasCachedProgrammeResult(channelId: string): boolean {
+  return !!programmeWindowCache[channelId] || programmeWindowEmptyKeys.has(channelId);
+}
+
+function mergeProgrammeQueryResult(
+  requestedIds: Iterable<string>,
+  programmes: Record<string, Program[]>,
+): void {
+  for (const channelId of requestedIds) {
+    if (!channelId) continue;
+    const list = programmes[channelId];
+    if (list?.length) {
+      programmeWindowEmptyKeys.delete(channelId);
+      programmeWindowCache[channelId] = list;
+    } else {
+      delete programmeWindowCache[channelId];
+      programmeWindowEmptyKeys.add(channelId);
+    }
   }
 }
 
@@ -628,6 +678,45 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
   }
 }
 
+/**
+ * Read only cache misses, then use a per-channel XMLTV fallback for cold-start
+ * SQL-match holes. This is intentionally a small, serializable viewport query:
+ * D-pad focus must never flood the bridge with the entire guide window.
+ */
+async function loadProgrammeCacheMisses(
+  channels: Channel[],
+  playlistIds: string[],
+  startMs: number,
+  endMs: number,
+): Promise<Record<string, Program[]>> {
+  const missing = Array.from(new Set(playlistIds.filter((id) => id && !hasCachedProgrammeResult(id))));
+  if (!missing.length || !nativeEpgAvailable) return {};
+
+  const joined = await queryNativeGuideWindow(missing, startMs, endMs);
+  const merged: Record<string, Program[]> = { ...joined };
+  const missingAfterJoin = missing.filter((id) => !merged[id]?.length);
+
+  // A native match-table write can race a cold app launch. Fall back per channel
+  // rather than only when the entire viewport is empty.
+  if (missingAfterJoin.length) {
+    const byId = new Map(channels.map((channel) => [channel.id, channel]));
+    const xmltvIds = missingAfterJoin
+      .map((id) => (byId.get(id)?.tvg_id || id).trim())
+      .filter(Boolean);
+    if (xmltvIds.length) {
+      const byXmltv = await loadNativeEpgWindow(xmltvIds, startMs, endMs);
+      for (const playlistId of missingAfterJoin) {
+        const xmltvId = (byId.get(playlistId)?.tvg_id || playlistId).trim();
+        const list = byXmltv[xmltvId];
+        if (list?.length) merged[playlistId] = list;
+      }
+    }
+  }
+
+  mergeProgrammeQueryResult(missing, merged);
+  return merged;
+}
+
 export async function loadGuide(startISO?: string, hours = 8, force = false): Promise<GuideResponse> {
   const parsed = force ? await refreshInternal(true) : await ensureLoaded();
   const { winStart, winEnd, startMs, endMs, now } = resolveGuideWindowBounds(startISO, hours);
@@ -642,63 +731,37 @@ export async function loadGuide(startISO?: string, hours = 8, force = false): Pr
 
   const allPlaylistIds = remapped.map((channel) => channel.id).filter(Boolean);
   let playlistIds = allPlaylistIds;
-
-  // Scope to viewport (+ priority) so the first paint stays light; cache keeps off-screen rows.
   const huge = remapped.length >= HUGE_PLAYLIST_MATCH_THRESHOLD;
   if ((huge || viewportGuideChannelIds?.length) && viewportGuideChannelIds?.length) {
     const want = new Set<string>([
       ...viewportGuideChannelIds,
-      ...priorityMatchChannelIds.slice(0, 400),
+      ...priorityMatchChannelIds.slice(0, 96),
     ]);
     const scoped = Array.from(want).filter((id) => id);
     if (scoped.length) playlistIds = scoped;
+  } else if (huge) {
+    // Do not bridge a whole 400+ channel guide before the screen has reported
+    // its first viewport. The leading page is immediately navigable through
+    // focusable pending cells and the queue fills the real viewport next.
+    playlistIds = allPlaylistIds.slice(0, 48);
   }
   playlistIds = Array.from(new Set(playlistIds));
 
-  let programmes = nativeEpgAvailable
-    ? await queryNativeGuideWindow(playlistIds, startMs, endMs)
-    : {};
-
-  // Cold start / pre-match: SQL join table may still be empty — fall back to XMLTV ids.
-  if (nativeEpgAvailable && playlistIds.length && !Object.keys(programmes).length) {
-    const byId = new Map(remapped.map((channel) => [channel.id, channel]));
-    const xmltvIds = playlistIds.map((id) => {
-      const channel = byId.get(id);
-      return (channel?.tvg_id || id).trim();
-    });
-    const byXmltv = await loadNativeEpgWindow(xmltvIds, startMs, endMs);
-    const remappedPrograms: Record<string, Program[]> = {};
-    for (const id of playlistIds) {
-      const channel = byId.get(id);
-      const key = (channel?.tvg_id || id).trim();
-      const list = byXmltv[key];
-      if (list?.length) remappedPrograms[id] = list;
-    }
-    programmes = remappedPrograms;
-  }
-
-  for (const [key, list] of Object.entries(programmes)) {
-    if (list?.length) programmeWindowCache[key] = list;
-  }
-  // Prefer keeping the scoped viewport; overflow drops distant rows only.
+  await loadProgrammeCacheMisses(remapped, playlistIds, startMs, endMs);
   trimProgrammeWindowCache(playlistIds);
 
-  // Warm a focus-relative ring into cache only.
-  // Intentionally no emit() — viewport patch / next focus attaches rows without a full rebuild.
+  // One compact, cache-only runway around the current viewport. The scheduler
+  // owns visible-row attachment; this warm request never causes a React rebuild.
   if (huge && nativeEpgAvailable && playlistIds.length < allPlaylistIds.length) {
     const warmKey = cacheKey;
-    const have = new Set(playlistIds);
     const focusIds = viewportGuideChannelIds?.length ? viewportGuideChannelIds : playlistIds;
-    const ring = buildFocusRing(allPlaylistIds, have, focusIds, 180);
+    const ring = buildFocusRing(allPlaylistIds, new Set(playlistIds), focusIds, 48);
     if (ring.length) {
-      void queryNativeGuideWindow(ring, startMs, endMs)
-        .then((partial) => {
-          if (programmeWindowCacheKey !== warmKey) return;
-          for (const [key, list] of Object.entries(partial)) {
-            if (!list?.length) continue;
-            programmeWindowCache[key] = list;
+      void loadProgrammeCacheMisses(remapped, ring, startMs, endMs)
+        .then(() => {
+          if (programmeWindowCacheKey === warmKey) {
+            trimProgrammeWindowCache([...playlistIds, ...ring]);
           }
-          trimProgrammeWindowCache([...playlistIds, ...ring]);
         })
         .catch(() => undefined);
     }
@@ -723,12 +786,13 @@ export async function loadGuide(startISO?: string, hours = 8, force = false): Pr
     now: now.toISOString(),
     channels,
     programsByChannelId,
+    guideEpoch: parsed.guideEpoch || 0,
   };
 }
 
 /**
  * Viewport/focus ring fetch — patches programme cache only.
- * Does not emit() and does not rebuild the full channel list.
+ * It reads cache misses only, records negative results, and never emits().
  */
 export async function loadGuideProgramsForChannelIds(
   channelIds: string[],
@@ -746,22 +810,15 @@ export async function loadGuideProgramsForChannelIds(
     programmeWindowCacheKey = cacheKey;
   }
 
-  const allPlaylistIds = parsed.channels.map((channel) => channel.id).filter(Boolean);
+  const remapped = withManualRemaps(parsed.channels);
+  const allPlaylistIds = remapped.map((channel) => channel.id).filter(Boolean);
   const unique = Array.from(new Set(channelIds.filter(Boolean)));
-  const have = new Set(unique);
-  const ring = buildFocusRing(allPlaylistIds, new Set(have), unique, 120);
+  const ring = buildFocusRing(allPlaylistIds, new Set(unique), unique, 48);
   const queryIds = Array.from(new Set([...unique, ...ring]));
 
-  const programmes = await queryNativeGuideWindow(queryIds, startMs, endMs);
+  await loadProgrammeCacheMisses(remapped, queryIds, startMs, endMs);
   const delta: Record<string, Program[]> = {};
-  for (const [key, list] of Object.entries(programmes)) {
-    if (!list?.length) continue;
-    programmeWindowCache[key] = list;
-    delta[key] = list;
-  }
-  // Also surface cached hits for requested ids that were already warm.
-  for (const id of unique) {
-    if (delta[id]) continue;
+  for (const id of queryIds) {
     const cached = programmeWindowCache[id];
     if (cached?.length) delta[id] = cached;
   }

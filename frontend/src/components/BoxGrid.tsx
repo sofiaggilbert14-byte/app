@@ -23,6 +23,7 @@ import {
   armGuideLeftFocusLock,
 } from "@/src/utils/tvGuideFocusLock";
 import { evaluateGuideNavigation } from "@/src/core/guideNavigationPolicy";
+import { useGuidePrograms } from "@/src/core/guideProgramsStore";
 
 const ACCENT = "#A855F7";
 const ACCENT_SOFT = "#E9D5FF";
@@ -55,7 +56,7 @@ type ChannelCardProps = {
   onFocusNode?: (node: unknown) => void;
   toggleFavorite: (id: string) => void;
   preferInitialFocus?: boolean;
-  hasReminder?: boolean;
+  reminderKeys?: ReadonlySet<string>;
   lockFocusDown?: boolean;
   lockFocusLeft?: boolean;
 };
@@ -75,12 +76,14 @@ const ChannelCard = memo(function ChannelCard({
   onFocusNode,
   toggleFavorite,
   preferInitialFocus = false,
-  hasReminder = false,
+  reminderKeys,
   lockFocusDown = false,
   lockFocusLeft = false,
 }: ChannelCardProps) {
-  const { current, next } = nowNext(item.programs, nowDate);
+  const programs = useGuidePrograms(item.id);
+  const { current, next } = nowNext(programs, nowDate);
   const pct = progressPct(current, nowDate);
+  const hasReminder = programs.some((program) => reminderKeys?.has(reminderKey(item.id, program.start)));
   const cardRef = useRef<any>(null);
 
   const setCardRef = useCallback(
@@ -175,6 +178,7 @@ export function BoxGrid({
   onProgramPress,
   onChannelFocus,
   onUpBoundary,
+  onLeftBoundary,
   onFocusedRowChange,
   onViewportChannelIds,
   onGuideFocusNode,
@@ -196,6 +200,7 @@ export function BoxGrid({
   onProgramPress: (p: Program, c: Channel) => void;
   onChannelFocus?: (c: Channel) => void;
   onUpBoundary?: () => void;
+  onLeftBoundary?: () => void;
   onFocusedRowChange?: (index: number) => void;
   onViewportChannelIds?: (ids: string[]) => void;
   onGuideFocusNode?: (node: unknown) => void;
@@ -221,7 +226,7 @@ export function BoxGrid({
   channelsRef.current = channels;
   const focusedRowRef = useRef(0);
   const focusedIndexRef = useRef(0);
-  const lastScrollSyncedRowRef = useRef(-1);
+  const mountedRowBandRef = useRef({ start: 0, end: -1 });
   const focusedNodeRef = useRef<unknown>(null);
   const lastRowIndexRef = useRef(0);
   const lastReportedDeepRef = useRef(false);
@@ -257,12 +262,18 @@ export function BoxGrid({
       focusedIndexRef.current = index;
       focusedRowRef.current = row;
       gridOwnsFocusRef.current = true;
-      if (lastScrollSyncedRowRef.current !== row) {
-        lastScrollSyncedRowRef.current = row;
+      const visibleRows = 6;
+      const band = mountedRowBandRef.current;
+      if (row <= band.start + 1 || row >= band.end - 1 || band.end < band.start) {
+        const targetRow = Math.max(0, row - 2);
+        const targetIndex = Math.min(Math.max(0, channelsRef.current.length - 1), targetRow * Math.max(1, numColumns));
+        mountedRowBandRef.current = { start: targetRow, end: targetRow + visibleRows };
         try {
-          listRef.current?.scrollToIndex({ index, animated: false, viewPosition: 0.25 });
+          listRef.current?.scrollToIndex({ index: targetIndex, animated: false, viewPosition: 0.12 });
         } catch {
-          /* FlashList will retry once the row is measured. */
+          try {
+            listRef.current?.scrollToOffset({ offset: Math.max(0, targetRow * 132), animated: false });
+          } catch {}
         }
       }
       const deep = row > 0;
@@ -298,6 +309,7 @@ export function BoxGrid({
     if (!resetToken) return;
     lastReportedDeepRef.current = false;
     focusedRowRef.current = 0;
+    mountedRowBandRef.current = { start: 0, end: -1 };
     try {
       listRef.current?.scrollToOffset({ offset: 0, animated: false });
     } catch {}
@@ -318,10 +330,15 @@ export function BoxGrid({
       (event) => {
         if (!active) return;
         const key = event?.eventType;
-        // Left edge of compact grid — pin focus; never open the drawer.
+        // Left edge of compact grid — hand focus to icon rail when provided.
         if (key === "left" && gridOwnsFocusRef.current) {
           const col = focusedIndexRef.current % Math.max(1, numColumns);
           if (col === 0) {
+            if (onLeftBoundary) {
+              gridOwnsFocusRef.current = false;
+              onLeftBoundary();
+              return;
+            }
             armGuideLeftFocusLock(focusedNodeRef.current);
             return;
           }
@@ -349,7 +366,7 @@ export function BoxGrid({
           guideEscapeInFlight.current = false;
         }, GUIDE_ESCAPE_GUARD_MS);
       },
-      [active, numColumns, onUpBoundary],
+      [active, numColumns, onLeftBoundary, onUpBoundary],
     ),
   );
 
@@ -358,7 +375,6 @@ export function BoxGrid({
 
   const renderItem = useCallback(
     ({ item, index }: { item: Channel; index: number }) => {
-      const reminded = !!item.programs?.some((program) => reminderKeys?.has(reminderKey(item.id, program.start)));
       const row = Math.floor(index / Math.max(1, numColumns));
       return (
         <ChannelCard
@@ -379,7 +395,7 @@ export function BoxGrid({
             preferFirst &&
             (restoreChannelId ? item.id === restoreChannelId : index === 0)
           }
-          hasReminder={reminded}
+          reminderKeys={reminderKeys}
           lockFocusDown={row >= lastRowIndex}
           lockFocusLeft={lockLeftEdge && index % Math.max(1, numColumns) === 0}
         />

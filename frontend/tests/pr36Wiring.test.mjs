@@ -43,10 +43,12 @@ test("program cull disable is edge-triggered during vertical surf", async () => 
 });
 
 test("guide preview uses lighter stream buffers", async () => {
-  const [player, guide] = await Promise.all([
+  const [player, guide, previewRail] = await Promise.all([
     source("src/components/StreamPlayer.tsx"),
     source("app/(tabs)/guide.tsx"),
+    source("src/components/GuidePreviewRail.tsx"),
   ]);
   assert.match(player, /mode === "preview"/);
-  assert.match(guide, /mode="preview"/);
+  assert.match(guide, /GuidePreviewRail/);
+  assert.match(previewRail, /mode="preview"/);
 });

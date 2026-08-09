@@ -18,7 +18,13 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { ErrorBoundary } from "@/src/components/ErrorBoundary";
-import { StreamPlayer, StreamStatus, vlcAvailable, clearFullscreenCircuit } from "@/src/components/StreamPlayer";
+import {
+  StreamPlayer,
+  StreamStatus,
+  vlcAvailable,
+  clearFullscreenCircuit,
+  type StreamTrack,
+} from "@/src/components/StreamPlayer";
 import { useStore } from "@/src/store";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { addTvKeyListener } from "@/src/utils/tvRemote";
@@ -26,6 +32,14 @@ import { getTvSafeInsets } from "@/src/utils/tvLayout";
 import { requestNativeFocus } from "@/src/utils/tvFocus";
 import { stopFullscreenSession, stopAllPlaybackSessions, pauseSessionDecoders, type SessionFailReason } from "@/src/core/playbackSession";
 import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
+import { useGuidePrograms } from "@/src/core/guideProgramsStore";
+import {
+  audioDiagnosticsExtras,
+  getLastAudioDiagnostics,
+} from "@/src/core/audioDiagnostics";
+import { pickDefaultSubtitleTrack, useSubtitlePreferences } from "@/src/core/subtitlePreferences";
+import { noteStreamFailure } from "@/src/core/streamFailureRegistry";
+import * as FileSystem from "expo-file-system/legacy";
 
 const CHANNEL_PREVIEW_DELAY_MS = 650;
 const CHANNEL_ZAP_SETTLE_MS = 850;
@@ -38,7 +52,7 @@ const FAIL_REASON_LABEL: Record<SessionFailReason, string> = {
   "engine-swap": "switched playback engine",
   "circuit-open": "temporarily paused after repeated failures",
   "stream-error": "stream error",
-  "silent-audio": "no audio on Media3 — switching to VLC",
+  "silent-audio": "no supported Media3 audio track",
   "user-stop": "stopped",
   superseded: "replaced",
   crashed: "player crash",
@@ -85,11 +99,12 @@ export default function PlayerScreen() {
   const [playerNow, setPlayerNow] = useState(() => new Date());
   // Decoder is disarmed while rapid Next/Prev or strip surfing — prevents VLC pile-up / audio leaks.
   const [decoderArmed, setDecoderArmed] = useState(true);
-  const [audioTracks, setAudioTracks] = useState<{ id: number; name: string }[]>([]);
-  const [textTracks, setTextTracks] = useState<{ id: number; name: string }[]>([]);
-  const [audioTrackId, setAudioTrackId] = useState<number | undefined>(undefined);
-  const [textTrackId, setTextTrackId] = useState<number | undefined>(undefined);
+  const [audioTracks, setAudioTracks] = useState<StreamTrack[]>([]);
+  const [textTracks, setTextTracks] = useState<StreamTrack[]>([]);
+  const [audioTrackId, setAudioTrackId] = useState<string | number | undefined>(undefined);
+  const [textTrackId, setTextTrackId] = useState<string | number | undefined>(undefined);
   const [tracksOpen, setTracksOpen] = useState(false);
+  const { defaultLanguage: subtitleDefaultLanguage } = useSubtitlePreferences();
 
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -107,6 +122,9 @@ export default function PlayerScreen() {
   const rapidStripUntilRef = useRef(0);
   const pendingChannelIdRef = useRef(params.channelId);
   const channelIdRef = useRef(params.channelId);
+  const textTrackIdRef = useRef<string | number | undefined>(undefined);
+  const subtitleDefaultLanguageRef = useRef(subtitleDefaultLanguage);
+  const subtitleAutoAppliedRef = useRef<string | null>(null);
 
   const isTV = Platform.OS !== "web" && Platform.isTV;
   const overlayHideMs = playerControlsTimeoutMs;
@@ -114,7 +132,12 @@ export default function PlayerScreen() {
     () => getTvSafeInsets(width, height, deviceLayoutMode),
     [deviceLayoutMode, height, width],
   );
-  const channel = useMemo(() => channelById(channelId), [channelById, channelId]);
+  const channelMeta = useMemo(() => channelById(channelId), [channelById, channelId]);
+  const channelPrograms = useGuidePrograms(channelId);
+  const channel = useMemo(
+    () => (channelMeta ? { ...channelMeta, programs: channelPrograms } : undefined),
+    [channelMeta, channelPrograms],
+  );
   const sortedChannels = useMemo(
     () => [...channels].sort((a, b) => (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" })),
     [channels],
@@ -144,10 +167,20 @@ export default function PlayerScreen() {
   }, [router, setSleepTimerMinutes, sleepTimerMinutes]);
 
   useEffect(() => {
+    textTrackIdRef.current = textTrackId;
+  }, [textTrackId]);
+
+  useEffect(() => {
+    subtitleDefaultLanguageRef.current = subtitleDefaultLanguage;
+  }, [subtitleDefaultLanguage]);
+
+  useEffect(() => {
     setAudioTracks([]);
     setTextTracks([]);
     setAudioTrackId(undefined);
     setTextTrackId(undefined);
+    textTrackIdRef.current = undefined;
+    subtitleAutoAppliedRef.current = null;
     setTracksOpen(false);
   }, [channelId, retryToken]);
 
@@ -415,10 +448,44 @@ export default function PlayerScreen() {
     (next: StreamStatus, reason?: SessionFailReason | null) => {
       setStatus(next);
       if (reason !== undefined) setFailReason(reason);
+      // Engine swaps invalidate prior Media3 track ids (derived FORMAT ids differ).
+      if (reason === "silent-audio" || reason === "engine-swap") {
+        setAudioTrackId(undefined);
+        setTextTrackId(undefined);
+        textTrackIdRef.current = undefined;
+        setTracksOpen(false);
+      }
+      if (next === "error" || reason === "silent-audio") {
+        noteStreamFailure(channelIdRef.current);
+      }
       if (next === "playing") setFailReason(null);
     },
     [],
   );
+
+  const saveAudioReport = useCallback(async () => {
+    void Haptics.selectionAsync().catch(() => undefined);
+    try {
+      const snap = getLastAudioDiagnostics();
+      const extras = audioDiagnosticsExtras(snap);
+      const lines = [
+        `channelId=${channelIdRef.current}`,
+        `channelName=${channelMeta?.name || ""}`,
+        failReason ? `failReason=${failReason}` : null,
+        ...Object.entries(extras).map(([key, value]) => `${key}=${value == null ? "" : String(value)}`),
+      ].filter((line): line is string => !!line);
+      const root = FileSystem.documentDirectory || "";
+      if (!root || Platform.OS === "web") {
+        showNotice("Diagnostics unavailable");
+        return;
+      }
+      const path = `${root}charmiptv-audio-${Date.now()}.txt`;
+      await FileSystem.writeAsStringAsync(path, lines.join("\n"));
+      showNotice("Diagnostics saved");
+    } catch {
+      showNotice("Diagnostics failed");
+    }
+  }, [channelMeta?.name, failReason, showNotice]);
 
   const goGuide = useCallback(() => {
     void Haptics.selectionAsync().catch(() => undefined);
@@ -491,8 +558,24 @@ export default function PlayerScreen() {
             audioTrack={audioTrackId}
             textTrack={textTrackId}
             onTracksAvailable={(tracks) => {
-              setAudioTracks(tracks.audio.filter((t) => Number.isFinite(t.id)));
-              setTextTracks(tracks.text.filter((t) => Number.isFinite(t.id)));
+              const audio = tracks.audio.filter((track) => track.id !== "" && track.id != null);
+              const text = tracks.text.filter((track) => track.id !== "" && track.id != null);
+              setAudioTracks(audio);
+              setTextTracks(text);
+              // Auto-pick default subtitle language once per channel; Off keeps textTrackId undefined.
+              const appliedFor = channelIdRef.current;
+              if (
+                textTrackIdRef.current === undefined &&
+                subtitleAutoAppliedRef.current !== appliedFor &&
+                subtitleDefaultLanguageRef.current
+              ) {
+                const picked = pickDefaultSubtitleTrack(text, subtitleDefaultLanguageRef.current);
+                if (picked) {
+                  textTrackIdRef.current = picked.id;
+                  setTextTrackId(picked.id);
+                }
+                subtitleAutoAppliedRef.current = appliedFor;
+              }
             }}
             onStatus={handleStreamStatus}
             style={StyleSheet.absoluteFill}
@@ -632,6 +715,16 @@ export default function PlayerScreen() {
                 <Ionicons name="musical-notes-outline" size={15} color="#fff" />
                 <Text style={styles.controlLabel}>Audio/CC</Text>
               </Pressable>
+              <Pressable
+                onPress={() => {
+                  void saveAudioReport();
+                }}
+                style={({ focused }: any) => [styles.textControl, focused && styles.focused]}
+                testID="player-report-audio"
+              >
+                <Ionicons name="bug-outline" size={15} color="#fff" />
+                <Text style={styles.controlLabel}>Report</Text>
+              </Pressable>
               <View style={styles.controlsSpacer} />
               <Pressable
                 ref={prevButtonRef}
@@ -675,10 +768,18 @@ export default function PlayerScreen() {
                 {audioTracks.length ? audioTracks.map((track) => (
                   <Pressable
                     key={`a-${track.id}`}
+                    disabled={track.isSupported === false}
                     onPress={() => setAudioTrackId(track.id)}
-                    style={({ focused }: any) => [styles.trackRow, audioTrackId === track.id && styles.controlActive, focused && styles.focused]}
+                    style={({ focused }: any) => [
+                      styles.trackRow,
+                      audioTrackId === track.id && styles.controlActive,
+                      track.isSupported === false && styles.trackUnsupported,
+                      focused && styles.focused,
+                    ]}
                   >
-                    <Text style={styles.controlLabel}>{track.name}</Text>
+                    <Text style={styles.controlLabel}>
+                      {track.name}{track.isSupported === false ? " · unsupported on this decoder" : ""}
+                    </Text>
                   </Pressable>
                 )) : <Text style={styles.errorText}>No audio tracks reported</Text>}
                 <Text style={[styles.controlLabel, { marginTop: 8 }]}>Subtitles</Text>
@@ -769,6 +870,7 @@ const styles = StyleSheet.create({
   channelStrip: { gap: 6, paddingTop: 5 },
   tracksPanel: { maxHeight: 160, marginTop: 6, padding: 8, borderRadius: radius.sm, backgroundColor: "rgba(16,16,30,0.94)", gap: 4 },
   trackRow: { minHeight: 28, justifyContent: "center", paddingHorizontal: 8, borderRadius: 5, borderWidth: 2, borderColor: "transparent" },
+  trackUnsupported: { opacity: 0.45 },
   channelCard: { width: 96, minHeight: 54, alignItems: "center", justifyContent: "center", gap: 3, borderRadius: radius.sm, borderWidth: 2, borderColor: "transparent", backgroundColor: "rgba(16,16,30,0.94)", padding: 4 },
   channelCardActive: { backgroundColor: tvColors.purpleDeep, borderColor: tvColors.purpleBright },
   channelCardName: { color: "#fff", fontFamily: fonts.medium, fontSize: 7.5, textAlign: "center" },

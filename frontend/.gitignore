@@ -12,6 +12,7 @@ expo-env.d.ts
 
 # Native
 .kotlin/
+android/ffmpeg-audio/src/main/jni/ffmpeg/
 *.orig.*
 *.jks
 *.p8

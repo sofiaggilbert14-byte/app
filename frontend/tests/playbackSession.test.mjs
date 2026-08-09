@@ -154,7 +154,7 @@ test("StreamPlayer and player route use role-scoped session teardown", async () 
   assert.match(playerComp, /mediaOptions/);
   assert.match(playerComp, /onStatusRef\.current/);
   assert.match(playerComp, /surfaceType=\{Platform\.OS === "android" \? "textureView"/);
-  assert.match(playerComp, /player\.muted = false/);
+  assert.match(playerComp, /player\.muted = muted/);
   assert.match(playerRoute, /onStatus=\{handleStreamStatus\}/);
   assert.doesNotMatch(playerRoute, /onStatus=\{\(next, reason\) =>/);
   assert.doesNotMatch(playerComp, /key=\{`vlc:\$\{uri\}:\$\{sessionGeneration\}`\}/);

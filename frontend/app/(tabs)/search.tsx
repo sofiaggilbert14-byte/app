@@ -9,6 +9,7 @@ import { Channel, Program } from "@/src/api";
 import { useStore } from "@/src/store";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
+import { requestGuideJump } from "@/src/core/guideSearchJump";
 
 const KEYS = ["Q","W","E","R","T","Y","U","I","O","P","A","S","D","F","G","H","J","K","L","Z","X","C","V","B","N","M"];
 const DIGITS = ["1","2","3","4","5","6","7","8","9","0"];
@@ -42,6 +43,9 @@ export default function SearchScreen() {
   const results = useMemo(() => {
     const q = debouncedQuery.trim().toLowerCase();
     if (!q) return { channels: [] as Channel[], programs: [] as { channel: Channel; program: Program }[] };
+    // Search channel names/groups primarily. Programs are no longer nested on Channel when
+    // guideProgramsStore owns EPG rows — only scan channel.programs when present (legacy/web).
+    // Do not import the whole EPG for Search.
     const channelMatches = channels
       .filter((channel) => {
         const haystack = `${channel.name || ""} ${channel.group || ""}`.toLowerCase();
@@ -51,7 +55,9 @@ export default function SearchScreen() {
     const programs: { channel: Channel; program: Program }[] = [];
     const now = Date.now();
     for (const channel of channels) {
-      for (const program of channel.programs || []) {
+      const nested = channel.programs;
+      if (!nested?.length) continue;
+      for (const program of nested) {
         const stop = program.stop ? Date.parse(program.stop) : Date.parse(program.start);
         if (Number.isFinite(stop) && stop < now) continue;
         if ((program.title || "").toLowerCase().includes(q)) programs.push({ channel, program });
@@ -67,6 +73,20 @@ export default function SearchScreen() {
     addRecent(channel);
     openFullscreenPlayer(router, channel.id);
   }, [addRecent, router]);
+
+  const jumpToGuide = useCallback(
+    (channel: Channel, opts?: { program?: Program; programStart?: string }) => {
+      void Haptics.selectionAsync().catch(() => undefined);
+      requestGuideJump({
+        channelId: channel.id,
+        group: channel.group || "All",
+        programStart: opts?.programStart || opts?.program?.start,
+      });
+      if (opts?.program) openProgram(opts.program, channel);
+      router.replace("/guide" as any);
+    },
+    [openProgram, router],
+  );
 
   const replaceQuery = useCallback((next: string) => {
     setQuery(next);
@@ -211,21 +231,51 @@ export default function SearchScreen() {
               <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.resultsScroll}>
                 {results.channels.length ? <Text style={styles.resultsTitle}>Channels</Text> : null}
                 {results.channels.map((channel) => (
-                  <Pressable key={channel.id} onPress={() => play(channel)} style={({ focused }: any) => [styles.resultRow, focused && styles.focused]}>
-                    <ChannelLogo name={channel.name} logo={channel.logo} disabled={!channelLogos} size={28} />
-                    <Text numberOfLines={1} style={styles.resultName}>{channel.name}</Text>
-                    <Ionicons name="play" size={13} color={tvColors.purpleSoft} />
-                  </Pressable>
+                  <View key={channel.id} style={styles.resultBlock}>
+                    <Pressable
+                      onPress={() => play(channel)}
+                      onLongPress={() => jumpToGuide(channel)}
+                      delayLongPress={420}
+                      style={({ focused }: any) => [styles.resultRow, focused && styles.focused]}
+                    >
+                      <ChannelLogo name={channel.name} logo={channel.logo} disabled={!channelLogos} size={28} />
+                      <Text numberOfLines={1} style={styles.resultName}>{channel.name}</Text>
+                      <Ionicons name="play" size={13} color={tvColors.purpleSoft} />
+                    </Pressable>
+                    <Pressable
+                      onPress={() => jumpToGuide(channel)}
+                      style={({ focused }: any) => [styles.guideAction, focused && styles.focused]}
+                      testID={`search-guide-${channel.id}`}
+                    >
+                      <Ionicons name="grid-outline" size={12} color="#fff" />
+                      <Text style={styles.guideActionText}>Open in Guide</Text>
+                    </Pressable>
+                  </View>
                 ))}
                 {results.programs.length ? <Text style={styles.resultsTitle}>Programs</Text> : null}
                 {results.programs.map(({ channel, program }, index) => (
-                  <Pressable key={`${channel.id}-${program.start}-${index}`} onPress={() => openProgram(program, channel)} style={({ focused }: any) => [styles.resultRow, focused && styles.focused]}>
-                    <ChannelLogo name={channel.name} logo={channel.logo} disabled={!channelLogos} size={28} />
-                    <View style={{ flex: 1 }}>
-                      <Text numberOfLines={1} style={styles.resultName}>{program.title}</Text>
-                      <Text numberOfLines={1} style={styles.resultSub}>{channel.name}</Text>
-                    </View>
-                  </Pressable>
+                  <View key={`${channel.id}-${program.start}-${index}`} style={styles.resultBlock}>
+                    <Pressable
+                      onPress={() => jumpToGuide(channel, { program, programStart: program.start })}
+                      onLongPress={() => play(channel)}
+                      delayLongPress={420}
+                      style={({ focused }: any) => [styles.resultRow, focused && styles.focused]}
+                    >
+                      <ChannelLogo name={channel.name} logo={channel.logo} disabled={!channelLogos} size={28} />
+                      <View style={{ flex: 1 }}>
+                        <Text numberOfLines={1} style={styles.resultName}>{program.title}</Text>
+                        <Text numberOfLines={1} style={styles.resultSub}>{channel.name}</Text>
+                      </View>
+                      <Ionicons name="grid-outline" size={13} color={tvColors.purpleSoft} />
+                    </Pressable>
+                    <Pressable
+                      onPress={() => play(channel)}
+                      style={({ focused }: any) => [styles.guideAction, focused && styles.focused]}
+                    >
+                      <Ionicons name="play" size={12} color="#fff" />
+                      <Text style={styles.guideActionText}>Play</Text>
+                    </Pressable>
+                  </View>
                 ))}
                 {!results.channels.length && !results.programs.length ? (
                   <View style={styles.noResults}>
@@ -267,7 +317,21 @@ const styles = StyleSheet.create({
   suggestion: { minHeight: 31, justifyContent: "center", paddingHorizontal: 8, borderRadius: 5, borderWidth: 2, borderColor: "transparent" },
   suggestionText: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 9 },
   resultsScroll: { paddingBottom: 20 },
-  resultRow: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 5, borderWidth: 2, borderColor: "transparent", paddingHorizontal: 6, marginBottom: 3, backgroundColor: tvColors.panel },
+  resultBlock: { marginBottom: 6, gap: 3 },
+  resultRow: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 5, borderWidth: 2, borderColor: "transparent", paddingHorizontal: 6, backgroundColor: tvColors.panel },
+  guideAction: {
+    alignSelf: "flex-start",
+    minHeight: 28,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 8,
+    borderRadius: 5,
+    borderWidth: 2,
+    borderColor: "transparent",
+    backgroundColor: tvColors.panelRaised,
+  },
+  guideActionText: { color: "#fff", fontFamily: fonts.medium, fontSize: 8 },
   resultName: { flex: 1, color: "#fff", fontFamily: fonts.medium, fontSize: 9 },
   resultSub: { color: tvColors.textMuted, fontFamily: fonts.regular, fontSize: 7.5, marginTop: 2 },
   noResults: { alignItems: "center", gap: 8, paddingTop: 45 },

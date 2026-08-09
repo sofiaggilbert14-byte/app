@@ -68,6 +68,12 @@ jobs:
       - name: Install Android native toolchain
         uses: android-actions/setup-android@v3
 
+      - name: Build LGPL Media3 FFmpeg audio extension
+        run: |
+          sdkmanager --install "ndk;27.1.12297006" "cmake;3.22.1"
+          chmod +x scripts/build-media3-ffmpeg-audio.sh
+          ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/27.1.12297006" ./scripts/build-media3-ffmpeg-audio.sh
+
       - name: Install JavaScript dependencies
         run: npm install --legacy-peer-deps --no-audit --no-fund
 
@@ -94,6 +100,9 @@ jobs:
           APK="android/app/build/outputs/apk/release/app-release.apk"
           test -f "$APK"
           unzip -l "$APK" | grep -E "(index\.android\.bundle|assets/.*\.bundle|resources\.arsc)" >/dev/null
+          # FFmpeg Media3 extension must ship for AC-3/E-AC-3/DTS software decode.
+          unzip -l "$APK" | grep -E 'lib/arm64-v8a/libffmpegJNI\.so' >/dev/null
+          unzip -l "$APK" | grep -E 'lib/armeabi-v7a/libffmpegJNI\.so' >/dev/null
           cp "$APK" "android/app/build/outputs/apk/release/CharmIPTV-Purple-TV-Universal.apk"
 
       - name: Upload purple TV APK

@@ -50,6 +50,19 @@ type FooterAction = {
   testID?: string;
 };
 
+export type PurpleContextAction = {
+  label: string;
+  icon: React.ComponentProps<typeof Ionicons>["name"];
+  onPress: () => void;
+  testID?: string;
+};
+
+export type PurpleRecentChannel = {
+  id: string;
+  name: string;
+  logo?: string | null;
+};
+
 const NAV: NavItem[] = [
   { route: "/", label: "Live TV", icon: "tv-outline" },
   { route: "/guide", label: "TV Guide", icon: "calendar-outline" },
@@ -63,10 +76,34 @@ const NAV: NavItem[] = [
   { route: "/settings", label: "Settings", icon: "settings-outline" },
 ];
 
+/** Compact icon-rail destinations when the full drawer is closed. */
+const ICON_RAIL: NavItem[] = [
+  { route: "/", label: "Live TV", icon: "tv-outline" },
+  { route: "/guide", label: "TV Guide", icon: "calendar-outline" },
+  { route: "/favorites", label: "Favorites", icon: "heart-outline" },
+  { route: "/search", label: "Search", icon: "search-outline" },
+  { route: "/settings", label: "Settings", icon: "settings-outline" },
+];
+
 export const PURPLE_SIDEBAR_WIDTH = 156;
-/** Icon-only strip visible when the full drawer is closed. */
-export const PURPLE_RAIL_PEEK_WIDTH = 56;
+/** Overlay icon-rail width (does not reserve flex layout space). */
+export const PURPLE_ICON_RAIL_WIDTH = 48;
+/** Kept for tests / callers — same as overlay icon-rail width. */
+export const PURPLE_RAIL_PEEK_WIDTH = PURPLE_ICON_RAIL_WIDTH;
 export const PURPLE_DRAWER_ANIMATION_MS = 180;
+
+const iconRailRefMap = new Map<string, unknown>();
+let purpleIconRailMenuNode: unknown = null;
+
+export function getPurpleIconRailMenuNode(): unknown {
+  return purpleIconRailMenuNode;
+}
+
+/** Focus the closed-drawer icon rail (Menu by default, or a rail route key). */
+export function focusPurpleIconRail(target: "menu" | Route = "menu"): void {
+  const node = target === "menu" ? purpleIconRailMenuNode : iconRailRefMap.get(target);
+  requestNativeFocusWithRetry(node, [0, 40, 120]);
+}
 
 type DrawerContextValue = {
   drawerOpen: boolean;
@@ -118,18 +155,39 @@ function SmallBrand() {
   );
 }
 
+function WatchingDot({ testID }: { testID?: string }) {
+  return <View style={styles.watchingDot} testID={testID} />;
+}
+
+function RecentLetterAvatar({ name }: { name: string }) {
+  const letter = (name.trim().charAt(0) || "?").toUpperCase();
+  return (
+    <View style={styles.recentAvatar}>
+      <Text style={styles.recentAvatarText}>{letter}</Text>
+    </View>
+  );
+}
+
 export function PurpleTvShell({
   active,
   children,
   headerRight,
   contentStyle,
   footerAction,
+  contextActions,
+  watchingChannelId,
+  recentChannels,
+  onRecentPress,
 }: {
   active: Route;
   children: React.ReactNode;
   headerRight?: React.ReactNode;
   contentStyle?: any;
   footerAction?: FooterAction;
+  contextActions?: PurpleContextAction[];
+  watchingChannelId?: string | null;
+  recentChannels?: PurpleRecentChannel[];
+  onRecentPress?: (channelId: string) => void;
 }) {
   const router = useRouter();
   const { drawerOpen, drawerProgress, openDrawer, closeDrawer } = usePurpleTvDrawer();
@@ -147,6 +205,11 @@ export function PurpleTvShell({
   });
   const bootFocusConsumed = useRef(false);
   const navRefs = useRef(new Map<Route, unknown>());
+  const isWatching = !!watchingChannelId;
+  const recentStrip = useMemo(
+    () => (recentChannels ?? []).slice(0, 5),
+    [recentChannels],
+  );
   // Mount-once content autoFocus so child preferred-focus can stick after first paint.
   const [contentAutoFocus, setContentAutoFocus] = useState(
     () => !drawerOpen && !bootSidebarFocus,
@@ -280,10 +343,56 @@ export function PurpleTvShell({
           trapFocusRight
         >
           <SmallBrand />
+          {contextActions && contextActions.length > 0 ? (
+            <View style={styles.contextActions}>
+              {contextActions.map((action) => (
+                <Pressable
+                  key={action.label}
+                  focusable={drawerOpen}
+                  onPress={action.onPress}
+                  style={({ focused }: any) => [
+                    styles.contextActionRow,
+                    focused && styles.navRowFocused,
+                  ]}
+                  testID={action.testID}
+                >
+                  <Ionicons name={action.icon} size={13} color={tvColors.purpleSoft} />
+                  <Text numberOfLines={1} style={styles.contextActionText}>
+                    {action.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+          {recentStrip.length > 0 ? (
+            <View style={styles.recentStrip}>
+              <Text style={styles.recentLabel}>Recent</Text>
+              <View style={styles.recentRow}>
+                {recentStrip.map((channel) => (
+                  <Pressable
+                    key={channel.id}
+                    focusable={drawerOpen}
+                    onPress={() => onRecentPress?.(channel.id)}
+                    style={({ focused }: any) => [
+                      styles.recentChip,
+                      focused && styles.navRowFocused,
+                    ]}
+                    testID={`purple-recent-${channel.id}`}
+                  >
+                    <RecentLetterAvatar name={channel.name} />
+                    <Text numberOfLines={1} style={styles.recentName}>
+                      {channel.name}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          ) : null}
           <View style={styles.nav}>
             {NAV.map((item) => {
               const selected = item.route === active;
               const preferBootLiveTv = bootSidebarFocus && !bootFocusConsumed.current && item.route === "/";
+              const showWatching = item.route === "/" && isWatching;
               return (
                 <Pressable
                   key={item.route}
@@ -305,11 +414,14 @@ export function PurpleTvShell({
                   ]}
                   testID={`purple-nav-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
                 >
-                  <Ionicons
-                    name={selected ? (item.icon.replace("-outline", "") as any) : item.icon}
-                    size={15}
-                    color={selected ? "#fff" : tvColors.textMuted}
-                  />
+                  <View style={styles.navIconWrap}>
+                    <Ionicons
+                      name={selected ? (item.icon.replace("-outline", "") as any) : item.icon}
+                      size={15}
+                      color={selected ? "#fff" : tvColors.textMuted}
+                    />
+                    {showWatching ? <WatchingDot testID="purple-nav-live-watching" /> : null}
+                  </View>
                   <Text numberOfLines={1} style={[styles.navText, selected && styles.navTextSelected]}>
                     {item.label}
                   </Text>
@@ -357,17 +469,63 @@ export function PurpleTvShell({
         </FocusGuide>
       </Animated.View>
 
-      {/* Spacer when open; decorative rail when closed. It is deliberately not
-          focusable/clickable: the drawer opens only from double-Back. */}
-      {drawerOpen ? (
-        <View style={styles.sidebarSpacer} />
-      ) : (
-        <View style={styles.railPeek} pointerEvents="none" testID="purple-rail-double-back-hint">
-          <View style={styles.railPeekHit}>
-            <Ionicons name="menu-outline" size={16} color={tvColors.purpleSoft} />
-          </View>
+      {/* Layout spacer only while the full drawer is open — closed state is full-bleed. */}
+      {drawerOpen ? <View style={styles.sidebarSpacer} /> : null}
+
+      {/* Absolute icon rail overlay — no flex space when closed. */}
+      {!drawerOpen ? (
+        <View
+          style={styles.iconRail}
+          pointerEvents="box-none"
+          testID="purple-icon-rail"
+        >
+          {ICON_RAIL.map((item) => {
+            const selected = item.route === active;
+            const showWatching = item.route === "/" && isWatching;
+            return (
+              <Pressable
+                key={item.route}
+                ref={(node) => {
+                  if (node) iconRailRefMap.set(item.route, node);
+                  else iconRailRefMap.delete(item.route);
+                }}
+                focusable={!drawerOpen}
+                onPress={() => navigate(item.route)}
+                onLongPress={openDrawer}
+                delayLongPress={450}
+                style={({ focused }: any) => [
+                  styles.iconRailHit,
+                  selected && styles.iconRailHitSelected,
+                  focused && styles.navRowFocused,
+                ]}
+                testID={`purple-rail-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
+              >
+                <View style={styles.navIconWrap}>
+                  <Ionicons
+                    name={selected ? (item.icon.replace("-outline", "") as any) : item.icon}
+                    size={18}
+                    color={selected ? "#fff" : tvColors.purpleSoft}
+                  />
+                  {showWatching ? <WatchingDot testID="purple-rail-live-watching" /> : null}
+                </View>
+              </Pressable>
+            );
+          })}
+          <Pressable
+            ref={(node) => {
+              purpleIconRailMenuNode = node;
+            }}
+            focusable={!drawerOpen}
+            onPress={openDrawer}
+            onLongPress={openDrawer}
+            delayLongPress={450}
+            style={({ focused }: any) => [styles.iconRailHit, focused && styles.navRowFocused]}
+            testID="purple-rail-menu"
+          >
+            <Ionicons name="menu-outline" size={18} color={tvColors.purpleSoft} />
+          </Pressable>
         </View>
-      )}
+      ) : null}
 
       <FocusGuide
         style={[styles.content, contentStyle]}
@@ -401,26 +559,30 @@ const styles = StyleSheet.create({
     width: PURPLE_SIDEBAR_WIDTH,
     height: "100%",
   },
-  railPeek: {
-    width: PURPLE_RAIL_PEEK_WIDTH,
-    height: "100%",
-    backgroundColor: "#0A0916",
-    borderRightWidth: 1,
-    borderRightColor: tvColors.line,
+  iconRail: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: PURPLE_ICON_RAIL_WIDTH,
+    zIndex: 15,
     paddingTop: 10,
     paddingBottom: 8,
     alignItems: "center",
     gap: 4,
-    zIndex: 9,
+    backgroundColor: "transparent",
   },
-  railPeekHit: {
-    width: 44,
+  iconRailHit: {
+    width: 40,
     height: 36,
     borderRadius: radius.sm,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 2,
     borderColor: "transparent",
+  },
+  iconRailHitSelected: {
+    backgroundColor: tvColors.purpleDeep,
   },
   sidebar: {
     width: PURPLE_SIDEBAR_WIDTH,
@@ -462,6 +624,78 @@ const styles = StyleSheet.create({
     fontSize: 8,
     letterSpacing: 1.4,
   },
+  contextActions: {
+    gap: 2,
+    marginBottom: 8,
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: tvColors.line,
+  },
+  contextActionRow: {
+    minHeight: 30,
+    borderRadius: radius.sm,
+    borderWidth: 2,
+    borderColor: "transparent",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 9,
+  },
+  contextActionText: {
+    color: tvColors.textMuted,
+    fontFamily: fonts.medium,
+    fontSize: 10,
+    flex: 1,
+  },
+  recentStrip: {
+    marginBottom: 8,
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: tvColors.line,
+    gap: 4,
+  },
+  recentLabel: {
+    color: tvColors.textMuted,
+    fontFamily: fonts.semibold,
+    fontSize: 8,
+    letterSpacing: 0.6,
+    paddingHorizontal: 6,
+    textTransform: "uppercase",
+  },
+  recentRow: {
+    gap: 2,
+  },
+  recentChip: {
+    minHeight: 28,
+    borderRadius: radius.sm,
+    borderWidth: 2,
+    borderColor: "transparent",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    paddingHorizontal: 7,
+  },
+  recentAvatar: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: tvColors.purpleDeep,
+    borderWidth: 1,
+    borderColor: tvColors.lineStrong,
+  },
+  recentAvatarText: {
+    color: "#fff",
+    fontFamily: fonts.bold,
+    fontSize: 9,
+  },
+  recentName: {
+    color: tvColors.textMuted,
+    fontFamily: fonts.medium,
+    fontSize: 9.5,
+    flex: 1,
+  },
   nav: { flex: 1, gap: 2 },
   navRow: {
     minHeight: 34,
@@ -484,6 +718,21 @@ const styles = StyleSheet.create({
   navRowFocused: {
     borderColor: "#fff",
     backgroundColor: tvColors.purpleDeep,
+  },
+  navIconWrap: {
+    width: 18,
+    height: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  watchingDot: {
+    position: "absolute",
+    top: -1,
+    right: -2,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: tvColors.purpleBright,
   },
   navText: {
     color: tvColors.textMuted,
