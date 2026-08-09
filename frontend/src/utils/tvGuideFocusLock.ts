@@ -9,6 +9,8 @@ let armedUntil = 0;
 let armedNode: unknown = null;
 /** Stable entry target used by the preview rail's explicit Guide action. */
 let guideEntryNode: unknown = null;
+/** Stable auxiliary-panel target used when leaving the guide to the left. */
+let guidePreviewEntryNode: unknown = null;
 
 export function armGuideBottomFocusLock(node: unknown, ms = 500) {
   armedUntil = Date.now() + ms;
@@ -34,6 +36,18 @@ export function reclaimGuideBottomFocusIfArmed(): boolean {
 export function focusGuideSurface(): boolean {
   if (!guideEntryNode) return false;
   requestNativeFocusWithRetry(guideEntryNode, [0, 40, 120, 240]);
+  return true;
+}
+
+/** Register the preview/actions panel's stable entry control. */
+export function registerGuidePreviewEntry(node: unknown): void {
+  if (node) guidePreviewEntryNode = node;
+}
+
+/** Move focus from the guide's left boundary into the preview/actions panel. */
+export function focusGuidePreviewSurface(): boolean {
+  if (!guidePreviewEntryNode) return false;
+  requestNativeFocusWithRetry(guidePreviewEntryNode, [0, 40, 120, 240]);
   return true;
 }
 
