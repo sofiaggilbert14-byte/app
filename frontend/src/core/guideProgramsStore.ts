@@ -8,9 +8,13 @@ import type { Program } from "@/src/api";
  * mounted. Putting that map in GuideProvider makes every consumer render and
  * makes FlashList receive a new data array. This store lets a row subscribe to
  * its own programme pointer only.
+ *
+ * SQLite/native EPG storage is authoritative. This JS layer is only a bounded,
+ * row-local pointer cache so guide focus never depends on an all-channel React
+ * update completing first.
  */
 const EMPTY_PROGRAMS: Program[] = [];
-const MAX_PROGRAMME_ROWS = 700;
+const MAX_PROGRAMME_ROWS = 1600;
 
 let activeWindowKey = "";
 const programsByChannelId = new Map<string, Program[]>();
@@ -44,11 +48,15 @@ function subscribe(channelId: string, listener: () => void): () => void {
 }
 
 function trim(): void {
-  while (programsByChannelId.size > MAX_PROGRAMME_ROWS) {
-    const oldest = programsByChannelId.keys().next().value as string | undefined;
-    if (!oldest) return;
-    programsByChannelId.delete(oldest);
-    notify(oldest);
+  if (programsByChannelId.size <= MAX_PROGRAMME_ROWS) return;
+
+  // Never evict a row while a mounted guide component is subscribed to it.
+  // Focusable rows must remain stable even when a user holds Up/Down faster
+  // than viewport EPG work can catch up.
+  for (const channelId of Array.from(programsByChannelId.keys())) {
+    if (programsByChannelId.size <= MAX_PROGRAMME_ROWS) return;
+    if ((listenersByChannelId.get(channelId)?.size || 0) > 0) continue;
+    programsByChannelId.delete(channelId);
   }
 }
 
@@ -68,8 +76,9 @@ export function listCachedGuideChannelIds(): string[] {
 }
 
 /**
- * Replace the visible guide window on a day/epoch change, otherwise merge a
- * sparse viewport delta. Callers must pass the exact rendered window key.
+ * Replace the visible time window only when the actual start/end window changes.
+ * Guide-epoch changes for the same rendered window are stale-while-revalidate:
+ * existing row pointers remain visible/focusable until fresh row deltas arrive.
  */
 export function applyGuidePrograms(
   windowKey: string,
@@ -102,8 +111,13 @@ export function clearGuidePrograms(): void {
   for (const id of ids) notify(id);
 }
 
-export function makeGuideProgramWindowKey(start: string, end: string, guideEpoch = 0): string {
-  return `${start}|${end}|${guideEpoch}`;
+/**
+ * The JS render cache is keyed by the displayed time window, not native guide
+ * epoch. Native epoch still invalidates native query caches; keeping it out of
+ * this key prevents a background refresh from blanking every mounted row.
+ */
+export function makeGuideProgramWindowKey(start: string, end: string, _guideEpoch = 0): string {
+  return `${start}|${end}`;
 }
 
 /** Subscribe a rendered guide row to only its own programme pointer. */
