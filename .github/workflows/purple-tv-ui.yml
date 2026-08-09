@@ -27,6 +27,11 @@ jobs:
     # Prefer the largest hosted pool; pin only if a package needs 24.04 specifically.
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    # Release upload needs contents:write. Artifact upload is best-effort when
+    # Actions storage quota is exhausted (caches + prior APKs share that quota).
+    permissions:
+      contents: write
+      actions: read
     defaults:
       run:
         working-directory: frontend
@@ -64,6 +69,10 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          # Shared Actions storage includes caches; prune unused entries after success
+          # so APK artifact uploads are less likely to hit the org quota.
+          cache-cleanup: on-success
 
       - name: Install Android native toolchain
         uses: android-actions/setup-android@v3
@@ -105,10 +114,44 @@ jobs:
           unzip -l "$APK" | grep -E 'lib/armeabi-v7a/libffmpegJNI\.so' >/dev/null
           cp "$APK" "android/app/build/outputs/apk/release/CharmIPTV-Purple-TV-Universal.apk"
 
-      - name: Upload purple TV APK
+      # Best-effort: Actions artifact storage is shared with caches and may be full.
+      # Job still succeeds if this fails when a Release asset is published below.
+      - name: Upload purple TV APK artifact
+        id: upload_artifact
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: CharmIPTV-Purple-TV-Universal
           path: frontend/android/app/build/outputs/apk/release/CharmIPTV-Purple-TV-Universal.apk
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 3
+
+      # Releases do not consume Actions artifact storage — reliable APK delivery.
+      - name: Publish purple TV APK release
+        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: purple-tv-${{ github.run_id }}
+          name: Purple TV APK — ${{ github.sha }}
+          body: |
+            CharmIPTV Purple TV universal APK from `${{ github.sha }}`.
+
+            - Workflow: Build CharmIPTV Purple TV APK
+            - Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            - Event: `${{ github.event_name }}`
+
+            ### Install
+            ```
+            adb install -r CharmIPTV-Purple-TV-Universal.apk
+            ```
+          files: frontend/android/app/build/outputs/apk/release/CharmIPTV-Purple-TV-Universal.apk
+          prerelease: true
+          fail_on_unmatched_files: true
+
+      - name: Fail if neither artifact nor release was published
+        if: |
+          steps.upload_artifact.outcome != 'success' &&
+          !(github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))
+        run: |
+          echo "::error::APK artifact upload failed and this event does not publish a GitHub Release."
+          exit 1
