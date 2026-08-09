@@ -62,6 +62,11 @@ export function hasGuidePrograms(channelId: string | null | undefined): boolean 
   return getGuidePrograms(channelId).length > 0;
 }
 
+/** Channel ids currently held in the bounded programme cache (for Search, etc.). */
+export function listCachedGuideChannelIds(): string[] {
+  return Array.from(programsByChannelId.keys());
+}
+
 /**
  * Replace the visible guide window on a day/epoch change, otherwise merge a
  * sparse viewport delta. Callers must pass the exact rendered window key.

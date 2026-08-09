@@ -671,6 +671,16 @@ export default function SettingsScreen() {
                 <InfoRow label="Channels" value={String(channels.length)} />
                 <InfoRow label="Matched" value={String(diagnostics?.matchQuality?.matched ?? "—")} />
                 <InfoRow label="Unmatched" value={String(diagnostics?.matchQuality?.unmatched ?? "—")} />
+                <InfoRow
+                  label="Unmatched %"
+                  value={(() => {
+                    const matched = diagnostics?.matchQuality?.matched ?? 0;
+                    const unmatched = diagnostics?.matchQuality?.unmatched ?? 0;
+                    const denom = matched + unmatched + (diagnostics?.matchQuality?.ambiguous ?? 0);
+                    if (!denom) return "—";
+                    return `${Math.round((unmatched / denom) * 100)}%`;
+                  })()}
+                />
                 <InfoRow label="Failed streams" value={String(failedStreamCount())} />
                 <InfoRow
                   label="Playlist refreshed"
@@ -706,7 +716,7 @@ export default function SettingsScreen() {
             {section === "channels" ? (
               <SettingsCard title="Channels" icon="list-circle-outline">
                 <Text style={styles.help}>
-                  Cap of 30 rows for TV memory. Focus a channel, then Hide or Move up/down. Custom numbers keypad is deferred — clear custom order resets sort.
+                  Cap of 30 rows for TV memory. Focus a channel, then Hide, Move, or set a custom number. Clear custom order resets sort.
                 </Text>
                 <Action
                   label="Clear custom order"
@@ -718,9 +728,11 @@ export default function SettingsScreen() {
                   }}
                 />
                 {backupStatus && section === "channels" ? <Text style={styles.status}>{backupStatus}</Text> : null}
-                {customizeChannels.map((channel) => {
+                {customizeChannels.map((channel, index) => {
                   const hidden = hiddenSet.has(channel.id);
                   const focused = focusedCustomizeId === channel.id;
+                  const customNumber = channelCustomize.customNumbers[channel.id];
+                  const displayNumber = customNumber || index + 1;
                   return (
                     <View key={channel.id} style={styles.channelEditBlock}>
                       <Pressable
@@ -732,31 +744,66 @@ export default function SettingsScreen() {
                         ]}
                       >
                         <Text numberOfLines={1} style={styles.settingLabel}>
-                          {channel.name}
+                          {displayNumber}. {channel.name}
                         </Text>
                         <Text style={styles.infoValue}>{hidden ? "Hidden" : "Visible"}</Text>
                       </Pressable>
                       {focused ? (
-                        <View style={styles.channelEditActions}>
-                          <Pressable
-                            onPress={() => channelCustomize.toggleHidden(channel.id)}
-                            style={({ focused: btnFocused }: any) => [styles.miniAction, btnFocused && styles.focused]}
-                          >
-                            <Text style={styles.miniActionText}>{hidden ? "Show" : "Hide"}</Text>
-                          </Pressable>
-                          <Pressable
-                            onPress={() => channelCustomize.moveInCustomOrder(channel.id, -1)}
-                            style={({ focused: btnFocused }: any) => [styles.miniAction, btnFocused && styles.focused]}
-                          >
-                            <Text style={styles.miniActionText}>Up</Text>
-                          </Pressable>
-                          <Pressable
-                            onPress={() => channelCustomize.moveInCustomOrder(channel.id, 1)}
-                            style={({ focused: btnFocused }: any) => [styles.miniAction, btnFocused && styles.focused]}
-                          >
-                            <Text style={styles.miniActionText}>Down</Text>
-                          </Pressable>
-                        </View>
+                        <>
+                          <View style={styles.channelEditActions}>
+                            <Pressable
+                              onPress={() => channelCustomize.toggleHidden(channel.id)}
+                              style={({ focused: btnFocused }: any) => [styles.miniAction, btnFocused && styles.focused]}
+                            >
+                              <Text style={styles.miniActionText}>{hidden ? "Show" : "Hide"}</Text>
+                            </Pressable>
+                            <Pressable
+                              onPress={() => channelCustomize.moveInCustomOrder(channel.id, -1)}
+                              style={({ focused: btnFocused }: any) => [styles.miniAction, btnFocused && styles.focused]}
+                            >
+                              <Text style={styles.miniActionText}>Up</Text>
+                            </Pressable>
+                            <Pressable
+                              onPress={() => channelCustomize.moveInCustomOrder(channel.id, 1)}
+                              style={({ focused: btnFocused }: any) => [styles.miniAction, btnFocused && styles.focused]}
+                            >
+                              <Text style={styles.miniActionText}>Down</Text>
+                            </Pressable>
+                          </View>
+                          <View style={styles.channelEditActions}>
+                            <Pressable
+                              onPress={() =>
+                                channelCustomize.setCustomNumber(
+                                  channel.id,
+                                  Math.max(1, (customNumber || displayNumber) - 1),
+                                )
+                              }
+                              style={({ focused: btnFocused }: any) => [styles.miniAction, btnFocused && styles.focused]}
+                              testID="settings-channel-number-dec"
+                            >
+                              <Text style={styles.miniActionText}>Num −</Text>
+                            </Pressable>
+                            <Text style={styles.infoValue}>#{displayNumber}</Text>
+                            <Pressable
+                              onPress={() =>
+                                channelCustomize.setCustomNumber(
+                                  channel.id,
+                                  Math.min(99999, (customNumber || displayNumber) + 1),
+                                )
+                              }
+                              style={({ focused: btnFocused }: any) => [styles.miniAction, btnFocused && styles.focused]}
+                              testID="settings-channel-number-inc"
+                            >
+                              <Text style={styles.miniActionText}>Num +</Text>
+                            </Pressable>
+                            <Pressable
+                              onPress={() => channelCustomize.setCustomNumber(channel.id, null)}
+                              style={({ focused: btnFocused }: any) => [styles.miniAction, btnFocused && styles.focused]}
+                            >
+                              <Text style={styles.miniActionText}>Clear #</Text>
+                            </Pressable>
+                          </View>
+                        </>
                       ) : null}
                     </View>
                   );
