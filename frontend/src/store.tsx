@@ -7,8 +7,11 @@ import {
   loadGuideProgramsForChannelIds,
   refreshEpgOnly,
   refreshSource,
+  retainProgrammeWindowCache,
   setManualEpgRemaps,
   setPreferTvgIdOnlyMatching,
+  setProgrammeWindowCacheLimit,
+  trimProgrammeWindowCacheForMemoryPressure,
   subscribeSource,
 } from "@/src/source";
 import { isGuideSurfing, onGuideSurfSettled } from "@/src/utils/guideSurfGate";
@@ -16,8 +19,13 @@ import {
   applyGuidePrograms,
   getGuidePrograms,
   makeGuideProgramWindowKey,
+  retainGuidePrograms,
+  setGuideProgramRowLimit,
+  trimGuideProgramRows,
 } from "@/src/core/guideProgramsStore";
 import { reminderKey, setTimeFormat24h } from "@/src/utils/time";
+import { subscribeAndroidMemoryPressure } from "@/src/utils/androidMemoryPressure";
+import { clearChannelLogoMemory } from "@/src/components/ChannelLogo";
 import { sanitizeFavoriteIds, toggleFavoriteId } from "@/src/utils/favoriteIds";
 import { pushRecentId, sanitizeRecentIds } from "@/src/utils/recentIds";
 import { sanitizeReminders } from "@/src/utils/reminderIds";
@@ -27,7 +35,6 @@ import { applyManualEpgRemaps, resolveEpgGuideFilter, sanitizeEpgManualRemap, ty
 import {
   createFavoriteFolder,
   DEFAULT_FOLDER_PRESETS,
-  nextFavoriteFolderName,
   renameFavoriteFolder,
   sanitizeFavoriteFolders,
   toggleChannelInFolder,
@@ -46,6 +53,7 @@ const REM_KEY = "gs_reminders";
 const PMODE_KEY = "gs_pointer_mode";
 const GUIDE_LAYOUT_KEY = "gs_guide_layout";
 const GUIDE_DENSITY_KEY = "gs_guide_density";
+const EXTRA_COMPACT_DEFAULT_MIGRATION_KEY = "gs_extra_compact_default_v1";
 const SAFE_PREVIEW_MODE_KEY = "gs_safe_preview_mode";
 const CHANNEL_NUMBERS_KEY = "gs_channel_numbers";
 const CHANNEL_LOGOS_KEY = "gs_channel_logos";
@@ -63,8 +71,9 @@ const GUIDE_WINDOW_HOURS_KEY = "gs_guide_window_hours";
 const CLOCK_24H_KEY = "gs_clock_24h";
 const START_SCREEN_KEY = "gs_start_screen";
 const SLEEP_TIMER_MINUTES_KEY = "gs_sleep_timer_minutes";
+const INSTANT_GUIDE_KEY = "gs_instant_guide";
 
-const DEFAULT_GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 8);
+const DEFAULT_GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 6);
 
 function readGuideWindowHours(value: string | number | null | undefined, fallback: GuideWindowHours): GuideWindowHours {
   const n = Number(value || fallback);
@@ -84,7 +93,7 @@ function resolveSleepTimerMinutes(value: unknown): SleepTimerMinutes {
 }
 
 export type GuideLayout = "cinematic" | "compact";
-export type GuideDensity = "large" | "normal" | "compact";
+export type GuideDensity = "large" | "normal" | "compact" | "extra_compact";
 export type SafePreviewMode = "on" | "delayed" | "surf" | "off";
 export type DeviceLayoutMode = "auto" | "tv" | "mobile";
 export type PlayerControlsTimeoutMs = 8000 | 15000 | 30000 | 60000;
@@ -103,6 +112,8 @@ export type Reminder = {
   stop: string | null;
 };
 
+export type ReminderToggleResult = "added" | "removed" | "failed";
+
 export type ActiveProgram = { program: Program; channel: Channel } | null;
 
 export type Store = {
@@ -115,7 +126,9 @@ export type Store = {
   refresh: (silent?: boolean) => Promise<void>;
   hardRefresh: () => Promise<void>;
   /** Fetch/attach programmes for a viewport ring without a full guide rebuild. */
-  patchProgramsForChannelIds: (channelIds: string[]) => Promise<void>;
+  patchProgramsForChannelIds: (channelIds: string[], priorityIds?: string[]) => Promise<void>;
+  /** Conveyor-belt eviction — keep only the hysteresis band around the runway. */
+  retainGuideSlidingCache: (keepIds: Iterable<string>) => void;
   selectedDate: string;
   setSelectedDate: (d: string) => void;
   channelById: (id: string) => Channel | undefined;
@@ -135,6 +148,8 @@ export type Store = {
   hasReminder: (key: string) => boolean;
   addReminder: (program: Program, channel: Channel) => Promise<boolean>;
   removeReminder: (key: string) => Promise<void>;
+  /** Single reminder mutation path shared by Guide preview and ProgramModal. */
+  toggleReminder: (program: Program, channel: Channel) => Promise<ReminderToggleResult>;
 
   activeProgram: ActiveProgram;
   openProgram: (program: Program, channel: Channel) => void;
@@ -165,6 +180,8 @@ export type Store = {
   setPowerProfile: (v: PowerProfile) => void;
   logosOffWhileSurfing: boolean;
   setLogosOffWhileSurfing: (v: boolean) => void;
+  instantGuide: boolean;
+  setInstantGuide: (v: boolean) => void;
   epgGuideFilter: EpgGuideFilter;
   setEpgGuideFilter: (v: EpgGuideFilter) => void;
   epgManualRemaps: Record<string, string>;
@@ -208,6 +225,10 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const patchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const patchInFlightRef = useRef(false);
   const pendingPatchIdsRef = useRef(new Set<string>());
+  const pendingPatchPriorityIdsRef = useRef<string[]>([]);
+  const lastPatchRunwayIdsRef = useRef<string[]>([]);
+  const runwayGenerationRef = useRef(0);
+  const pendingPatchGenerationRef = useRef(0);
   const windowStartRef = useRef("");
   const windowEndRef = useRef("");
   const guideEpochRef = useRef(0);
@@ -217,6 +238,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [lastChannelId, setLastChannelId] = useState<string | null>(null);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const remindersRef = useRef<Reminder[]>([]);
+  const reminderDesiredStateRef = useRef(new Map<string, boolean>());
+  const reminderMutationRef = useRef(new Map<string, Promise<ReminderToggleResult>>());
   // Keep ref in sync during render so async add/remove see the latest list immediately
   // (useEffect would lag one frame and break hasReminder after setReminders).
   remindersRef.current = reminders;
@@ -225,7 +248,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [activeProgram, setActiveProgram] = useState<ActiveProgram>(null);
   const [pointerMode, setPointerModeState] = useState(false);
   const [guideLayout, setGuideLayoutState] = useState<GuideLayout>("cinematic");
-  const [guideDensity, setGuideDensityState] = useState<GuideDensity>("normal");
+  const [guideDensity, setGuideDensityState] = useState<GuideDensity>("extra_compact");
   const [safePreviewMode, setSafePreviewModeState] = useState<SafePreviewMode>("delayed");
   const [channelNumbers, setChannelNumbersState] = useState(false);
   const [channelLogos, setChannelLogosState] = useState(true);
@@ -235,6 +258,23 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [preferTvgIdOnly, setPreferTvgIdOnlyState] = useState(false);
   const [powerProfile, setPowerProfileState] = useState<PowerProfile>("normal");
   const [logosOffWhileSurfing, setLogosOffWhileSurfingState] = useState(getPowerProfileTuning("normal").logosOffWhileSurfingDefault);
+  const [instantGuide, setInstantGuideState] = useState(true);
+  useEffect(() => {
+    const limit = getPowerProfileTuning(powerProfile).programmeRowCacheLimit;
+    setGuideProgramRowLimit(limit);
+    setProgrammeWindowCacheLimit(limit);
+  }, [powerProfile]);
+  useEffect(
+    () => subscribeAndroidMemoryPressure((pressure) => {
+      const critical = pressure === "critical";
+      // Mounted Guide rows are protected by subscriptions; SQLite/user data are
+      // never touched by Android memory-pressure cleanup.
+      trimGuideProgramRows(lastPatchRunwayIdsRef.current, critical);
+      trimProgrammeWindowCacheForMemoryPressure(lastPatchRunwayIdsRef.current, critical);
+      clearChannelLogoMemory();
+    }),
+    [],
+  );
   const [epgGuideFilter, setEpgGuideFilterState] = useState<EpgGuideFilter>("all");
   const [epgManualRemaps, setEpgManualRemapsState] = useState<Record<string, string>>({});
   const epgManualRemapsRef = useRef<Record<string, string>>({});
@@ -336,6 +376,11 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const setLogosOffWhileSurfing = useCallback((v: boolean) => {
     setLogosOffWhileSurfingState(v);
     storage.setItem(LOGOS_OFF_SURF_KEY, v);
+  }, []);
+
+  const setInstantGuide = useCallback((v: boolean) => {
+    setInstantGuideState(v);
+    storage.setItem(INSTANT_GUIDE_KEY, v);
   }, []);
 
   const setEpgGuideFilter = useCallback((v: EpgGuideFilter) => {
@@ -563,6 +608,48 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const toggleReminder = useCallback(
+    (program: Program, channel: Channel): Promise<ReminderToggleResult> => {
+      if (!program?.start || !channel?.id) return Promise.resolve("failed");
+      const key = reminderKey(channel.id, program.start);
+      const actual = remindersRef.current.some((reminder) => reminder.key === key);
+      const desired = reminderDesiredStateRef.current.has(key)
+        ? !!reminderDesiredStateRef.current.get(key)
+        : actual;
+      reminderDesiredStateRef.current.set(key, !desired);
+
+      const inFlight = reminderMutationRef.current.get(key);
+      if (inFlight) return inFlight;
+
+      const mutation = (async (): Promise<ReminderToggleResult> => {
+        while (true) {
+          const current = remindersRef.current.some((reminder) => reminder.key === key);
+          const target = reminderDesiredStateRef.current.get(key) ?? current;
+          if (current === target) {
+            reminderDesiredStateRef.current.delete(key);
+            return current ? "added" : "removed";
+          }
+          if (target) {
+            const added = await addReminder(program, channel);
+            if (!added) {
+              reminderDesiredStateRef.current.delete(key);
+              return "failed";
+            }
+          } else {
+            await removeReminder(key);
+          }
+          // Re-read the desired state: a second press may have reversed intent
+          // while notification permission/scheduling was still in flight.
+        }
+      })().finally(() => {
+        reminderMutationRef.current.delete(key);
+      });
+      reminderMutationRef.current.set(key, mutation);
+      return mutation;
+    },
+    [addReminder, removeReminder],
+  );
+
   const refresh = useCallback(async (silent = false) => {
     if (silent && isGuideSurfing()) {
       pendingSilentRefreshRef.current = true;
@@ -667,15 +754,47 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
 
     patchInFlightRef.current = true;
     const ids = Array.from(pendingPatchIdsRef.current);
+    const priorityOrder = pendingPatchPriorityIdsRef.current;
+    const prioritySet = new Set(priorityOrder);
+    const runwayGeneration = pendingPatchGenerationRef.current;
     pendingPatchIdsRef.current.clear();
+    pendingPatchPriorityIdsRef.current = [];
     const start = windowStartRef.current;
     const end = windowEndRef.current;
     try {
-      const delta = await loadGuideProgramsForChannelIds(ids, start, guideWindowHoursRef.current);
-      // Date/window changed while SQLite was reading. Do not paint an old day.
-      if (start !== windowStartRef.current || end !== windowEndRef.current) return;
-      if (delta && Object.keys(delta).length) {
-        applyGuidePrograms(makeGuideProgramWindowKey(start, end, guideEpochRef.current), delta);
+      const focusedIds = priorityOrder.slice(0, 1).filter((id) => ids.includes(id));
+      const immediateIds = priorityOrder.slice(1, 3).filter((id) => ids.includes(id));
+      const visibleIds = priorityOrder.slice(3).filter((id) => ids.includes(id));
+      const urgentIds = [...focusedIds, ...immediateIds, ...visibleIds];
+      const remainingIds = ids.filter((id) => !prioritySet.has(id));
+      const applyTier = async (tierIds: string[]) => {
+        if (!tierIds.length) return true;
+        const delta = await loadGuideProgramsForChannelIds(tierIds, start, guideWindowHoursRef.current);
+        // Date/window changed while SQLite was reading. Do not paint an old day.
+        if (start !== windowStartRef.current || end !== windowEndRef.current) return false;
+        // Focus advanced while SQLite was reading. Discard the obsolete result
+        // and reapply the newest conveyor keep set because the completed native
+        // request may have repopulated rows that the newer runway already evicted.
+        if (runwayGeneration !== runwayGenerationRef.current) {
+          retainGuidePrograms(lastPatchRunwayIdsRef.current);
+          retainProgrammeWindowCache(lastPatchRunwayIdsRef.current);
+          return false;
+        }
+        // Native returns explicit empty arrays too, clearing stale rows without
+        // waiting for the complete five-page runway.
+        if (delta && Object.keys(delta).length) {
+          applyGuidePrograms(makeGuideProgramWindowKey(start, end, guideEpochRef.current), delta);
+        }
+        return true;
+      };
+      const tiers = urgentIds.length
+        ? [focusedIds, immediateIds, visibleIds, remainingIds]
+        : [ids];
+      for (const tier of tiers) {
+        if (!(await applyTier(tier))) return;
+        // A newer runway supersedes the old tail. Finish its focused tier next
+        // instead of making held-D-pad input wait behind obsolete bridge work.
+        if (pendingPatchIdsRef.current.size > 0) return;
       }
     } catch {
       /* keep last-good programmes on the glass */
@@ -691,19 +810,46 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const patchProgramsForChannelIds = useCallback(async (channelIds: string[]) => {
+  const patchProgramsForChannelIds = useCallback(async (channelIds: string[], priorityIds: string[] = []) => {
+    // Each call is a complete eight-page runway. Keep only the newest pending
+    // window while SQLite is busy; the previous completed/in-flight pages remain
+    // cached inside the conveyor hysteresis band until retain drops them.
+    pendingPatchIdsRef.current.clear();
+    pendingPatchPriorityIdsRef.current = [];
+    const runwayGeneration = runwayGenerationRef.current + 1;
+    runwayGenerationRef.current = runwayGeneration;
+    pendingPatchGenerationRef.current = runwayGeneration;
+    lastPatchRunwayIdsRef.current = channelIds.filter(Boolean);
     for (const id of channelIds) {
       if (id) pendingPatchIdsRef.current.add(id);
     }
+    for (const id of priorityIds) {
+      if (
+        id &&
+        pendingPatchIdsRef.current.has(id) &&
+        !pendingPatchPriorityIdsRef.current.includes(id)
+      ) {
+        pendingPatchPriorityIdsRef.current.push(id);
+      }
+    }
     if (!pendingPatchIdsRef.current.size || patchInFlightRef.current || patchTimerRef.current) return;
-    // Leading-edge work keeps the next rows populated while the key is held;
-    // subsequent focus changes merge into one bounded request instead of
-    // cancelling the previous promise and leaving a blank corridor.
+    // Leading-edge work keeps the next rows populated while the key is held.
     patchTimerRef.current = setTimeout(() => {
       patchTimerRef.current = null;
       void flushProgramPatchQueue();
     }, isGuideSurfing() ? 16 : 32);
   }, [flushProgramPatchQueue]);
+
+  /**
+   * Advance the conveyor-belt keep set: drop JS + native programme rows that
+   * left the hysteresis band so held surfing cannot accumulate the playlist.
+   */
+  const retainGuideSlidingCache = useCallback((keepIds: Iterable<string>) => {
+    const keep = Array.from(keepIds).filter(Boolean);
+    if (!keep.length) return;
+    retainGuidePrograms(keep);
+    retainProgrammeWindowCache(keep);
+  }, []);
 
   const setSelectedDate = useCallback(
     (d: string) => {
@@ -726,7 +872,9 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   }, [refresh]);
 
   useEffect(() => {
-    (async () => {
+    let disposed = false;
+    let healthTimer: ReturnType<typeof setTimeout> | null = null;
+    void (async () => {
       const rawFavorites = await storage.getItem<unknown>(FAV_KEY, []);
       const cleanedFavorites = sanitizeFavoriteIds(rawFavorites);
       setFavorites(cleanedFavorites);
@@ -744,7 +892,19 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setReminders(sanitizeReminders((await storage.getItem<Reminder[]>(REM_KEY, [])) || []) as Reminder[]);
       setPointerModeState((await storage.getItem<boolean>(PMODE_KEY, false)) || false);
       setGuideLayoutState((await storage.getItem<GuideLayout>(GUIDE_LAYOUT_KEY, "cinematic")) || "cinematic");
-      setGuideDensityState((await storage.getItem<GuideDensity>(GUIDE_DENSITY_KEY, "normal")) || "normal");
+      const extraCompactDefaultApplied = await storage.getItem<boolean>(EXTRA_COMPACT_DEFAULT_MIGRATION_KEY, false);
+      const storedDensity = extraCompactDefaultApplied
+        ? await storage.getItem<GuideDensity>(GUIDE_DENSITY_KEY, "extra_compact")
+        : "extra_compact";
+      setGuideDensityState(
+        storedDensity === "large" || storedDensity === "normal" || storedDensity === "compact"
+          ? storedDensity
+          : "extra_compact",
+      );
+      if (!extraCompactDefaultApplied) {
+        void storage.setItem(GUIDE_DENSITY_KEY, "extra_compact");
+        void storage.setItem(EXTRA_COMPACT_DEFAULT_MIGRATION_KEY, true);
+      }
       setSafePreviewModeState((await storage.getItem<SafePreviewMode>(SAFE_PREVIEW_MODE_KEY, "delayed")) || "delayed");
       setChannelNumbersState((await storage.getItem<boolean>(CHANNEL_NUMBERS_KEY, false)) || false);
       setChannelLogosState((await storage.getItem<boolean>(CHANNEL_LOGOS_KEY, true)) ?? true);
@@ -762,6 +922,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
           ? rawLogosOffWhileSurfing
           : getPowerProfileTuning(profile).logosOffWhileSurfingDefault,
       );
+      setInstantGuideState((await storage.getItem<boolean>(INSTANT_GUIDE_KEY, true)) ?? true);
       setEpgGuideFilterState(resolveEpgGuideFilter(await storage.getItem<string>(EPG_GUIDE_FILTER_KEY, "all")));
       const manualRemaps = sanitizeEpgManualRemap(await storage.getItem<Record<string, string>>(EPG_MANUAL_REMAPS_KEY, {}));
       setEpgManualRemapsState(manualRemaps);
@@ -798,9 +959,11 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       // Fast paint from cache only — never block first focus with permission dialogs
       // or stacked source rebuilds (those freeze Fire TV focus on open).
       await refresh();
+      if (disposed) return;
 
       // Health check after the UI can accept D-pad input.
-      setTimeout(() => {
+      healthTimer = setTimeout(() => {
+        if (disposed) return;
         void (async () => {
           try {
             const status = await refreshSource(false);
@@ -814,6 +977,10 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
         })();
       }, 4500);
     })();
+    return () => {
+      disposed = true;
+      if (healthTimer) clearTimeout(healthTimer);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -850,7 +1017,10 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   useEffect(
     () => () => {
       if (patchTimerRef.current) clearTimeout(patchTimerRef.current);
+      runwayGenerationRef.current += 1;
       pendingPatchIdsRef.current.clear();
+      pendingPatchPriorityIdsRef.current = [];
+      lastPatchRunwayIdsRef.current = [];
       if (favoritesPersistTimer.current) clearTimeout(favoritesPersistTimer.current);
       if (favoritesPendingRef.current) void storage.setItem(FAV_KEY, favoritesPendingRef.current);
       if (recentPersistTimer.current) clearTimeout(recentPersistTimer.current);
@@ -906,6 +1076,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       refresh,
       hardRefresh,
       patchProgramsForChannelIds,
+      retainGuideSlidingCache,
       selectedDate,
       setSelectedDate,
       channelById,
@@ -921,6 +1092,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       hasReminder,
       addReminder,
       removeReminder,
+      toggleReminder,
       activeProgram,
       openProgram,
       closeProgram,
@@ -948,6 +1120,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setPowerProfile,
       logosOffWhileSurfing,
       setLogosOffWhileSurfing,
+      instantGuide,
+      setInstantGuide,
       epgGuideFilter,
       setEpgGuideFilter,
       epgManualRemaps,
@@ -977,6 +1151,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       refresh,
       hardRefresh,
       patchProgramsForChannelIds,
+      retainGuideSlidingCache,
       selectedDate,
       setSelectedDate,
       channelById,
@@ -992,6 +1167,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       hasReminder,
       addReminder,
       removeReminder,
+      toggleReminder,
       activeProgram,
       openProgram,
       closeProgram,
@@ -1019,6 +1195,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setPowerProfile,
       logosOffWhileSurfing,
       setLogosOffWhileSurfing,
+      instantGuide,
+      setInstantGuide,
       epgGuideFilter,
       setEpgGuideFilter,
       epgManualRemaps,

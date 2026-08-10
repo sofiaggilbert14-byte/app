@@ -8,9 +8,16 @@ import type { Program } from "@/src/api";
  * mounted. Putting that map in GuideProvider makes every consumer render and
  * makes FlashList receive a new data array. This store lets a row subscribe to
  * its own programme pointer only.
+ *
+ * SQLite/native EPG storage is authoritative. This JS layer is only a bounded,
+ * row-local pointer cache so guide focus never depends on an all-channel React
+ * update completing first.
  */
 const EMPTY_PROGRAMS: Program[] = [];
-const MAX_PROGRAMME_ROWS = 700;
+// Programme arrays are shared with the source cache rather than copied. A wider
+// bounded row index lets a 2,000-channel playlist reverse direction without
+// immediately rebuilding rows that were already visited.
+let maxProgrammeRows = 1800;
 
 let activeWindowKey = "";
 const programsByChannelId = new Map<string, Program[]>();
@@ -43,13 +50,33 @@ function subscribe(channelId: string, listener: () => void): () => void {
   };
 }
 
-function trim(): void {
-  while (programsByChannelId.size > MAX_PROGRAMME_ROWS) {
-    const oldest = programsByChannelId.keys().next().value as string | undefined;
-    if (!oldest) return;
-    programsByChannelId.delete(oldest);
-    notify(oldest);
+function trim(keepIds: ReadonlySet<string> = new Set()): void {
+  if (programsByChannelId.size <= maxProgrammeRows) return;
+
+  // Never evict a row while a mounted guide component is subscribed to it.
+  // Focusable rows must remain stable even when a user holds Up/Down faster
+  // than viewport EPG work can catch up.
+  for (const channelId of Array.from(programsByChannelId.keys())) {
+    if (programsByChannelId.size <= maxProgrammeRows) return;
+    if (keepIds.has(channelId) || (listenersByChannelId.get(channelId)?.size || 0) > 0) continue;
+    programsByChannelId.delete(channelId);
   }
+}
+
+export function setGuideProgramRowLimit(limit: number): void {
+  maxProgrammeRows = Math.max(128, Math.min(4000, Math.floor(limit || 1800)));
+  trim();
+}
+
+/** Memory-pressure trim that always preserves focused/visible rows and subscribers. */
+export function trimGuideProgramRows(keepIds: Iterable<string>, critical = false): void {
+  const keep = new Set(Array.from(keepIds).filter(Boolean));
+  const previous = maxProgrammeRows;
+  maxProgrammeRows = critical
+    ? Math.max(128, keep.size)
+    : Math.max(256, Math.floor(previous / 2), keep.size);
+  trim(keep);
+  maxProgrammeRows = previous;
 }
 
 /** Return a stable list reference suitable for a memoized guide row. */
@@ -62,14 +89,22 @@ export function hasGuidePrograms(channelId: string | null | undefined): boolean 
   return getGuidePrograms(channelId).length > 0;
 }
 
+export type GuideProgramRowState = "loading" | "ready" | "empty";
+
+export function getGuideProgramRowState(channelId: string | null | undefined): GuideProgramRowState {
+  if (!channelId || !programsByChannelId.has(channelId)) return "loading";
+  return (programsByChannelId.get(channelId)?.length || 0) > 0 ? "ready" : "empty";
+}
+
 /** Channel ids currently held in the bounded programme cache (for Search, etc.). */
 export function listCachedGuideChannelIds(): string[] {
   return Array.from(programsByChannelId.keys());
 }
 
 /**
- * Replace the visible guide window on a day/epoch change, otherwise merge a
- * sparse viewport delta. Callers must pass the exact rendered window key.
+ * Replace the visible time window only when the actual start/end window changes.
+ * Guide-epoch changes for the same rendered window are stale-while-revalidate:
+ * existing row pointers remain visible/focusable until fresh row deltas arrive.
  */
 export function applyGuidePrograms(
   windowKey: string,
@@ -102,8 +137,34 @@ export function clearGuidePrograms(): void {
   for (const id of ids) notify(id);
 }
 
-export function makeGuideProgramWindowKey(start: string, end: string, guideEpoch = 0): string {
-  return `${start}|${end}|${guideEpoch}`;
+/**
+ * Keep only the sliding-window channel ids. Off-window rows are dropped so a
+ * held D-pad run cannot accumulate the whole playlist in JS heap. Mounted
+ * (subscribed) rows stay until FlashList recycles them.
+ */
+export function retainGuidePrograms(keepIds: Iterable<string>): void {
+  const keep = keepIds instanceof Set ? keepIds : new Set(Array.from(keepIds).filter(Boolean));
+  if (!keep.size) return;
+  const drop: string[] = [];
+  for (const id of programsByChannelId.keys()) {
+    if (keep.has(id)) continue;
+    if ((listenersByChannelId.get(id)?.size || 0) > 0) continue;
+    drop.push(id);
+  }
+  if (!drop.length) return;
+  for (const id of drop) {
+    programsByChannelId.delete(id);
+    notify(id);
+  }
+}
+
+/**
+ * The JS render cache is keyed by the displayed time window, not native guide
+ * epoch. Native epoch still invalidates native query caches; keeping it out of
+ * this key prevents a background refresh from blanking every mounted row.
+ */
+export function makeGuideProgramWindowKey(start: string, end: string, _guideEpoch = 0): string {
+  return `${start}|${end}`;
 }
 
 /** Subscribe a rendered guide row to only its own programme pointer. */

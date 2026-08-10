@@ -6,7 +6,6 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { PurpleTvShell } from "@/src/components/PurpleTvShell";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
-import { NowPlayingBar } from "@/src/components/NowPlayingBar";
 import { useStore } from "@/src/store";
 import { Channel } from "@/src/api";
 import { fonts, radius, tvColors } from "@/src/theme";
@@ -155,8 +154,6 @@ export default function LiveTvHomeScreen() {
             <Text numberOfLines={1} style={styles.heroArtName}>{heroChannel?.name || "CHARM IPTV"}</Text>
           </View>
         </View>
-
-        <NowPlayingBar testID="home-now-playing" />
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Recently Watched Channels</Text>

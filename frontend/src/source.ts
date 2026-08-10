@@ -49,6 +49,7 @@ const TTL_MS = 24 * 60 * 60 * 1000; // refresh at most once a day
 const CACHE_ROOT = FileSystem.documentDirectory || "";
 const CACHE_FILE = CACHE_ROOT ? CACHE_ROOT + "guide_cache_v6_meta.json" : "";
 const CACHE_TMP_FILE = CACHE_FILE ? `${CACHE_FILE}.tmp` : "";
+const CACHE_BAK_FILE = CACHE_FILE ? `${CACHE_FILE}.bak` : "";
 const CACHE_CHUNK_PREFIX = "guide_cache_v5_programs_";
 const MAX_CACHE_BYTES = 64 * 1024 * 1024;
 
@@ -81,10 +82,22 @@ export function setManualEpgRemaps(_remaps: Record<string, string>): void {
 export function setViewportGuideChannelIds(_ids: string[] | null): void {
   /* native-only */
 }
+export function setProgrammeWindowCacheLimit(_limit: number): void {
+  /* native-only */
+}
+export function retainProgrammeWindowCache(_keepIds: Iterable<string>): void {
+  /* native-only */
+}
+export function trimProgrammeWindowCacheForMemoryPressure(
+  _keepIds: string[] = [],
+  _critical = false,
+): void {
+  /* native-only */
+}
 export async function loadGuideProgramsForChannelIds(
   _channelIds: string[],
   _startISO?: string,
-  _hours = 12,
+  _hours = 6,
 ): Promise<Record<string, Program[]>> {
   return {};
 }
@@ -528,7 +541,7 @@ function emit() {
 }
 
 // ---- EPG load progress (for the on-screen status bar + ETA) ----------------
-export type LoadPhase = "idle" | "channels" | "downloading" | "decompressing" | "parsing" | "indexing" | "caching" | "ready" | "error";
+export type LoadPhase = "idle" | "update_available" | "channels" | "downloading" | "decompressing" | "parsing" | "indexing" | "matching" | "caching" | "finalizing" | "ready" | "error";
 export type EpgProgress = {
   phase: LoadPhase;
   ratio: number; // 0..1 across the whole EPG step (download + parse)
@@ -560,6 +573,27 @@ function setProgress(p: Partial<EpgProgress>, force = false) {
 
 type CacheMeta = Omit<Parsed, "programs"> & { indexed: true };
 
+async function readValidCacheMeta(path: string): Promise<CacheMeta | null> {
+  if (!path) return null;
+  try {
+    const info = await FileSystem.getInfoAsync(path);
+    if (!info.exists) return null;
+    const meta = JSON.parse(await FileSystem.readAsStringAsync(path)) as CacheMeta;
+    if (
+      !meta ||
+      meta.indexed !== true ||
+      !Number.isFinite(meta.ts) ||
+      !Array.isArray(meta.channels) ||
+      !meta.channels.length
+    ) {
+      return null;
+    }
+    return meta;
+  } catch {
+    return null;
+  }
+}
+
 let persistQueue: Promise<{ programCount: number; channelCount: number }> = Promise.resolve({
   programCount: 0,
   channelCount: 0,
@@ -581,8 +615,28 @@ async function persistSnapshot(snapshot: Parsed, onProgress?: (ratio: number) =>
   const metaPayload = JSON.stringify(meta);
   if (metaPayload.length > MAX_CACHE_BYTES) throw new Error("Guide metadata cache is too large");
   await FileSystem.writeAsStringAsync(CACHE_TMP_FILE, metaPayload);
-  await FileSystem.deleteAsync(CACHE_FILE, { idempotent: true });
-  await FileSystem.moveAsync({ from: CACHE_TMP_FILE, to: CACHE_FILE });
+  if (!(await readValidCacheMeta(CACHE_TMP_FILE))) {
+    await FileSystem.deleteAsync(CACHE_TMP_FILE, { idempotent: true }).catch(() => undefined);
+    throw new Error("Guide metadata cache verification failed");
+  }
+  if (await readValidCacheMeta(CACHE_FILE)) {
+    await FileSystem.deleteAsync(CACHE_BAK_FILE, { idempotent: true }).catch(() => undefined);
+    await FileSystem.moveAsync({ from: CACHE_FILE, to: CACHE_BAK_FILE });
+  } else {
+    await FileSystem.deleteAsync(CACHE_FILE, { idempotent: true }).catch(() => undefined);
+  }
+  try {
+    await FileSystem.moveAsync({ from: CACHE_TMP_FILE, to: CACHE_FILE });
+    if (!(await readValidCacheMeta(CACHE_FILE))) throw new Error("Promoted Guide metadata is invalid");
+    await FileSystem.deleteAsync(CACHE_BAK_FILE, { idempotent: true }).catch(() => undefined);
+  } catch (error) {
+    await FileSystem.deleteAsync(CACHE_FILE, { idempotent: true }).catch(() => undefined);
+    const backup = await FileSystem.getInfoAsync(CACHE_BAK_FILE).catch(() => null);
+    if (backup?.exists) {
+      await FileSystem.moveAsync({ from: CACHE_BAK_FILE, to: CACHE_FILE }).catch(() => undefined);
+    }
+    throw error;
+  }
 
   // Remove the superseded v5 JSON chunks after the SQLite commit succeeds.
   try {
@@ -614,20 +668,8 @@ async function persist(onProgress?: (ratio: number) => void) {
 async function readCache(): Promise<Parsed | null> {
   if (Platform.OS === "web" || !CACHE_FILE) return null;
   try {
-    const info = await FileSystem.getInfoAsync(CACHE_FILE);
-    if (!info.exists) return null;
-    const txt = await FileSystem.readAsStringAsync(CACHE_FILE);
-    const meta = JSON.parse(txt) as CacheMeta;
-    if (
-      !meta ||
-      meta.indexed !== true ||
-      !Number.isFinite(meta.ts) ||
-      !Array.isArray(meta.channels) ||
-      !meta.channels.length
-    ) {
-      await FileSystem.deleteAsync(CACHE_FILE, { idempotent: true });
-      return null;
-    }
+    const meta = (await readValidCacheMeta(CACHE_FILE)) || (await readValidCacheMeta(CACHE_BAK_FILE));
+    if (!meta) return null;
     const stats = await getIndexedEpgStats();
     return {
       ...meta,
@@ -636,7 +678,6 @@ async function readCache(): Promise<Parsed | null> {
       programs: {},
     };
   } catch {
-    await clearCacheFiles();
     return null;
   }
 }
@@ -867,7 +908,7 @@ function loadEpg(channels: Channel[], force = false): Promise<void> {
         await parseXMLTVChunks(epgChunks, epgSink);
       }
 
-      setProgress({ phase: "indexing", ratio: 0.9, etaSeconds: null }, true);
+      setProgress({ phase: "indexing", ratio: 0.91, etaSeconds: null }, true);
       // Next-stop inference once after ingest — never during guide paint.
       inferMissingStopsFromNextProgram(programs);
       await nextTick();
@@ -877,6 +918,7 @@ function loadEpg(channels: Channel[], force = false): Promise<void> {
         idsWithPrograms: Object.keys(programs).filter((id) => programs[id]?.length),
       });
 
+      setProgress({ phase: "matching", ratio: 0.94, etaSeconds: null }, true);
       const applied = applyXmltvMatchesToChannels(channels, indexes, icons, { preferTvgIdOnly });
       channels = applied.channels;
       const matchedChannels = applied.quality.matched;
@@ -898,9 +940,9 @@ function loadEpg(channels: Channel[], force = false): Promise<void> {
         playlistRefreshedAt: MEM?.playlistRefreshedAt,
       };
       lastSourceError = null;
-      setProgress({ phase: "caching", ratio: 0.92, etaSeconds: null }, true);
+      setProgress({ phase: "caching", ratio: 0.96, etaSeconds: null }, true);
       const indexed = await persist((ratio) => {
-        setProgress({ phase: "caching", ratio: 0.92 + ratio * 0.08, etaSeconds: null });
+        setProgress({ phase: "caching", ratio: 0.96 + ratio * 0.03, etaSeconds: null });
       });
       // SQLite is the source of truth only when indexing actually succeeded.
       // If the DB is unavailable, keep the in-memory programme map so the guide stays populated.
@@ -912,6 +954,7 @@ function loadEpg(channels: Channel[], force = false): Promise<void> {
           epgChannelCount: indexed.channelCount,
         };
       }
+      setProgress({ phase: "finalizing", ratio: 0.99, etaSeconds: null }, true);
       emit();
       setProgress({ phase: "ready", ratio: 1, etaSeconds: 0 }, true);
     } catch (error) {
@@ -1028,7 +1071,7 @@ function windowPrograms(list: Program[] | undefined, startMs: number, endMs: num
   return out;
 }
 
-export async function loadGuide(startISO?: string, hours = 12, force = false): Promise<GuideResponse> {
+export async function loadGuide(startISO?: string, hours = 6, force = false): Promise<GuideResponse> {
   const parsed = await ensureParsed(force);
   const now = dayjs();
   const winStart = startISO ? dayjs(startISO) : now.subtract(1, "hour");
@@ -1103,7 +1146,12 @@ export async function sourceDiagnostics(): Promise<SourceDiagnostics> {
     try {
       const files = await FileSystem.readDirectoryAsync(CACHE_ROOT);
       for (const name of files) {
-        if (name === "guide_cache_v6_meta.json" || name === "guide_cache_v5_meta.json" || name.startsWith(CACHE_CHUNK_PREFIX)) {
+        if (
+          name === "guide_cache_v6_meta.json" ||
+          name === "guide_cache_v6_meta.json.bak" ||
+          name === "guide_cache_v5_meta.json" ||
+          name.startsWith(CACHE_CHUNK_PREFIX)
+        ) {
           const info = await FileSystem.getInfoAsync(CACHE_ROOT + name);
           if (info.exists && typeof info.size === "number") cacheBytes += info.size;
         }
@@ -1146,6 +1194,7 @@ async function clearCacheFiles(): Promise<void> {
       files
         .filter((name) =>
           name === "guide_cache_v6_meta.json" ||
+          name === "guide_cache_v6_meta.json.bak" ||
           name === "guide_cache_v5_meta.json" ||
           name.startsWith(CACHE_CHUNK_PREFIX)
         )
@@ -1153,6 +1202,7 @@ async function clearCacheFiles(): Promise<void> {
     );
   } catch {}
   await FileSystem.deleteAsync(CACHE_TMP_FILE, { idempotent: true });
+  await FileSystem.deleteAsync(CACHE_BAK_FILE, { idempotent: true });
 }
 
 export async function clearGuideCache(): Promise<void> {

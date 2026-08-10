@@ -1,6 +1,8 @@
 import os
 import re
 import gzip
+import io
+import tempfile
 import asyncio
 import logging
 import ipaddress
@@ -95,6 +97,11 @@ api_router = APIRouter(prefix="/api")
 
 DEFAULT_M3U = os.environ.get("SOURCE_M3U_URL", "")
 DEFAULT_EPG = os.environ.get("SOURCE_EPG_URL", "")
+MAX_PLAYLIST_DOWNLOAD_BYTES = int(os.environ.get("MAX_PLAYLIST_DOWNLOAD_BYTES", str(64 * 1024 * 1024)))
+MAX_EPG_DOWNLOAD_BYTES = int(os.environ.get("MAX_EPG_DOWNLOAD_BYTES", str(256 * 1024 * 1024)))
+MAX_EPG_DECOMPRESSED_BYTES = int(os.environ.get("MAX_EPG_DECOMPRESSED_BYTES", str(512 * 1024 * 1024)))
+MAX_PROXY_BYTES = int(os.environ.get("MAX_PROXY_BYTES", str(64 * 1024 * 1024)))
+SPOOL_MEMORY_BYTES = 8 * 1024 * 1024
 
 # ---------------------------------------------------------------------------
 # In-memory cache of parsed guide data
@@ -181,84 +188,137 @@ def _parse_xmltv_time(s: str) -> Optional[datetime]:
         return None
 
 
-def parse_xmltv(text: str):
+def parse_xmltv(source):
     """Return (icons_by_channel_id, programs_by_channel_id)."""
     icons = {}
     programs = {}
-    # iterparse for memory efficiency
+    stream = io.BytesIO(source.encode("utf-8")) if isinstance(source, str) else source
     try:
-        root = ET.fromstring(text)
-    except ET.ParseError as e:
+        iterator = ET.iterparse(stream, events=("start", "end"))
+        _, root = next(iterator)
+    except (ET.ParseError, StopIteration) as e:
         logger.warning("XMLTV parse error: %s", e)
         return icons, programs
 
-    for ch in root.findall("channel"):
-        cid = ch.get("id", "")
-        icon_el = ch.find("icon")
-        if cid and icon_el is not None and icon_el.get("src"):
-            icons[cid] = icon_el.get("src")
-
-    for pr in root.findall("programme"):
-        cid = pr.get("channel", "")
-        start = _parse_xmltv_time(pr.get("start", ""))
-        stop = _parse_xmltv_time(pr.get("stop", ""))
-        if not cid or start is None:
-            continue
-        title_el = pr.find("title")
-        desc_el = pr.find("desc")
-        cat_el = pr.find("category")
-        programs.setdefault(cid, []).append({
-            "title": (title_el.text or "").strip() if title_el is not None else "No Title",
-            "desc": (desc_el.text or "").strip() if desc_el is not None else "",
-            "category": (cat_el.text or "").strip() if cat_el is not None else "",
-            "start": start.isoformat(),
-            "stop": stop.isoformat() if stop else None,
-        })
+    try:
+        for event, elem in iterator:
+            if event != "end":
+                continue
+            tag = elem.tag.rsplit("}", 1)[-1]
+            if tag == "channel":
+                cid = elem.get("id", "")
+                icon_el = next(
+                    (child for child in elem if child.tag.rsplit("}", 1)[-1] == "icon"),
+                    None,
+                )
+                if cid and icon_el is not None and icon_el.get("src"):
+                    icons[cid] = icon_el.get("src")
+                elem.clear()
+                root.clear()
+            elif tag == "programme":
+                cid = elem.get("channel", "")
+                start = _parse_xmltv_time(elem.get("start", ""))
+                stop = _parse_xmltv_time(elem.get("stop", ""))
+                if cid and start is not None:
+                    children = {
+                        child.tag.rsplit("}", 1)[-1]: child
+                        for child in elem
+                        if child.tag.rsplit("}", 1)[-1] in {"title", "desc", "category"}
+                    }
+                    title_el = children.get("title")
+                    desc_el = children.get("desc")
+                    cat_el = children.get("category")
+                    programs.setdefault(cid, []).append({
+                        "title": (title_el.text or "").strip() if title_el is not None else "No Title",
+                        "desc": (desc_el.text or "").strip() if desc_el is not None else "",
+                        "category": (cat_el.text or "").strip() if cat_el is not None else "",
+                        "start": start.isoformat(),
+                        "stop": stop.isoformat() if stop else None,
+                    })
+                elem.clear()
+                root.clear()
+    except ET.ParseError as e:
+        logger.warning("XMLTV parse error: %s", e)
+        return {}, {}
 
     for cid in programs:
         programs[cid].sort(key=lambda p: p["start"])
     return icons, programs
 
 
-def _fetch(url: str) -> str:
-    resp = requests.get(
-        url,
-        timeout=60,
-        allow_redirects=True,
-        headers={
-            "User-Agent": "GridStream/1.0",
-            "Accept-Encoding": "gzip, deflate",
-        },
-    )
-    resp.raise_for_status()
+def _copy_bounded(reader, writer, limit: int, label: str):
+    total = 0
+    while True:
+        chunk = reader.read(64 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > limit:
+            raise RuntimeError(f"{label} exceeded the configured size limit")
+        writer.write(chunk)
+    writer.seek(0)
 
-    data = resp.content
 
-    # Detect gzip files by their first two bytes.
-    if data.startswith(b"\x1f\x8b"):
-        try:
-            data = gzip.decompress(data)
-        except gzip.BadGzipFile as exc:
-            raise RuntimeError(
-                "EPG response could not be decompressed"
-            ) from exc
+def _declared_content_length(headers) -> int:
+    try:
+        return max(0, int(headers.get("Content-Length") or 0))
+    except (TypeError, ValueError):
+        return 0
 
-    return data.decode("utf-8-sig", errors="replace")
+
+def _fetch_spooled(url: str, compressed_limit: int, decoded_limit: int):
+    compressed = tempfile.SpooledTemporaryFile(max_size=SPOOL_MEMORY_BYTES, mode="w+b")
+    decoded = tempfile.SpooledTemporaryFile(max_size=SPOOL_MEMORY_BYTES, mode="w+b")
+    try:
+        with requests.get(
+            url,
+            timeout=60,
+            allow_redirects=True,
+            stream=True,
+            headers={"User-Agent": "GridStream/1.0", "Accept-Encoding": "gzip"},
+        ) as resp:
+            resp.raise_for_status()
+            content_length = _declared_content_length(resp.headers)
+            if content_length > compressed_limit:
+                raise RuntimeError("Source exceeded the configured download limit")
+            resp.raw.decode_content = False
+            _copy_bounded(resp.raw, compressed, compressed_limit, "Source download")
+
+        magic = compressed.read(2)
+        compressed.seek(0)
+        if magic == b"\x1f\x8b":
+            with gzip.GzipFile(fileobj=compressed, mode="rb") as inflated:
+                _copy_bounded(inflated, decoded, decoded_limit, "Decompressed source")
+            compressed.close()
+            return decoded
+
+        if compressed_limit > decoded_limit:
+            _copy_bounded(compressed, decoded, decoded_limit, "Source")
+            compressed.close()
+            return decoded
+        decoded.close()
+        compressed.seek(0)
+        return compressed
+    except Exception:
+        compressed.close()
+        decoded.close()
+        raise
 
 
 def _do_refresh(m3u_url: str, epg_url: str):
     logger.info("Refreshing sources...")
-    m3u_text = _fetch(m3u_url)
+    with _fetch_spooled(m3u_url, MAX_PLAYLIST_DOWNLOAD_BYTES, MAX_PLAYLIST_DOWNLOAD_BYTES) as m3u_file:
+        m3u_text = m3u_file.read().decode("utf-8-sig", errors="replace")
     channels = parse_m3u(m3u_text)
     icons, programs = ({}, {})
     if epg_url:
         try:
-            epg_text = _fetch(epg_url)
-
-            if "<tv" not in epg_text[:1000]:
-                raise ValueError("EPG response is not valid XMLTV data")
-
-            icons, programs = parse_xmltv(epg_text)
+            with _fetch_spooled(epg_url, MAX_EPG_DOWNLOAD_BYTES, MAX_EPG_DECOMPRESSED_BYTES) as epg_file:
+                prefix = epg_file.read(4096).decode("utf-8-sig", errors="replace")
+                epg_file.seek(0)
+                if "<tv" not in prefix:
+                    raise ValueError("EPG response is not valid XMLTV data")
+                icons, programs = parse_xmltv(epg_file)
         except Exception as e:
             logger.warning("EPG fetch/parse failed: %s", e)
     # merge logos from EPG when M3U logo missing; force https so mobile/web can load them
@@ -367,10 +427,11 @@ def _assert_safe_proxy_url(url: str) -> str:
         raise HTTPException(status_code=400, detail="Proxy destination is not allowed")
 
     allowlist_raw = os.environ.get("PROXY_ALLOW_HOSTS", "").strip()
-    if allowlist_raw:
-        allowed = {h.strip().lower() for h in allowlist_raw.split(",") if h.strip()}
-        if host not in allowed:
-            raise HTTPException(status_code=400, detail="Proxy destination is not allowlisted")
+    if not allowlist_raw:
+        raise HTTPException(status_code=503, detail="Proxy is not configured")
+    allowed = {h.strip().lower() for h in allowlist_raw.split(",") if h.strip()}
+    if host not in allowed:
+        raise HTTPException(status_code=400, detail="Proxy destination is not allowlisted")
 
     try:
         infos = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80))
@@ -392,11 +453,13 @@ async def proxy(url: str):
     Returns raw bytes with the upstream content-type so gzipped EPG data
     survives the hop intact for client-side inflation."""
     safe_url = _assert_safe_proxy_url(url)
+    r = None
     try:
         r = requests.get(
             safe_url,
             timeout=45,
             allow_redirects=False,
+            stream=True,
             headers={"User-Agent": "Mozilla/5.0 (GridStream)"},
         )
         # Follow a bounded number of redirects only to re-validated hosts.
@@ -407,22 +470,37 @@ async def proxy(url: str):
                 break
             next_url = urljoin(safe_url, location)
             safe_url = _assert_safe_proxy_url(next_url)
+            r.close()
             r = requests.get(
                 safe_url,
                 timeout=45,
                 allow_redirects=False,
+                stream=True,
                 headers={"User-Agent": "Mozilla/5.0 (GridStream)"},
             )
             redirects += 1
+        if r.is_redirect:
+            raise HTTPException(status_code=502, detail="Proxy redirect limit exceeded")
         r.raise_for_status()
+        content_length = _declared_content_length(r.headers)
+        if content_length > MAX_PROXY_BYTES:
+            raise RuntimeError("Proxy response exceeded the configured size limit")
+        body = io.BytesIO()
+        r.raw.decode_content = True
+        _copy_bounded(r.raw, body, MAX_PROXY_BYTES, "Proxy response")
+        r.close()
         return Response(
-            content=r.content,
+            content=body.getvalue(),
             media_type=r.headers.get("Content-Type", "application/octet-stream"),
         )
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Proxy fetch failed: {e}")
+    except Exception:
+        logger.exception("Proxy fetch failed")
+        raise HTTPException(status_code=502, detail="Proxy fetch failed")
+    finally:
+        if r is not None:
+            r.close()
 
 
 
@@ -431,24 +509,24 @@ async def source_status():
     m3u_url, epg_url = await get_source_urls()
     channels_with_epg = sum(1 for c in CACHE["channels"] if c["tvg_id"] in CACHE["programs"])
     return {
-        "m3u_url": m3u_url,
-        "epg_url": epg_url,
+        "m3u_url": "configured" if m3u_url else "not configured",
+        "epg_url": "configured" if epg_url else "not configured",
         "channel_count": len(CACHE["channels"]),
         "channels_with_epg": channels_with_epg,
         "last_refresh": CACHE["last_refresh"].isoformat() if CACHE["last_refresh"] else None,
         "refreshing": CACHE["refreshing"],
-        "error": CACHE["error"],
+        "error": "refresh_failed" if CACHE["error"] else None,
     }
 
 
 @api_router.post("/refresh")
-async def force_refresh():
+async def force_refresh(_: str = Depends(require_admin)):
     await refresh_cache(force=True)
     return await source_status()
 
 
 @api_router.get("/settings")
-async def get_settings():
+async def get_settings(_: str = Depends(require_admin)):
     m3u_url, epg_url = await get_source_urls()
     return {"m3u_url": m3u_url, "epg_url": epg_url}
 
@@ -536,12 +614,17 @@ async def search(q: str):
 
 app.include_router(api_router)
 
+cors_origins = [
+    origin.strip()
+    for origin in os.environ.get("CORS_ALLOW_ORIGINS", "").split(",")
+    if origin.strip() and origin.strip() != "*"
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_credentials=bool(cors_origins),
+    allow_origins=cors_origins,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 

@@ -17,7 +17,9 @@ function moduleKt(pkg) {
 
 import android.os.SystemClock
 import android.view.MotionEvent
-import android.view.View
+import android.media.MediaCodecList
+import com.facebook.react.bridge.Arguments
+import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
@@ -31,47 +33,12 @@ class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBas
     // JVM level with the @ReactMethod fun setPointerActive(...) below.
     @JvmField
     var pointerActive: Boolean = false
-
-    @JvmField
-    var guideNavigationActive: Boolean = false
+    private const val MAX_SANE_CODEC_DIMENSION = 16_384
   }
 
   @ReactMethod
   fun setPointerActive(active: Boolean) {
     pointerActive = active
-  }
-
-  @ReactMethod
-  fun setGuideNavigationActive(active: Boolean) {
-    guideNavigationActive = active
-  }
-
-  @ReactMethod
-  fun focusView(reactTag: Double) {
-    val activity = ctx.currentActivity ?: return
-    activity.runOnUiThread {
-      try {
-        activity.findViewById<View>(reactTag.toInt())?.requestFocus()
-      } catch (e: Throwable) {}
-    }
-  }
-
-  @ReactMethod
-  fun moveFocus(direction: String) {
-    val activity = ctx.currentActivity ?: return
-    activity.runOnUiThread {
-      try {
-        val current = activity.currentFocus ?: return@runOnUiThread
-        val nativeDirection = when (direction.uppercase()) {
-          "UP" -> View.FOCUS_UP
-          "DOWN" -> View.FOCUS_DOWN
-          "LEFT" -> View.FOCUS_LEFT
-          "RIGHT" -> View.FOCUS_RIGHT
-          else -> return@runOnUiThread
-        }
-        current.focusSearch(nativeDirection)?.requestFocus()
-      } catch (e: Throwable) {}
-    }
   }
 
   @ReactMethod
@@ -91,12 +58,56 @@ class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBas
     }
   }
 
+  /** One-shot codec diagnostics; never run during channel changes. */
+  @ReactMethod
+  fun getCodecCapabilities(promise: Promise) {
+    try {
+      val mimeTypes = LinkedHashSet<String>()
+      var maxWidth = 0
+      var maxHeight = 0
+      for (info in MediaCodecList(MediaCodecList.ALL_CODECS).codecInfos) {
+        if (info.isEncoder) continue
+        for (type in info.supportedTypes) {
+          val mime = type.lowercase()
+          mimeTypes.add(mime)
+          if (mime.startsWith("video/")) {
+            try {
+              val video = info.getCapabilitiesForType(type).videoCapabilities
+              val advertisedWidth = video.supportedWidths.upper
+              val advertisedHeight = video.supportedHeights.upper
+              if (advertisedWidth in 1..MAX_SANE_CODEC_DIMENSION) {
+                maxWidth = maxOf(maxWidth, advertisedWidth)
+              }
+              if (advertisedHeight in 1..MAX_SANE_CODEC_DIMENSION) {
+                maxHeight = maxOf(maxHeight, advertisedHeight)
+              }
+            } catch (_: Throwable) {}
+          }
+        }
+      }
+      promise.resolve(Arguments.createMap().apply {
+        putBoolean("h264", mimeTypes.contains("video/avc"))
+        putBoolean("hevc", mimeTypes.contains("video/hevc"))
+        putBoolean("vp9", mimeTypes.contains("video/x-vnd.on2.vp9"))
+        putBoolean("av1", mimeTypes.contains("video/av01"))
+        putBoolean("aac", mimeTypes.contains("audio/mp4a-latm"))
+        putBoolean("ac3", mimeTypes.contains("audio/ac3"))
+        putBoolean("eac3", mimeTypes.contains("audio/eac3") || mimeTypes.contains("audio/eac3-joc"))
+        putInt("maxWidth", maxWidth)
+        putInt("maxHeight", maxHeight)
+      })
+    } catch (t: Throwable) {
+      promise.reject("CODEC_REPORT_FAILED", t.message ?: "Codec report unavailable", t)
+    }
+  }
+
   // Required so JS NativeEventEmitter doesn't warn.
   @ReactMethod
   fun addListener(eventName: String) {}
 
   @ReactMethod
   fun removeListeners(count: Int) {}
+
 }
 `;
 }
@@ -172,12 +183,46 @@ function withTvRemotePackageRegistered(config) {
         }
       }
     }
+    if (!src.includes("android.content.ComponentCallbacks2")) {
+      src = src.replace("import android.app.Application", "import android.app.Application\nimport android.content.ComponentCallbacks2");
+    }
+    if (!src.includes("DeviceEventManagerModule")) {
+      src = src.replace(
+        "import com.facebook.react.defaults.DefaultReactNativeHost",
+        "import com.facebook.react.defaults.DefaultReactNativeHost\nimport com.facebook.react.modules.core.DeviceEventManagerModule",
+      );
+    }
+    if (!src.includes("override fun onTrimMemory")) {
+      const method = `
+
+  override fun onTrimMemory(level: Int) {
+    super.onTrimMemory(level)
+    val pressure = when {
+      level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL ||
+        level >= ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> "critical"
+      level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW -> "moderate"
+      else -> null
+    } ?: return
+    try {
+      reactNativeHost.reactInstanceManager.currentReactContext
+        ?.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+        ?.emit("CharmMemoryPressure", pressure)
+    } catch (_: Throwable) {}
+  }
+`;
+      const closing = src.lastIndexOf("}");
+      if (closing > 0) src = src.slice(0, closing) + method + src.slice(closing);
+    }
     cfg.modResults.contents = src;
     return cfg;
   });
 }
 
 function hardenMainActivity(src) {
+  src = src
+    .replace(/private val minDpadRepeatMs = \d+L/, "private val minDpadRepeatMs = 32L")
+    .replace(/private const val MIN_DPAD_REPEAT_MS = \d+L/, "private const val MIN_DPAD_REPEAT_MS = 32L")
+    .replace(/\n\s*TvRemoteModule\.guideNavigationActive = false/g, "");
   const classMatch = src.match(/class\s+MainActivity[^{]*\{/);
   if (classMatch && !src.includes("lastAcceptedDirectionalRepeatAt")) {
     const idx = src.indexOf(classMatch[0]) + classMatch[0].length;
@@ -185,7 +230,11 @@ function hardenMainActivity(src) {
 
   private var lastAcceptedDirectionalRepeatAt = 0L
   private var lastAcceptedDirectionalKeyCode = -1
-  private val minDpadRepeatMs = 40L
+  private val minDpadRepeatMs = 32L
+  private val maxDpadTapMs = 560L
+  private var activeDirectionalKeyCode = -1
+  private var activeDirectionalDownAt = 0L
+  private var activeDirectionalRepeated = false
 `;
     src = src.slice(0, idx) + fields + src.slice(idx);
     src = src.replace(
@@ -200,15 +249,42 @@ function hardenMainActivity(src) {
       if (event.repeatCount == 0) {
         lastAcceptedDirectionalKeyCode = event.keyCode
         lastAcceptedDirectionalRepeatAt = event.eventTime
+        activeDirectionalKeyCode = event.keyCode
+        activeDirectionalDownAt = event.eventTime
+        activeDirectionalRepeated = false
       } else {
+        activeDirectionalRepeated = true
         val elapsed = event.eventTime - lastAcceptedDirectionalRepeatAt
         if (event.keyCode == lastAcceptedDirectionalKeyCode && elapsed < minDpadRepeatMs) return true
         lastAcceptedDirectionalKeyCode = event.keyCode
         lastAcceptedDirectionalRepeatAt = event.eventTime
       }
     } else if (event.action == android.view.KeyEvent.ACTION_UP && directional) {
+      val completedShortTap =
+        !activeDirectionalRepeated &&
+          activeDirectionalKeyCode == event.keyCode &&
+          event.eventTime - activeDirectionalDownAt in 0..maxDpadTapMs
+      if (completedShortTap && !TvRemoteModule.pointerActive) {
+        val tapKey = when (event.keyCode) {
+          android.view.KeyEvent.KEYCODE_DPAD_UP -> "UP"
+          android.view.KeyEvent.KEYCODE_DPAD_DOWN -> "DOWN"
+          else -> null
+        }
+        if (tapKey != null) {
+          try {
+            val app = application as com.facebook.react.ReactApplication
+            val rc = try { app.reactHost?.currentReactContext } catch (e: Throwable) { null }
+              ?: try { app.reactNativeHost.reactInstanceManager.currentReactContext } catch (e: Throwable) { null }
+            rc?.getJSModule(com.facebook.react.modules.core.DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+              ?.emit("TvDpadTap", tapKey)
+          } catch (_: Throwable) {}
+        }
+      }
       lastAcceptedDirectionalKeyCode = -1
       lastAcceptedDirectionalRepeatAt = 0L
+      activeDirectionalKeyCode = -1
+      activeDirectionalDownAt = 0L
+      activeDirectionalRepeated = false
     }
 `,
     );
@@ -227,7 +303,6 @@ function hardenMainActivity(src) {
   override fun onDestroy() {
     // Static remote flags must never survive an Activity/bridge teardown.
     TvRemoteModule.pointerActive = false
-    TvRemoteModule.guideNavigationActive = false
     super.onDestroy()
   }
 

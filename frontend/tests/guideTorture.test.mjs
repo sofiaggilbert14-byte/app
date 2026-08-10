@@ -25,7 +25,7 @@ test("approved channel rail reserves two readable name lines beside number and l
 
 test("channel rail keeps usable name width across density and visibility settings", () => {
   for (const width of [720, 1280, 1920]) {
-    for (const density of ["large", "normal", "compact"]) {
+    for (const density of ["large", "normal", "compact", "extra_compact"]) {
       for (const numbers of [false, true]) {
         for (const logos of [false, true]) {
           const metrics = getGuideRailMetrics(width, density, numbers, logos);
@@ -67,9 +67,9 @@ test("guide boundary policy distinguishes channel rail, timeline, top, and botto
   assert.equal(decide("right", "channel", 50).boundary, null);
 });
 
-test("timeline uses the approved two-line rail and shared torture-tested navigation policy", async () => {
+test("timeline uses adaptive one/two-line rail metrics and shared torture-tested navigation policy", async () => {
   const source = await readFile(join(root, "src/components/TimelineGrid.tsx"), "utf8");
-  assert.match(source, /CHANNEL_NAME_MAX_LINES/);
+  assert.match(source, /nameMaxLines=\{railMetrics\.channelNameMaxLines\}/);
   assert.match(source, /adjustsFontSizeToFit/);
   assert.match(source, /minimumFontScale=\{0\.82\}/);
   assert.match(source, /getGuideRailMetrics/);
@@ -84,7 +84,7 @@ test("guide session keeps preview, modal, refresh, and route-loop safety wiring"
     readFile(join(root, "app/player.tsx"), "utf8"),
     readFile(join(root, "src/components/ProgramModal.tsx"), "utf8"),
   ]);
-  assert.match(guide, /previewId === previewChannel\.id/);
+  assert.match(guide, /previewId === channel\.id/);
   assert.match(guide, /GuidePreviewRail/);
   assert.match(guide, /previewEpoch=\{previewEpoch\}/);
   assert.match(guide, /if \(previewTimer\.current\) clearTimeout\(previewTimer\.current\)/);
