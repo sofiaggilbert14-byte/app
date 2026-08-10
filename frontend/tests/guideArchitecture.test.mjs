@@ -103,6 +103,11 @@ test("EPG screen delivery uses an eight-page conveyor runway with retained bound
   assert.match(native, /queriedPlaylistIds\.has\(channel\.id\)/);
   assert.match(store, /pendingPatchIdsRef\.current\.clear\(\)/);
   assert.match(store, /runwayGenerationRef/);
+  assert.match(native, /programmeWindowCacheKey !== cacheKey\) return \{\}/);
+  assert.match(store, /guideEpoch !== guideEpochRef\.current/);
+  assert.match(store, /releaseGuideSlidingCache/);
+  assert.match(guide, /releaseGuideSlidingCache\(\)/);
+  assert.match(store, /resolveStoredGuideLayout/);
   assert.match(store, /runwayGeneration !== runwayGenerationRef\.current/);
   assert.match(store, /retainProgrammeWindowCache\(lastPatchRunwayIdsRef\.current\)/);
   assert.match(native, /hours = 6/);
@@ -129,4 +134,22 @@ test("EPG finalization reports truthful late phases and skips identical match wr
   assert.match(native, /policyUnchanged && epgUnchanged/);
   assert.match(bar, /phase === "matching"/);
   assert.match(bar, /phase === "finalizing"/);
+});
+
+test("release hardening rejects stale epochs, trims on Guide blur, and derives APK identity", async () => {
+  const [native, store, guide, workflow, workerPackage] = await Promise.all([
+    source("src/source.native.ts"),
+    source("src/store.tsx"),
+    source("app/(tabs)/guide.tsx"),
+    source("../.github/workflows/purple-tv-ui.yml"),
+    source("../cloudflare-backend/worker/package.json"),
+  ]);
+  assert.match(native, /programmeWindowCacheKey !== cacheKey\) return \{\}/);
+  assert.match(store, /guideEpoch !== guideEpochRef\.current/);
+  assert.match(store, /runwayGenerationRef\.current \+= 1/);
+  assert.match(store, /trimGuideProgramRows\(keep, true\)/);
+  assert.match(guide, /releaseGuideSlidingCache\(\)/);
+  assert.match(workflow, /require\("\.\/app\.json"\)\.expo\.version/);
+  assert.match(workflow, /TESTER_RELEASE_NOTES_\$\{APP_VERSION\}\.md/);
+  assert.match(workerPackage, /--config \.\.\/\.\.\/wrangler\.toml/);
 });
