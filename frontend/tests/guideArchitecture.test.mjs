@@ -102,6 +102,9 @@ test("EPG screen delivery uses an eight-page conveyor runway with retained bound
   assert.match(native, /for \(const id of unique\)/);
   assert.match(native, /queriedPlaylistIds\.has\(channel\.id\)/);
   assert.match(store, /pendingPatchIdsRef\.current\.clear\(\)/);
+  assert.match(store, /runwayGenerationRef/);
+  assert.match(store, /runwayGeneration !== runwayGenerationRef\.current/);
+  assert.match(store, /retainProgrammeWindowCache\(lastPatchRunwayIdsRef\.current\)/);
   assert.match(native, /hours = 6/);
   assert.match(programStore, /maxProgrammeRows = 1800/);
   assert.match(programStore, /setGuideProgramRowLimit/);
@@ -127,3 +130,4 @@ test("EPG finalization reports truthful late phases and skips identical match wr
   assert.match(bar, /phase === "matching"/);
   assert.match(bar, /phase === "finalizing"/);
 });
+

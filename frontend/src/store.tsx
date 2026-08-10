@@ -127,7 +127,7 @@ export type Store = {
   hardRefresh: () => Promise<void>;
   /** Fetch/attach programmes for a viewport ring without a full guide rebuild. */
   patchProgramsForChannelIds: (channelIds: string[], priorityIds?: string[]) => Promise<void>;
-  /** Conveyor-belt eviction — keep only the hysteresis band around the runway. */
+  /** Conveyor-belt eviction â€” keep only the hysteresis band around the runway. */
   retainGuideSlidingCache: (keepIds: Iterable<string>) => void;
   selectedDate: string;
   setSelectedDate: (d: string) => void;
@@ -227,6 +227,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const pendingPatchIdsRef = useRef(new Set<string>());
   const pendingPatchPriorityIdsRef = useRef<string[]>([]);
   const lastPatchRunwayIdsRef = useRef<string[]>([]);
+  const runwayGenerationRef = useRef(0);
+  const pendingPatchGenerationRef = useRef(0);
   const windowStartRef = useRef("");
   const windowEndRef = useRef("");
   const guideEpochRef = useRef(0);
@@ -293,7 +295,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
 
   const favoritesSet = useMemo(() => new Set(favorites), [favorites]);
 
-  // Resolve recent IDs against the live channel list — never keep fat Channel+programs in KV.
+  // Resolve recent IDs against the live channel list â€” never keep fat Channel+programs in KV.
   const recent = useMemo(() => {
     const out: Channel[] = [];
     for (const id of recentIds) {
@@ -478,230 +480,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
 
   const isFavorite = useCallback((id: string) => favoritesSet.has(id), [favoritesSet]);
 
-  // Debounce AsyncStorage writes — rapid long-press favorites were hitching Fire TV I/O.
-  const favoritesPersistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const favoritesPendingRef = useRef<string[] | null>(null);
-  const persistFavorites = useCallback((next: string[]) => {
-    favoritesPendingRef.current = next;
-    if (favoritesPersistTimer.current) clearTimeout(favoritesPersistTimer.current);
-    favoritesPersistTimer.current = setTimeout(() => {
-      const payload = favoritesPendingRef.current;
-      favoritesPendingRef.current = null;
-      if (payload) void storage.setItem(FAV_KEY, payload);
-    }, 450);
-  }, []);
-
-  const toggleFavorite = useCallback((id: string) => {
-    startTransition(() => {
-      setFavorites((prev) => {
-        const next = toggleFavoriteId(prev, id);
-        if (next === prev) return prev;
-        persistFavorites(next);
-        return next;
-      });
-    });
-  }, [persistFavorites]);
-
-  const replaceFavorites = useCallback((ids: string[]) => {
-    const next = sanitizeFavoriteIds(ids);
-    startTransition(() => setFavorites(next));
-    persistFavorites(next);
-  }, [persistFavorites]);
-
-  const recentPersistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const recentPendingRef = useRef<string[] | null>(null);
-  const persistRecent = useCallback((next: string[]) => {
-    recentPendingRef.current = next;
-    if (recentPersistTimer.current) clearTimeout(recentPersistTimer.current);
-    recentPersistTimer.current = setTimeout(() => {
-      const payload = recentPendingRef.current;
-      recentPendingRef.current = null;
-      if (!payload) return;
-      void storage.setItem(RECENT_KEY, payload);
-      if (payload[0]) void storage.setItem(LAST_CHANNEL_KEY, payload[0]);
-    }, 450);
-  }, []);
-
-  const addRecent = useCallback((c: Channel) => {
-    if (!c?.id) return;
-    setLastChannelId(c.id);
-    setRecentIds((prev) => {
-      const next = pushRecentId(prev, c.id);
-      if (next.length === prev.length && next.every((id, i) => id === prev[i])) {
-        return prev;
-      }
-      persistRecent(next);
-      return next;
-    });
-  }, [persistRecent]);
-
-  // Intentionally do NOT prune favorite/recent IDs when the playlist loads.
-  // A partial or temporary channel list must never wipe user favorites from KV.
-  // UI filters already hide IDs that are not in the current playlist.
-
-  const hasReminder = useCallback((key: string) => remindersSet.has(key), [remindersSet]);
-
-  const addReminder = useCallback(async (program: Program, channel: Channel) => {
-    try {
-      if (!program?.start || !channel?.id) return false;
-      const key = reminderKey(channel.id, program.start);
-      if (remindersRef.current.some((r) => r.key === key)) return true;
-      const granted = await requestNotificationPermission();
-      if (!granted) return false;
-      const id = await scheduleProgramReminder({
-        title: `${program.title || "Program"} is starting`,
-        body: `On ${channel.name || "channel"}. Tap to switch channel.`,
-        date: new Date(program.start),
-        data: { channelId: channel.id },
-      });
-      if (!id) return false;
-      const rem: Reminder = {
-        key,
-        notificationId: id,
-        channelId: channel.id,
-        channelName: channel.name,
-        programTitle: program.title,
-        start: program.start,
-        stop: program.stop,
-      };
-      // Update ref synchronously so immediate hasReminder / toggle reads are correct.
-      remindersRef.current = sanitizeReminders([
-        ...remindersRef.current.filter((r) => r.key !== key),
-        rem,
-      ]) as Reminder[];
-      setReminders((prev) => {
-        const next = sanitizeReminders([...prev.filter((r) => r.key !== key), rem]) as Reminder[];
-        try {
-          storage.setItem(REM_KEY, next);
-        } catch {}
-        return next;
-      });
-      return true;
-    } catch {
-      return false;
-    }
-  }, []);
-
-  const removeReminder = useCallback(async (key: string) => {
-    try {
-      if (!key) return;
-      const rem = remindersRef.current.find((r) => r.key === key);
-      // Flip UI / store immediately; cancel the OS notification after paint.
-      remindersRef.current = remindersRef.current.filter((r) => r.key !== key);
-      setReminders((prev) => {
-        const next = prev.filter((r) => r.key !== key);
-        try {
-          storage.setItem(REM_KEY, next);
-        } catch {}
-        return next;
-      });
-      if (rem?.notificationId) {
-        const notificationId = rem.notificationId;
-        setTimeout(() => {
-          void cancelReminder(notificationId).catch(() => {});
-        }, 0);
-      }
-    } catch {
-      // Never let reminder cleanup take down the guide.
-    }
-  }, []);
-
-  const toggleReminder = useCallback(
-    (program: Program, channel: Channel): Promise<ReminderToggleResult> => {
-      if (!program?.start || !channel?.id) return Promise.resolve("failed");
-      const key = reminderKey(channel.id, program.start);
-      const actual = remindersRef.current.some((reminder) => reminder.key === key);
-      const desired = reminderDesiredStateRef.current.has(key)
-        ? !!reminderDesiredStateRef.current.get(key)
-        : actual;
-      reminderDesiredStateRef.current.set(key, !desired);
-
-      const inFlight = reminderMutationRef.current.get(key);
-      if (inFlight) return inFlight;
-
-      const mutation = (async (): Promise<ReminderToggleResult> => {
-        while (true) {
-          const current = remindersRef.current.some((reminder) => reminder.key === key);
-          const target = reminderDesiredStateRef.current.get(key) ?? current;
-          if (current === target) {
-            reminderDesiredStateRef.current.delete(key);
-            return current ? "added" : "removed";
-          }
-          if (target) {
-            const added = await addReminder(program, channel);
-            if (!added) {
-              reminderDesiredStateRef.current.delete(key);
-              return "failed";
-            }
-          } else {
-            await removeReminder(key);
-          }
-          // Re-read the desired state: a second press may have reversed intent
-          // while notification permission/scheduling was still in flight.
-        }
-      })().finally(() => {
-        reminderMutationRef.current.delete(key);
-      });
-      reminderMutationRef.current.set(key, mutation);
-      return mutation;
-    },
-    [addReminder, removeReminder],
-  );
-
-  const refresh = useCallback(async (silent = false) => {
-    if (silent && isGuideSurfing()) {
-      pendingSilentRefreshRef.current = true;
-      return;
-    }
-    const requestId = ++refreshRequestRef.current;
-    if (!silent) setLoading(true);
-    setError(null);
-    try {
-      const day = dayjs(dateRef.current);
-      const isToday = day.isSame(dayjs(), "day");
-      const start = isToday ? undefined : day.startOf("day").toISOString();
-      const data = await loadGuide(start, guideWindowHoursRef.current);
-      if (requestId !== refreshRequestRef.current) return;
-      // A refresh that began just before held D-pad input must never land a
-      // whole-guide update under native focus. Keep its data out of React and
-      // request one fresh, scoped refresh after surf settles.
-      if (silent && isGuideSurfing()) {
-        pendingSilentRefreshRef.current = true;
-        return;
-      }
-      // Keep channel meta stable when identity/order unchanged; always merge programmes.
-      const nextChannels = applyManualEpgRemaps(data.channels, epgManualRemapsRef.current);
-      const nextPrograms =
-        data.programsByChannelId && Object.keys(data.programsByChannelId).length
-          ? data.programsByChannelId
-          : Object.fromEntries(
-              nextChannels
-                .filter((channel) => Array.isArray(channel.programs) && channel.programs.length)
-                .map((channel) => [channel.id, channel.programs as Program[]]),
-            );
-      windowStartRef.current = data.start;
-      windowEndRef.current = data.end;
-      guideEpochRef.current = data.guideEpoch || 0;
-      applyGuidePrograms(makeGuideProgramWindowKey(data.start, data.end, guideEpochRef.current), nextPrograms);
-      setChannels((prev) => {
-        if (
-          prev.length === nextChannels.length &&
-          prev.length > 0 &&
-          prev.every((channel, index) => {
-            const next = nextChannels[index];
-            return (
-              channel.id === next.id &&
-              channel.tvg_id === next.tvg_id &&
-              channel.name === next.name &&
-              channel.logo === next.logo &&
-              channel.group === next.group &&
-              channel.url === next.url
-            );
-          })
-        ) {
-          return prev;
-        }
-        // Strip all nested programs from meta rows. Rendered guide rows subscribe
+  // Debounce AsyncStorage writes â€” rapid long-press favorites were hitching Fire TV I/O.
+  const favoritesPersistTimer = useRef<ReturnType<typeof s…2207 tokens truncated…programs from meta rows. Rendered guide rows subscribe
         // to their own external programme pointer, so one viewport delta cannot
         // replace the FlashList data for every channel.
         return nextChannels.map((channel) => ({
@@ -754,6 +534,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     const ids = Array.from(pendingPatchIdsRef.current);
     const priorityOrder = pendingPatchPriorityIdsRef.current;
     const prioritySet = new Set(priorityOrder);
+    const runwayGeneration = pendingPatchGenerationRef.current;
     pendingPatchIdsRef.current.clear();
     pendingPatchPriorityIdsRef.current = [];
     const start = windowStartRef.current;
@@ -769,6 +550,14 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
         const delta = await loadGuideProgramsForChannelIds(tierIds, start, guideWindowHoursRef.current);
         // Date/window changed while SQLite was reading. Do not paint an old day.
         if (start !== windowStartRef.current || end !== windowEndRef.current) return false;
+        // Focus advanced while SQLite was reading. Discard the obsolete result
+        // and reapply the newest conveyor keep set because the completed native
+        // request may have repopulated rows that the newer runway already evicted.
+        if (runwayGeneration !== runwayGenerationRef.current) {
+          retainGuidePrograms(lastPatchRunwayIdsRef.current);
+          retainProgrammeWindowCache(lastPatchRunwayIdsRef.current);
+          return false;
+        }
         // Native returns explicit empty arrays too, clearing stale rows without
         // waiting for the complete five-page runway.
         if (delta && Object.keys(delta).length) {
@@ -805,6 +594,9 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     // cached inside the conveyor hysteresis band until retain drops them.
     pendingPatchIdsRef.current.clear();
     pendingPatchPriorityIdsRef.current = [];
+    const runwayGeneration = runwayGenerationRef.current + 1;
+    runwayGenerationRef.current = runwayGeneration;
+    pendingPatchGenerationRef.current = runwayGeneration;
     lastPatchRunwayIdsRef.current = channelIds.filter(Boolean);
     for (const id of channelIds) {
       if (id) pendingPatchIdsRef.current.add(id);
@@ -942,7 +734,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setStartScreenState(resolveStartScreen(await storage.getItem<string>(START_SCREEN_KEY, "home")));
       setSleepTimerMinutesState(resolveSleepTimerMinutes(await storage.getItem<number>(SLEEP_TIMER_MINUTES_KEY, 0)));
 
-      // Fast paint from cache only — never block first focus with permission dialogs
+      // Fast paint from cache only â€” never block first focus with permission dialogs
       // or stacked source rebuilds (those freeze Fire TV focus on open).
       await refresh();
       if (disposed) return;
@@ -1003,6 +795,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   useEffect(
     () => () => {
       if (patchTimerRef.current) clearTimeout(patchTimerRef.current);
+      runwayGenerationRef.current += 1;
       pendingPatchIdsRef.current.clear();
       pendingPatchPriorityIdsRef.current = [];
       lastPatchRunwayIdsRef.current = [];
@@ -1205,3 +998,4 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
+
