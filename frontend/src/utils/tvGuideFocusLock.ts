@@ -8,7 +8,14 @@ import { requestNativeFocus } from "@/src/utils/tvFocus";
 let armedUntil = 0;
 let armedNode: unknown = null;
 let focusedGuideChannelId: string | null = null;
-const guideChannelNodes = new Map<string, unknown>();
+
+type GuideChannelEntry = {
+  node: unknown;
+  /** Left from this node should land on Play in the preview/actions rail. */
+  handOffLeftToPreview: boolean;
+};
+
+const guideChannelNodes = new Map<string, GuideChannelEntry>();
 /** Stable auxiliary-panel target used when leaving the guide to the left. */
 let guidePreviewEntryNode: unknown = null;
 let cancelGuideRestoreTimers: (() => void) | null = null;
@@ -19,6 +26,15 @@ function cancelPreviewFocusAttempts(): void {
   previewFocusAttempt += 1;
   for (const timer of previewFocusTimers) clearTimeout(timer);
   previewFocusTimers = [];
+}
+
+function previewFocusHandle(): number | null {
+  return findNodeHandle(guidePreviewEntryNode as any) || null;
+}
+
+function wireChannelLeftFocus(entry: GuideChannelEntry): void {
+  if (!entry.handOffLeftToPreview || !entry.node) return;
+  applyLeftFocusLock(entry.node, false);
 }
 
 export function armGuideBottomFocusLock(node: unknown, ms = 500) {
@@ -43,10 +59,19 @@ export function reclaimGuideBottomFocusIfArmed(): boolean {
  * Re-enter the guide from an auxiliary panel without relying on users knowing
  * a particular D-pad direction. Row/card refs register here as they mount.
  */
-export function registerGuideChannelNode(channelId: string, node: unknown): void {
+export function registerGuideChannelNode(
+  channelId: string,
+  node: unknown,
+  options?: { handOffLeftToPreview?: boolean },
+): void {
   if (!channelId) return;
   if (node) {
-    guideChannelNodes.set(channelId, node);
+    const entry: GuideChannelEntry = {
+      node,
+      handOffLeftToPreview: !!options?.handOffLeftToPreview,
+    };
+    guideChannelNodes.set(channelId, entry);
+    wireChannelLeftFocus(entry);
     return;
   }
   guideChannelNodes.delete(channelId);
@@ -68,7 +93,16 @@ export function noteGuideChannelFocus(channelId: string, node: unknown): void {
   cancelGuideFocusRestore();
   cancelPreviewFocusAttempts();
   focusedGuideChannelId = channelId;
-  if (!guideChannelNodes.has(channelId)) guideChannelNodes.set(channelId, node);
+  const existing = guideChannelNodes.get(channelId);
+  if (!existing) {
+    guideChannelNodes.set(channelId, { node, handOffLeftToPreview: false });
+  } else if (existing.node !== node) {
+    existing.node = node;
+    wireChannelLeftFocus(existing);
+  } else {
+    // Re-assert Left → Play after recycle; preview may have mounted later.
+    wireChannelLeftFocus(existing);
+  }
 }
 
 export function focusGuideSurface(channelId?: string | null): boolean {
@@ -87,9 +121,12 @@ export function focusGuideSurfaceWhenMounted(
   let found = false;
   const tryCurrentRow = () => {
     if (cancelled) return;
-    const target =
+    const entry =
       (channelId ? guideChannelNodes.get(channelId) : undefined) ||
-      (!channelId && focusedGuideChannelId ? guideChannelNodes.get(focusedGuideChannelId) : undefined);
+      (!channelId && focusedGuideChannelId
+        ? guideChannelNodes.get(focusedGuideChannelId)
+        : undefined);
+    const target = entry?.node;
     if (!target) return;
     found = requestNativeFocus(target) || found;
   };
@@ -108,14 +145,14 @@ export function focusGuideSurfaceWhenMounted(
 /** Register the preview/actions panel's stable entry control. */
 export function registerGuidePreviewEntry(node: unknown): void {
   guidePreviewEntryNode = node || null;
-  const targetHandle = findNodeHandle(guidePreviewEntryNode as any);
+  const targetHandle = previewFocusHandle();
   if (!targetHandle) return;
   // Keep Android's native focus graph deterministic as FlashList recycles rows:
-  // Left from every channel target goes directly to Play. The JS boundary
-  // handler below remains a retry path, not the only way out of the grid.
-  for (const channelNode of guideChannelNodes.values()) {
+  // Left from opted-in left-edge channel targets goes directly to Play.
+  for (const entry of guideChannelNodes.values()) {
+    if (!entry.handOffLeftToPreview) continue;
     try {
-      (channelNode as any)?.setNativeProps?.({ nextFocusLeft: targetHandle });
+      (entry.node as any)?.setNativeProps?.({ nextFocusLeft: targetHandle });
     } catch {
       // Native focus props are optional on web.
     }
@@ -142,7 +179,9 @@ export function focusGuidePreviewSurface(): boolean {
   // Android TV occasionally runs focus-search before the sibling Pressable is
   // ready. Resolve the current ref on every retry and cancel as soon as any
   // preview control receives real focus, preventing delayed focus yanks.
-  previewFocusTimers = [32, 96].map((delay) => setTimeout(requestCurrentEntry, delay));
+  previewFocusTimers = [16, 48, 96, 180, 320].map((delay) =>
+    setTimeout(requestCurrentEntry, delay),
+  );
   return true;
 }
 
@@ -151,7 +190,7 @@ export function applyLeftFocusLock(node: any, locked: boolean) {
   if (!node) return;
   const handle = findNodeHandle(node);
   if (!handle) return;
-  const previewHandle = !locked ? findNodeHandle(guidePreviewEntryNode as any) : null;
+  const previewHandle = !locked ? previewFocusHandle() : null;
   try {
     node.setNativeProps?.({ nextFocusLeft: locked ? handle : previewHandle || -1 });
   } catch {

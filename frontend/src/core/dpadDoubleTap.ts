@@ -1,6 +1,11 @@
 export type VerticalDpadKey = "UP" | "DOWN";
 
-export const DPAD_DOUBLE_TAP_WINDOW_MS = 360;
+/**
+ * Window between two completed short taps that counts as a page jump.
+ * Fire-TV / Android TV remotes often space intentional doubles around
+ * 300–500 ms; 360 was too tight once JS focus flicker ate a few frames.
+ */
+export const DPAD_DOUBLE_TAP_WINDOW_MS = 560;
 
 export type DpadDoubleTapDetector = {
   push: (key: VerticalDpadKey, at?: number) => VerticalDpadKey | null;
@@ -18,7 +23,8 @@ export function createDpadDoubleTapDetector(
   let lastAt = 0;
   return {
     push(key, at = Date.now()) {
-      const matched = key === lastKey && at - lastAt > 0 && at - lastAt <= windowMs;
+      // Allow same-millisecond completions — ultra-fast doubles can share Date.now().
+      const matched = key === lastKey && lastAt > 0 && at - lastAt >= 0 && at - lastAt <= windowMs;
       if (matched) {
         lastKey = null;
         lastAt = 0;

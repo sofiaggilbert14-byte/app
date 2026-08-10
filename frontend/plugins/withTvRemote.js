@@ -231,7 +231,7 @@ function hardenMainActivity(src) {
   private var lastAcceptedDirectionalRepeatAt = 0L
   private var lastAcceptedDirectionalKeyCode = -1
   private val minDpadRepeatMs = 32L
-  private val maxDpadTapMs = 360L
+  private val maxDpadTapMs = 560L
   private var activeDirectionalKeyCode = -1
   private var activeDirectionalDownAt = 0L
   private var activeDirectionalRepeated = false
@@ -263,7 +263,7 @@ function hardenMainActivity(src) {
       val completedShortTap =
         !activeDirectionalRepeated &&
           activeDirectionalKeyCode == event.keyCode &&
-          event.eventTime - activeDirectionalDownAt in 1..maxDpadTapMs
+          event.eventTime - activeDirectionalDownAt in 0..maxDpadTapMs
       if (completedShortTap && !TvRemoteModule.pointerActive) {
         val tapKey = when (event.keyCode) {
           android.view.KeyEvent.KEYCODE_DPAD_UP -> "UP"

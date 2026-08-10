@@ -28,7 +28,7 @@ const PROFILES: Record<PowerProfile, PowerProfileTuning> = {
     previewArmDelayedMs: 1700,
     rapidSurfHoldMs: 600,
     logosOffWhileSurfingDefault: false,
-    programmeRowCacheLimit: 1800,
+    programmeRowCacheLimit: 2400,
   },
   weak: {
     id: "weak",
@@ -38,7 +38,7 @@ const PROFILES: Record<PowerProfile, PowerProfileTuning> = {
     previewArmDelayedMs: 2600,
     rapidSurfHoldMs: 900,
     logosOffWhileSurfingDefault: true,
-    programmeRowCacheLimit: 800,
+    programmeRowCacheLimit: 1200,
   },
   max_preview: {
     id: "max_preview",
@@ -48,7 +48,7 @@ const PROFILES: Record<PowerProfile, PowerProfileTuning> = {
     previewArmDelayedMs: 1250,
     rapidSurfHoldMs: 400,
     logosOffWhileSurfingDefault: false,
-    programmeRowCacheLimit: 2400,
+    programmeRowCacheLimit: 3200,
   },
 };
 

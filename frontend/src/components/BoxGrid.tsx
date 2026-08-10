@@ -100,7 +100,7 @@ const ChannelCard = memo(function ChannelCard({
   const setCardRef = useCallback(
     (node: any) => {
       cardRef.current = node;
-      registerGuideChannelNode(item.id, node);
+      registerGuideChannelNode(item.id, node, { handOffLeftToPreview: !lockFocusLeft });
       applyLeftFocusLock(node, lockFocusLeft);
       applyDownFocusLock(node, lockFocusDown);
     },

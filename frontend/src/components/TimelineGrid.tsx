@@ -369,7 +369,8 @@ const TimelineRow = memo(function TimelineRow({
   const setLogoRef = useCallback(
     (node: any) => {
       logoPressableRef.current = node;
-      registerGuideChannelNode(item.id, node);
+      // When unlocked, Left from the logo column must hand off to Play/actions.
+      registerGuideChannelNode(item.id, node, { handOffLeftToPreview: !lockFocusLeft });
       // Proactive self-target means the very first Left cannot escape into the
       // closed drawer before the JS boundary handler runs.
       applyLeftFocusLock(node, lockFocusLeft);
@@ -392,9 +393,11 @@ const TimelineRow = memo(function TimelineRow({
   const handleChannelPress = useCallback(() => onChannelPress(item), [onChannelPress, item]);
   const handleChannelFocus = useCallback(() => {
     noteGuideChannelFocus(item.id, logoPressableRef.current);
+    // Re-wire Left → preview after recycle; Play may have mounted after this row.
+    if (!lockFocusLeft) applyLeftFocusLock(logoPressableRef.current, false);
     onFocusNode?.(logoPressableRef.current);
     onRowChannelFocus(item, index, logoPressableRef.current);
-  }, [onFocusNode, onRowChannelFocus, item, index]);
+  }, [lockFocusLeft, onFocusNode, onRowChannelFocus, item, index]);
   const handleChannelLongPress = useCallback(() => onChannelLongPress?.(item), [onChannelLongPress, item]);
   const handleProgramFocus = useCallback(
     (prepared: PreparedProgram, channel: Channel) => onProgramFocus(prepared, channel, index),
@@ -654,6 +657,7 @@ export const TimelineGrid = memo(function TimelineGrid({
   const focusedProgramKeyRef = useRef<string | null>(null);
   const pageJumpDetectorRef = useRef(createDpadDoubleTapDetector());
   const pageJumpAnchorRef = useRef(0);
+  const lastGridOwnedAtRef = useRef(0);
   const rememberFocusNode = useCallback((node: unknown) => {
     if (node) focusedNodeRef.current = node;
   }, []);
@@ -662,6 +666,7 @@ export const TimelineGrid = memo(function TimelineGrid({
     (index: number) => {
       focusedRowRef.current = index;
       gridOwnsFocusRef.current = true;
+      lastGridOwnedAtRef.current = Date.now();
       const rows = channelsRef.current;
       const deep = index > 0;
       if (lastReportedDeepRef.current !== deep) {
@@ -675,9 +680,10 @@ export const TimelineGrid = memo(function TimelineGrid({
         if (index > lastPrefetchIndexRef.current) scanDirectionRef.current = 1;
         else if (index < lastPrefetchIndexRef.current) scanDirectionRef.current = -1;
         lastPrefetchIndexRef.current = index;
-        // Refill only when focus enters a new screenful or reverses direction.
-        // The data cache retains prior pages; this merely slides its hot runway.
-        const viewportBucket = `${Math.floor(Math.max(0, index) / visibleRows)}:${scanDirectionRef.current}`;
+        // Half-page buckets so held surfing refreshes the runway before the
+        // focused page fully exits the previous prefetch window.
+        const halfPage = Math.max(1, Math.floor(visibleRows / 2));
+        const viewportBucket = `${Math.floor(Math.max(0, index) / halfPage)}:${scanDirectionRef.current}`;
         if (lastViewportBucketRef.current === viewportBucket) return;
         lastViewportBucketRef.current = viewportBucket;
         const runway = buildGuideRunwayIds(rows, index, visibleRows, scanDirectionRef.current);
@@ -689,6 +695,8 @@ export const TimelineGrid = memo(function TimelineGrid({
           rows[index]?.id,
           rows[index + scanDirectionRef.current]?.id,
           rows[index + scanDirectionRef.current * 2]?.id,
+          rows[index + scanDirectionRef.current * 3]?.id,
+          rows[index + scanDirectionRef.current * 4]?.id,
           ...visiblePageIds,
         ].filter((id): id is string => !!id);
         onViewportChannelIds(runway, priorityIds);
@@ -806,9 +814,14 @@ export const TimelineGrid = memo(function TimelineGrid({
     }
     return subscribeVerticalDpadTaps((key) => {
       if (!gridOwnsFocusRef.current) {
-        pageJumpDetectorRef.current.reset();
+        // FlashList recycle can drop owns-focus for a frame between taps.
+        // Keep the pending first tap unless we've been off-grid for real.
+        if (Date.now() - lastGridOwnedAtRef.current > 120) {
+          pageJumpDetectorRef.current.reset();
+        }
         return;
       }
+      lastGridOwnedAtRef.current = Date.now();
       const matched = pageJumpDetectorRef.current.push(key);
       if (!matched) {
         pageJumpAnchorRef.current = focusedRowRef.current;
@@ -856,6 +869,7 @@ export const TimelineGrid = memo(function TimelineGrid({
         if (decision.boundary === "left-boundary") {
           if (onLeftBoundary) {
             gridOwnsFocusRef.current = false;
+            pageJumpDetectorRef.current.reset();
             onLeftBoundary();
             return;
           }
@@ -875,6 +889,7 @@ export const TimelineGrid = memo(function TimelineGrid({
           if (guideEscapeInFlight.current) return;
           guideEscapeInFlight.current = true;
           gridOwnsFocusRef.current = false;
+          pageJumpDetectorRef.current.reset();
           onUpBoundary?.();
           if (escapeTimer.current) clearTimeout(escapeTimer.current);
           escapeTimer.current = setTimeout(() => {

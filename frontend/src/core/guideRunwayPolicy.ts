@@ -1,13 +1,14 @@
 export type GuideScanDirection = -1 | 1;
 
-export const GUIDE_PREFETCH_PAGES_AHEAD = 5;
+/** Held Down surfing outruns a 5-page runway on large playlists; keep 8 ahead. */
+export const GUIDE_PREFETCH_PAGES_AHEAD = 8;
 export const GUIDE_PREFETCH_PAGES_BEHIND = 2;
 
 type GuideRowIdentity = { id: string };
 
 /**
  * Build a direction-aware EPG data runway in the exact order shown on screen.
- * The focused page plus five pages ahead are kept ready; two pages behind make
+ * The focused page plus eight pages ahead are kept ready; two pages behind make
  * a rapid direction reversal instant. Previously loaded rows remain in the
  * bounded caches and are not discarded when this window advances.
  */

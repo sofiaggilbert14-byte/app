@@ -48,10 +48,12 @@ class MainActivity : ReactActivity() {
         lastAcceptedDirectionalRepeatAt = event.eventTime
       }
     } else if (event.action == android.view.KeyEvent.ACTION_UP && directional) {
+      // Include 0 ms presses — some remotes stamp DOWN/UP with the same eventTime
+      // on ultra-short taps, which previously dropped the TvDpadTap entirely.
       val completedShortTap =
         !activeDirectionalRepeated &&
           activeDirectionalKeyCode == event.keyCode &&
-          event.eventTime - activeDirectionalDownAt in 1..MAX_DPAD_TAP_MS
+          event.eventTime - activeDirectionalDownAt in 0..MAX_DPAD_TAP_MS
       if (completedShortTap && !TvRemoteModule.pointerActive) {
         val tapKey = when (event.keyCode) {
           android.view.KeyEvent.KEYCODE_DPAD_UP -> "UP"
@@ -148,6 +150,6 @@ class MainActivity : ReactActivity() {
 
   companion object {
     private const val MIN_DPAD_REPEAT_MS = 32L
-    private const val MAX_DPAD_TAP_MS = 360L
+    private const val MAX_DPAD_TAP_MS = 560L
   }
 }
