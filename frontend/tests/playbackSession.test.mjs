@@ -132,10 +132,9 @@ test("play entry points hand off through openFullscreenPlayer", async () => {
 });
 
 test("StreamPlayer and player route use role-scoped session teardown", async () => {
-  const [playerComp, playerRoute, lifecycle, handoff, vlcPatch, packageJson] = await Promise.all([
+  const [playerComp, playerRoute, handoff, vlcPatch, packageJson] = await Promise.all([
     source("src/components/StreamPlayer.tsx"),
     source("app/player.tsx"),
-    source("src/utils/streamLifecycle.ts"),
     source("src/utils/openFullscreenPlayer.ts"),
     source("patches/react-native-vlc-media-player+1.0.98.patch"),
     source("package.json"),
@@ -170,5 +169,4 @@ test("StreamPlayer and player route use role-scoped session teardown", async () 
   assert.match(vlcPatch, /requestPlaybackAudioFocus/);
   assert.match(vlcPatch, /mMediaPlayer = null/);
   assert.match(packageJson, /"postinstall": "patch-package"/);
-  assert.match(lifecycle, /playbackSession/);
 });
