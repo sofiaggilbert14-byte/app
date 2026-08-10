@@ -1,4 +1,3 @@
-export const MODAL_FOCUS_RETRY_DELAYS_MS = [0, 40, 120, 280] as const;
 export const RAPID_DIRECTIONAL_WINDOW_MS = 220;
 /** Faster resume after surf pause — long settles made focus feel stuck behind the remote. */
 export const DECODER_RESUME_SETTLE_MS = 480;

@@ -11,44 +11,44 @@ export type PowerProfileTuning = {
   previewArmOnMs: number;
   /** Base preview delay for "delayed" / "surf" modes. */
   previewArmDelayedMs: number;
-  /** Metadata focus debounce while not rapid-surfing. */
-  focusMetadataMs: number;
   /** Rapid-surf soft-clear hold. */
   rapidSurfHoldMs: number;
   /** Prefer skipping logos during rapid surf. */
   logosOffWhileSurfingDefault: boolean;
+  /** Bounded JS row pointers; SQLite remains authoritative at every profile. */
+  programmeRowCacheLimit: number;
 };
 
 const PROFILES: Record<PowerProfile, PowerProfileTuning> = {
   normal: {
     id: "normal",
     label: "Normal",
-    surfSettleExtraMs: 350,
-    previewArmOnMs: 1600,
-    previewArmDelayedMs: 2200,
-    focusMetadataMs: 180,
-    rapidSurfHoldMs: 700,
+    surfSettleExtraMs: 300,
+    previewArmOnMs: 1200,
+    previewArmDelayedMs: 1700,
+    rapidSurfHoldMs: 600,
     logosOffWhileSurfingDefault: false,
+    programmeRowCacheLimit: 2400,
   },
   weak: {
     id: "weak",
-    label: "Weak stick",
+    label: "Compatibility",
     surfSettleExtraMs: 650,
     previewArmOnMs: 2000,
     previewArmDelayedMs: 2600,
-    focusMetadataMs: 220,
     rapidSurfHoldMs: 900,
     logosOffWhileSurfingDefault: true,
+    programmeRowCacheLimit: 1200,
   },
   max_preview: {
     id: "max_preview",
     label: "Max preview",
-    surfSettleExtraMs: 200,
-    previewArmOnMs: 1100,
-    previewArmDelayedMs: 1600,
-    focusMetadataMs: 120,
-    rapidSurfHoldMs: 500,
+    surfSettleExtraMs: 160,
+    previewArmOnMs: 850,
+    previewArmDelayedMs: 1250,
+    rapidSurfHoldMs: 400,
     logosOffWhileSurfingDefault: false,
+    programmeRowCacheLimit: 3200,
   },
 };
 
@@ -63,6 +63,6 @@ export function getPowerProfileTuning(profile: PowerProfile): PowerProfileTuning
 
 export const POWER_PROFILE_OPTIONS: { label: string; value: PowerProfile }[] = [
   { label: "Normal", value: "normal" },
-  { label: "Weak stick", value: "weak" },
+  { label: "Compatibility", value: "weak" },
   { label: "Max preview", value: "max_preview" },
 ];

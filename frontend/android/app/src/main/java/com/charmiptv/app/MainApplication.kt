@@ -1,6 +1,7 @@
 package com.charmiptv.app
 
 import android.app.Application
+import android.content.ComponentCallbacks2
 import android.content.res.Configuration
 
 import com.facebook.react.PackageList
@@ -12,6 +13,7 @@ import com.facebook.react.ReactHost
 import com.facebook.react.common.ReleaseLevel
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint
 import com.facebook.react.defaults.DefaultReactNativeHost
+import com.facebook.react.modules.core.DeviceEventManagerModule
 
 import expo.modules.ApplicationLifecycleDispatcher
 import expo.modules.ReactNativeHostWrapper
@@ -54,5 +56,22 @@ class MainApplication : Application(), ReactApplication {
   override fun onConfigurationChanged(newConfig: Configuration) {
     super.onConfigurationChanged(newConfig)
     ApplicationLifecycleDispatcher.onConfigurationChanged(this, newConfig)
+  }
+
+  override fun onTrimMemory(level: Int) {
+    super.onTrimMemory(level)
+    val pressure = when {
+      level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL ||
+        level >= ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> "critical"
+      level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW -> "moderate"
+      else -> null
+    } ?: return
+    try {
+      reactNativeHost.reactInstanceManager.currentReactContext
+        ?.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+        ?.emit("CharmMemoryPressure", pressure)
+    } catch (_: Throwable) {
+      // Memory cleanup is best-effort; Android may call before React is ready.
+    }
   }
 }

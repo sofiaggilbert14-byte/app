@@ -1,7 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildGuideData, parseM3U, parseM3UWithMeta, parseXMLTV } from "./build-and-upload.mjs";
+import {
+  buildGuideData,
+  parseM3U,
+  parseM3UWithMeta,
+  parseXMLTV,
+  readGuideWindowHours,
+} from "./build-and-upload.mjs";
+
+test("builder uses a six-hour guide default and safe bounds", () => {
+  assert.equal(readGuideWindowHours(undefined), 6);
+  assert.equal(readGuideWindowHours("2"), 6);
+  assert.equal(readGuideWindowHours("18"), 18);
+  assert.equal(readGuideWindowHours("100"), 72);
+});
 
 function xmltvTime(offsetMs) {
   const date = new Date(Date.now() + offsetMs);

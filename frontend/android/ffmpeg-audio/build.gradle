@@ -12,10 +12,15 @@ android {
         consumerProguardFiles 'proguard-rules.pro'
     }
 
-    // The module remains buildable without FFmpeg binaries for local JS work;
-    // FfmpegLibrary then reports unavailable. CI runs the pinned source build
-    // before assembleRelease, which enables this native target.
+    // The module remains compile-checkable without FFmpeg binaries. Packaging
+    // a standalone/release APK in CI is stricter and must include the pinned
+    // native extension.
     def ffmpegLibs = file('src/main/jni/ffmpeg/android-libs')
+    def packagesApk = gradle.startParameter.taskNames.any {
+        def task = it.toLowerCase()
+        (task.contains('assemble') || task.contains('bundle') || task.contains('package')) &&
+            (task.contains('release') || task.contains('sideload'))
+    }
     if (ffmpegLibs.exists()) {
         externalNativeBuild {
             cmake {
@@ -23,10 +28,10 @@ android {
                 version '3.22.1'
             }
         }
-    } else if (System.getenv('CI') == '1') {
+    } else if (System.getenv('CI') == '1' && packagesApk) {
         throw new GradleException(
             "FFmpeg android-libs missing under ffmpeg-audio. " +
-            "Run scripts/build-media3-ffmpeg-audio.sh before assembleRelease in CI."
+            "Run scripts/build-media3-ffmpeg-audio.sh before packaging an APK in CI."
         )
     } else {
         logger.warn(

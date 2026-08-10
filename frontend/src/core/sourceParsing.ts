@@ -225,6 +225,7 @@ export function parseM3UWithStats(
 
     channels.push({
       id,
+      raw_tvg_id: entry.tvgId,
       tvg_id: entry.tvgId,
       name: entry.name,
       logo: entry.logo,

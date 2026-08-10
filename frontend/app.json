@@ -2,7 +2,7 @@
   "expo": {
     "name": "Charm IPTV Purple Next",
     "slug": "charm-iptv-purple-next",
-    "version": "2.1.0-rc.1",
+    "version": "2.1.0-rc.3",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "charmiptv-purple",
@@ -14,8 +14,14 @@
         "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": true,
+      "allowBackup": false,
       "package": "com.charmiptv.app.purple.next",
-      "versionCode": 4,
+      "versionCode": 6,
+      "blockedPermissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.SYSTEM_ALERT_WINDOW"
+      ],
       "permissions": [
         "INTERNET",
         "ACCESS_NETWORK_STATE",
@@ -49,7 +55,7 @@
         "expo-build-properties",
         {
           "android": {
-            "usesCleartextTraffic": true,
+            "usesCleartextTraffic": false,
             "minSdkVersion": 26
           }
         }

@@ -45,6 +45,19 @@ test("playlist→XMLTV matching prefers programme-bearing ids then name", () => 
   assert.equal(orphan.ambiguous, false);
 });
 
+test("rematching keeps the provider tvg-id after a previous resolved id", () => {
+  const indexes = buildXmltvMatchIndexes({
+    channelIds: ["provider.raw"],
+    channelNames: { "provider.raw": "Provider Channel" },
+    idsWithPrograms: ["provider.raw"],
+  });
+  const match = matchPlaylistChannelToXmltv(
+    { id: "playlist-id", raw_tvg_id: "provider.raw", tvg_id: "stale.resolved", name: "Provider Channel" },
+    indexes,
+  );
+  assert.equal(match.sourceId, "provider.raw");
+});
+
 test("ambiguous normalized names refuse to invent a sourceId", () => {
   const indexes = buildXmltvMatchIndexes({
     channelIds: ["cnn.us", "cnn.uk"],
@@ -171,7 +184,8 @@ test("Android source path stays native-only (no JS XMLTV inflate/parse)", async 
   assert.match(native, /Native EPG engine is unavailable/);
   assert.match(native, /Never mutate EMPTY_PROGRAMS/);
   // Weak-stick memory: bounded programme cache + no full-playlist warm emit hitch.
-  assert.match(native, /MAX_PROGRAMME_WINDOW_KEYS = 700/);
+  assert.match(native, /maxProgrammeWindowKeys = 1800/);
+  assert.match(native, /setProgrammeWindowCacheLimit/);
   assert.match(native, /HUGE_PLAYLIST_MATCH_THRESHOLD = 400/);
   assert.match(native, /trimProgrammeWindowCache/);
   assert.match(native, /never emits\(\)/i);
@@ -191,7 +205,7 @@ test("native EPG engine strengthens migrate, next-stop, recovery, rare vacuum", 
     readFile(join(root, "android/app/src/main/java/com/charmiptv/app/EpgDatabase.kt"), "utf8"),
     readFile(join(root, "android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt"), "utf8"),
   ]);
-  assert.match(db, /DATABASE_VERSION = 5/);
+  assert.match(db, /DATABASE_VERSION = 6/);
   assert.match(db, /Additive only/);
   assert.match(db, /inferMissingStopsFromNextProgram/);
   assert.match(db, /ensureHealthy/);
@@ -200,6 +214,11 @@ test("native EPG engine strengthens migrate, next-stop, recovery, rare vacuum", 
   assert.match(db, /idx_epg_staging_order/);
   assert.match(db, /playlist_epg_matches/);
   assert.match(db, /queryGuideWindow/);
+  assert.match(db, /epg_stop_updates/);
+  assert.doesNotMatch(db, /ArrayList<Pair<Long, Long>>/);
+  assert.match(mod, /MAX_PROGRAMME_COUNT = 2_000_000L/);
+  assert.match(mod, /MAX_COMPRESSED_EPG_BYTES/);
+  assert.match(mod, /BoundedInputStream/);
   assert.doesNotMatch(db, /DROP TABLE IF EXISTS \$LIVE_TABLE[\s\S]*onUpgrade/);
   assert.match(mod, /MIN_VACUUM_DELETED_ROWS/);
   assert.match(mod, /guideEpoch/);
