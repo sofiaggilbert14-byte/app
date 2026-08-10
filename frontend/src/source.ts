@@ -85,6 +85,9 @@ export function setViewportGuideChannelIds(_ids: string[] | null): void {
 export function setProgrammeWindowCacheLimit(_limit: number): void {
   /* native-only */
 }
+export function retainProgrammeWindowCache(_keepIds: Iterable<string>): void {
+  /* native-only */
+}
 export function trimProgrammeWindowCacheForMemoryPressure(
   _keepIds: string[] = [],
   _critical = false,

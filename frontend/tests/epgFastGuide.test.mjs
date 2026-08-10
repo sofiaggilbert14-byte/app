@@ -96,7 +96,7 @@ test("programme deltas keep explicit empty rows and use the exact screen runway"
   assert.match(native, /Object\.fromEntries\(unique\.map\(\(id\) => \[id, EMPTY_PROGRAMS\]\)\)/);
   assert.match(native, /loadProgrammeCacheMisses\(remapped, unique, startMs, endMs\)/);
   assert.doesNotMatch(native, /buildFocusRing|PROGRAMME_WARM_RING_ROWS/);
-  assert.match(policy, /GUIDE_PREFETCH_PAGES_AHEAD = 5/);
+  assert.match(policy, /GUIDE_PREFETCH_PAGES_AHEAD = 8/);
   assert.match(native, /allPlaylistIds\.slice\(0, 96\)/);
   assert.doesNotMatch(box, /mountedRowBandRef/);
   assert.match(box, /drawDistance=\{2400\}/);

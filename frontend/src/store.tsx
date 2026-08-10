@@ -7,6 +7,7 @@ import {
   loadGuideProgramsForChannelIds,
   refreshEpgOnly,
   refreshSource,
+  retainProgrammeWindowCache,
   setManualEpgRemaps,
   setPreferTvgIdOnlyMatching,
   setProgrammeWindowCacheLimit,
@@ -18,6 +19,7 @@ import {
   applyGuidePrograms,
   getGuidePrograms,
   makeGuideProgramWindowKey,
+  retainGuidePrograms,
   setGuideProgramRowLimit,
   trimGuideProgramRows,
 } from "@/src/core/guideProgramsStore";
@@ -125,6 +127,8 @@ export type Store = {
   hardRefresh: () => Promise<void>;
   /** Fetch/attach programmes for a viewport ring without a full guide rebuild. */
   patchProgramsForChannelIds: (channelIds: string[], priorityIds?: string[]) => Promise<void>;
+  /** Conveyor-belt eviction — keep only the hysteresis band around the runway. */
+  retainGuideSlidingCache: (keepIds: Iterable<string>) => void;
   selectedDate: string;
   setSelectedDate: (d: string) => void;
   channelById: (id: string) => Channel | undefined;
@@ -796,9 +800,9 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const patchProgramsForChannelIds = useCallback(async (channelIds: string[], priorityIds: string[] = []) => {
-    // Each call is a complete five-page runway. Keep only the newest pending
+    // Each call is a complete eight-page runway. Keep only the newest pending
     // window while SQLite is busy; the previous completed/in-flight pages remain
-    // cached, so held-D-pad scanning cannot create an ever-growing bridge queue.
+    // cached inside the conveyor hysteresis band until retain drops them.
     pendingPatchIdsRef.current.clear();
     pendingPatchPriorityIdsRef.current = [];
     lastPatchRunwayIdsRef.current = channelIds.filter(Boolean);
@@ -821,6 +825,17 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       void flushProgramPatchQueue();
     }, isGuideSurfing() ? 16 : 32);
   }, [flushProgramPatchQueue]);
+
+  /**
+   * Advance the conveyor-belt keep set: drop JS + native programme rows that
+   * left the hysteresis band so held surfing cannot accumulate the playlist.
+   */
+  const retainGuideSlidingCache = useCallback((keepIds: Iterable<string>) => {
+    const keep = Array.from(keepIds).filter(Boolean);
+    if (!keep.length) return;
+    retainGuidePrograms(keep);
+    retainProgrammeWindowCache(keep);
+  }, []);
 
   const setSelectedDate = useCallback(
     (d: string) => {
@@ -1046,6 +1061,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       refresh,
       hardRefresh,
       patchProgramsForChannelIds,
+      retainGuideSlidingCache,
       selectedDate,
       setSelectedDate,
       channelById,
@@ -1120,6 +1136,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       refresh,
       hardRefresh,
       patchProgramsForChannelIds,
+      retainGuideSlidingCache,
       selectedDate,
       setSelectedDate,
       channelById,

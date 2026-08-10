@@ -118,6 +118,13 @@ export function setViewportGuideChannelIds(ids: string[] | null): void {
   viewportGuideChannelIds = ids && ids.length ? ids.filter(Boolean) : null;
 }
 
+/** Conveyor-belt eviction: drop native window rows outside the hysteresis keep set. */
+export function retainProgrammeWindowCache(keepIds: Iterable<string>): void {
+  const keep = Array.from(keepIds).filter(Boolean);
+  if (!keep.length) return;
+  trimProgrammeWindowCache(keep, "strict");
+}
+
 async function syncPlaylistToNative(channels: Channel[], playlistEpoch: number): Promise<void> {
   if (!nativeEpgAvailable || !channels.length) return;
   const contentFingerprint = playlistNativeContentFingerprint(channels);
@@ -217,9 +224,20 @@ function touchProgrammeWindowKey(channelId: string): void {
   programmeWindowAccessOrder.add(channelId);
 }
 
-/** Evict only the oldest excess rows; sliding the runway never wipes prior pages. */
-function trimProgrammeWindowCache(keepKeys: Iterable<string>): void {
+/** Evict off-window rows; soft mode only caps LRU size, strict drops outside keep. */
+function trimProgrammeWindowCache(keepKeys: Iterable<string>, mode: "soft" | "strict" = "soft"): void {
   const keep = new Set(keepKeys);
+  if (mode === "strict" && keep.size > 0) {
+    for (const key of Object.keys(programmeWindowCache)) {
+      if (keep.has(key)) continue;
+      delete programmeWindowCache[key];
+      programmeWindowAccessOrder.delete(key);
+    }
+    for (const key of Array.from(programmeWindowEmptyKeys)) {
+      if (keep.has(key)) continue;
+      programmeWindowEmptyKeys.delete(key);
+    }
+  }
   let protectedPasses = programmeWindowAccessOrder.size;
   while (programmeWindowAccessOrder.size > maxProgrammeWindowKeys && protectedPasses > 0) {
     const oldest = programmeWindowAccessOrder.values().next().value as string | undefined;
@@ -831,7 +849,7 @@ export async function loadGuide(startISO?: string, hours = 6, force = false): Pr
   playlistIds = Array.from(new Set(playlistIds));
 
   await loadProgrammeCacheMisses(remapped, playlistIds, startMs, endMs);
-  trimProgrammeWindowCache(playlistIds);
+  trimProgrammeWindowCache(playlistIds, viewportGuideChannelIds?.length ? "strict" : "soft");
 
   // Shared empty list — avoid allocating tens of thousands of `[]` on big playlists.
   // Never mutate EMPTY_PROGRAMS.
@@ -888,7 +906,7 @@ export async function loadGuideProgramsForChannelIds(
 
   const remapped = withManualRemaps(parsed.channels);
 
-  // The grid supplies an exact direction-aware five-page runway in its filtered
+  // The grid supplies an exact direction-aware eight-page runway in its filtered
   // on-screen order. Querying any larger source-order ring wastes SQLite/bridge
   // work and can warm channels that are not even visible in the selected group.
   await loadProgrammeCacheMisses(remapped, unique, startMs, endMs);
@@ -897,7 +915,9 @@ export async function loadGuideProgramsForChannelIds(
     const cached = programmeWindowCache[id];
     delta[id] = cached?.length ? cached : EMPTY_PROGRAMS;
   }
-  trimProgrammeWindowCache(unique);
+  // Soft-cap only here. The guide conveyor calls retainProgrammeWindowCache with
+  // the hysteresis keep set so previously warmed pages are not dropped early.
+  trimProgrammeWindowCache([...(viewportGuideChannelIds || []), ...unique]);
   return delta;
 }
 

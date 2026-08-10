@@ -78,15 +78,25 @@ test("Home programme metadata advances on a minute-aligned clock", async () => {
   assert.match(nowPlaying, /new Date\(nowMs\)/);
 });
 
-test("EPG screen delivery uses a five-page runway with retained bounded caches", async () => {
-  const [native, programStore, store, runway] = await Promise.all([
+test("EPG screen delivery uses an eight-page conveyor runway with retained bounded caches", async () => {
+  const [native, programStore, store, runway, sliding, guide] = await Promise.all([
     source("src/source.native.ts"),
     source("src/core/guideProgramsStore.ts"),
     source("src/store.tsx"),
     source("src/core/guideRunwayPolicy.ts"),
+    source("src/core/guideSlidingCache.ts"),
+    source("app/(tabs)/guide.tsx"),
   ]);
-  assert.match(runway, /GUIDE_PREFETCH_PAGES_AHEAD = 5/);
+  assert.match(runway, /GUIDE_PREFETCH_PAGES_AHEAD = 8/);
   assert.match(runway, /GUIDE_PREFETCH_PAGES_BEHIND = 2/);
+  assert.match(sliding, /expandRunwayKeepSet/);
+  assert.match(sliding, /hysteresis/);
+  assert.match(programStore, /export function retainGuidePrograms/);
+  assert.match(native, /retainProgrammeWindowCache/);
+  assert.match(native, /mode === "strict"/);
+  assert.match(store, /retainGuideSlidingCache/);
+  assert.match(guide, /expandRunwayKeepSet/);
+  assert.match(guide, /retainGuideSlidingCache/);
   assert.match(native, /programmeWindowInFlight/);
   assert.match(native, /programmeWindowAccessOrder/);
   assert.match(native, /programmeWindowCacheKey === requestCacheKey/);

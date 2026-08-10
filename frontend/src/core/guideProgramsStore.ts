@@ -138,6 +138,27 @@ export function clearGuidePrograms(): void {
 }
 
 /**
+ * Keep only the sliding-window channel ids. Off-window rows are dropped so a
+ * held D-pad run cannot accumulate the whole playlist in JS heap. Mounted
+ * (subscribed) rows stay until FlashList recycles them.
+ */
+export function retainGuidePrograms(keepIds: Iterable<string>): void {
+  const keep = keepIds instanceof Set ? keepIds : new Set(Array.from(keepIds).filter(Boolean));
+  if (!keep.size) return;
+  const drop: string[] = [];
+  for (const id of programsByChannelId.keys()) {
+    if (keep.has(id)) continue;
+    if ((listenersByChannelId.get(id)?.size || 0) > 0) continue;
+    drop.push(id);
+  }
+  if (!drop.length) return;
+  for (const id of drop) {
+    programsByChannelId.delete(id);
+    notify(id);
+  }
+}
+
+/**
  * The JS render cache is keyed by the displayed time window, not native guide
  * epoch. Native epoch still invalidates native query caches; keeping it out of
  * this key prevents a background refresh from blanking every mounted row.

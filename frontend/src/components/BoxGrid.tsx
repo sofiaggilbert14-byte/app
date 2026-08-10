@@ -220,7 +220,7 @@ export function BoxGrid({
   onUpBoundary?: () => void;
   onLeftBoundary?: () => void;
   onFocusedRowChange?: (index: number) => void;
-  onViewportChannelIds?: (ids: string[], priorityIds?: string[]) => void;
+  onViewportChannelIds?: (ids: string[], priorityIds?: string[], pageSize?: number) => void;
   ListHeaderComponent?: React.ReactElement;
   refreshing?: boolean;
   onRefresh?: () => void;
@@ -285,7 +285,7 @@ export function BoxGrid({
         list[index + scanDirectionRef.current * 2]?.id,
         ...visiblePageIds,
       ].filter((id): id is string => !!id);
-      onViewportChannelIds(runway, priorities);
+      onViewportChannelIds(runway, priorities, itemsPerPage);
     },
     [height, numColumns, onViewportChannelIds],
   );

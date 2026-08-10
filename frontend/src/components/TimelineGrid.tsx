@@ -610,7 +610,7 @@ export const TimelineGrid = memo(function TimelineGrid({
   /** Reports the currently focused row index so the parent can relax trapFocusUp on row 0. */
   onFocusedRowChange?: (index: number) => void;
   /** Visible-ish channel ids around the focused row (viewport + overscan) for EPG query scoping. */
-  onViewportChannelIds?: (ids: string[], priorityIds?: string[]) => void;
+  onViewportChannelIds?: (ids: string[], priorityIds?: string[], pageSize?: number) => void;
   /** Tell parent whether focus is on channel logo vs programme (for Back step-left). */
   onBackTargetChange?: (region: "channel" | "program", logoNode: unknown) => void;
   /** Bumped after drawer close when restore may have missed — re-prefer row 0 logo. */
@@ -699,7 +699,7 @@ export const TimelineGrid = memo(function TimelineGrid({
           rows[index + scanDirectionRef.current * 4]?.id,
           ...visiblePageIds,
         ].filter((id): id is string => !!id);
-        onViewportChannelIds(runway, priorityIds);
+        onViewportChannelIds(runway, priorityIds, visibleRows);
       }
     },
     [ROW_H, onFocusedRowChange, onViewportChannelIds],

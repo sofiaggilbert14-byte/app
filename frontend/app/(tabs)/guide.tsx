@@ -30,6 +30,7 @@ import { markGuideSurfing } from "@/src/utils/guideSurfGate";
 import { useGuidePrograms } from "@/src/core/guideProgramsStore";
 import { getGuideRailMetrics } from "@/src/core/guideLayoutPolicy";
 import { buildGuideRunwayIds } from "@/src/core/guideRunwayPolicy";
+import { expandRunwayKeepSet } from "@/src/core/guideSlidingCache";
 import {
   resetGuideSelection,
   setGuideFocusedProgram,
@@ -225,6 +226,7 @@ export default function PurpleGuideScreen() {
     logosOffWhileSurfing,
     instantGuide,
     epgGuideFilter,
+    retainGuideSlidingCache,
   } = useStore();
 
   const {
@@ -457,15 +459,19 @@ export default function PurpleGuideScreen() {
 
   const showGroupSearch = searchOpen || filteredMeta.length > 80;
 
-  const onViewportChannelIds = useCallback((ids: string[], priorityIds: string[] = []) => {
+  const onViewportChannelIds = useCallback((ids: string[], priorityIds: string[] = [], pageSize = 8) => {
     setViewportGuideChannelIds(ids);
     if (channels.length >= 400) {
       setPriorityMatchChannelIds(ids.slice(0, 400));
     } else {
       setPriorityMatchChannelIds([]);
     }
+    // Conveyor belt: fetch the runway, retain fetch ± 1 page so reverse surfing
+    // does not blank rows the user just left, and drop everything else.
+    const orderedIds = filtered.map((channel) => channel.id);
+    retainGuideSlidingCache(expandRunwayKeepSet(orderedIds, ids, pageSize, 1));
     void patchProgramsForChannelIds(ids, priorityIds);
-  }, [channels.length, patchProgramsForChannelIds]);
+  }, [channels.length, filtered, patchProgramsForChannelIds, retainGuideSlidingCache]);
 
   const viewportSeedKeyRef = useRef("");
   // Seed only on cold load/group/reset. A silent refresh must not yank a deeply
@@ -482,11 +488,19 @@ export default function PurpleGuideScreen() {
       channelLogos,
     ).rowHeight;
     const visibleRows = Math.max(6, Math.min(24, Math.ceil(screenHeight / rowHeight)));
-    // Warm the complete initial direction-aware runway (current page plus five
+    // Warm the complete initial direction-aware runway (current page plus eight
     // pages ahead) before the first focus event instead of waiting on row 1.
     const ids = buildGuideRunwayIds(filtered, 0, visibleRows, 1);
     setViewportGuideChannelIds(ids);
     setPriorityMatchChannelIds(channels.length >= 400 ? ids : []);
+    retainGuideSlidingCache(
+      expandRunwayKeepSet(
+        filtered.map((channel) => channel.id),
+        ids,
+        visibleRows,
+        1,
+      ),
+    );
     // Prewarm immediately on Guide/group entry, before the first native focus
     // event. SQLite and the bridge can populate the first visible runway early.
     void patchProgramsForChannelIds(
@@ -503,6 +517,7 @@ export default function PurpleGuideScreen() {
     group,
     guideDensity,
     patchProgramsForChannelIds,
+    retainGuideSlidingCache,
     resetToken,
     screenHeight,
     screenWidth,
