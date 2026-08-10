@@ -2,9 +2,7 @@ package com.charmiptv.app
 
 import android.os.SystemClock
 import android.view.MotionEvent
-import android.media.MediaCodecList
-import com.facebook.react.bridge.Arguments
-import com.facebook.react.bridge.Promise
+import android.view.View
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
@@ -18,12 +16,47 @@ class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBas
     // JVM level with the @ReactMethod fun setPointerActive(...) below.
     @JvmField
     var pointerActive: Boolean = false
-    private const val MAX_SANE_CODEC_DIMENSION = 16_384
+
+    @JvmField
+    var guideNavigationActive: Boolean = false
   }
 
   @ReactMethod
   fun setPointerActive(active: Boolean) {
     pointerActive = active
+  }
+
+  @ReactMethod
+  fun setGuideNavigationActive(active: Boolean) {
+    guideNavigationActive = active
+  }
+
+  @ReactMethod
+  fun focusView(reactTag: Double) {
+    val activity = ctx.currentActivity ?: return
+    activity.runOnUiThread {
+      try {
+        activity.findViewById<View>(reactTag.toInt())?.requestFocus()
+      } catch (e: Throwable) {}
+    }
+  }
+
+  @ReactMethod
+  fun moveFocus(direction: String) {
+    val activity = ctx.currentActivity ?: return
+    activity.runOnUiThread {
+      try {
+        val current = activity.currentFocus ?: return@runOnUiThread
+        val nativeDirection = when (direction.uppercase()) {
+          "UP" -> View.FOCUS_UP
+          "DOWN" -> View.FOCUS_DOWN
+          "LEFT" -> View.FOCUS_LEFT
+          "RIGHT" -> View.FOCUS_RIGHT
+          else -> return@runOnUiThread
+        }
+        current.focusSearch(nativeDirection)?.requestFocus()
+      } catch (e: Throwable) {}
+    }
   }
 
   @ReactMethod
@@ -43,57 +76,10 @@ class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBas
     }
   }
 
-  /** One-shot diagnostic report; never probe codecs while changing channels. */
-  @ReactMethod
-  fun getCodecCapabilities(promise: Promise) {
-    try {
-      val mimeTypes = LinkedHashSet<String>()
-      var maxWidth = 0
-      var maxHeight = 0
-      for (info in MediaCodecList(MediaCodecList.ALL_CODECS).codecInfos) {
-        if (info.isEncoder) continue
-        for (type in info.supportedTypes) {
-          val mime = type.lowercase()
-          mimeTypes.add(mime)
-          if (mime.startsWith("video/")) {
-            try {
-              val video = info.getCapabilitiesForType(type).videoCapabilities
-              val advertisedWidth = video.supportedWidths.upper
-              val advertisedHeight = video.supportedHeights.upper
-              // Some vendor codecs publish Integer.MAX_VALUE-like ranges.
-              // Ignore those rather than displaying a fictitious resolution.
-              if (advertisedWidth in 1..MAX_SANE_CODEC_DIMENSION) {
-                maxWidth = maxOf(maxWidth, advertisedWidth)
-              }
-              if (advertisedHeight in 1..MAX_SANE_CODEC_DIMENSION) {
-                maxHeight = maxOf(maxHeight, advertisedHeight)
-              }
-            } catch (_: Throwable) {}
-          }
-        }
-      }
-      val result = Arguments.createMap().apply {
-        putBoolean("h264", mimeTypes.contains("video/avc"))
-        putBoolean("hevc", mimeTypes.contains("video/hevc"))
-        putBoolean("vp9", mimeTypes.contains("video/x-vnd.on2.vp9"))
-        putBoolean("av1", mimeTypes.contains("video/av01"))
-        putBoolean("aac", mimeTypes.contains("audio/mp4a-latm"))
-        putBoolean("ac3", mimeTypes.contains("audio/ac3"))
-        putBoolean("eac3", mimeTypes.contains("audio/eac3") || mimeTypes.contains("audio/eac3-joc"))
-        putInt("maxWidth", maxWidth)
-        putInt("maxHeight", maxHeight)
-      }
-      promise.resolve(result)
-    } catch (t: Throwable) {
-      promise.reject("CODEC_REPORT_FAILED", t.message ?: "Codec report unavailable", t)
-    }
-  }
-
   // Required so JS NativeEventEmitter doesn't warn.
   @ReactMethod
   fun addListener(eventName: String) {}
 
   @ReactMethod
   fun removeListeners(count: Int) {}
-
 }

@@ -10,18 +10,15 @@ const source = (path) => readFile(join(root, path), "utf8");
 test("PR #36 guide recovery wiring remains present", async () => {
   const guide = await source("app/(tabs)/guide.tsx");
   assert.match(guide, /previewEpoch/);
-  assert.match(guide, /focusGuideSurface\(guideSessionChannelId\)/);
-  assert.doesNotMatch(guide, /lastGuideFocusNodeRef|onGuideFocusNode=/);
+  assert.match(guide, /requestNativeFocusWithRetry\(lastGuideFocusNodeRef\.current/);
+  assert.match(guide, /onGuideFocusNode=/);
 });
 
 test("PR #36 rapid-surf and player focus protections remain present", async () => {
   const [grid, player] = await Promise.all([
     source("src/components/TimelineGrid.tsx"), source("app/player.tsx"),
   ]);
-  assert.doesNotMatch(grid, /disableProgramCull/);
-  assert.match(grid, /viewport \* 0\.3/);
-  assert.match(grid, /preservePendingFocus/);
-  assert.match(grid, /lastViewportBucketRef/);
+  assert.match(grid, /disableProgramCull/);
   assert.match(grid, /armGuideBottomFocusLock/);
   assert.match(player, /preferControlRef/);
   assert.match(player, /which === "next" \? nextButtonRef\.current : prevButtonRef\.current/);
@@ -39,10 +36,10 @@ test("favorite storage remains ID-only and bounded", async () => {
   assert.doesNotMatch(store, /storage\.setItem\(RECENT_KEY, next\)/);
 });
 
-test("program runway stays wide without focus-time React state churn", async () => {
+test("program cull disable is edge-triggered during vertical surf", async () => {
   const grid = await source("src/components/TimelineGrid.tsx");
-  assert.doesNotMatch(grid, /cullDisabledRef|setDisableProgramCull/);
-  assert.match(grid, /drawDistance=\{Math\.max\(2200, ROW_H \* 36\)\}/);
+  assert.match(grid, /cullDisabledRef/);
+  assert.match(grid, /if \(!cullDisabledRef\.current\)/);
 });
 
 test("guide preview uses lighter stream buffers", async () => {

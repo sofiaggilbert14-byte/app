@@ -21,19 +21,9 @@ import {
   applyLeftFocusLock,
   armGuideBottomFocusLock,
   armGuideLeftFocusLock,
-  focusGuideSurfaceWhenMounted,
-  noteGuideChannelFocus,
-  registerGuideChannelNode,
 } from "@/src/utils/tvGuideFocusLock";
 import { evaluateGuideNavigation } from "@/src/core/guideNavigationPolicy";
-import { getGuideProgramRowState, useGuidePrograms } from "@/src/core/guideProgramsStore";
-import { channelHasEpgMatch } from "@/src/core/epgUserOverrides";
-import {
-  buildGuideRunwayIds,
-  type GuideScanDirection,
-} from "@/src/core/guideRunwayPolicy";
-import { createDpadDoubleTapDetector } from "@/src/core/dpadDoubleTap";
-import { subscribeVerticalDpadTaps } from "@/src/utils/tvDpadTap";
+import { useGuidePrograms } from "@/src/core/guideProgramsStore";
 
 const ACCENT = "#A855F7";
 const ACCENT_SOFT = "#E9D5FF";
@@ -91,7 +81,6 @@ const ChannelCard = memo(function ChannelCard({
   lockFocusLeft = false,
 }: ChannelCardProps) {
   const programs = useGuidePrograms(item.id);
-  const programRowState = getGuideProgramRowState(item.id);
   const { current, next } = nowNext(programs, nowDate);
   const pct = progressPct(current, nowDate);
   const hasReminder = programs.some((program) => reminderKeys?.has(reminderKey(item.id, program.start)));
@@ -100,11 +89,10 @@ const ChannelCard = memo(function ChannelCard({
   const setCardRef = useCallback(
     (node: any) => {
       cardRef.current = node;
-      registerGuideChannelNode(item.id, node, { handOffLeftToPreview: !lockFocusLeft });
       applyLeftFocusLock(node, lockFocusLeft);
       applyDownFocusLock(node, lockFocusDown);
     },
-    [item.id, lockFocusDown, lockFocusLeft],
+    [lockFocusDown, lockFocusLeft],
   );
 
   useEffect(() => {
@@ -121,7 +109,6 @@ const ChannelCard = memo(function ChannelCard({
   }, [item, next, onProgramPress]);
   const handleFavorite = useCallback(() => toggleFavorite(item.id), [item.id, toggleFavorite]);
   const handleFocus = useCallback(() => {
-    noteGuideChannelFocus(item.id, cardRef.current);
     onFocusNode?.(cardRef.current);
     onRowFocus?.(index);
     onChannelFocus?.(item);
@@ -169,13 +156,7 @@ const ChannelCard = memo(function ChannelCard({
             </View>
           </Pressable>
         ) : (
-          <Text style={styles.noNow}>
-            {programRowState === "loading"
-              ? "Loading programme data"
-              : !channelHasEpgMatch(item)
-                ? "Channel not matched to XMLTV"
-                : "No programme supplied"}
-          </Text>
+          <Text style={styles.noNow}>No program info</Text>
         )}
 
         {next && (
@@ -200,6 +181,7 @@ export function BoxGrid({
   onLeftBoundary,
   onFocusedRowChange,
   onViewportChannelIds,
+  onGuideFocusNode,
   ListHeaderComponent,
   refreshing,
   onRefresh,
@@ -220,7 +202,8 @@ export function BoxGrid({
   onUpBoundary?: () => void;
   onLeftBoundary?: () => void;
   onFocusedRowChange?: (index: number) => void;
-  onViewportChannelIds?: (ids: string[], priorityIds?: string[], pageSize?: number) => void;
+  onViewportChannelIds?: (ids: string[]) => void;
+  onGuideFocusNode?: (node: unknown) => void;
   ListHeaderComponent?: React.ReactElement;
   refreshing?: boolean;
   onRefresh?: () => void;
@@ -233,7 +216,7 @@ export function BoxGrid({
   lockLeftEdge?: boolean;
   restoreChannelId?: string | null;
 }) {
-  const { width, height } = useWindowDimensions();
+  const { width } = useWindowDimensions();
   const numColumns = width >= 1400 ? 6 : width >= 1150 ? 5 : width >= 900 ? 4 : width >= 600 ? 3 : 2;
   const nowDate = useMemo(() => new Date(now), [now]);
   const { favorites, toggleFavorite } = useStore();
@@ -243,22 +226,19 @@ export function BoxGrid({
   channelsRef.current = channels;
   const focusedRowRef = useRef(0);
   const focusedIndexRef = useRef(0);
+  const mountedRowBandRef = useRef({ start: 0, end: -1 });
   const focusedNodeRef = useRef<unknown>(null);
   const lastRowIndexRef = useRef(0);
   const lastReportedDeepRef = useRef(false);
-  const lastViewportBucketRef = useRef("");
-  const lastPrefetchIndexRef = useRef(0);
-  const scanDirectionRef = useRef<GuideScanDirection>(1);
   const guideEscapeInFlight = useRef(false);
   const escapeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasClaimedFocusRef = useRef(false);
   const gridOwnsFocusRef = useRef(false);
-  const pageJumpDetectorRef = useRef(createDpadDoubleTapDetector());
-  const pageJumpAnchorRef = useRef(0);
   const [preferFirst, setPreferFirst] = useState(() => !hasClaimedFocusRef.current);
   const rememberFocusNode = useCallback((node: unknown) => {
     if (node) focusedNodeRef.current = node;
-  }, []);
+    onGuideFocusNode?.(node);
+  }, [onGuideFocusNode]);
 
   const reportViewport = useCallback(
     (index: number) => {
@@ -266,28 +246,14 @@ export function BoxGrid({
       const list = channelsRef.current;
       if (!list.length) return;
       const cols = Math.max(1, numColumns);
-      const visibleCardRows = Math.max(3, Math.ceil(height / 148));
-      const itemsPerPage = cols * visibleCardRows;
-      if (index > lastPrefetchIndexRef.current) scanDirectionRef.current = 1;
-      else if (index < lastPrefetchIndexRef.current) scanDirectionRef.current = -1;
-      lastPrefetchIndexRef.current = index;
-      const viewportBucket = `${Math.floor(Math.max(0, index) / itemsPerPage)}:${scanDirectionRef.current}`;
-      if (lastViewportBucketRef.current === viewportBucket) return;
-      lastViewportBucketRef.current = viewportBucket;
-      const runway = buildGuideRunwayIds(list, index, itemsPerPage, scanDirectionRef.current);
-      const pageStart = Math.floor(Math.max(0, index) / itemsPerPage) * itemsPerPage;
-      const visiblePageIds = list
-        .slice(pageStart, pageStart + itemsPerPage)
-        .map((channel) => channel.id);
-      const priorities = [
-        list[index]?.id,
-        list[index + scanDirectionRef.current]?.id,
-        list[index + scanDirectionRef.current * 2]?.id,
-        ...visiblePageIds,
-      ].filter((id): id is string => !!id);
-      onViewportChannelIds(runway, priorities, itemsPerPage);
+      const visibleRows = 4;
+      const start = Math.max(0, index - cols);
+      const end = Math.min(list.length, start + cols * visibleRows);
+      const ids: string[] = [];
+      for (let i = start; i < end; i++) ids.push(list[i].id);
+      onViewportChannelIds(ids);
     },
-    [height, numColumns, onViewportChannelIds],
+    [numColumns, onViewportChannelIds],
   );
 
   const reportFocusedRow = useCallback(
@@ -296,14 +262,29 @@ export function BoxGrid({
       focusedIndexRef.current = index;
       focusedRowRef.current = row;
       gridOwnsFocusRef.current = true;
+      const visibleRows = 6;
+      const band = mountedRowBandRef.current;
+      if (row <= band.start + 1 || row >= band.end - 1 || band.end < band.start) {
+        const targetRow = Math.max(0, row - 2);
+        const targetIndex = Math.min(Math.max(0, channelsRef.current.length - 1), targetRow * Math.max(1, numColumns));
+        mountedRowBandRef.current = { start: targetRow, end: targetRow + visibleRows };
+        try {
+          listRef.current?.scrollToIndex({ index: targetIndex, animated: false, viewPosition: 0.12 });
+        } catch {
+          try {
+            listRef.current?.scrollToOffset({ offset: Math.max(0, targetRow * 132), animated: false });
+          } catch {}
+        }
+      }
       const deep = row > 0;
+      if (preferFirst && deep) setPreferFirst(false);
       if (lastReportedDeepRef.current !== deep) {
         lastReportedDeepRef.current = deep;
         onFocusedRowChange?.(row);
       }
       reportViewport(index);
     },
-    [numColumns, onFocusedRowChange, reportViewport],
+    [numColumns, onFocusedRowChange, preferFirst, reportViewport],
   );
 
   // Mount-once preferred focus — restore the last watched card after player.
@@ -327,10 +308,8 @@ export function BoxGrid({
   useEffect(() => {
     if (!resetToken) return;
     lastReportedDeepRef.current = false;
-    lastViewportBucketRef.current = "";
-    lastPrefetchIndexRef.current = 0;
-    scanDirectionRef.current = 1;
     focusedRowRef.current = 0;
+    mountedRowBandRef.current = { start: 0, end: -1 };
     try {
       listRef.current?.scrollToOffset({ offset: 0, animated: false });
     } catch {}
@@ -343,39 +322,6 @@ export function BoxGrid({
     [],
   );
 
-  useEffect(() => {
-    if (!active) {
-      pageJumpDetectorRef.current.reset();
-      return;
-    }
-    return subscribeVerticalDpadTaps((key) => {
-      if (!gridOwnsFocusRef.current) {
-        pageJumpDetectorRef.current.reset();
-        return;
-      }
-      const matched = pageJumpDetectorRef.current.push(key);
-      if (!matched) {
-        pageJumpAnchorRef.current = focusedIndexRef.current;
-        return;
-      }
-      const list = channelsRef.current;
-      if (!list.length) return;
-      const direction: GuideScanDirection = matched === "DOWN" ? 1 : -1;
-      const visibleRows = Math.max(1, Math.ceil(height / 148));
-      const itemsPerPage = Math.max(1, numColumns) * visibleRows;
-      const target = Math.max(
-        0,
-        Math.min(list.length - 1, pageJumpAnchorRef.current + direction * itemsPerPage),
-      );
-      scanDirectionRef.current = direction;
-      try {
-        listRef.current?.scrollToIndex({ index: target, animated: false, viewPosition: 0.1 });
-      } catch {}
-      reportFocusedRow(target);
-      focusGuideSurfaceWhenMounted(list[target]?.id, [0, 24, 64, 120, 220]);
-    });
-  }, [active, height, numColumns, reportFocusedRow]);
-
   const lastRowIndex = Math.max(0, Math.floor((Math.max(channels.length, 1) - 1) / Math.max(1, numColumns)));
   lastRowIndexRef.current = lastRowIndex;
 
@@ -384,7 +330,7 @@ export function BoxGrid({
       (event) => {
         if (!active) return;
         const key = event?.eventType;
-        // Left edge of compact grid hands focus to the preview/actions panel.
+        // Left edge of compact grid — hand focus to icon rail when provided.
         if (key === "left" && gridOwnsFocusRef.current) {
           const col = focusedIndexRef.current % Math.max(1, numColumns);
           if (col === 0) {
@@ -468,7 +414,7 @@ export function BoxGrid({
         keyExtractor={(c) => c.id}
         // Re-render visible hearts when favorites change without recreating renderItem.
         extraData={favorites}
-        drawDistance={2400}
+        drawDistance={720}
         removeClippedSubviews={false}
         contentContainerStyle={{ paddingBottom: 130, paddingHorizontal: spacing.xs, paddingTop: spacing.xs }}
         ListHeaderComponent={ListHeaderComponent}

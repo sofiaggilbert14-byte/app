@@ -4,7 +4,7 @@ import {
   alternateEngine, detectStreamKind, parsePipeHeaders, preferredEngine,
 } from "../src/core/streamPolicy.ts";
 import {
-  DECODER_RESUME_SETTLE_MS,
+  DECODER_RESUME_SETTLE_MS, MODAL_FOCUS_RETRY_DELAYS_MS,
   isRapidDirectionalScan, routeAcceptsRapidScanKey,
 } from "../src/core/guideRegressionPolicy.ts";
 
@@ -36,4 +36,5 @@ test("rapid scan policy is route-specific and bounded", () => {
   assert.equal(isRapidDirectionalScan(1_000, 1_200), true);
   assert.equal(isRapidDirectionalScan(1_000, 1_221), false);
   assert.equal(DECODER_RESUME_SETTLE_MS, 480);
+  assert.deepEqual([...MODAL_FOCUS_RETRY_DELAYS_MS], [0, 40, 120, 280]);
 });

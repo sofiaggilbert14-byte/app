@@ -20,17 +20,6 @@ const failedUris = new Set<string>();
 const successOrder: string[] = [];
 const failureOrder: string[] = [];
 
-/** Drop only decoded/nonvisible logo memory; disk cache and active views survive. */
-export function clearChannelLogoMemory(): void {
-  for (const entry of loadQueue) entry.cancelled = true;
-  loadQueue.splice(0, loadQueue.length);
-  succeededUris.clear();
-  failedUris.clear();
-  successOrder.splice(0, successOrder.length);
-  failureOrder.splice(0, failureOrder.length);
-  void (Image as any).clearMemoryCache?.().catch?.(() => undefined);
-}
-
 function remember(set: Set<string>, order: string[], uri: string): void {
   if (set.has(uri)) return;
   set.add(uri);

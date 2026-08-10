@@ -11,14 +11,11 @@ import { gunzipSync, gzipSync } from "node:zlib";
 import { pathToFileURL } from "node:url";
 
 const NOW = Date.now();
-const GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.GUIDE_WINDOW_HOURS, 6);
+const GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.GUIDE_WINDOW_HOURS, 12);
 const GUIDE_START = NOW - 6 * 3600 * 1000;
 const GUIDE_END = NOW + GUIDE_WINDOW_HOURS * 3600 * 1000;
 const WIN_START = NOW - 1 * 3600 * 1000;
 const WIN_END = NOW + GUIDE_WINDOW_HOURS * 3600 * 1000;
-export const MAX_PLAYLIST_DOWNLOAD_BYTES = 64 * 1024 * 1024;
-export const MAX_EPG_DOWNLOAD_BYTES = 256 * 1024 * 1024;
-export const MAX_EPG_DECOMPRESSED_BYTES = 768 * 1024 * 1024;
 const FETCH_ATTEMPTS = [
   {
     "User-Agent": "TiviMate/5.1.6 (Linux; Android TV)",
@@ -44,53 +41,17 @@ function requireEnv(name) {
   return v;
 }
 
-export function readGuideWindowHours(value, fallback = 6) {
+function readGuideWindowHours(value, fallback) {
   const n = Number(value || fallback);
   if (!Number.isFinite(n)) return fallback;
-  return Math.min(72, Math.max(6, Math.round(n)));
+  return Math.min(72, Math.max(12, Math.round(n)));
 }
 
 function https(u) {
   return u && u.startsWith("http://") ? "https://" + u.slice(7) : u;
 }
 
-async function readBoundedBody(response, maxBytes, declaredMaxBytes = maxBytes) {
-  const declared = Number(response.headers.get("content-length") || 0);
-  if (Number.isFinite(declared) && declared > declaredMaxBytes) {
-    throw new Error("Provider response exceeded the configured download limit");
-  }
-  if (!response.body?.getReader) {
-    const fallback = Buffer.from(await response.arrayBuffer());
-    if (fallback.length > maxBytes) throw new Error("Provider response exceeded the configured download limit");
-    return fallback;
-  }
-  const reader = response.body.getReader();
-  const chunks = [];
-  let total = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
-      if (total > maxBytes) {
-        await reader.cancel("size limit exceeded");
-        throw new Error("Provider response exceeded the configured download limit");
-      }
-      chunks.push(Buffer.from(value));
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  return Buffer.concat(chunks, total);
-}
-
-export async function fetchBytes(
-  url,
-  {
-    maxDownloadBytes = MAX_EPG_DOWNLOAD_BYTES,
-    maxDecodedBytes = MAX_EPG_DECOMPRESSED_BYTES,
-  } = {},
-) {
+async function fetchBytes(url) {
   let lastError = null;
   for (let i = 0; i < FETCH_ATTEMPTS.length; i++) {
     try {
@@ -102,17 +63,9 @@ export async function fetchBytes(
         },
         redirect: "follow",
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status} fetching provider source`);
-      const transportEncoded = Boolean(res.headers.get("content-encoding"));
-      const buf = await readBoundedBody(
-        res,
-        transportEncoded ? maxDecodedBytes : maxDownloadBytes,
-        maxDownloadBytes,
-      );
-      if (buf.length > 2 && buf[0] === 0x1f && buf[1] === 0x8b) {
-        return gunzipSync(buf, { maxOutputLength: maxDecodedBytes });
-      }
-      if (buf.length > maxDecodedBytes) throw new Error("Provider response exceeded the decoded size limit");
+      if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length > 2 && buf[0] === 0x1f && buf[1] === 0x8b) return gunzipSync(buf);
       return buf;
     } catch (err) {
       lastError = err;
@@ -501,10 +454,7 @@ function summarizeEpg(epg, label, epgXml = "") {
 }
 
 async function fetchAndParseEpg(url, label) {
-  const epgXml = (await fetchBytes(url, {
-    maxDownloadBytes: MAX_EPG_DOWNLOAD_BYTES,
-    maxDecodedBytes: MAX_EPG_DECOMPRESSED_BYTES,
-  })).toString("utf8");
+  const epgXml = (await fetchBytes(url)).toString("utf8");
   const epg = parseXMLTV(epgXml);
   const progCount = summarizeEpg(epg, label, epgXml);
   return { epg, progCount };
@@ -571,10 +521,7 @@ export async function main() {
   let channels;
   let embeddedEpgUrls = [];
   try {
-    const m3uText = (await fetchBytes(m3uUrl, {
-      maxDownloadBytes: MAX_PLAYLIST_DOWNLOAD_BYTES,
-      maxDecodedBytes: MAX_PLAYLIST_DOWNLOAD_BYTES,
-    })).toString("utf8");
+    const m3uText = (await fetchBytes(m3uUrl)).toString("utf8");
     const playlist = parseM3UWithMeta(m3uText);
     channels = playlist.channels;
     embeddedEpgUrls = playlist.epgUrls;
@@ -693,7 +640,7 @@ function safeJson(s, fallback) {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((e) => {
     console.error("Builder crashed:", e);
     process.exit(1);

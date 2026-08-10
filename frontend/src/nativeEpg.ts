@@ -12,14 +12,12 @@ type NativeProgramme = {
 
 type NativeWindow = Record<string, NativeProgramme[]>;
 type NativeCurrent = Record<string, NativeProgramme>;
-const EMPTY_NATIVE_PROGRAMS: Program[] = [];
 
 type NativeRefreshResult = {
   count: number;
   windowStartMs: number;
   windowEndMs: number;
   guideEpoch?: number;
-  notModified?: boolean;
   channelLogos?: Record<string, string>;
   channelNames?: Record<string, string>;
   channelIdsWithPrograms?: string[];
@@ -43,15 +41,10 @@ export type NativePlaylistEpgMatchRow = {
 };
 
 type CharmEpgModule = {
-  refresh(url: string, allowNotModified: boolean): Promise<NativeRefreshResult>;
+  refresh(url: string): Promise<NativeRefreshResult>;
   getWindow(startMs: number, endMs: number, channelIds: string[]): Promise<NativeWindow>;
   queryGuideWindow?(startMs: number, endMs: number, playlistChannelIds: string[]): Promise<NativeWindow>;
-  isPlaylistCurrent?(contentFingerprint: string): Promise<boolean>;
-  upsertPlaylistChannels?(
-    channels: NativePlaylistChannelRow[],
-    playlistEpoch: number,
-    contentFingerprint: string,
-  ): Promise<boolean>;
+  upsertPlaylistChannels?(channels: NativePlaylistChannelRow[], playlistEpoch: number): Promise<boolean>;
   upsertPlaylistEpgMatches?(matches: NativePlaylistEpgMatchRow[], guideEpoch: number): Promise<boolean>;
   getCurrent(): Promise<NativeCurrent>;
   clear(): Promise<boolean>;
@@ -76,16 +69,15 @@ function windowToPrograms(window: NativeWindow, channelIds: string[]): Record<st
   for (const channelId of channelIds) {
     if (result[channelId]) continue;
     const programmes = window[channelId];
-    result[channelId] = programmes?.length
-      ? programmes.map(toProgram)
-      : EMPTY_NATIVE_PROGRAMS;
+    if (!programmes?.length) continue;
+    result[channelId] = programmes.map(toProgram);
   }
   return result;
 }
 
-export async function refreshNativeEpg(url: string, allowNotModified: boolean): Promise<NativeRefreshResult> {
+export async function refreshNativeEpg(url: string): Promise<NativeRefreshResult> {
   if (!nativeModule) throw new Error("Native EPG engine is unavailable");
-  return nativeModule.refresh(url, allowNotModified);
+  return nativeModule.refresh(url);
 }
 
 export async function loadNativeEpgWindow(
@@ -122,17 +114,10 @@ export async function queryNativeGuideWindow(
 export async function upsertNativePlaylistChannels(
   channels: NativePlaylistChannelRow[],
   playlistEpoch: number,
-  contentFingerprint: string,
-): Promise<boolean> {
-  if (!nativeModule || typeof nativeModule.upsertPlaylistChannels !== "function") return false;
-  if (!channels.length) return false;
-  return nativeModule.upsertPlaylistChannels(channels, playlistEpoch, contentFingerprint);
-}
-
-export async function nativePlaylistIsCurrent(contentFingerprint: string): Promise<boolean> {
-  if (!nativeModule || typeof nativeModule.isPlaylistCurrent !== "function") return false;
-  if (!contentFingerprint) return false;
-  return nativeModule.isPlaylistCurrent(contentFingerprint);
+): Promise<void> {
+  if (!nativeModule || typeof nativeModule.upsertPlaylistChannels !== "function") return;
+  if (!channels.length) return;
+  await nativeModule.upsertPlaylistChannels(channels, playlistEpoch);
 }
 
 export async function upsertNativePlaylistEpgMatches(

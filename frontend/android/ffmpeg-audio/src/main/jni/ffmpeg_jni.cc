@@ -239,10 +239,8 @@ AUDIO_DECODER_FUNC(jlong, ffmpegReset, jlong jContext, jbyteArray extraData) {
   if (codecId == AV_CODEC_ID_TRUEHD) {
     jboolean outputFloat =
         (jboolean)(context->request_sample_fmt == OUTPUT_FORMAT_PCM_FLOAT);
-    // Media3 upstream deliberately recreates TrueHD contexts because
-    // avcodec_flush_buffers can leave this decoder unusable after a channel
-    // switch/seek. Keep the defensive recreation until upstream proves that a
-    // plain flush is safe for the pinned FFmpeg version.
+    // Release and recreate the context if the codec is TrueHD.
+    // TODO: Figure out why flushing doesn't work for this codec.
     releaseContext(context);
     const AVCodec *codec = avcodec_find_decoder(codecId);
     if (!codec) {

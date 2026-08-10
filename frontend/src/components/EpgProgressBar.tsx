@@ -38,15 +38,12 @@ export function EpgProgressBar() {
   const w = useRef(new Animated.Value(0)).current;
 
   const visible =
-    phase === "update_available" ||
     phase === "channels" ||
     phase === "downloading" ||
     phase === "decompressing" ||
     phase === "parsing" ||
     phase === "indexing" ||
-    phase === "matching" ||
     phase === "caching" ||
-    phase === "finalizing" ||
     phase === "error";
 
   useEffect(() => {
@@ -57,10 +54,8 @@ export function EpgProgressBar() {
 
   const isErr = phase === "error";
   const label = isErr
-    ? `${message || "Guide refresh failed"} — showing saved Guide where available`
-    : phase === "update_available"
-      ? "Guide update available — saved Guide stays active while it loads"
-      : phase === "channels"
+    ? message || "Guide unavailable — showing channels only"
+    : phase === "channels"
       ? "Channels ready — loading guide"
       : phase === "downloading"
         ? "Downloading TV guide…"
@@ -69,12 +64,8 @@ export function EpgProgressBar() {
           : phase === "parsing"
             ? "Building programme guide…"
             : phase === "indexing"
-              ? "Indexing guide channels..."
-              : phase === "matching"
-                ? "Matching guide channels..."
-                : phase === "finalizing"
-                  ? "Finalizing guide..."
-                  : "Saving guide for fast launch...";
+              ? "Matching guide channels…"
+              : "Saving guide for fast launch…";
   const pct = isErr ? "" : `${Math.round(Math.min(1, ratio) * 100)}%`;
   const eta = isErr ? "" : fmtEta(etaSeconds);
 
