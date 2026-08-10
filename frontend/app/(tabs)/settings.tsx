@@ -34,6 +34,10 @@ import {
 import { formatDiagnosticsExport } from "@/src/core/diagnosticsExport";
 import { audioDiagnosticsExtras } from "@/src/core/audioDiagnostics";
 import { POWER_PROFILE_OPTIONS } from "@/src/core/devicePowerProfile";
+import {
+  usePlaybackBufferProfile,
+  type PlaybackBufferProfile,
+} from "@/src/core/playbackBufferProfile";
 import { channelHasEpgMatch } from "@/src/core/epgUserOverrides";
 import { useChannelCustomize } from "@/src/core/channelCustomize";
 import { useGuideUiPreferences } from "@/src/core/guideUiPreferences";
@@ -46,6 +50,11 @@ import {
 } from "@/src/core/subtitlePreferences";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
+import { useAudioTrackPreferences } from "@/src/core/audioTrackPreferences";
+import {
+  getDeviceCodecCapabilities,
+  type DeviceCodecCapabilities,
+} from "@/src/core/deviceCodecCapabilities";
 import dayjs from "dayjs";
 import * as FileSystem from "expo-file-system/legacy";
 import { formatRelativeAge } from "@/src/utils/time";
@@ -116,6 +125,8 @@ export default function SettingsScreen() {
     setPowerProfile,
     logosOffWhileSurfing,
     setLogosOffWhileSurfing,
+    instantGuide,
+    setInstantGuide,
     epgGuideFilter,
     setEpgGuideFilter,
     guideWindowHours,
@@ -128,15 +139,18 @@ export default function SettingsScreen() {
     setSleepTimerMinutes,
   } = useStore();
   const [playerEnginePreference, setPlayerEnginePreference] = usePlayerEnginePreference();
+  const [playbackBufferProfile, setPlaybackBufferProfile] = usePlaybackBufferProfile();
   const channelCustomize = useChannelCustomize();
   const guideUi = useGuideUiPreferences();
   const parental = useParentalPin();
   const subtitles = useSubtitlePreferences();
+  const audioPreferences = useAudioTrackPreferences();
   const [section, setSection] = useState<Section | null>(null);
   const [busy, setBusy] = useState(false);
   const [backupStatus, setBackupStatus] = useState<string | null>(null);
   const [clearFavoritesArmed, setClearFavoritesArmed] = useState(false);
   const [diagnostics, setDiagnostics] = useState<SourceDiagnostics | null>(null);
+  const [codecCapabilities, setCodecCapabilities] = useState<DeviceCodecCapabilities | null>(null);
   const [pinDraft, setPinDraft] = useState("");
   const [focusedCustomizeId, setFocusedCustomizeId] = useState<string | null>(null);
   const clearFavoritesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -148,6 +162,10 @@ export default function SettingsScreen() {
     if (section !== "general" && section !== "backup" && section !== "about" && section !== "health") return;
     void sourceDiagnostics().then(setDiagnostics).catch(() => undefined);
   }, [section, busy]);
+  useEffect(() => {
+    if (section !== "health" && section !== "about") return;
+    void getDeviceCodecCapabilities().then(setCodecCapabilities);
+  }, [section]);
 
   useEffect(() => {
     if (!preferTileFocus) return;
@@ -462,7 +480,7 @@ export default function SettingsScreen() {
                   <ChoiceRow<GuideDensity>
                     label="Guide density"
                     value={guideDensity}
-                    options={[{ label: "Comfortable", value: "large" }, { label: "Normal", value: "normal" }, { label: "Compact", value: "compact" }]}
+                    options={[{ label: "Comfortable", value: "large" }, { label: "Normal", value: "normal" }, { label: "Compact", value: "compact" }, { label: "Extra compact", value: "extra_compact" }]}
                     onChange={setGuideDensity}
                   />
                 ) : (
@@ -485,6 +503,8 @@ export default function SettingsScreen() {
                 <ToggleRow label="Channel numbers" value={channelNumbers} onChange={setChannelNumbers} />
                 <ToggleRow label="Channel logos" value={channelLogos} onChange={setChannelLogos} />
                 <ToggleRow label="Logos off while surfing" value={logosOffWhileSurfing} onChange={setLogosOffWhileSurfing} />
+                <ToggleRow label="Instant Guide / reduce motion" value={instantGuide} onChange={setInstantGuide} />
+                <Text style={styles.help}>Snaps Guide movement and avoids repeated transition work during fast remote navigation.</Text>
                 <ChoiceRow<PowerProfile>
                   label="Power profile"
                   value={powerProfile}
@@ -597,6 +617,16 @@ export default function SettingsScreen() {
                   options={[{ label: "8 sec", value: 8000 }, { label: "15 sec", value: 15000 }, { label: "30 sec", value: 30000 }, { label: "60 sec", value: 60000 }]}
                   onChange={setPlayerControlsTimeoutMs}
                 />
+                <ChoiceRow<PlaybackBufferProfile>
+                  label="Playback buffer"
+                  value={playbackBufferProfile}
+                  options={[
+                    { label: "Low latency", value: "low_latency" },
+                    { label: "Balanced", value: "balanced" },
+                    { label: "Stable", value: "stable" },
+                  ]}
+                  onChange={setPlaybackBufferProfile}
+                />
                 <ToggleRow label="Auto retry streams" value={autoRetryStreams} onChange={setAutoRetryStreams} />
                 <ChoiceRow<SleepTimerMinutes>
                   label="Sleep timer"
@@ -613,6 +643,23 @@ export default function SettingsScreen() {
                 <Text style={styles.help}>
                   Media3 exposes audio/CC tracks and uses the Android TV codec path. Choose Media3 to keep one player engine; VLC remains an optional compatibility mode.
                 </Text>
+                <View style={styles.divider} />
+                <Text style={styles.settingLabel}>Audio</Text>
+                <Text style={styles.help}>The app remembers the last working audio track for up to 128 channels and can prefer a language.</Text>
+                <View style={styles.pinInputRow}>
+                  <Text style={styles.infoLabel}>Preferred language</Text>
+                  <TextInput
+                    value={audioPreferences.defaultLanguage}
+                    onChangeText={audioPreferences.setDefaultLanguage}
+                    placeholder="eng"
+                    placeholderTextColor={tvColors.textMuted}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    maxLength={16}
+                    style={styles.pinInput}
+                    testID="settings-audio-lang"
+                  />
+                </View>
                 <View style={styles.divider} />
                 <Text style={styles.settingLabel}>Subtitles</Text>
                 <Text style={styles.help}>Default language auto-selects when tracks appear. Size/background are stored for Settings (native burn-in styling is not available yet).</Text>
@@ -668,6 +715,16 @@ export default function SettingsScreen() {
 
             {section === "health" ? (
               <SettingsCard title="Health" icon="pulse-outline">
+                <InfoRow
+                  label="Native codecs"
+                  value={codecCapabilities
+                    ? [codecCapabilities.h264 && "H.264", codecCapabilities.hevc && "HEVC", codecCapabilities.vp9 && "VP9", codecCapabilities.av1 && "AV1", codecCapabilities.aac && "AAC", codecCapabilities.ac3 && "AC-3", codecCapabilities.eac3 && "E-AC-3"].filter(Boolean).join(", ")
+                    : "Unavailable"}
+                />
+                <InfoRow
+                  label="Advertised video max"
+                  value={codecCapabilities?.maxWidth ? `${codecCapabilities.maxWidth} × ${codecCapabilities.maxHeight}` : "Unavailable"}
+                />
                 <InfoRow label="Channels" value={String(channels.length)} />
                 <InfoRow label="Matched" value={String(diagnostics?.matchQuality?.matched ?? "—")} />
                 <InfoRow label="Unmatched" value={String(diagnostics?.matchQuality?.unmatched ?? "—")} />
@@ -901,7 +958,7 @@ export default function SettingsScreen() {
                 <ChoiceRow<GuideDensity>
                   label="Guide density"
                   value={guideDensity}
-                  options={[{ label: "Comfortable", value: "large" }, { label: "Normal", value: "normal" }, { label: "Compact", value: "compact" }]}
+                  options={[{ label: "Comfortable", value: "large" }, { label: "Normal", value: "normal" }, { label: "Compact", value: "compact" }, { label: "Extra compact", value: "extra_compact" }]}
                   onChange={setGuideDensity}
                 />
                 <ChoiceRow<"horizontal" | "vertical">

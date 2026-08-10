@@ -42,7 +42,8 @@ test("drawer uses bounded native motion and excludes hidden controls from TV foc
   ]);
   assert.match(shell, /useNativeDriver: true/);
   assert.match(shell, /styles\.sidebarSpacer|sidebarSpacer/);
-  assert.match(shell, /focusable=\{drawerOpen\}/);
+  assert.match(shell, /\{drawerOpen \? <Animated\.View/);
+  assert.match(shell, /pointerEvents="auto"/);
   assert.match(shell, /trapFocusRight/);
   assert.match(shell, /closeDrawer\(\);/);
   assert.match(shell, /requestNativeFocusWithRetry\(\s*navRefs\.current\.get\(active\)/);
@@ -74,7 +75,10 @@ test("drawer uses bounded native motion and excludes hidden controls from TV foc
 });
 
 test("guide tabs reclaim the left edge and top-row Up restores the active tab", async () => {
-  const guide = await readFile(join(root, "app/(tabs)/guide.tsx"), "utf8");
+  const [guide, focusLock] = await Promise.all([
+    readFile(join(root, "app/(tabs)/guide.tsx"), "utf8"),
+    readFile(join(root, "src/utils/tvGuideFocusLock.ts"), "utf8"),
+  ]);
   // Only shift group chips while the full drawer is open.
   assert.match(guide, /marginLeft: drawerOpen \? 140 : 0/);
   assert.match(guide, /transform: \[\{ translateX: groupSlideX \}\]/);
@@ -84,9 +88,10 @@ test("guide tabs reclaim the left edge and top-row Up restores the active tab", 
   assert.match(guide, /onLeftBoundary=\{onGuideLeftBoundary\}/);
   assert.match(guide, /focusGuidePreviewSurface\(\)/);
   assert.doesNotMatch(guide, /focusPurpleIconRail/);
-  assert.match(guide, /trapFocusLeft=\{!drawerOpen\}/);
+  assert.match(guide, /trapFocusLeft=\{false\}/);
   assert.match(guide, /active=\{!activeProgram && !drawerOpen\}/);
-  assert.match(guide, /lockLeftEdge=\{!drawerOpen\}/);
+  assert.match(guide, /lockLeftEdge=\{false\}/);
+  assert.match(focusLock, /nextFocusLeft: locked \? handle : previewHandle \|\| -1/);
   assert.doesNotMatch(guide, /openDrawer\(\)/);
   assert.match(guide, /openFullscreenPlayer/);
   assert.match(guide, /drawerWasOpenForFocusRef/);

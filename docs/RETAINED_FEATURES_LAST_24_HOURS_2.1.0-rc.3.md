@@ -21,7 +21,7 @@ enter the panel; press **Right** or choose **Guide** to return to the same row.
 
 ## 3. Guide preview action buttons
 
-**What it does:** Adds retained **Play**, **Fav**, **Remind/Cancel**, **Guide**,
+**What it does:** Adds retained **Play**, **Favorite**, **Remind/Cancel**, **Guide**,
 **Mute/Unmute**, and **Hide/Show** actions for the focused channel/programme.
 
 **How to use:** Enter the left preview panel with the D-pad, focus an action,
@@ -162,3 +162,81 @@ a show changes, without requiring another store update.
 
 **How to use:** No action is required; leave Home open across a programme
 boundary and the title will update on the next minute tick.
+
+## 21. Extra Compact Guide density
+
+**What it does:** Makes Guide rows about 46–48 pixels tall, logos about 24–26
+pixels, and channel/programme text smaller so more channels fit on screen. It is
+the new default, while the other densities remain selectable.
+
+**How to use:** Open **Settings > Appearance > Guide density** and choose
+**Extra compact**.
+
+## 22. D-pad double-tap page jump
+
+**What it does:** Two quick short taps on Up or Down jump exactly one visible
+Guide page. Held buttons are excluded, and taps more than 0.36 seconds apart are
+normal single-row moves.
+
+**How to use:** In the Guide, quickly tap **Up, Up** or **Down, Down** without
+holding the button.
+
+## 23. Instant Guide / reduce motion
+
+**What it does:** Snaps Guide panning and avoids repeated transition work so
+focus borders and metadata can keep pace with rapid remote input.
+
+**How to use:** Open **Settings > Appearance** and enable **Instant Guide /
+reduce motion**. It is enabled by default.
+
+## 24. Visible programme-cell culling
+
+**What it does:** Mounts only the programme boxes near the horizontal viewport,
+plus overscan and the pinned focused box, instead of building every box in the
+six-hour row.
+
+**How to use:** No action is required. Browse horizontally and vertically as
+normal; the focused box must never disappear.
+
+## 25. Priority Guide prewarming
+
+**What it does:** Warms the initial runway before first focus, then applies the
+focused row, next two rows, visible page, and remaining five-ahead/two-behind
+runway as separate SQLite result tiers.
+
+**How to use:** Open or change a Guide group and begin browsing immediately.
+
+## 26. Playback buffer profiles
+
+**What it does:** Offers simple fullscreen buffer choices while keeping Guide
+preview buffers small: Low latency, Balanced, and Stable.
+
+**How to use:** Open **Settings > Player > Playback buffer** and choose the
+profile that best matches the connection.
+
+## 27. Remembered engine and audio preferences
+
+**What it does:** Remembers the most recently successful Media3/VLC engine in a
+bounded session cache, remembers the chosen audio track for up to 128 channels,
+and can prefer an audio language.
+
+**How to use:** Choose a track under fullscreen **Audio/CC**, or enter a code
+such as `eng` under **Settings > Player > Preferred language**.
+
+## 28. Android codec report
+
+**What it does:** Reads advertised H.264, HEVC, VP9, AV1, AAC, AC-3, E-AC-3,
+and sane maximum video dimensions once per app session for diagnostics.
+
+**How to use:** Open **Settings > Health** and review **Native codecs** and
+**Advertised video max**.
+
+## 29. Memory and storage safeguards
+
+**What it does:** Uses profile-sized bounded JavaScript caches, reacts to Android
+memory pressure without deleting SQLite or user data, limits logo work, verifies
+metadata replacement with backup recovery, and refuses unsafe low-storage EPG
+staging while retaining the last-good Guide.
+
+**How to use:** No setup is required. A low-storage refresh shows a clear error;
+the saved Guide remains available.

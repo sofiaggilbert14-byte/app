@@ -1,5 +1,5 @@
 import { findNodeHandle } from "react-native";
-import { requestNativeFocus, requestNativeFocusWithRetry } from "@/src/utils/tvFocus";
+import { requestNativeFocus } from "@/src/utils/tvFocus";
 
 /**
  * Brief arm while the guide is on its last row and Down is held.
@@ -12,6 +12,14 @@ const guideChannelNodes = new Map<string, unknown>();
 /** Stable auxiliary-panel target used when leaving the guide to the left. */
 let guidePreviewEntryNode: unknown = null;
 let cancelGuideRestoreTimers: (() => void) | null = null;
+let previewFocusAttempt = 0;
+let previewFocusTimers: ReturnType<typeof setTimeout>[] = [];
+
+function cancelPreviewFocusAttempts(): void {
+  previewFocusAttempt += 1;
+  for (const timer of previewFocusTimers) clearTimeout(timer);
+  previewFocusTimers = [];
+}
 
 export function armGuideBottomFocusLock(node: unknown, ms = 500) {
   armedUntil = Date.now() + ms;
@@ -58,32 +66,84 @@ export function noteGuideChannelFocus(channelId: string, node: unknown): void {
   // A real native focus event proves restoration succeeded. Cancel every later
   // retry so it cannot yank focus back after the user moves to tabs/preview.
   cancelGuideFocusRestore();
+  cancelPreviewFocusAttempts();
   focusedGuideChannelId = channelId;
   if (!guideChannelNodes.has(channelId)) guideChannelNodes.set(channelId, node);
 }
 
 export function focusGuideSurface(channelId?: string | null): boolean {
-  const target =
-    (channelId ? guideChannelNodes.get(channelId) : undefined) ||
-    (focusedGuideChannelId ? guideChannelNodes.get(focusedGuideChannelId) : undefined);
-  if (!target) return false;
+  return focusGuideSurfaceWhenMounted(channelId, [0, 40, 120, 240]);
+}
+
+/** Resolve the current recycled row on every attempt, not a stale native ref. */
+export function focusGuideSurfaceWhenMounted(
+  channelId?: string | null,
+  delays: number[] = [0, 40, 120, 240],
+): boolean {
+  cancelPreviewFocusAttempts();
   cancelGuideFocusRestore();
-  cancelGuideRestoreTimers = requestNativeFocusWithRetry(target, [0, 40, 120, 240]);
-  return true;
+  const timers: ReturnType<typeof setTimeout>[] = [];
+  let cancelled = false;
+  let found = false;
+  const tryCurrentRow = () => {
+    if (cancelled) return;
+    const target =
+      (channelId ? guideChannelNodes.get(channelId) : undefined) ||
+      (!channelId && focusedGuideChannelId ? guideChannelNodes.get(focusedGuideChannelId) : undefined);
+    if (!target) return;
+    found = requestNativeFocus(target) || found;
+  };
+  for (const rawDelay of delays) {
+    const delay = Math.max(0, rawDelay);
+    if (delay === 0) tryCurrentRow();
+    else timers.push(setTimeout(tryCurrentRow, delay));
+  }
+  cancelGuideRestoreTimers = () => {
+    cancelled = true;
+    for (const timer of timers) clearTimeout(timer);
+  };
+  return found || timers.length > 0;
 }
 
 /** Register the preview/actions panel's stable entry control. */
 export function registerGuidePreviewEntry(node: unknown): void {
   guidePreviewEntryNode = node || null;
+  const targetHandle = findNodeHandle(guidePreviewEntryNode as any);
+  if (!targetHandle) return;
+  // Keep Android's native focus graph deterministic as FlashList recycles rows:
+  // Left from every channel target goes directly to Play. The JS boundary
+  // handler below remains a retry path, not the only way out of the grid.
+  for (const channelNode of guideChannelNodes.values()) {
+    try {
+      (channelNode as any)?.setNativeProps?.({ nextFocusLeft: targetHandle });
+    } catch {
+      // Native focus props are optional on web.
+    }
+  }
+}
+
+/** A real preview-button focus cancels any queued boundary retry. */
+export function noteGuidePreviewFocus(): void {
+  cancelGuideFocusRestore();
+  cancelPreviewFocusAttempts();
 }
 
 /** Move focus from the guide's left boundary into the preview/actions panel. */
 export function focusGuidePreviewSurface(): boolean {
   if (!guidePreviewEntryNode) return false;
   cancelGuideFocusRestore();
-  // Preview controls are permanently mounted; retrying after focus has moved on
-  // only creates a delayed focus yank.
-  return requestNativeFocus(guidePreviewEntryNode);
+  cancelPreviewFocusAttempts();
+  const attempt = previewFocusAttempt;
+  const requestCurrentEntry = () => {
+    if (attempt !== previewFocusAttempt || !guidePreviewEntryNode) return;
+    requestNativeFocus(guidePreviewEntryNode);
+  };
+  requestCurrentEntry();
+  // Android TV occasionally runs focus-search before the sibling Pressable is
+  // ready. Resolve the current ref on every retry and cancel as soon as any
+  // preview control receives real focus, preventing delayed focus yanks.
+  previewFocusTimers = [32, 96].map((delay) => setTimeout(requestCurrentEntry, delay));
+  return true;
 }
 
 /** Pin Left on guide cells so D-pad Left never unexpectedly opens the drawer. */
@@ -91,8 +151,9 @@ export function applyLeftFocusLock(node: any, locked: boolean) {
   if (!node) return;
   const handle = findNodeHandle(node);
   if (!handle) return;
+  const previewHandle = !locked ? findNodeHandle(guidePreviewEntryNode as any) : null;
   try {
-    node.setNativeProps?.({ nextFocusLeft: locked ? handle : -1 });
+    node.setNativeProps?.({ nextFocusLeft: locked ? handle : previewHandle || -1 });
   } catch {
     /* native props optional on web */
   }

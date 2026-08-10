@@ -7,7 +7,11 @@ import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { StreamPlayer, type StreamStatus } from "@/src/components/StreamPlayer";
 import { getLastAudioDiagnostics } from "@/src/core/audioDiagnostics";
-import { focusGuideSurface, registerGuidePreviewEntry } from "@/src/utils/tvGuideFocusLock";
+import {
+  focusGuideSurface,
+  noteGuidePreviewFocus,
+  registerGuidePreviewEntry,
+} from "@/src/utils/tvGuideFocusLock";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { fmtTime, progressPct } from "@/src/utils/time";
 
@@ -91,6 +95,7 @@ export function GuidePreviewRail({
               <StreamPlayer
                 key={`guide-preview-${channel.id}-${previewEpoch}`}
                 uri={channel.url}
+                channelKey={channel.id}
                 onStatus={onPreviewStatus}
                 mode="preview"
                 sessionRole="preview"
@@ -160,8 +165,10 @@ export function GuidePreviewRail({
 
         <View style={styles.actions}>
           <Pressable
+            ref={(node) => registerGuidePreviewEntry(node)}
             disabled={!channel}
             onPress={onPlay}
+            onFocus={noteGuidePreviewFocus}
             style={({ focused }: any) => [styles.watchButton, focused && styles.focused]}
             testID="guide-preview-play"
           >
@@ -171,17 +178,19 @@ export function GuidePreviewRail({
           <Pressable
             disabled={!channel}
             onPress={onFavorite}
+            onFocus={noteGuidePreviewFocus}
             style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
             testID="guide-preview-favorite"
           >
             <Ionicons name={isFavorite ? "heart" : "heart-outline"} size={12} color={tvColors.purpleSoft} />
-            <Text style={styles.secondaryText}>Fav</Text>
+            <Text style={styles.secondaryText}>Favorite</Text>
           </Pressable>
         </View>
         <View style={styles.actions}>
           <Pressable
             disabled={!channel || !current || !canRemind}
             onPress={onToggleReminder}
+            onFocus={noteGuidePreviewFocus}
             style={({ focused }: any) => [
               styles.secondaryButton,
               isReminded && styles.reminderActive,
@@ -199,8 +208,8 @@ export function GuidePreviewRail({
             </Text>
           </Pressable>
           <Pressable
-            ref={(node) => registerGuidePreviewEntry(node)}
             onPress={() => focusGuideSurface(channel?.id)}
+            onFocus={noteGuidePreviewFocus}
             style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
             testID="guide-preview-guide"
           >
@@ -212,6 +221,7 @@ export function GuidePreviewRail({
           {!hidePreview ? (
             <Pressable
               onPress={onToggleMute}
+              onFocus={noteGuidePreviewFocus}
               style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
               testID="guide-preview-mute"
             >
@@ -221,6 +231,7 @@ export function GuidePreviewRail({
           ) : null}
           <Pressable
             onPress={onHideToggle}
+            onFocus={noteGuidePreviewFocus}
             style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
             testID="guide-preview-hide"
           >

@@ -3,7 +3,9 @@ package com.charmiptv.app
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import android.os.StatFs
 import java.security.MessageDigest
+import kotlin.math.max
 
 internal data class NativeEpgProgram(
   val channelId: String,
@@ -42,6 +44,33 @@ internal data class PlaylistEpgMatchRow(
  */
 internal class EpgDatabase(context: Context) :
   SQLiteOpenHelper(context, "charm_epg_v3.db", null, DATABASE_VERSION) {
+
+  private val appContext = context.applicationContext
+
+  /**
+   * Staging + live + WAL can temporarily exceed the final DB size. Refuse the
+   * refresh before writing when Android cannot keep the last-good table safe.
+   */
+  fun assertRefreshStorageAvailable(declaredCompressedBytes: Long = -1L) {
+    val dbFile = appContext.getDatabasePath("charm_epg_v3.db")
+    val currentBytes = listOf(
+      dbFile,
+      java.io.File(dbFile.path + "-wal"),
+      java.io.File(dbFile.path + "-shm"),
+    ).sumOf { if (it.exists()) it.length() else 0L }
+    val reserve = 32L * 1024L * 1024L
+    val fromCurrent = currentBytes * 2L + reserve
+    val fromDownload = if (declaredCompressedBytes > 0L) {
+      declaredCompressedBytes * 6L + reserve
+    } else 0L
+    val required = max(64L * 1024L * 1024L, max(fromCurrent, fromDownload))
+    val available = StatFs(appContext.filesDir.absolutePath).availableBytes
+    if (available < required) {
+      throw IllegalStateException(
+        "Not enough storage to update Guide (need about ${required / (1024L * 1024L)} MiB free)"
+      )
+    }
+  }
 
   override fun onConfigure(db: SQLiteDatabase) {
     super.onConfigure(db)
@@ -589,38 +618,58 @@ internal class EpgDatabase(context: Context) :
       db.endTransaction()
     }
 
-    for (batch in batches) {
-      insertBatch(db, STAGING_TABLE, batch)
-    }
+    try {
+      var batchNumber = 0
+      for (batch in batches) {
+        insertBatch(db, STAGING_TABLE, batch)
+        batchNumber += 1
+        // Content-Length is often absent on chunked/gzipped provider feeds.
+        // Recheck while staging grows so the atomic last-good LIVE table remains
+        // protected even when the pre-download estimate could not know its size.
+        if (batchNumber % STORAGE_RECHECK_BATCHES == 0) {
+          assertRefreshStorageAvailable()
+        }
+      }
 
-    val stagingCount = countTable(STAGING_TABLE)
-    if (stagingCount <= 0L) {
+      val stagingCount = countTable(STAGING_TABLE)
+      if (stagingCount <= 0L) {
+        throw IllegalStateException("Refusing to replace live EPG with an empty feed")
+      }
+
+      inferMissingStopsFromNextProgram(DEFAULT_PROGRAMME_DURATION_MS, MAX_PROGRAMME_DURATION_MS)
+
       db.beginTransaction()
       try {
+        db.delete(LIVE_TABLE, null, null)
+        db.execSQL(
+          """
+          INSERT INTO $LIVE_TABLE(channel_id, title, description, category, start_time, end_time)
+          SELECT channel_id, title, description, category, start_time, end_time
+          FROM $STAGING_TABLE
+          """.trimIndent()
+        )
         db.delete(STAGING_TABLE, null, null)
         db.setTransactionSuccessful()
       } finally {
         db.endTransaction()
       }
-      throw IllegalStateException("Refusing to replace live EPG with an empty feed")
-    }
-
-    inferMissingStopsFromNextProgram(DEFAULT_PROGRAMME_DURATION_MS, MAX_PROGRAMME_DURATION_MS)
-
-    db.beginTransaction()
-    try {
-      db.delete(LIVE_TABLE, null, null)
-      db.execSQL(
-        """
-        INSERT INTO $LIVE_TABLE(channel_id, title, description, category, start_time, end_time)
-        SELECT channel_id, title, description, category, start_time, end_time
-        FROM $STAGING_TABLE
-        """.trimIndent()
-      )
-      db.delete(STAGING_TABLE, null, null)
-      db.setTransactionSuccessful()
-    } finally {
-      db.endTransaction()
+    } catch (failure: Throwable) {
+      // Parsing, storage, and finalization failures retain LIVE and remove the
+      // partial staging rows so a failed refresh cannot permanently consume the
+      // remaining storage needed by the next attempt.
+      try {
+        db.beginTransaction()
+        try {
+          db.delete(STAGING_TABLE, null, null)
+          db.setTransactionSuccessful()
+        } finally {
+          db.endTransaction()
+        }
+        db.execSQL("PRAGMA wal_checkpoint(PASSIVE)")
+      } catch (_: Throwable) {
+        // Preserve the original failure and last-good LIVE data.
+      }
+      throw failure
     }
   }
 
@@ -757,6 +806,7 @@ internal class EpgDatabase(context: Context) :
   fun count(): Long = countTable(LIVE_TABLE)
 
   companion object {
+    private const val STORAGE_RECHECK_BATCHES = 32
     private const val DATABASE_VERSION = 6
     private const val LIVE_TABLE = "epg_programmes"
     private const val STAGING_TABLE = "epg_programmes_staging"

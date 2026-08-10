@@ -17,7 +17,7 @@ const EMPTY_PROGRAMS: Program[] = [];
 // Programme arrays are shared with the source cache rather than copied. A wider
 // bounded row index lets a 2,000-channel playlist reverse direction without
 // immediately rebuilding rows that were already visited.
-const MAX_PROGRAMME_ROWS = 2400;
+let maxProgrammeRows = 1800;
 
 let activeWindowKey = "";
 const programsByChannelId = new Map<string, Program[]>();
@@ -50,17 +50,33 @@ function subscribe(channelId: string, listener: () => void): () => void {
   };
 }
 
-function trim(): void {
-  if (programsByChannelId.size <= MAX_PROGRAMME_ROWS) return;
+function trim(keepIds: ReadonlySet<string> = new Set()): void {
+  if (programsByChannelId.size <= maxProgrammeRows) return;
 
   // Never evict a row while a mounted guide component is subscribed to it.
   // Focusable rows must remain stable even when a user holds Up/Down faster
   // than viewport EPG work can catch up.
   for (const channelId of Array.from(programsByChannelId.keys())) {
-    if (programsByChannelId.size <= MAX_PROGRAMME_ROWS) return;
-    if ((listenersByChannelId.get(channelId)?.size || 0) > 0) continue;
+    if (programsByChannelId.size <= maxProgrammeRows) return;
+    if (keepIds.has(channelId) || (listenersByChannelId.get(channelId)?.size || 0) > 0) continue;
     programsByChannelId.delete(channelId);
   }
+}
+
+export function setGuideProgramRowLimit(limit: number): void {
+  maxProgrammeRows = Math.max(128, Math.min(4000, Math.floor(limit || 1800)));
+  trim();
+}
+
+/** Memory-pressure trim that always preserves focused/visible rows and subscribers. */
+export function trimGuideProgramRows(keepIds: Iterable<string>, critical = false): void {
+  const keep = new Set(Array.from(keepIds).filter(Boolean));
+  const previous = maxProgrammeRows;
+  maxProgrammeRows = critical
+    ? Math.max(128, keep.size)
+    : Math.max(256, Math.floor(previous / 2), keep.size);
+  trim(keep);
+  maxProgrammeRows = previous;
 }
 
 /** Return a stable list reference suitable for a memoized guide row. */
@@ -71,6 +87,13 @@ export function getGuidePrograms(channelId: string | null | undefined): Program[
 
 export function hasGuidePrograms(channelId: string | null | undefined): boolean {
   return getGuidePrograms(channelId).length > 0;
+}
+
+export type GuideProgramRowState = "loading" | "ready" | "empty";
+
+export function getGuideProgramRowState(channelId: string | null | undefined): GuideProgramRowState {
+  if (!channelId || !programsByChannelId.has(channelId)) return "loading";
+  return (programsByChannelId.get(channelId)?.length || 0) > 0 ? "ready" : "empty";
 }
 
 /** Channel ids currently held in the bounded programme cache (for Search, etc.). */

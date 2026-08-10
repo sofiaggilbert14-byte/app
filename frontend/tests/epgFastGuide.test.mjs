@@ -68,12 +68,13 @@ test("store patches per-row programmes and defers silent refresh while surfing",
   assert.match(store, /pendingSilentRefreshRef/);
   assert.match(store, /onGuideSurfSettled/);
   assert.match(programStore, /useSyncExternalStore/);
-  assert.match(programStore, /MAX_PROGRAMME_ROWS = 2400/);
+  assert.match(programStore, /maxProgrammeRows = 1800/);
+  assert.match(programStore, /setGuideProgramRowLimit/);
   assert.match(gate, /export function markGuideSurfing/);
   assert.match(gate, /export function isGuideSurfing/);
   assert.match(guide, /markGuideSurfing/);
   assert.match(guide, /patchProgramsForChannelIds/);
-  assert.match(guide, /void patchProgramsForChannelIds\(ids\)/);
+  assert.match(guide, /void patchProgramsForChannelIds\(ids, priorityIds\)/);
   assert.match(timeline, /useGuidePrograms/);
   assert.match(timeline, /data=\{channels\}/);
   assert.doesNotMatch(timeline, /preparedRows/);

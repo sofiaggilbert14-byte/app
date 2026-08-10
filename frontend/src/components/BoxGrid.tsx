@@ -21,15 +21,19 @@ import {
   applyLeftFocusLock,
   armGuideBottomFocusLock,
   armGuideLeftFocusLock,
+  focusGuideSurfaceWhenMounted,
   noteGuideChannelFocus,
   registerGuideChannelNode,
 } from "@/src/utils/tvGuideFocusLock";
 import { evaluateGuideNavigation } from "@/src/core/guideNavigationPolicy";
-import { useGuidePrograms } from "@/src/core/guideProgramsStore";
+import { getGuideProgramRowState, useGuidePrograms } from "@/src/core/guideProgramsStore";
+import { channelHasEpgMatch } from "@/src/core/epgUserOverrides";
 import {
   buildGuideRunwayIds,
   type GuideScanDirection,
 } from "@/src/core/guideRunwayPolicy";
+import { createDpadDoubleTapDetector } from "@/src/core/dpadDoubleTap";
+import { subscribeVerticalDpadTaps } from "@/src/utils/tvDpadTap";
 
 const ACCENT = "#A855F7";
 const ACCENT_SOFT = "#E9D5FF";
@@ -87,6 +91,7 @@ const ChannelCard = memo(function ChannelCard({
   lockFocusLeft = false,
 }: ChannelCardProps) {
   const programs = useGuidePrograms(item.id);
+  const programRowState = getGuideProgramRowState(item.id);
   const { current, next } = nowNext(programs, nowDate);
   const pct = progressPct(current, nowDate);
   const hasReminder = programs.some((program) => reminderKeys?.has(reminderKey(item.id, program.start)));
@@ -164,7 +169,13 @@ const ChannelCard = memo(function ChannelCard({
             </View>
           </Pressable>
         ) : (
-          <Text style={styles.noNow}>No program info</Text>
+          <Text style={styles.noNow}>
+            {programRowState === "loading"
+              ? "Loading programme data"
+              : !channelHasEpgMatch(item)
+                ? "Channel not matched to XMLTV"
+                : "No programme supplied"}
+          </Text>
         )}
 
         {next && (
@@ -209,7 +220,7 @@ export function BoxGrid({
   onUpBoundary?: () => void;
   onLeftBoundary?: () => void;
   onFocusedRowChange?: (index: number) => void;
-  onViewportChannelIds?: (ids: string[]) => void;
+  onViewportChannelIds?: (ids: string[], priorityIds?: string[]) => void;
   ListHeaderComponent?: React.ReactElement;
   refreshing?: boolean;
   onRefresh?: () => void;
@@ -242,6 +253,8 @@ export function BoxGrid({
   const escapeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasClaimedFocusRef = useRef(false);
   const gridOwnsFocusRef = useRef(false);
+  const pageJumpDetectorRef = useRef(createDpadDoubleTapDetector());
+  const pageJumpAnchorRef = useRef(0);
   const [preferFirst, setPreferFirst] = useState(() => !hasClaimedFocusRef.current);
   const rememberFocusNode = useCallback((node: unknown) => {
     if (node) focusedNodeRef.current = node;
@@ -261,7 +274,18 @@ export function BoxGrid({
       const viewportBucket = `${Math.floor(Math.max(0, index) / itemsPerPage)}:${scanDirectionRef.current}`;
       if (lastViewportBucketRef.current === viewportBucket) return;
       lastViewportBucketRef.current = viewportBucket;
-      onViewportChannelIds(buildGuideRunwayIds(list, index, itemsPerPage, scanDirectionRef.current));
+      const runway = buildGuideRunwayIds(list, index, itemsPerPage, scanDirectionRef.current);
+      const pageStart = Math.floor(Math.max(0, index) / itemsPerPage) * itemsPerPage;
+      const visiblePageIds = list
+        .slice(pageStart, pageStart + itemsPerPage)
+        .map((channel) => channel.id);
+      const priorities = [
+        list[index]?.id,
+        list[index + scanDirectionRef.current]?.id,
+        list[index + scanDirectionRef.current * 2]?.id,
+        ...visiblePageIds,
+      ].filter((id): id is string => !!id);
+      onViewportChannelIds(runway, priorities);
     },
     [height, numColumns, onViewportChannelIds],
   );
@@ -318,6 +342,39 @@ export function BoxGrid({
     },
     [],
   );
+
+  useEffect(() => {
+    if (!active) {
+      pageJumpDetectorRef.current.reset();
+      return;
+    }
+    return subscribeVerticalDpadTaps((key) => {
+      if (!gridOwnsFocusRef.current) {
+        pageJumpDetectorRef.current.reset();
+        return;
+      }
+      const matched = pageJumpDetectorRef.current.push(key);
+      if (!matched) {
+        pageJumpAnchorRef.current = focusedIndexRef.current;
+        return;
+      }
+      const list = channelsRef.current;
+      if (!list.length) return;
+      const direction: GuideScanDirection = matched === "DOWN" ? 1 : -1;
+      const visibleRows = Math.max(1, Math.ceil(height / 148));
+      const itemsPerPage = Math.max(1, numColumns) * visibleRows;
+      const target = Math.max(
+        0,
+        Math.min(list.length - 1, pageJumpAnchorRef.current + direction * itemsPerPage),
+      );
+      scanDirectionRef.current = direction;
+      try {
+        listRef.current?.scrollToIndex({ index: target, animated: false, viewPosition: 0.1 });
+      } catch {}
+      reportFocusedRow(target);
+      focusGuideSurfaceWhenMounted(list[target]?.id, [0, 24, 64, 120, 220]);
+    });
+  }, [active, height, numColumns, reportFocusedRow]);
 
   const lastRowIndex = Math.max(0, Math.floor((Math.max(channels.length, 1) - 1) / Math.max(1, numColumns)));
   lastRowIndexRef.current = lastRowIndex;

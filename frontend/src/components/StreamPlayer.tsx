@@ -24,6 +24,14 @@ import {
   fingerprintStreamUri,
   recordAudioDiagnostics,
 } from "@/src/core/audioDiagnostics";
+import {
+  getRememberedStreamEngine,
+  rememberSuccessfulStreamEngine,
+} from "@/src/core/streamEngineMemory";
+import {
+  usePlaybackBufferProfile,
+  type PlaybackBufferProfile,
+} from "@/src/core/playbackBufferProfile";
 
 export type StreamStatus = "loading" | "playing" | "error";
 export type StreamTrack = {
@@ -176,6 +184,8 @@ const VLCPlayer: any = vlcAvailable
 
 type Props = {
   uri: string;
+  /** Stable channel id for bounded successful-engine memory (URI tokens rotate). */
+  channelKey?: string;
   onStatus: (s: StreamStatus, reason?: SessionFailReason | null) => void;
   style?: StyleProp<ViewStyle>;
   mode?: "preview" | "full";
@@ -188,6 +198,7 @@ type Props = {
     audio: StreamTrack[];
     text: StreamTrack[];
   }) => void;
+  bufferProfile?: PlaybackBufferProfile;
 };
 
 type EngineProps = Props & {
@@ -251,6 +262,7 @@ function VlcStream({
   audioTrack,
   textTrack,
   onTracksAvailable,
+  bufferProfile = "balanced",
 }: EngineProps) {
   const activeRef = useRef(true);
   const tearingDownRef = useRef(false);
@@ -261,9 +273,10 @@ function VlcStream({
   const origin = headers.Origin || headers.origin;
   const userAgent = headers["User-Agent"] || headers["user-agent"] || "VLC/3.0.20 LibVLC/3.0.20";
   const initOptions = useMemo(() => {
-    const networkCaching = mode === "preview" ? 1000 : 1800;
-    const liveCaching = mode === "preview" ? 1000 : 1800;
-    const fileCaching = mode === "preview" ? 700 : 1100;
+    const fullMs = bufferProfile === "low_latency" ? 900 : bufferProfile === "stable" ? 3200 : 1800;
+    const networkCaching = mode === "preview" ? 1000 : fullMs;
+    const liveCaching = mode === "preview" ? 1000 : fullMs;
+    const fileCaching = mode === "preview" ? 700 : Math.round(fullMs * 0.62);
     const options = [
       `--network-caching=${networkCaching}`,
       `--live-caching=${liveCaching}`,
@@ -277,7 +290,7 @@ function VlcStream({
     if (referer) options.push(`--http-referrer=${referer}`);
     if (origin) options.push(`--http-origin=${origin}`);
     return options;
-  }, [mode, origin, referer, userAgent]);
+  }, [bufferProfile, mode, origin, referer, userAgent]);
   const mediaOptions = useMemo(
     () =>
       Object.entries(headers)
@@ -384,6 +397,7 @@ function ExpoStream({
   audioTrack,
   textTrack,
   onTracksAvailable,
+  bufferProfile = "balanced",
 }: EngineProps) {
   const mountedRef = useRef(true);
   const tearingDownRef = useRef(false);
@@ -409,10 +423,14 @@ function ExpoStream({
 
   useEffect(() => {
     try {
-      player.bufferOptions =
-        mode === "preview"
-          ? { preferredForwardBufferDuration: 1.2, maxBufferBytes: 12 * 1024 * 1024 }
+      const full = bufferProfile === "low_latency"
+        ? { preferredForwardBufferDuration: 1.5, maxBufferBytes: 28 * 1024 * 1024 }
+        : bufferProfile === "stable"
+          ? { preferredForwardBufferDuration: 6, maxBufferBytes: 72 * 1024 * 1024 }
           : { preferredForwardBufferDuration: 3, maxBufferBytes: 48 * 1024 * 1024 };
+      player.bufferOptions = mode === "preview"
+        ? { preferredForwardBufferDuration: 1.2, maxBufferBytes: 12 * 1024 * 1024 }
+        : full;
     } catch {
       /* older native builds may ignore bufferOptions */
     }
@@ -425,7 +443,7 @@ function ExpoStream({
     } catch {
       /* older native builds may not expose audio mixing mode */
     }
-  }, [mode, player]);
+  }, [bufferProfile, mode, player]);
 
   const reportAndSelectMedia3Tracks = useCallback(() => {
     try {
@@ -724,6 +742,7 @@ function ExpoStream({
 
 export function StreamPlayer({
   uri,
+  channelKey,
   onStatus,
   style,
   mode,
@@ -732,6 +751,7 @@ export function StreamPlayer({
   audioTrack,
   textTrack,
   onTracksAvailable,
+  bufferProfile,
 }: Props) {
   const isFocused = useIsFocused();
   const pathname = usePathname();
@@ -745,19 +765,24 @@ export function StreamPlayer({
   );
   const playbackFocused = isFocused && appActive;
   const [playerEnginePreference] = usePlayerEnginePreference();
+  const [savedBufferProfile] = usePlaybackBufferProfile();
+  const effectiveBufferProfile = bufferProfile || savedBufferProfile;
   const forceVlc = playerEnginePreference === "vlc" && vlcAvailable && role !== "preview";
   const forceMedia3 = playerEnginePreference === "media3" && role !== "preview";
   const [session, setSession] = useState({ key: "", generation: 0 });
 
   const setStatus = useStatusTracker(onStatus, `${role}:${uri}`);
   const cleanUri = useMemo(() => parsePipeHeaders(uri).uri, [uri]);
+  const engineMemoryKey = channelKey || cleanUri;
   const kind = useMemo(() => detectStreamKind(cleanUri), [cleanUri]);
   const initialEngine = useMemo(() => {
     if (forceVlc) return "vlc" as Engine;
     if (forceMedia3) return "media3" as Engine;
+    const remembered = getRememberedStreamEngine(engineMemoryKey);
+    if (remembered === "media3" || (remembered === "vlc" && vlcAvailable)) return remembered;
     const preferred = preferredEngine(kind);
     return preferred === "vlc" && !vlcAvailable ? "media3" : preferred;
-  }, [forceMedia3, forceVlc, kind]);
+  }, [engineMemoryKey, forceMedia3, forceVlc, kind]);
   const [engine, setEngine] = useState<Engine>(initialEngine);
   const [fallbackUsed, setFallbackUsed] = useState(false);
   const stableRef = useRef(false);
@@ -811,6 +836,7 @@ export function StreamPlayer({
 
       if (status === "playing") {
         stableRef.current = true;
+        rememberSuccessfulStreamEngine(engineMemoryKey, engine);
         setSessionPhase(role, sessionGeneration, "playing");
         setStatus("playing");
         return;
@@ -838,7 +864,7 @@ export function StreamPlayer({
       }
       setStatus(status, reason);
     },
-    [engine, fallbackUsed, forceMedia3, forceVlc, role, sessionGeneration, setStatus],
+    [engine, engineMemoryKey, fallbackUsed, forceMedia3, forceVlc, role, sessionGeneration, setStatus],
   );
 
   if (!playbackFocused || !uri || !sessionGeneration) return null;
@@ -858,6 +884,7 @@ export function StreamPlayer({
         audioTrack={audioTrack}
         textTrack={textTrack}
         onTracksAvailable={onTracksAvailable}
+        bufferProfile={effectiveBufferProfile}
       />
     );
   }
@@ -875,6 +902,7 @@ export function StreamPlayer({
       audioTrack={audioTrack}
       textTrack={textTrack}
       onTracksAvailable={onTracksAvailable}
+      bufferProfile={effectiveBufferProfile}
     />
   );
 }

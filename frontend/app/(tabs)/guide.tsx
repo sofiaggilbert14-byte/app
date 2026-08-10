@@ -27,7 +27,14 @@ import { Channel, Program } from "@/src/api";
 import { useStore } from "@/src/store";
 import { setPriorityMatchChannelIds, setViewportGuideChannelIds } from "@/src/source";
 import { markGuideSurfing } from "@/src/utils/guideSurfGate";
-import { hasGuidePrograms, useGuidePrograms } from "@/src/core/guideProgramsStore";
+import { useGuidePrograms } from "@/src/core/guideProgramsStore";
+import { getGuideRailMetrics } from "@/src/core/guideLayoutPolicy";
+import { buildGuideRunwayIds } from "@/src/core/guideRunwayPolicy";
+import {
+  resetGuideSelection,
+  setGuideFocusedProgram,
+  useGuideSelection,
+} from "@/src/core/guideSelectionStore";
 import { getPowerProfileTuning } from "@/src/core/devicePowerProfile";
 import { channelHasEpgMatch } from "@/src/core/epgUserOverrides";
 import {
@@ -55,6 +62,7 @@ import {
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
 import type { StreamStatus } from "@/src/components/StreamPlayer";
+import { subscribeAndroidMemoryPressure } from "@/src/utils/androidMemoryPressure";
 
 // Session-only guide position survives the root player route unmounting tabs.
 // Do not persist to disk: this is navigation state, not a user preference.
@@ -70,10 +78,124 @@ function chipLabel(name: string): string {
   return name;
 }
 
+/**
+ * The only Guide subtree subscribed to repeated focus selection. TimelineGrid
+ * and the screen shell therefore stay render-stable while Android moves focus;
+ * metadata still updates synchronously and decoder tuning remains delayed.
+ */
+function GuideSelectionPreview({
+  width,
+  channelById,
+  fallbackChannel,
+  now,
+  channelNumberById,
+  showChannelNumbers,
+  showLogos,
+  favoriteSet,
+  reminderKeys,
+  hidePreview,
+  muted,
+  onToggleMute,
+  previewId,
+  previewStatus,
+  previewEpoch,
+  onPreviewStatus,
+  onPreviewErrorRemount,
+  onPlay,
+  onFavorite,
+  onToggleReminder,
+  onHideToggle,
+}: {
+  width: number;
+  channelById: ReadonlyMap<string, Channel>;
+  fallbackChannel: Channel | null;
+  now: string;
+  channelNumberById: Record<string, number>;
+  showChannelNumbers: boolean;
+  showLogos: boolean;
+  favoriteSet: ReadonlySet<string>;
+  reminderKeys: ReadonlySet<string>;
+  hidePreview: boolean;
+  muted: boolean;
+  onToggleMute: () => void;
+  previewId: string | null;
+  previewStatus: StreamStatus;
+  previewEpoch: number;
+  onPreviewStatus: (status: StreamStatus) => void;
+  onPreviewErrorRemount: () => void;
+  onPlay: (channel: Channel) => void;
+  onFavorite: (channelId: string) => void;
+  onToggleReminder: (program: Program, channel: Channel) => void;
+  onHideToggle: () => void;
+}) {
+  const selection = useGuideSelection();
+  const channel = (selection.channelId ? channelById.get(selection.channelId) : null) || fallbackChannel;
+  const programs = useGuidePrograms(channel?.id);
+  const { current: liveCurrent, next: liveNext } = useMemo(
+    () => (channel ? nowNext(programs, new Date(now)) : {}),
+    [channel, now, programs],
+  );
+  const { displayedProgram, nextProgram } = useMemo(() => {
+    if (!channel || selection.channelId !== channel.id || !selection.program) {
+      return { displayedProgram: liveCurrent, nextProgram: liveNext };
+    }
+    const selected = selection.program;
+    const index = programs.findIndex(
+      (program) => program.start === selected.start && program.stop === selected.stop,
+    );
+    return {
+      displayedProgram: selected,
+      nextProgram: index >= 0 ? programs[index + 1] : undefined,
+    };
+  }, [channel, liveCurrent, liveNext, programs, selection]);
+  const canRemind = !!displayedProgram && Date.parse(displayedProgram.start) > Date.parse(now);
+  const isReminded = !!(
+    channel && displayedProgram && reminderKeys.has(reminderKey(channel.id, displayedProgram.start))
+  );
+  const previewVisible =
+    !hidePreview &&
+    !!channel?.url &&
+    previewId === channel.id &&
+    previewStatus !== "error";
+
+  useEffect(() => {
+    if (previewStatus === "error" && channel?.id) noteStreamFailure(channel.id);
+  }, [channel?.id, previewStatus]);
+
+  return (
+    <GuidePreviewRail
+      width={width}
+      channel={channel}
+      current={displayedProgram}
+      next={nextProgram}
+      now={now}
+      channelNumber={channel ? channelNumberById[channel.id] : undefined}
+      showChannelNumbers={showChannelNumbers}
+      showLogos={showLogos}
+      isFavorite={!!channel && favoriteSet.has(channel.id)}
+      hidePreview={hidePreview}
+      muted={muted}
+      onToggleMute={onToggleMute}
+      previewVisible={previewVisible}
+      previewEpoch={previewEpoch}
+      onPreviewStatus={onPreviewStatus}
+      onPreviewErrorRemount={onPreviewErrorRemount}
+      onPlay={() => channel && onPlay(channel)}
+      onFavorite={() => channel && onFavorite(channel.id)}
+      canRemind={canRemind}
+      isReminded={isReminded}
+      onToggleReminder={() => {
+        if (displayedProgram && channel) onToggleReminder(displayedProgram, channel);
+      }}
+      onHideToggle={onHideToggle}
+    />
+  );
+}
+
 export default function PurpleGuideScreen() {
   const router = useRouter();
   const { drawerOpen } = usePurpleTvDrawer();
-  const { width: screenWidth } = useWindowDimensions();
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const {
     channels,
     windowStart,
@@ -101,6 +223,7 @@ export default function PurpleGuideScreen() {
     reminders,
     powerProfile,
     logosOffWhileSurfing,
+    instantGuide,
     epgGuideFilter,
   } = useStore();
 
@@ -122,11 +245,6 @@ export default function PurpleGuideScreen() {
 
   const [now, setNow] = useState(() => new Date().toISOString());
   const [group, setGroup] = useState(() => guideSessionGroup);
-  const [focusedId, setFocusedId] = useState<string | null>(() => guideSessionChannelId);
-  const [focusedProgramSelection, setFocusedProgramSelection] = useState<{
-    channelId: string;
-    program: Program;
-  } | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewStatus, setPreviewStatus] = useState<StreamStatus>("loading");
   const [resetToken, setResetToken] = useState(0);
@@ -138,6 +256,7 @@ export default function PurpleGuideScreen() {
   const [pinError, setPinError] = useState(false);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewRecoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const memoryLogoRestoreTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const groupChangedAt = useRef(0);
   const bootRetryRef = useRef(0);
   const groupChipRefs = useRef(new Map<string, any>());
@@ -148,6 +267,28 @@ export default function PurpleGuideScreen() {
   const headerTitleProgress = useRef(new Animated.Value(drawerOpen ? 1 : 0)).current;
   const groupSlideX = useRef(new Animated.Value(0)).current;
   const [previewEpoch, setPreviewEpoch] = useState(0);
+  useEffect(() => {
+    resetGuideSelection(guideSessionChannelId);
+  }, []);
+  useEffect(
+    () => subscribeAndroidMemoryPressure((pressure) => {
+      if (previewTimer.current) clearTimeout(previewTimer.current);
+      if (memoryLogoRestoreTimer.current) clearTimeout(memoryLogoRestoreTimer.current);
+      headerTitleProgress.stopAnimation();
+      groupSlideX.stopAnimation();
+      setPreviewId(null);
+      setSurfLogosSuppressed(true);
+      // Drop decoded logo memory immediately, then permit near-size disk-cached
+      // images again after Android has had time to reclaim. A new pressure event
+      // extends the quiet period; Safe Preview Off no longer leaves logos hidden
+      // for the rest of the app session.
+      memoryLogoRestoreTimer.current = setTimeout(
+        () => setSurfLogosSuppressed(false),
+        pressure === "critical" ? 12_000 : 4_000,
+      );
+    }),
+    [groupSlideX, headerTitleProgress],
+  );
   const reminderKeys = useMemo(() => new Set(reminders.map((item) => item.key)), [reminders]);
   // Freeze grid reminder badges while the program sheet is open so Cancel/Remind
   // doesn't rebuild the FlashList under the modal.
@@ -170,18 +311,18 @@ export default function PurpleGuideScreen() {
     const animation = Animated.parallel([
       Animated.timing(headerTitleProgress, {
         toValue: drawerOpen ? 1 : 0,
-        duration: PURPLE_DRAWER_ANIMATION_MS,
+        duration: instantGuide ? 0 : PURPLE_DRAWER_ANIMATION_MS,
         useNativeDriver: true,
       }),
       Animated.timing(groupSlideX, {
         toValue: 0,
-        duration: PURPLE_DRAWER_ANIMATION_MS,
+        duration: instantGuide ? 0 : PURPLE_DRAWER_ANIMATION_MS,
         useNativeDriver: true,
       }),
     ]);
     animation.start();
     return () => animation.stop();
-  }, [drawerOpen, groupSlideX, headerTitleProgress]);
+  }, [drawerOpen, groupSlideX, headerTitleProgress, instantGuide]);
 
   // After the drawer closes on Guide, restore the last real guide cell. If that
   // exact recycled native node is stale, use the registered guide surface entry
@@ -250,6 +391,7 @@ export default function PurpleGuideScreen() {
     () => () => {
       if (previewTimer.current) clearTimeout(previewTimer.current);
       if (previewRecoverTimer.current) clearTimeout(previewRecoverTimer.current);
+      if (memoryLogoRestoreTimer.current) clearTimeout(memoryLogoRestoreTimer.current);
       setViewportGuideChannelIds(null);
     },
     [],
@@ -315,14 +457,14 @@ export default function PurpleGuideScreen() {
 
   const showGroupSearch = searchOpen || filteredMeta.length > 80;
 
-  const onViewportChannelIds = useCallback((ids: string[]) => {
+  const onViewportChannelIds = useCallback((ids: string[], priorityIds: string[] = []) => {
     setViewportGuideChannelIds(ids);
     if (channels.length >= 400) {
       setPriorityMatchChannelIds(ids.slice(0, 400));
     } else {
       setPriorityMatchChannelIds([]);
     }
-    void patchProgramsForChannelIds(ids);
+    void patchProgramsForChannelIds(ids, priorityIds);
   }, [channels.length, patchProgramsForChannelIds]);
 
   const viewportSeedKeyRef = useRef("");
@@ -333,10 +475,38 @@ export default function PurpleGuideScreen() {
     const key = `${group}:${resetToken}`;
     if (viewportSeedKeyRef.current === key) return;
     viewportSeedKeyRef.current = key;
-    const ids = filtered.slice(0, 24).map((c) => c.id);
+    const rowHeight = getGuideRailMetrics(
+      screenWidth,
+      guideDensity,
+      channelNumbers,
+      channelLogos,
+    ).rowHeight;
+    const visibleRows = Math.max(6, Math.min(24, Math.ceil(screenHeight / rowHeight)));
+    // Warm the complete initial direction-aware runway (current page plus five
+    // pages ahead) before the first focus event instead of waiting on row 1.
+    const ids = buildGuideRunwayIds(filtered, 0, visibleRows, 1);
     setViewportGuideChannelIds(ids);
     setPriorityMatchChannelIds(channels.length >= 400 ? ids : []);
-  }, [channels.length, filtered, group, resetToken]);
+    // Prewarm immediately on Guide/group entry, before the first native focus
+    // event. SQLite and the bridge can populate the first visible runway early.
+    void patchProgramsForChannelIds(
+      ids,
+      [ids[0], ids[1], ids[2], ...ids.slice(0, visibleRows)].filter(
+        (id): id is string => !!id,
+      ),
+    );
+  }, [
+    channelLogos,
+    channelNumbers,
+    channels.length,
+    filtered,
+    group,
+    guideDensity,
+    patchProgramsForChannelIds,
+    resetToken,
+    screenHeight,
+    screenWidth,
+  ]);
 
   const onChannelLongPress = useCallback(
     (channel: Channel) => {
@@ -364,49 +534,16 @@ export default function PurpleGuideScreen() {
     return result;
   }, [channels, customNumbers]);
 
-  const previewChannel = useMemo(() => {
-    const focused = focusedId ? filtered.find((c) => c.id === focusedId) : null;
-    if (focused) return focused;
-    const last = lastChannelId ? filtered.find((c) => c.id === lastChannelId) : null;
-    return last || filtered.find((c) => hasGuidePrograms(c.id)) || filtered[0] || null;
-  }, [filtered, focusedId, lastChannelId]);
-  const previewPrograms = useGuidePrograms(previewChannel?.id);
-
-  const { current: liveCurrent, next: liveNext } = useMemo(
-    () => (previewChannel ? nowNext(previewPrograms, new Date(now)) : {}),
-    [now, previewChannel, previewPrograms],
+  // Repeated focus uses this O(1) lookup through the external selection store;
+  // it never scans the complete filtered channel array.
+  const filteredChannelById = useMemo(
+    () => new Map(filtered.map((channel) => [channel.id, channel] as const)),
+    [filtered],
   );
-  const { displayedProgram, nextProgram } = useMemo(() => {
-    if (!previewChannel || focusedProgramSelection?.channelId !== previewChannel.id) {
-      return { displayedProgram: liveCurrent, nextProgram: liveNext };
-    }
-    const selected = focusedProgramSelection.program;
-    const index = previewPrograms.findIndex(
-      (program) => program.start === selected.start && program.stop === selected.stop,
-    );
-    return {
-      displayedProgram: selected,
-      nextProgram: index >= 0 ? previewPrograms[index + 1] : undefined,
-    };
-  }, [focusedProgramSelection, liveCurrent, liveNext, previewChannel, previewPrograms]);
-  const canRemindPreview = !!displayedProgram && Date.parse(displayedProgram.start) > Date.parse(now);
-  const previewReminderActive = !!(
-    previewChannel &&
-    displayedProgram &&
-    reminderKeys.has(reminderKey(previewChannel.id, displayedProgram.start))
+  const previewFallbackChannel = useMemo(
+    () => (lastChannelId ? filteredChannelById.get(lastChannelId) : null) || filtered[0] || null,
+    [filtered, filteredChannelById, lastChannelId],
   );
-  const previewVisible =
-    !hidePreview &&
-    safePreviewMode !== "off" &&
-    !!previewChannel?.url &&
-    previewId === previewChannel.id &&
-    previewStatus !== "error";
-
-  useEffect(() => {
-    if (previewStatus === "error" && previewChannel?.id) {
-      noteStreamFailure(previewChannel.id);
-    }
-  }, [previewChannel?.id, previewStatus]);
 
   // Decoder preview stays deliberately delayed during held navigation. Guide
   // metadata does not: title/description must track the actual focused row now.
@@ -437,16 +574,15 @@ export default function PurpleGuideScreen() {
   const detailsRailWidth = useMemo(() => {
     // Fixed left details panel sized for readable descriptions/actions on modern
     // Android TV hardware. The guide owns all remaining width to the right.
-    return Math.round(Math.min(360, Math.max(260, screenWidth * 0.24)));
+    // Twenty-five percent smaller than the original 260-360px / 24% rail.
+    return Math.round(Math.min(270, Math.max(195, screenWidth * 0.18)));
   }, [screenWidth]);
 
-  const onFocusChannel = useCallback(
+  const armPreviewForChannel = useCallback(
     (channel: Channel) => {
       if (previewTimer.current) clearTimeout(previewTimer.current);
       const requestedId = channel.id;
       guideSessionChannelId = requestedId;
-      setFocusedId((previous) => (previous === requestedId ? previous : requestedId));
-      setFocusedProgramSelection(null);
 
       // Moving left/right across programmes on the same channel updates details
       // immediately but must not tear down and re-arm an unchanged decoder.
@@ -482,11 +618,18 @@ export default function PurpleGuideScreen() {
     [logosOffWhileSurfing, powerTuning, previewDelay, previewId, previewStatus, schedulePreview, surfSettleExtraMs],
   );
 
+  const onFocusChannel = useCallback((channel: Channel) => {
+    // Logo/card focus represents the live row rather than a previously selected
+    // programme. Only the preview subtree subscribes to this external update.
+    resetGuideSelection(channel.id);
+    armPreviewForChannel(channel);
+  }, [armPreviewForChannel]);
+
   const onFocusProgram = useCallback((program: Program, channel: Channel) => {
     guideSessionChannelId = channel.id;
-    setFocusedId((previous) => (previous === channel.id ? previous : channel.id));
-    setFocusedProgramSelection({ channelId: channel.id, program });
-  }, []);
+    setGuideFocusedProgram(channel.id, program);
+    armPreviewForChannel(channel);
+  }, [armPreviewForChannel]);
 
   const play = useCallback(
     (channel: Channel) => {
@@ -507,7 +650,7 @@ export default function PurpleGuideScreen() {
     guideSessionGroup = next;
     guideSessionChannelId = null;
     setGroup(next);
-    setFocusedId(null);
+    resetGuideSelection(null);
     setPreviewId(null);
     setGroupQuery("");
     setMoreGroupsOpen(false);
@@ -593,7 +736,7 @@ export default function PurpleGuideScreen() {
       guideSessionGroup = nextGroup;
       guideSessionChannelId = jump.channelId;
       setGroup(nextGroup);
-      setFocusedId(jump.channelId);
+      resetGuideSelection(jump.channelId);
       setGroupQuery("");
       setResetToken((value) => value + 1);
       const ch = channelById(jump.channelId);
@@ -797,32 +940,27 @@ export default function PurpleGuideScreen() {
               </ScrollView>
             ) : null}
 
-            <GuidePreviewRail
+            <GuideSelectionPreview
               width={detailsRailWidth}
-              channel={previewChannel}
-              current={displayedProgram}
-              next={nextProgram}
+              channelById={filteredChannelById}
+              fallbackChannel={previewFallbackChannel}
               now={now}
-              channelNumber={previewChannel ? channelNumberById[previewChannel.id] : undefined}
+              channelNumberById={channelNumberById}
               showChannelNumbers={channelNumbers}
               showLogos={channelLogos && !surfLogosSuppressed}
-              isFavorite={!!previewChannel && favoriteSet.has(previewChannel.id)}
+              favoriteSet={favoriteSet}
+              reminderKeys={reminderKeys}
               hidePreview={hidePreview}
               muted={mutePreview}
               onToggleMute={() => setMutePreview(!mutePreview)}
-              previewVisible={previewVisible}
+              previewId={safePreviewMode === "off" ? null : previewId}
+              previewStatus={previewStatus}
               previewEpoch={previewEpoch}
               onPreviewStatus={onPreviewStatus}
               onPreviewErrorRemount={onPreviewErrorRemount}
-              onPlay={() => previewChannel && play(previewChannel)}
-              onFavorite={() => previewChannel && toggleFavorite(previewChannel.id)}
-              canRemind={canRemindPreview}
-              isReminded={previewReminderActive}
-              onToggleReminder={() => {
-                if (displayedProgram && previewChannel) {
-                  void toggleReminder(displayedProgram, previewChannel);
-                }
-              }}
+              onPlay={play}
+              onFavorite={toggleFavorite}
+              onToggleReminder={(program, channel) => void toggleReminder(program, channel)}
               onHideToggle={() => setHidePreview(!hidePreview)}
             />
 
@@ -831,7 +969,8 @@ export default function PurpleGuideScreen() {
             <FocusGuide
               style={styles.gridPanel}
               trapFocusDown
-              trapFocusLeft={!drawerOpen}
+              // Row-level Left handling owns the exact preview-button handoff.
+              trapFocusLeft={false}
               trapFocusRight
             >
               {guideLayout === "compact" ? (
@@ -849,7 +988,9 @@ export default function PurpleGuideScreen() {
                   reminderKeys={gridReminderKeys}
                   resetToken={resetToken}
                   active={!activeProgram && !drawerOpen}
-                  lockLeftEdge={!drawerOpen}
+                  // Preview is the native Left neighbor; the closed drawer has
+                  // no mounted focus tree and therefore needs no self-lock.
+                  lockLeftEdge={false}
                   restoreChannelId={guideSessionChannelId}
                   onUpBoundary={onGuideUpBoundary}
                   onLeftBoundary={onGuideLeftBoundary}
@@ -876,13 +1017,16 @@ export default function PurpleGuideScreen() {
                   reminderKeys={gridReminderKeys}
                   resetToken={resetToken}
                   active={!activeProgram && !drawerOpen}
-                  lockLeftEdge={!drawerOpen}
+                  // Preview is the native Left neighbor; the closed drawer has
+                  // no mounted focus tree and therefore needs no self-lock.
+                  lockLeftEdge={false}
                   restoreChannelId={guideSessionChannelId}
                   onUpBoundary={onGuideUpBoundary}
                   onLeftBoundary={onGuideLeftBoundary}
                   onFocusedRowChange={onFocusedGuideRow}
                   onViewportChannelIds={onViewportChannelIds}
                   onBackTargetChange={onGuideBackTarget}
+                  reduceMotion={instantGuide}
                 />
               )}
             </FocusGuide>

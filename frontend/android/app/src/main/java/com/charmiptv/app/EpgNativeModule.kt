@@ -42,6 +42,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     refreshExecutor.execute {
       try {
         database.ensureHealthy()
+        database.assertRefreshStorageAvailable()
         val now = System.currentTimeMillis()
         val minStop = now - GUIDE_HISTORY_MS
         val maxStart = now + GUIDE_WINDOW_MS
@@ -477,6 +478,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         "EPG download exceeds the ${MAX_COMPRESSED_EPG_BYTES / (1024L * 1024L)} MiB compressed safety limit"
       )
     }
+    database.assertRefreshStorageAvailable(declaredLength)
 
     try {
       val connectionStream = object : FilterInputStream(connection.inputStream) {

@@ -38,6 +38,7 @@ export function EpgProgressBar() {
   const w = useRef(new Animated.Value(0)).current;
 
   const visible =
+    phase === "update_available" ||
     phase === "channels" ||
     phase === "downloading" ||
     phase === "decompressing" ||
@@ -56,8 +57,10 @@ export function EpgProgressBar() {
 
   const isErr = phase === "error";
   const label = isErr
-    ? message || "Guide unavailable — showing channels only"
-    : phase === "channels"
+    ? `${message || "Guide refresh failed"} — showing saved Guide where available`
+    : phase === "update_available"
+      ? "Guide update available — saved Guide stays active while it loads"
+      : phase === "channels"
       ? "Channels ready — loading guide"
       : phase === "downloading"
         ? "Downloading TV guide…"

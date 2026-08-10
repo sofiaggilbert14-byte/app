@@ -17,7 +17,8 @@ test("guide preview and ProgramModal share one reminder toggle source of truth",
   assert.match(store, /toggleReminder: \(program: Program, channel: Channel\)/);
   assert.match(store, /reminderDesiredStateRef/);
   assert.match(store, /reminderMutationRef/);
-  assert.match(guide, /toggleReminder\(displayedProgram, previewChannel\)/);
+  assert.match(guide, /onToggleReminder\(displayedProgram, channel\)/);
+  assert.match(guide, /toggleReminder\(program, channel\)/);
   assert.match(guide, /reminderKeys\.has\(reminderKey/);
   assert.match(modal, /const \{ activeProgram, closeProgram, toggleReminder, reminders \} = useStore\(\)/);
   assert.doesNotMatch(modal, /addReminder|removeReminder/);
@@ -47,7 +48,8 @@ test("focus metadata is immediate while decoder tune stays delayed and restores 
     source("src/components/BoxGrid.tsx"),
     source("src/utils/tvGuideFocusLock.ts"),
   ]);
-  assert.match(guide, /setFocusedProgramSelection\(\{ channelId: channel\.id, program \}\)/);
+  assert.match(guide, /setGuideFocusedProgram\(channel\.id, program\)/);
+  assert.match(guide, /useGuideSelection\(\)/);
   assert.match(guide, /schedulePreview\(/);
   assert.match(guide, /previewId === requestedId && previewStatus !== "error"/);
   assert.match(guide, /focusGuideSurface\(guideSessionChannelId\)/);
@@ -92,7 +94,8 @@ test("EPG screen delivery uses a five-page runway with retained bounded caches",
   assert.match(native, /queriedPlaylistIds\.has\(channel\.id\)/);
   assert.match(store, /pendingPatchIdsRef\.current\.clear\(\)/);
   assert.match(native, /hours = 6/);
-  assert.match(programStore, /MAX_PROGRAMME_ROWS = 2400/);
+  assert.match(programStore, /maxProgrammeRows = 1800/);
+  assert.match(programStore, /setGuideProgramRowLimit/);
   assert.match(store, /EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 6/);
 });
 

@@ -268,8 +268,8 @@ export function PurpleTvShell({
       ]}
     >
       {/* Absolute overlay drawer — slides completely past the left edge when closed. */}
-      <Animated.View
-        pointerEvents={drawerOpen ? "auto" : "none"}
+      {drawerOpen ? <Animated.View
+        pointerEvents="auto"
         style={[styles.sidebarOverlay, { transform: [{ translateX: drawerTranslateX }] }]}
       >
         <FocusGuide
@@ -292,7 +292,7 @@ export function PurpleTvShell({
                     if (node) navRefs.current.set(item.route, node);
                     else navRefs.current.delete(item.route);
                   }}
-                  focusable={drawerOpen}
+                  focusable
                   hasTVPreferredFocus={preferBootLiveTv || (drawerAutoFocus && selected)}
                   onFocus={() => {
                     drawerFocusCancelRef.current?.();
@@ -325,7 +325,7 @@ export function PurpleTvShell({
           </View>
           <View style={styles.sidebarFooter}>
             <Pressable
-              focusable={drawerOpen}
+              focusable
               onPress={promptHoldToExit}
               onLongPress={exit}
               delayLongPress={650}
@@ -344,7 +344,7 @@ export function PurpleTvShell({
             </Pressable>
           </View>
         </FocusGuide>
-      </Animated.View>
+      </Animated.View> : null}
 
       {/* Layout spacer only while the full drawer is open — closed state is full-bleed. */}
       {drawerOpen ? <View style={styles.sidebarSpacer} /> : null}

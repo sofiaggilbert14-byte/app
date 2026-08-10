@@ -184,7 +184,8 @@ test("Android source path stays native-only (no JS XMLTV inflate/parse)", async 
   assert.match(native, /Native EPG engine is unavailable/);
   assert.match(native, /Never mutate EMPTY_PROGRAMS/);
   // Weak-stick memory: bounded programme cache + no full-playlist warm emit hitch.
-  assert.match(native, /MAX_PROGRAMME_WINDOW_KEYS = 2400/);
+  assert.match(native, /maxProgrammeWindowKeys = 1800/);
+  assert.match(native, /setProgrammeWindowCacheLimit/);
   assert.match(native, /HUGE_PLAYLIST_MATCH_THRESHOLD = 400/);
   assert.match(native, /trimProgrammeWindowCache/);
   assert.match(native, /never emits\(\)/i);

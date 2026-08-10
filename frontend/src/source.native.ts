@@ -43,11 +43,12 @@ const PROGRESS_THROTTLE_MS = 150;
 /** Above this, match current-group / priority ids first, then the rest (keeps channels-first paint snappy). */
 const HUGE_PLAYLIST_MATCH_THRESHOLD = 400;
 /** Bounded JS row cache; the native SQLite index remains authoritative. */
-const MAX_PROGRAMME_WINDOW_KEYS = 2400;
+let maxProgrammeWindowKeys = 1800;
 const CACHE_ROOT = FileSystem.documentDirectory || "";
 const CHANNEL_CACHE = CACHE_ROOT ? `${CACHE_ROOT}charm_native_channels_v2.json` : "";
 const LEGACY_CHANNEL_CACHE = CACHE_ROOT ? `${CACHE_ROOT}charm_native_channels_v1.json` : "";
 const CHANNEL_CACHE_TMP = CHANNEL_CACHE ? `${CHANNEL_CACHE}.tmp` : "";
+const CHANNEL_CACHE_BAK = CHANNEL_CACHE ? `${CHANNEL_CACHE}.bak` : "";
 
 type NativeMeta = {
   ts: number;
@@ -220,7 +221,7 @@ function touchProgrammeWindowKey(channelId: string): void {
 function trimProgrammeWindowCache(keepKeys: Iterable<string>): void {
   const keep = new Set(keepKeys);
   let protectedPasses = programmeWindowAccessOrder.size;
-  while (programmeWindowAccessOrder.size > MAX_PROGRAMME_WINDOW_KEYS && protectedPasses > 0) {
+  while (programmeWindowAccessOrder.size > maxProgrammeWindowKeys && protectedPasses > 0) {
     const oldest = programmeWindowAccessOrder.values().next().value as string | undefined;
     if (!oldest) break;
     if (keep.has(oldest)) {
@@ -232,6 +233,23 @@ function trimProgrammeWindowCache(keepKeys: Iterable<string>): void {
     delete programmeWindowCache[oldest];
     programmeWindowEmptyKeys.delete(oldest);
   }
+}
+
+export function setProgrammeWindowCacheLimit(limit: number): void {
+  maxProgrammeWindowKeys = Math.max(128, Math.min(4000, Math.floor(limit || 1800)));
+  trimProgrammeWindowCache(viewportGuideChannelIds || []);
+}
+
+export function trimProgrammeWindowCacheForMemoryPressure(
+  keepIds: string[] = [],
+  critical = false,
+): void {
+  const previous = maxProgrammeWindowKeys;
+  maxProgrammeWindowKeys = critical
+    ? Math.max(128, keepIds.length)
+    : Math.max(256, Math.floor(previous / 2), keepIds.length);
+  trimProgrammeWindowCache(keepIds);
+  maxProgrammeWindowKeys = previous;
 }
 
 function hasCachedProgrammeResult(channelId: string): boolean {
@@ -318,7 +336,7 @@ async function matchChannelsWithPhases(
   return { channels: applied.channels, quality: applied.quality };
 }
 
-export type LoadPhase = "idle" | "channels" | "downloading" | "decompressing" | "parsing" | "indexing" | "matching" | "caching" | "finalizing" | "ready" | "error";
+export type LoadPhase = "idle" | "update_available" | "channels" | "downloading" | "decompressing" | "parsing" | "indexing" | "matching" | "caching" | "finalizing" | "ready" | "error";
 export type EpgProgress = {
   phase: LoadPhase;
   ratio: number;
@@ -448,15 +466,40 @@ async function readMetaFile(path: string): Promise<NativeMeta | null> {
 }
 
 async function readChannelCache(): Promise<NativeMeta | null> {
-  return readMetaFile(CHANNEL_CACHE);
+  const primary = await readMetaFile(CHANNEL_CACHE);
+  if (primary) return primary;
+  const backup = await readMetaFile(CHANNEL_CACHE_BAK);
+  return backup || null;
 }
 
 async function persistMeta(meta: NativeMeta): Promise<void> {
-  if (!CHANNEL_CACHE || !CHANNEL_CACHE_TMP) return;
+  if (!CHANNEL_CACHE || !CHANNEL_CACHE_TMP || !CHANNEL_CACHE_BAK) return;
   const json = JSON.stringify(meta);
   await FileSystem.writeAsStringAsync(CHANNEL_CACHE_TMP, json);
-  await FileSystem.deleteAsync(CHANNEL_CACHE, { idempotent: true }).catch(() => undefined);
-  await FileSystem.moveAsync({ from: CHANNEL_CACHE_TMP, to: CHANNEL_CACHE });
+  if (!(await readMetaFile(CHANNEL_CACHE_TMP))) {
+    await FileSystem.deleteAsync(CHANNEL_CACHE_TMP, { idempotent: true }).catch(() => undefined);
+    throw new Error("Channel cache verification failed");
+  }
+  const validCurrent = await readMetaFile(CHANNEL_CACHE);
+  if (validCurrent) {
+    await FileSystem.deleteAsync(CHANNEL_CACHE_BAK, { idempotent: true }).catch(() => undefined);
+    await FileSystem.moveAsync({ from: CHANNEL_CACHE, to: CHANNEL_CACHE_BAK });
+  } else {
+    // Never rotate a corrupt primary over a valid last-good backup.
+    await FileSystem.deleteAsync(CHANNEL_CACHE, { idempotent: true }).catch(() => undefined);
+  }
+  try {
+    await FileSystem.moveAsync({ from: CHANNEL_CACHE_TMP, to: CHANNEL_CACHE });
+    if (!(await readMetaFile(CHANNEL_CACHE))) throw new Error("Promoted channel cache is invalid");
+    await FileSystem.deleteAsync(CHANNEL_CACHE_BAK, { idempotent: true }).catch(() => undefined);
+  } catch (error) {
+    await FileSystem.deleteAsync(CHANNEL_CACHE, { idempotent: true }).catch(() => undefined);
+    const backup = await FileSystem.getInfoAsync(CHANNEL_CACHE_BAK).catch(() => null);
+    if (backup?.exists) {
+      await FileSystem.moveAsync({ from: CHANNEL_CACHE_BAK, to: CHANNEL_CACHE }).catch(() => undefined);
+    }
+    throw error;
+  }
 }
 
 async function fetchPlaylist(): Promise<Channel[]> {
@@ -501,7 +544,12 @@ async function ensureLoaded(): Promise<NativeMeta> {
     void syncPlaylistToNative(cached.channels, cached.playlistEpoch || 0)
       .then(() => syncMatchesToNative(cached.channels, cached.guideEpoch || 0))
       .catch(() => undefined);
-    if (cached.ts <= 0) void refreshInternal(false);
+    if (cached.ts <= 0 || Date.now() - cached.ts >= TTL_MS) {
+      if (!cached.epgError) {
+        setProgress({ phase: "update_available", ratio: 0, etaSeconds: null, message: null }, true);
+      }
+      void refreshInternal(false);
+    }
     return cached;
   }
 
@@ -1054,6 +1102,7 @@ export async function clearGuideCache(): Promise<void> {
   await clearNativeEpg();
   if (CHANNEL_CACHE) await FileSystem.deleteAsync(CHANNEL_CACHE, { idempotent: true }).catch(() => undefined);
   if (CHANNEL_CACHE_TMP) await FileSystem.deleteAsync(CHANNEL_CACHE_TMP, { idempotent: true }).catch(() => undefined);
+  if (CHANNEL_CACHE_BAK) await FileSystem.deleteAsync(CHANNEL_CACHE_BAK, { idempotent: true }).catch(() => undefined);
   if (LEGACY_CHANNEL_CACHE) await FileSystem.deleteAsync(LEGACY_CHANNEL_CACHE, { idempotent: true }).catch(() => undefined);
   void cleanupLegacyEpgArtifactsOnce();
   setProgress({ phase: "idle", ratio: 0, etaSeconds: null, message: null }, true);

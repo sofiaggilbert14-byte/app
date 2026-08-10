@@ -287,6 +287,9 @@ export function formatNativeEpgError(raw: unknown): string {
   if (lower.includes("already in progress")) {
     return "A guide refresh is already running.";
   }
+  if (lower.includes("not enough storage")) {
+    return "Not enough storage to update Guide. The saved Guide is unchanged; free space and try again.";
+  }
   return message.length > 160 ? `${message.slice(0, 157)}…` : message;
 }
 
