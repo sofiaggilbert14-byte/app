@@ -514,7 +514,129 @@ async function persistMeta(meta: NativeMeta): Promise<void> {
     await FileSystem.deleteAsync(CHANNEL_CACHE, { idempotent: true }).catch(() => undefined);
     const backup = await FileSystem.getInfoAsync(CHANNEL_CACHE_BAK).catch(() => null);
     if (backup?.exists) {
-      await FileSystem.moveAsync({ from: CHANNEL_…1257 tokens truncated….Object.keys(epgNames),
+      await FileSystem.moveAsync({ from: CHANNEL_CACHE_BAK, to: CHANNEL_CACHE }).catch(() => undefined);
+    }
+    throw error;
+  }
+}
+
+async function fetchPlaylist(): Promise<Channel[]> {
+  if (!SOURCE_M3U) {
+    throw new Error("Playlist is not configured for this build (missing EXPO_PUBLIC_M3U_URL).");
+  }
+  const response = await fetch(https(SOURCE_M3U), {
+    headers: { "User-Agent": "CharmIPTV/Experimental-v3" },
+  });
+  if (!response.ok) throw new Error(`M3U HTTP ${response.status}`);
+  const contentLength = Number(response.headers.get("content-length") || "");
+  if (Number.isFinite(contentLength) && contentLength > 0) {
+    enforcePlaylistByteLimit(contentLength);
+  }
+  const text = await response.text();
+  enforcePlaylistTextLimit(text);
+  const { channels } = parseM3UWithStats(text, (url) => url, (ratio) => {
+    setProgress({ phase: "channels", ratio: 0.05 + ratio * 0.12, etaSeconds: null });
+  });
+  const sorted = sortChannels(channels);
+  // Empty / unusable refresh must not wipe a last-good on-disk list (refreshInternal catch).
+  if (!sorted.length) throw new Error("Playlist contained no playable channels");
+  return sorted;
+}
+
+async function ensureLoaded(): Promise<NativeMeta> {
+  // Best-effort once per install: drop superseded JS/expo EPG files (never v3 native DB).
+  void cleanupLegacyEpgArtifactsOnce();
+
+  if (MEM && MEM.channels.length > 0) return MEM;
+  const cached = await readChannelCache();
+  if (cached) {
+    if (cached.channels.length === 0) {
+      return refreshInternal(true);
+    }
+    MEM = cached;
+    if (cached.epgError) {
+      lastSourceError = cached.epgError;
+      setProgress({ phase: "error", ratio: 0, etaSeconds: null, message: cached.epgError }, true);
+    }
+    // Rebuild SQL playlist/match tables after upgrade or cold start (queryGuideWindow needs them).
+    void syncPlaylistToNative(cached.channels, cached.playlistEpoch || 0)
+      .then(() => syncMatchesToNative(cached.channels, cached.guideEpoch || 0))
+      .catch(() => undefined);
+    if (cached.ts <= 0 || Date.now() - cached.ts >= TTL_MS) {
+      if (!cached.epgError) {
+        setProgress({ phase: "update_available", ratio: 0, etaSeconds: null, message: null }, true);
+      }
+      void refreshInternal(false);
+    }
+    return cached;
+  }
+
+  const legacy = await readMetaFile(LEGACY_CHANNEL_CACHE);
+  if (legacy) {
+    if (legacy.channels.length === 0) {
+      return refreshInternal(true);
+    }
+    MEM = { ...legacy, ts: 0 };
+    await persistMeta(MEM).catch(() => undefined);
+    void refreshInternal(false);
+    return MEM;
+  }
+
+  return refreshInternal(true);
+}
+
+async function refreshInternal(force: boolean): Promise<NativeMeta> {
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = (async () => {
+    const cached = MEM || (await readChannelCache());
+    if (!force && cached && cached.ts > 0 && Date.now() - cached.ts < TTL_MS) {
+      MEM = cached;
+      void syncPlaylistToNative(cached.channels, cached.playlistEpoch || 0)
+        .then(() => syncMatchesToNative(cached.channels, cached.guideEpoch || 0))
+        .catch(() => undefined);
+      return cached;
+    }
+
+    lastSourceError = null;
+    let channels = cached?.channels || [];
+    try {
+      setProgress({ phase: "channels", ratio: 0.05, etaSeconds: null }, true);
+      channels = await fetchPlaylist();
+      const playlistRefreshedAt = Date.now();
+      const playlistEpoch = (cached?.playlistEpoch || 0) + 1;
+      const playlistFp = playlistIdentityFingerprint(channels);
+      MEM = {
+        ts: cached?.ts || 0,
+        channels,
+        epgProgramCount: cached?.epgProgramCount || 0,
+        epgChannelCount: cached?.epgChannelCount || 0,
+        playlistEpoch,
+        playlistRefreshedAt,
+        guideEpoch: cached?.guideEpoch,
+        guideRefreshedAt: cached?.guideRefreshedAt,
+        matchFingerprint: cached?.matchFingerprint,
+        matchQuality: cached?.matchQuality,
+        matchPolicy: cached?.matchPolicy,
+        playlistIdentityFingerprint: playlistFp,
+      };
+      // Channels-first paint — EPG continues async below.
+      await persistMeta(MEM);
+      // Sync raw playlist rows into SQLite before match rewrites tvg_id.
+      void syncPlaylistToNative(channels, playlistEpoch).catch(() => undefined);
+      emit();
+
+      if (!nativeEpgAvailable) throw new Error("Native EPG engine is unavailable in this Android build");
+      if (!SOURCE_EPG) throw new Error("EPG is not configured for this build (missing EXPO_PUBLIC_EPG_URL).");
+      setProgress({ phase: "downloading", ratio: 0.2, etaSeconds: null, message: null }, true);
+      const epg = await refreshNativeEpg(https(SOURCE_EPG), false);
+      setProgress({ phase: "indexing", ratio: 0.91, etaSeconds: null }, true);
+
+      const epgLogos = epg.channelLogos || {};
+      const epgNames = epg.channelNames || {};
+      const indexes = buildXmltvMatchIndexes({
+        channelIds: new Set([
+          ...Object.keys(epgLogos),
+          ...Object.keys(epgNames),
           ...(epg.channelIdsWithPrograms || []),
         ]),
         channelNames: epgNames,
