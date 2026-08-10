@@ -473,7 +473,7 @@ export default function SettingsScreen() {
                 <ChoiceRow<GuideLayout>
                   label="Guide layout"
                   value={guideLayout}
-                  options={[{ label: "Timeline", value: "cinematic" }, { label: "Compact", value: "compact" }]}
+                  options={[{ label: "Timeline", value: "cinematic" }, { label: "Mobile", value: "compact" }]}
                   onChange={setGuideLayout}
                 />
                 {guideLayout === "cinematic" ? (
@@ -484,7 +484,7 @@ export default function SettingsScreen() {
                     onChange={setGuideDensity}
                   />
                 ) : (
-                  <Text style={styles.help}>Guide density applies to Timeline layout. Compact cards use a fixed size for TV readability.</Text>
+                  <Text style={styles.help}>Guide density applies to Timeline layout. Mobile uses block cards sized for phones and touch.</Text>
                 )}
                 <ChoiceRow<SafePreviewMode>
                   label="Live preview"
