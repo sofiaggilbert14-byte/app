@@ -356,6 +356,49 @@ const TimelineRow = memo(function TimelineRow({
     onRowChannelFocus(item, index, pendingPressableRef.current);
   }, [index, item, onFocusNode, onRowChannelFocus]);
 
+  // === VISIBLE SLICING: only render programs that overlap the visible window + overscan ===
+  const visibleProgramSlice = useMemo(() => {
+    const out: { prepared: PreparedProgram; programIndex: number }[] = [];
+    if (!preparedPrograms || preparedPrograms.length === 0) return out;
+    const viewportW = programViewportW || 280;
+    const basePad = Math.max(PAN_BUCKET_PX, viewportW);
+    const padMultiplier = disableProgramCull ? 2.25 : 1;
+    const pad = basePad * padMultiplier;
+    const leftBound = Math.max(0, panBucket - pad);
+    const rightBound = panBucket + Math.max(viewportW, 280) + pad;
+
+    // binary search for start index (preparedPrograms sorted by left)
+    let lo = 0;
+    let hi = preparedPrograms.length - 1;
+    let startIdx = 0;
+    while (lo <= hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      if (preparedPrograms[mid].left + preparedPrograms[mid].width <= leftBound) {
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    startIdx = Math.max(0, lo - 2);
+
+    let endIdx = startIdx;
+    while (endIdx < preparedPrograms.length && preparedPrograms[endIdx].left < rightBound) endIdx++;
+    endIdx = Math.min(preparedPrograms.length, endIdx + 2);
+
+    for (let i = startIdx; i < endIdx; i++) out.push({ prepared: preparedPrograms[i], programIndex: i });
+
+    // Ensure the currently focused program remains present even if outside the slice
+    const focusedKey = getFocusedProgramKey?.();
+    if (focusedKey) {
+      const foundIndex = preparedPrograms.findIndex((p) => p.key === focusedKey);
+      if (foundIndex >= 0 && (foundIndex < startIdx || foundIndex >= endIdx)) {
+        out.push({ prepared: preparedPrograms[foundIndex], programIndex: foundIndex });
+      }
+    }
+
+    return out;
+  }, [preparedPrograms, panBucket, programViewportW, disableProgramCull, getFocusedProgramKey]);
+
   return (
     <View style={[styles.row, { height: rowHeight }]}>
       {/* Logos stay layout-fixed in the row — never translated with the timeline pan. */}
@@ -415,13 +458,7 @@ const TimelineRow = memo(function TimelineRow({
             },
           ]}
         >
-          {preparedPrograms.map((prepared, programIndex) => {
-            const near = programNearViewport(
-              prepared,
-              panBucket,
-              programViewportW,
-              disableProgramCull ? 2.25 : 1,
-            );
+          {visibleProgramSlice.map(({ prepared, programIndex }) => {
             const isPreferred = prepared.key === preferred?.key;
             const keepFocused = getFocusedProgramKey?.() === prepared.key;
             return (
@@ -433,7 +470,7 @@ const TimelineRow = memo(function TimelineRow({
                 isPreferred={isPreferred}
                 preferInitialFocus={false}
                 hasReminder={!!reminderKeys?.has(reminderKey(item.id, prepared.program.start))}
-                tvFocusable={near || keepFocused}
+                tvFocusable={keepFocused || true}
                 lockFocusDown={lockFocusDown}
                 capturePreferred={capturePreferred}
                 onFocusNode={onFocusNode}
@@ -677,8 +714,7 @@ export const TimelineGrid = memo(function TimelineGrid({
       panAnimRef.current.start(() => {
         panAnimRef.current = null;
       });
-    },
-    [scrollX],
+    }, [scrollX],
   );
 
   // Mount-once preferred focus only — restore the last watched row when tabs
@@ -901,7 +937,7 @@ export const TimelineGrid = memo(function TimelineGrid({
         getFocusedProgramKey={getFocusedProgramKey}
       />
     ),
-    [ROW_H, LOGO_W, LOGO_SIZE, railMetrics.numberWidth, railMetrics.nameFontSize, railMetrics.nameLineHeight, railMetrics.horizontalPadding, railMetrics.itemGap, timelineWidth, windowStartMs, windowEndMs, PX_PER_MIN, negScrollX, panBucket, programViewportW, showChannelNumbers, channelNumberById, showChannelLogos, reminderKeys, onChannelPress, onChannelLongPress, onProgramPress, onRowProgramFocus, onRowChannelFocus, preferFirstRow, rememberFocusNode, lastRowIndex, lockLeftEdge, disableProgramCull, getFocusedProgramKey, restoreChannelId],
+    [ROW_H, LOGO_W, LOGO_SIZE, railMetrics.numberWidth, railMetrics.nameFontSize, railMetrics.nameLineHeight, railMetrics.horizontalPadding, railMetrics.itemGap, timelineWidth, windowStartMs, windowEndMs, PX_PER_MIN, negScrollX, panBucket, programViewportW, showChannelNumbers, channelNumberById, showChannelLogos, reminderKeys, onChannelPress, onChannelLongPress, onProgramPress, onRowProgramFocus, onRowChannelFocus, rememberFocusNode, preferFirstRow, restoreChannelId, lockLeftEdge, disableProgramCull, getFocusedProgramKey, channels.length],
   );
 
   return (
@@ -943,7 +979,8 @@ export const TimelineGrid = memo(function TimelineGrid({
             data={channels}
             ref={listRef}
             keyExtractor={(channel) => channel.id}
-            drawDistance={Math.max(720, ROW_H * 12)}
+            estimatedItemSize={ROW_H}
+            drawDistance={Math.max(400, ROW_H * 8)}
             removeClippedSubviews={false}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingBottom: 120 }}
