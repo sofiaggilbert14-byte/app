@@ -227,6 +227,7 @@ export default function PurpleGuideScreen() {
     instantGuide,
     epgGuideFilter,
     retainGuideSlidingCache,
+    releaseGuideSlidingCache,
   } = useStore();
 
   const {
@@ -397,6 +398,17 @@ export default function PurpleGuideScreen() {
       setViewportGuideChannelIds(null);
     },
     [],
+  );
+
+  useFocusEffect(
+    useCallback(
+      () => () => {
+        setViewportGuideChannelIds(null);
+        setPriorityMatchChannelIds([]);
+        releaseGuideSlidingCache();
+      },
+      [releaseGuideSlidingCache],
+    ),
   );
 
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);

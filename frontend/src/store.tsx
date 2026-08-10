@@ -1,4 +1,5 @@
 import React, { createContext, startTransition, useCallback, useContext, useEffect, useRef, useState, useMemo } from "react";
+import { Platform } from "react-native";
 import dayjs from "dayjs";
 import { storage } from "@/src/utils/storage";
 import { Channel, Program } from "@/src/api";
@@ -31,6 +32,7 @@ import { pushRecentId, sanitizeRecentIds } from "@/src/utils/recentIds";
 import { sanitizeReminders } from "@/src/utils/reminderIds";
 import { remapStoredChannelIds } from "@/src/utils/channelIdentityMigrate";
 import { getPowerProfileTuning, resolvePowerProfile, type PowerProfile } from "@/src/core/devicePowerProfile";
+import { resolveStoredGuideLayout } from "@/src/core/guideLayoutDefault";
 import { applyManualEpgRemaps, resolveEpgGuideFilter, sanitizeEpgManualRemap, type EpgGuideFilter } from "@/src/core/epgUserOverrides";
 import {
   createFavoriteFolder,
@@ -129,6 +131,8 @@ export type Store = {
   patchProgramsForChannelIds: (channelIds: string[], priorityIds?: string[]) => Promise<void>;
   /** Conveyor-belt eviction — keep only the hysteresis band around the runway. */
   retainGuideSlidingCache: (keepIds: Iterable<string>) => void;
+  /** Release off-screen Guide rows before fullscreen playback keeps decoders alive. */
+  releaseGuideSlidingCache: () => void;
   selectedDate: string;
   setSelectedDate: (d: string) => void;
   channelById: (id: string) => Channel | undefined;
@@ -247,7 +251,9 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
 
   const [activeProgram, setActiveProgram] = useState<ActiveProgram>(null);
   const [pointerMode, setPointerModeState] = useState(false);
-  const [guideLayout, setGuideLayoutState] = useState<GuideLayout>("cinematic");
+  const [guideLayout, setGuideLayoutState] = useState<GuideLayout>(() =>
+    resolveStoredGuideLayout(null, Platform.isTV, Platform.OS),
+  );
   const [guideDensity, setGuideDensityState] = useState<GuideDensity>("extra_compact");
   const [safePreviewMode, setSafePreviewModeState] = useState<SafePreviewMode>("delayed");
   const [channelNumbers, setChannelNumbersState] = useState(false);
@@ -761,6 +767,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     pendingPatchPriorityIdsRef.current = [];
     const start = windowStartRef.current;
     const end = windowEndRef.current;
+    const guideEpoch = guideEpochRef.current;
     try {
       const focusedIds = priorityOrder.slice(0, 1).filter((id) => ids.includes(id));
       const immediateIds = priorityOrder.slice(1, 3).filter((id) => ids.includes(id));
@@ -772,6 +779,17 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
         const delta = await loadGuideProgramsForChannelIds(tierIds, start, guideWindowHoursRef.current);
         // Date/window changed while SQLite was reading. Do not paint an old day.
         if (start !== windowStartRef.current || end !== windowEndRef.current) return false;
+        // A background guide refresh replaced the native cache while this tier
+        // was reading. Keep last-good rows and enqueue the newest runway again.
+        if (guideEpoch !== guideEpochRef.current) {
+          pendingPatchIdsRef.current.clear();
+          for (const id of lastPatchRunwayIdsRef.current) {
+            if (id) pendingPatchIdsRef.current.add(id);
+          }
+          pendingPatchPriorityIdsRef.current = lastPatchRunwayIdsRef.current.slice(0, 3);
+          pendingPatchGenerationRef.current = runwayGenerationRef.current;
+          return false;
+        }
         // Focus advanced while SQLite was reading. Discard the obsolete result
         // and reapply the newest conveyor keep set because the completed native
         // request may have repopulated rows that the newer runway already evicted.
@@ -851,6 +869,25 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     retainProgrammeWindowCache(keep);
   }, []);
 
+  const releaseGuideSlidingCache = useCallback(() => {
+    // Preserve a small warm runway for a fast return to Guide while releasing
+    // the bulk of programme arrays before fullscreen video decoders start.
+    const keepLimit = powerProfile === "weak" ? 48 : powerProfile === "max_preview" ? 128 : 96;
+    const keep = lastPatchRunwayIdsRef.current.slice(0, keepLimit);
+    lastPatchRunwayIdsRef.current = keep;
+    runwayGenerationRef.current += 1;
+    pendingPatchGenerationRef.current = runwayGenerationRef.current;
+    pendingPatchIdsRef.current.clear();
+    pendingPatchPriorityIdsRef.current = [];
+    if (patchTimerRef.current) {
+      clearTimeout(patchTimerRef.current);
+      patchTimerRef.current = null;
+    }
+    trimGuideProgramRows(keep, true);
+    trimProgrammeWindowCacheForMemoryPressure(keep, true);
+    clearChannelLogoMemory();
+  }, [powerProfile]);
+
   const setSelectedDate = useCallback(
     (d: string) => {
       dateRef.current = d;
@@ -891,7 +928,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setLastChannelId(await storage.getItem<string | null>(LAST_CHANNEL_KEY, null));
       setReminders(sanitizeReminders((await storage.getItem<Reminder[]>(REM_KEY, [])) || []) as Reminder[]);
       setPointerModeState((await storage.getItem<boolean>(PMODE_KEY, false)) || false);
-      setGuideLayoutState((await storage.getItem<GuideLayout>(GUIDE_LAYOUT_KEY, "cinematic")) || "cinematic");
+      const storedGuideLayout = await storage.getItem<string | null>(GUIDE_LAYOUT_KEY, null);
+      setGuideLayoutState(resolveStoredGuideLayout(storedGuideLayout, Platform.isTV, Platform.OS));
       const extraCompactDefaultApplied = await storage.getItem<boolean>(EXTRA_COMPACT_DEFAULT_MIGRATION_KEY, false);
       const storedDensity = extraCompactDefaultApplied
         ? await storage.getItem<GuideDensity>(GUIDE_DENSITY_KEY, "extra_compact")
@@ -1077,6 +1115,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       hardRefresh,
       patchProgramsForChannelIds,
       retainGuideSlidingCache,
+      releaseGuideSlidingCache,
       selectedDate,
       setSelectedDate,
       channelById,
@@ -1152,6 +1191,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       hardRefresh,
       patchProgramsForChannelIds,
       retainGuideSlidingCache,
+      releaseGuideSlidingCache,
       selectedDate,
       setSelectedDate,
       channelById,

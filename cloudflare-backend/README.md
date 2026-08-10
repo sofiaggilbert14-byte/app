@@ -25,7 +25,9 @@ Program fields: `t`=title, `s`=start (epoch ms), `e`=end (epoch ms), `d`=desc, `
 
 ### 1) Create a Cloudflare KV namespace
 Dashboard → **Storage & Databases → KV → Create namespace** → name it `CHARM_KV`.
-Copy its **Namespace ID** and paste it into `worker/wrangler.toml` (`id = "..."`).
+Store its **Namespace ID** in the `CF_KV_NAMESPACE_ID` GitHub Actions secret.
+The deploy workflow injects it into the canonical root `wrangler.toml`; never
+commit the real namespace ID or API token.
 Also copy your **Account ID** (Dashboard home → right sidebar).
 
 ### 2) Create a Cloudflare API token

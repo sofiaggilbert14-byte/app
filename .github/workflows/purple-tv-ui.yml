@@ -90,7 +90,13 @@ jobs:
           EXPO_PUBLIC_GUIDE_WINDOW_HOURS: ${{ env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS }}
 
       - name: Verify universal APK contents
+        id: app_version
         run: |
+          APP_VERSION="$(node -p 'require("./app.json").expo.version')"
+          test -n "$APP_VERSION"
+          NOTES="../docs/TESTER_RELEASE_NOTES_${APP_VERSION}.md"
+          test -f "$NOTES"
+          echo "version=$APP_VERSION" >> "$GITHUB_OUTPUT"
           APK="android/app/build/outputs/apk/sideload/app-sideload.apk"
           test -f "$APK"
           unzip -l "$APK" | grep -E "(index\.android\.bundle|assets/.*\.bundle|resources\.arsc)" >/dev/null
@@ -100,12 +106,12 @@ jobs:
           mkdir -p android/app/build/outputs/apk/tester
           cp "$APK" "android/app/build/outputs/apk/tester/CharmIPTV-Purple-TV-Universal.apk"
           sha256sum "android/app/build/outputs/apk/tester/CharmIPTV-Purple-TV-Universal.apk" > "android/app/build/outputs/apk/tester/SHA256SUMS.txt"
-          cp ../docs/TESTER_RELEASE_NOTES_2.1.0-rc.2.md "android/app/build/outputs/apk/tester/TESTER_RELEASE_NOTES.md"
+          cp "$NOTES" "android/app/build/outputs/apk/tester/TESTER_RELEASE_NOTES.md"
 
       - name: Upload purple TV APK
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: CharmIPTV-Purple-TV-2.1.0-rc.2-${{ github.run_number }}
+          name: CharmIPTV-Purple-TV-${{ steps.app_version.outputs.version }}-${{ github.run_number }}
           path: frontend/android/app/build/outputs/apk/tester/*
           if-no-files-found: error
           retention-days: 14

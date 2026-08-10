@@ -910,6 +910,10 @@ export async function loadGuideProgramsForChannelIds(
   // on-screen order. Querying any larger source-order ring wastes SQLite/bridge
   // work and can warm channels that are not even visible in the selected group.
   await loadProgrammeCacheMisses(remapped, unique, startMs, endMs);
+  // A background EPG refresh can replace the cache while SQLite is reading.
+  // Returning explicit empty rows here would erase the last-good Guide even
+  // though the old query correctly refused to merge into the new epoch.
+  if (programmeWindowCacheKey !== cacheKey) return {};
   const delta: Record<string, Program[]> = {};
   for (const id of unique) {
     const cached = programmeWindowCache[id];
