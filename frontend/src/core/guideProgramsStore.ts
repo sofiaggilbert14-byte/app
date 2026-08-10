@@ -102,6 +102,25 @@ export function clearGuidePrograms(): void {
   for (const id of ids) notify(id);
 }
 
+/**
+ * Keep only the sliding-window channel ids. Off-window rows are dropped so a
+ * held D-pad run cannot accumulate the whole playlist in JS heap. Dropped rows
+ * notify so recycled cells fall back to the pending placeholder until refetch.
+ */
+export function retainGuidePrograms(keepIds: Iterable<string>): void {
+  const keep = keepIds instanceof Set ? keepIds : new Set(Array.from(keepIds).filter(Boolean));
+  if (!keep.size) return;
+  const drop: string[] = [];
+  for (const id of programsByChannelId.keys()) {
+    if (!keep.has(id)) drop.push(id);
+  }
+  if (!drop.length) return;
+  for (const id of drop) {
+    programsByChannelId.delete(id);
+    notify(id);
+  }
+}
+
 export function makeGuideProgramWindowKey(start: string, end: string, guideEpoch = 0): string {
   return `${start}|${end}|${guideEpoch}`;
 }

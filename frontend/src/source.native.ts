@@ -201,9 +201,19 @@ function clearProgrammeWindowCache(): void {
   programmeWindowCacheKey = "";
 }
 
-/** Drop off-viewport programme rows so JS heap stays bounded on huge playlists. */
-function trimProgrammeWindowCache(keepKeys: Iterable<string>): void {
+/** Drop programme rows outside the active keep set; soft-cap remains a safety net. */
+function trimProgrammeWindowCache(keepKeys: Iterable<string>, mode: "soft" | "strict" = "soft"): void {
   const keep = new Set(keepKeys);
+  if (mode === "strict" && keep.size > 0) {
+    for (const key of Object.keys(programmeWindowCache)) {
+      if (keep.has(key)) continue;
+      delete programmeWindowCache[key];
+    }
+    for (const key of Array.from(programmeWindowEmptyKeys)) {
+      if (keep.has(key)) continue;
+      programmeWindowEmptyKeys.delete(key);
+    }
+  }
   let keys = Object.keys(programmeWindowCache);
   if (keys.length > MAX_PROGRAMME_WINDOW_KEYS) {
     for (const key of keys) {
@@ -748,19 +758,22 @@ export async function loadGuide(startISO?: string, hours = 8, force = false): Pr
   playlistIds = Array.from(new Set(playlistIds));
 
   await loadProgrammeCacheMisses(remapped, playlistIds, startMs, endMs);
-  trimProgrammeWindowCache(playlistIds);
+  trimProgrammeWindowCache(playlistIds, viewportGuideChannelIds?.length ? "strict" : "soft");
 
   // One compact, cache-only runway around the current viewport. The scheduler
   // owns visible-row attachment; this warm request never causes a React rebuild.
   if (huge && nativeEpgAvailable && playlistIds.length < allPlaylistIds.length) {
     const warmKey = cacheKey;
     const focusIds = viewportGuideChannelIds?.length ? viewportGuideChannelIds : playlistIds;
-    const ring = buildFocusRing(allPlaylistIds, new Set(playlistIds), focusIds, 48);
+    // Sliding window already carries 2-back/5-ahead from the guide; keep a small
+    // extra focus ring only when the viewport report is still tiny.
+    const ringMax = focusIds.length >= 40 ? 16 : 48;
+    const ring = buildFocusRing(allPlaylistIds, new Set(playlistIds), focusIds, ringMax);
     if (ring.length) {
       void loadProgrammeCacheMisses(remapped, ring, startMs, endMs)
         .then(() => {
           if (programmeWindowCacheKey === warmKey) {
-            trimProgrammeWindowCache([...playlistIds, ...ring]);
+            trimProgrammeWindowCache([...playlistIds, ...ring], "strict");
           }
         })
         .catch(() => undefined);
