@@ -47,13 +47,14 @@ test("Expo Video patch disables chunkless HLS prep and exposes renderer track ca
 });
 
 test("Android TV build includes a pinned LGPL Media3 FFmpeg audio extension", async () => {
-  const [appBuild, settings, workflow, script, nativeBuildScript, notice, proguard, moduleBuild] =
+  const [appBuild, settings, workflow, script, nativeBuildScript, nativeBridge, notice, proguard, moduleBuild] =
     await Promise.all([
       source("android/app/build.gradle"),
       source("android/settings.gradle"),
       source("../.github/workflows/purple-tv-ui.yml"),
       source("scripts/build-media3-ffmpeg-audio.sh"),
       source("android/ffmpeg-audio/src/main/jni/build_ffmpeg.sh"),
+      source("android/ffmpeg-audio/src/main/jni/ffmpeg_jni.cc"),
       source("android/ffmpeg-audio/NOTICE.md"),
       source("android/ffmpeg-audio/proguard-rules.pro"),
       source("android/ffmpeg-audio/build.gradle"),
@@ -73,6 +74,11 @@ test("Android TV build includes a pinned LGPL Media3 FFmpeg audio extension", as
   assert.match(notice, /patent/i);
   assert.match(proguard, /FfmpegAudioRenderer/);
   assert.match(moduleBuild, /FFmpeg android-libs missing/);
+  assert.match(moduleBuild, /packagesApk/);
+  assert.match(nativeBridge, /AV_CODEC_ID_TRUEHD/);
+  assert.match(nativeBridge, /releaseContext\(context\)/);
+  assert.match(nativeBridge, /avcodec_flush_buffers\(context\)/);
+  assert.doesNotMatch(nativeBridge, /TODO: Figure out why flushing/);
 });
 
 test("audio diagnostics fingerprint never retains the raw URI", async () => {

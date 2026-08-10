@@ -31,10 +31,6 @@ function corsHeaders(env, request) {
     "access-control-allow-headers": "Content-Type",
   };
   if (!allowed.length) return headers;
-  if (allowed.includes("*")) {
-    headers["access-control-allow-origin"] = "*";
-    return headers;
-  }
   if (origin && allowed.includes(origin)) {
     headers["access-control-allow-origin"] = origin;
     headers.vary = "Origin";
@@ -225,8 +221,12 @@ export default {
       if (m) return await serveChannel(env, decodeURIComponent(m[1]), cors);
 
       return jsonResponse({ error: "not_found", path }, { status: 404, maxAge: 30, cors });
-    } catch (e) {
-      return jsonResponse({ error: "server_error", detail: String(e) }, { status: 500, maxAge: 5, cors });
+    } catch {
+      console.error("Worker request failed");
+      return jsonResponse(
+        { error: "server_error", message: "Request could not be completed" },
+        { status: 500, maxAge: 5, cors },
+      );
     }
   },
 };

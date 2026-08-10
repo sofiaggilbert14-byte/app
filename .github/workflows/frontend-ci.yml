@@ -25,10 +25,10 @@ jobs:
         working-directory: frontend
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           # npm test uses --experimental-strip-types (Node 22+); match purple-next-ci.
           node-version: 24
@@ -36,7 +36,13 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install JavaScript dependencies
-        run: npm install --legacy-peer-deps --no-audit --no-fund
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: Verify checked-in Android configuration
+        run: npm run verify:native-config
+
+      - name: Validate Expo and React Native dependencies
+        run: npm run doctor
 
       - name: Unit and wiring tests
         run: npm test

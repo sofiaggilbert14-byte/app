@@ -10,6 +10,7 @@ import {
   clearNativeEpg,
   loadNativeEpgWindow,
   nativeEpgAvailable,
+  nativePlaylistIsCurrent,
   queryNativeGuideWindow,
   refreshNativeEpg,
   upsertNativePlaylistChannels,
@@ -41,12 +42,13 @@ const TTL_MS = 24 * 60 * 60 * 1000;
 const PROGRESS_THROTTLE_MS = 150;
 /** Above this, match current-group / priority ids first, then the rest (keeps channels-first paint snappy). */
 const HUGE_PLAYLIST_MATCH_THRESHOLD = 400;
-/** Cap merged programme rows held in JS — weak Fire TVs thrash if this grows with the full playlist. */
-const MAX_PROGRAMME_WINDOW_KEYS = 700;
+/** Bounded JS row cache; the native SQLite index remains authoritative. */
+let maxProgrammeWindowKeys = 1800;
 const CACHE_ROOT = FileSystem.documentDirectory || "";
 const CHANNEL_CACHE = CACHE_ROOT ? `${CACHE_ROOT}charm_native_channels_v2.json` : "";
 const LEGACY_CHANNEL_CACHE = CACHE_ROOT ? `${CACHE_ROOT}charm_native_channels_v1.json` : "";
 const CHANNEL_CACHE_TMP = CHANNEL_CACHE ? `${CHANNEL_CACHE}.tmp` : "";
+const CHANNEL_CACHE_BAK = CHANNEL_CACHE ? `${CHANNEL_CACHE}.bak` : "";
 
 type NativeMeta = {
   ts: number;
@@ -85,7 +87,12 @@ let viewportGuideChannelIds: string[] | null = null;
 let programmeWindowCache: Record<string, Program[]> = {};
 /** Negative cache avoids re-querying unmatched/no-data rows on every D-pad move. */
 let programmeWindowEmptyKeys = new Set<string>();
+/** Shared LRU order for positive and negative window rows. */
+let programmeWindowAccessOrder = new Set<string>();
 let programmeWindowCacheKey = "";
+/** Coalesce overlapping warm/viewport reads so one channel is never queried twice. */
+const programmeWindowInFlight = new Map<string, Promise<void>>();
+let lastNativeMatchWriteFingerprint = "";
 
 export function setPreferTvgIdOnlyMatching(value: boolean): void {
   preferTvgIdOnly = !!value;
@@ -111,18 +118,45 @@ export function setViewportGuideChannelIds(ids: string[] | null): void {
   viewportGuideChannelIds = ids && ids.length ? ids.filter(Boolean) : null;
 }
 
+/** Conveyor-belt eviction: drop native window rows outside the hysteresis keep set. */
+export function retainProgrammeWindowCache(keepIds: Iterable<string>): void {
+  const keep = Array.from(keepIds).filter(Boolean);
+  if (!keep.length) return;
+  trimProgrammeWindowCache(keep, "strict");
+}
+
 async function syncPlaylistToNative(channels: Channel[], playlistEpoch: number): Promise<void> {
   if (!nativeEpgAvailable || !channels.length) return;
+  const contentFingerprint = playlistNativeContentFingerprint(channels);
+  if (await nativePlaylistIsCurrent(contentFingerprint)) return;
   await upsertNativePlaylistChannels(
     channels.map((channel) => ({
       playlistId: channel.id,
-      rawTvgId: channel.tvg_id || "",
+      rawTvgId: channel.raw_tvg_id || channel.tvg_id || "",
       name: channel.name || "",
       logo: channel.logo || "",
       group: channel.group || "",
     })),
     playlistEpoch,
+    contentFingerprint,
   );
+}
+
+/** Two independent 32-bit hashes keep the cold-start native handshake compact. */
+function playlistNativeContentFingerprint(channels: Channel[]): string {
+  let h1 = 0x811c9dc5;
+  let h2 = 0x9e3779b9;
+  let charCount = 0;
+  for (const channel of channels) {
+    const value = `${channel.id}\0${channel.raw_tvg_id || channel.tvg_id || ""}\0${channel.name || ""}\0${channel.logo || ""}\0${channel.group || ""}\x01`;
+    charCount += value.length;
+    for (let i = 0; i < value.length; i++) {
+      const code = value.charCodeAt(i);
+      h1 = Math.imul(h1 ^ code, 0x01000193);
+      h2 = Math.imul(h2 ^ (code + i), 0x85ebca6b);
+    }
+  }
+  return `playlist-v1:${channels.length}:${charCount}:${(h1 >>> 0).toString(16)}:${(h2 >>> 0).toString(16)}`;
 }
 
 async function syncMatchesToNative(channels: Channel[], guideEpoch: number): Promise<void> {
@@ -141,10 +175,18 @@ async function syncMatchesToNative(channels: Channel[], guideEpoch: number): Pro
       manual,
     };
   });
+  const writeFingerprint = rows
+    .map((row) => `${row.playlistId}\u0001${row.xmltvId}\u0001${row.logoXmltvId}\u0001${row.matchPolicy}\u0001${row.manual ? 1 : 0}`)
+    .join("\u0002");
+  if (writeFingerprint === lastNativeMatchWriteFingerprint) {
+    lastNativeMatchWriteFingerprint = writeFingerprint;
+    return;
+  }
   await upsertNativePlaylistEpgMatches(rows, guideEpoch);
+  lastNativeMatchWriteFingerprint = writeFingerprint;
 }
 
-function resolveGuideWindowBounds(startISO?: string, hours = 8): {
+function resolveGuideWindowBounds(startISO?: string, hours = 6): {
   winStart: dayjs.Dayjs;
   winEnd: dayjs.Dayjs;
   startMs: number;
@@ -167,85 +209,71 @@ function resolveGuideWindowBounds(startISO?: string, hours = 8): {
   };
 }
 
-/** Focus-relative warm ring — not playlist head. */
-function buildFocusRing(allPlaylistIds: string[], have: Set<string>, focusIds: string[], max = 180): string[] {
-  if (!allPlaylistIds.length) return [];
-  const indexById = new Map<string, number>();
-  for (let i = 0; i < allPlaylistIds.length; i++) indexById.set(allPlaylistIds[i], i);
-  let center = 0;
-  for (const id of focusIds) {
-    const idx = indexById.get(id);
-    if (typeof idx === "number") {
-      center = idx;
-      break;
-    }
-  }
-  const ring: string[] = [];
-  const radius = Math.max(24, Math.ceil(max / 2));
-  for (let dist = 0; dist <= radius && ring.length < max; dist++) {
-    for (const idx of dist === 0 ? [center] : [center - dist, center + dist]) {
-      if (idx < 0 || idx >= allPlaylistIds.length) continue;
-      const id = allPlaylistIds[idx];
-      if (!id || have.has(id)) continue;
-      have.add(id);
-      ring.push(id);
-      if (ring.length >= max) break;
-    }
-  }
-  return ring;
-}
-
 function clearProgrammeWindowCache(): void {
   programmeWindowCache = {};
   programmeWindowEmptyKeys.clear();
+  programmeWindowAccessOrder.clear();
   programmeWindowCacheKey = "";
+  // In-flight native reads cannot be cancelled, but their cache-key guard keeps
+  // them from merging stale results after this reset. Let new-window reads start.
+  programmeWindowInFlight.clear();
 }
 
-/** Drop off-viewport programme rows so JS heap stays bounded on huge playlists. */
-function trimProgrammeWindowCache(keepKeys: Iterable<string>): void {
+function touchProgrammeWindowKey(channelId: string): void {
+  programmeWindowAccessOrder.delete(channelId);
+  programmeWindowAccessOrder.add(channelId);
+}
+
+/** Evict off-window rows; soft mode only caps LRU size, strict drops outside keep. */
+function trimProgrammeWindowCache(keepKeys: Iterable<string>, mode: "soft" | "strict" = "soft"): void {
   const keep = new Set(keepKeys);
-  let keys = Object.keys(programmeWindowCache);
-  if (keys.length > MAX_PROGRAMME_WINDOW_KEYS) {
-    for (const key of keys) {
+  if (mode === "strict" && keep.size > 0) {
+    for (const key of Object.keys(programmeWindowCache)) {
       if (keep.has(key)) continue;
       delete programmeWindowCache[key];
+      programmeWindowAccessOrder.delete(key);
     }
-    keys = Object.keys(programmeWindowCache);
-    if (keys.length > MAX_PROGRAMME_WINDOW_KEYS) {
-      const overflow = keys.length - MAX_PROGRAMME_WINDOW_KEYS;
-      let dropped = 0;
-      for (const key of keys) {
-        if (keep.has(key)) continue;
-        delete programmeWindowCache[key];
-        dropped += 1;
-        if (dropped >= overflow) break;
-      }
+    for (const key of Array.from(programmeWindowEmptyKeys)) {
+      if (keep.has(key)) continue;
+      programmeWindowEmptyKeys.delete(key);
     }
   }
-  // Negative rows are cheap but can also grow without bound on unmatched feeds.
-  let protectedPasses = programmeWindowEmptyKeys.size;
-  while (programmeWindowEmptyKeys.size > MAX_PROGRAMME_WINDOW_KEYS && protectedPasses > 0) {
-    const oldest = programmeWindowEmptyKeys.values().next().value as string | undefined;
+  let protectedPasses = programmeWindowAccessOrder.size;
+  while (programmeWindowAccessOrder.size > maxProgrammeWindowKeys && protectedPasses > 0) {
+    const oldest = programmeWindowAccessOrder.values().next().value as string | undefined;
     if (!oldest) break;
     if (keep.has(oldest)) {
-      // Refresh recency for protected rows and continue looking for an evictable key.
-      programmeWindowEmptyKeys.delete(oldest);
-      programmeWindowEmptyKeys.add(oldest);
+      touchProgrammeWindowKey(oldest);
       protectedPasses -= 1;
       continue;
     }
-    programmeWindowEmptyKeys.delete(oldest);
-  }
-  // A very large active viewport should still remain bounded.
-  while (programmeWindowEmptyKeys.size > MAX_PROGRAMME_WINDOW_KEYS) {
-    const oldest = programmeWindowEmptyKeys.values().next().value as string | undefined;
-    if (!oldest) break;
+    programmeWindowAccessOrder.delete(oldest);
+    delete programmeWindowCache[oldest];
     programmeWindowEmptyKeys.delete(oldest);
   }
 }
 
+export function setProgrammeWindowCacheLimit(limit: number): void {
+  maxProgrammeWindowKeys = Math.max(128, Math.min(4000, Math.floor(limit || 1800)));
+  trimProgrammeWindowCache(viewportGuideChannelIds || []);
+}
+
+export function trimProgrammeWindowCacheForMemoryPressure(
+  keepIds: string[] = [],
+  critical = false,
+): void {
+  const previous = maxProgrammeWindowKeys;
+  maxProgrammeWindowKeys = critical
+    ? Math.max(128, keepIds.length)
+    : Math.max(256, Math.floor(previous / 2), keepIds.length);
+  trimProgrammeWindowCache(keepIds);
+  maxProgrammeWindowKeys = previous;
+}
+
 function hasCachedProgrammeResult(channelId: string): boolean {
-  return !!programmeWindowCache[channelId] || programmeWindowEmptyKeys.has(channelId);
+  const cached = !!programmeWindowCache[channelId] || programmeWindowEmptyKeys.has(channelId);
+  if (cached) touchProgrammeWindowKey(channelId);
+  return cached;
 }
 
 function mergeProgrammeQueryResult(
@@ -262,6 +290,7 @@ function mergeProgrammeQueryResult(
       delete programmeWindowCache[channelId];
       programmeWindowEmptyKeys.add(channelId);
     }
+    touchProgrammeWindowKey(channelId);
   }
 }
 
@@ -325,7 +354,7 @@ async function matchChannelsWithPhases(
   return { channels: applied.channels, quality: applied.quality };
 }
 
-export type LoadPhase = "idle" | "channels" | "downloading" | "decompressing" | "parsing" | "indexing" | "caching" | "ready" | "error";
+export type LoadPhase = "idle" | "update_available" | "channels" | "downloading" | "decompressing" | "parsing" | "indexing" | "matching" | "caching" | "finalizing" | "ready" | "error";
 export type EpgProgress = {
   phase: LoadPhase;
   ratio: number;
@@ -455,15 +484,40 @@ async function readMetaFile(path: string): Promise<NativeMeta | null> {
 }
 
 async function readChannelCache(): Promise<NativeMeta | null> {
-  return readMetaFile(CHANNEL_CACHE);
+  const primary = await readMetaFile(CHANNEL_CACHE);
+  if (primary) return primary;
+  const backup = await readMetaFile(CHANNEL_CACHE_BAK);
+  return backup || null;
 }
 
 async function persistMeta(meta: NativeMeta): Promise<void> {
-  if (!CHANNEL_CACHE || !CHANNEL_CACHE_TMP) return;
+  if (!CHANNEL_CACHE || !CHANNEL_CACHE_TMP || !CHANNEL_CACHE_BAK) return;
   const json = JSON.stringify(meta);
   await FileSystem.writeAsStringAsync(CHANNEL_CACHE_TMP, json);
-  await FileSystem.deleteAsync(CHANNEL_CACHE, { idempotent: true }).catch(() => undefined);
-  await FileSystem.moveAsync({ from: CHANNEL_CACHE_TMP, to: CHANNEL_CACHE });
+  if (!(await readMetaFile(CHANNEL_CACHE_TMP))) {
+    await FileSystem.deleteAsync(CHANNEL_CACHE_TMP, { idempotent: true }).catch(() => undefined);
+    throw new Error("Channel cache verification failed");
+  }
+  const validCurrent = await readMetaFile(CHANNEL_CACHE);
+  if (validCurrent) {
+    await FileSystem.deleteAsync(CHANNEL_CACHE_BAK, { idempotent: true }).catch(() => undefined);
+    await FileSystem.moveAsync({ from: CHANNEL_CACHE, to: CHANNEL_CACHE_BAK });
+  } else {
+    // Never rotate a corrupt primary over a valid last-good backup.
+    await FileSystem.deleteAsync(CHANNEL_CACHE, { idempotent: true }).catch(() => undefined);
+  }
+  try {
+    await FileSystem.moveAsync({ from: CHANNEL_CACHE_TMP, to: CHANNEL_CACHE });
+    if (!(await readMetaFile(CHANNEL_CACHE))) throw new Error("Promoted channel cache is invalid");
+    await FileSystem.deleteAsync(CHANNEL_CACHE_BAK, { idempotent: true }).catch(() => undefined);
+  } catch (error) {
+    await FileSystem.deleteAsync(CHANNEL_CACHE, { idempotent: true }).catch(() => undefined);
+    const backup = await FileSystem.getInfoAsync(CHANNEL_CACHE_BAK).catch(() => null);
+    if (backup?.exists) {
+      await FileSystem.moveAsync({ from: CHANNEL_CACHE_BAK, to: CHANNEL_CACHE }).catch(() => undefined);
+    }
+    throw error;
+  }
 }
 
 async function fetchPlaylist(): Promise<Channel[]> {
@@ -508,7 +562,12 @@ async function ensureLoaded(): Promise<NativeMeta> {
     void syncPlaylistToNative(cached.channels, cached.playlistEpoch || 0)
       .then(() => syncMatchesToNative(cached.channels, cached.guideEpoch || 0))
       .catch(() => undefined);
-    if (cached.ts <= 0) void refreshInternal(false);
+    if (cached.ts <= 0 || Date.now() - cached.ts >= TTL_MS) {
+      if (!cached.epgError) {
+        setProgress({ phase: "update_available", ratio: 0, etaSeconds: null, message: null }, true);
+      }
+      void refreshInternal(false);
+    }
     return cached;
   }
 
@@ -569,8 +628,8 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
       if (!nativeEpgAvailable) throw new Error("Native EPG engine is unavailable in this Android build");
       if (!SOURCE_EPG) throw new Error("EPG is not configured for this build (missing EXPO_PUBLIC_EPG_URL).");
       setProgress({ phase: "downloading", ratio: 0.2, etaSeconds: null, message: null }, true);
-      const epg = await refreshNativeEpg(https(SOURCE_EPG));
-      setProgress({ phase: "caching", ratio: 0.9, etaSeconds: null }, true);
+      const epg = await refreshNativeEpg(https(SOURCE_EPG), false);
+      setProgress({ phase: "indexing", ratio: 0.91, etaSeconds: null }, true);
 
       const epgLogos = epg.channelLogos || {};
       const epgNames = epg.channelNames || {};
@@ -591,6 +650,7 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
 
       let matchedChannelsWithLogos: Channel[];
       let quality: EpgMatchQuality;
+      setProgress({ phase: "matching", ratio: 0.94, etaSeconds: null }, true);
 
       if (playlistUnchanged && policyUnchanged && epgUnchanged && cached?.channels?.length) {
         // Same playlist identity + same EPG indexes: keep prior matches, logos only.
@@ -645,7 +705,9 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
         matchPolicy: policy,
         playlistIdentityFingerprint: playlistFp,
       };
+      setProgress({ phase: "caching", ratio: 0.975, etaSeconds: null }, true);
       await persistMeta(MEM);
+      setProgress({ phase: "finalizing", ratio: 0.99, etaSeconds: null }, true);
       await syncMatchesToNative(matchedChannelsWithLogos, guideEpoch).catch(() => undefined);
       if (LEGACY_CHANNEL_CACHE) {
         void FileSystem.deleteAsync(LEGACY_CHANNEL_CACHE, { idempotent: true }).catch(() => undefined);
@@ -689,35 +751,74 @@ async function loadProgrammeCacheMisses(
   startMs: number,
   endMs: number,
 ): Promise<Record<string, Program[]>> {
-  const missing = Array.from(new Set(playlistIds.filter((id) => id && !hasCachedProgrammeResult(id))));
-  if (!missing.length || !nativeEpgAvailable) return {};
+  const requested = Array.from(new Set(playlistIds.filter(Boolean)));
+  if (!requested.length || !nativeEpgAvailable) return {};
 
-  const joined = await queryNativeGuideWindow(missing, startMs, endMs);
-  const merged: Record<string, Program[]> = { ...joined };
-  const missingAfterJoin = missing.filter((id) => !merged[id]?.length);
-
-  // A native match-table write can race a cold app launch. Fall back per channel
-  // rather than only when the entire viewport is empty.
-  if (missingAfterJoin.length) {
-    const byId = new Map(channels.map((channel) => [channel.id, channel]));
-    const xmltvIds = missingAfterJoin
-      .map((id) => (byId.get(id)?.tvg_id || id).trim())
-      .filter(Boolean);
-    if (xmltvIds.length) {
-      const byXmltv = await loadNativeEpgWindow(xmltvIds, startMs, endMs);
-      for (const playlistId of missingAfterJoin) {
-        const xmltvId = (byId.get(playlistId)?.tvg_id || playlistId).trim();
-        const list = byXmltv[xmltvId];
-        if (list?.length) merged[playlistId] = list;
-      }
-    }
+  const requestCacheKey = programmeWindowCacheKey;
+  const owned: string[] = [];
+  const waits = new Set<Promise<void>>();
+  for (const id of requested) {
+    if (hasCachedProgrammeResult(id)) continue;
+    const inFlightKey = `${requestCacheKey}|${id}`;
+    const existing = programmeWindowInFlight.get(inFlightKey);
+    if (existing) waits.add(existing);
+    else owned.push(id);
   }
 
-  mergeProgrammeQueryResult(missing, merged);
-  return merged;
+  if (owned.length) {
+    const task = (async () => {
+      const joined = await queryNativeGuideWindow(owned, startMs, endMs);
+      const merged: Record<string, Program[]> = { ...joined };
+      const missingAfterJoin = owned.filter((id) => !merged[id]?.length);
+
+      // A native match-table write can race a cold app launch. Fall back per
+      // channel rather than only when the entire viewport is empty.
+      if (missingAfterJoin.length) {
+        const byId = new Map(channels.map((channel) => [channel.id, channel]));
+        const xmltvIds = missingAfterJoin
+          .map((id) => (byId.get(id)?.tvg_id || id).trim())
+          .filter(Boolean);
+        if (xmltvIds.length) {
+          const byXmltv = await loadNativeEpgWindow(xmltvIds, startMs, endMs);
+          for (const playlistId of missingAfterJoin) {
+            const xmltvId = (byId.get(playlistId)?.tvg_id || playlistId).trim();
+            const list = byXmltv[xmltvId];
+            if (list?.length) merged[playlistId] = list;
+          }
+        }
+      }
+
+      // A date/epoch change may finish while SQLite is reading. Never merge an
+      // old window into the newly cleared cache.
+      if (programmeWindowCacheKey === requestCacheKey) {
+        mergeProgrammeQueryResult(owned, merged);
+      }
+    })();
+    for (const id of owned) programmeWindowInFlight.set(`${requestCacheKey}|${id}`, task);
+    const cleanup = () => {
+      for (const id of owned) {
+        const inFlightKey = `${requestCacheKey}|${id}`;
+        if (programmeWindowInFlight.get(inFlightKey) === task) {
+          programmeWindowInFlight.delete(inFlightKey);
+        }
+      }
+    };
+    void task.then(cleanup, cleanup);
+    waits.add(task);
+  }
+
+  if (waits.size) await Promise.all(waits);
+  const result: Record<string, Program[]> = {};
+  if (programmeWindowCacheKey !== requestCacheKey) return result;
+  for (const id of requested) {
+    const list = programmeWindowCache[id];
+    if (list?.length) result[id] = list;
+    else if (programmeWindowEmptyKeys.has(id)) result[id] = EMPTY_PROGRAMS;
+  }
+  return result;
 }
 
-export async function loadGuide(startISO?: string, hours = 8, force = false): Promise<GuideResponse> {
+export async function loadGuide(startISO?: string, hours = 6, force = false): Promise<GuideResponse> {
   const parsed = force ? await refreshInternal(true) : await ensureLoaded();
   const { winStart, winEnd, startMs, endMs, now } = resolveGuideWindowBounds(startISO, hours);
 
@@ -735,7 +836,7 @@ export async function loadGuide(startISO?: string, hours = 8, force = false): Pr
   if ((huge || viewportGuideChannelIds?.length) && viewportGuideChannelIds?.length) {
     const want = new Set<string>([
       ...viewportGuideChannelIds,
-      ...priorityMatchChannelIds.slice(0, 96),
+      ...priorityMatchChannelIds.slice(0, 192),
     ]);
     const scoped = Array.from(want).filter((id) => id);
     if (scoped.length) playlistIds = scoped;
@@ -743,40 +844,27 @@ export async function loadGuide(startISO?: string, hours = 8, force = false): Pr
     // Do not bridge a whole 400+ channel guide before the screen has reported
     // its first viewport. The leading page is immediately navigable through
     // focusable pending cells and the queue fills the real viewport next.
-    playlistIds = allPlaylistIds.slice(0, 48);
+    playlistIds = allPlaylistIds.slice(0, 96);
   }
   playlistIds = Array.from(new Set(playlistIds));
 
   await loadProgrammeCacheMisses(remapped, playlistIds, startMs, endMs);
-  trimProgrammeWindowCache(playlistIds);
-
-  // One compact, cache-only runway around the current viewport. The scheduler
-  // owns visible-row attachment; this warm request never causes a React rebuild.
-  if (huge && nativeEpgAvailable && playlistIds.length < allPlaylistIds.length) {
-    const warmKey = cacheKey;
-    const focusIds = viewportGuideChannelIds?.length ? viewportGuideChannelIds : playlistIds;
-    const ring = buildFocusRing(allPlaylistIds, new Set(playlistIds), focusIds, 48);
-    if (ring.length) {
-      void loadProgrammeCacheMisses(remapped, ring, startMs, endMs)
-        .then(() => {
-          if (programmeWindowCacheKey === warmKey) {
-            trimProgrammeWindowCache([...playlistIds, ...ring]);
-          }
-        })
-        .catch(() => undefined);
-    }
-  }
+  trimProgrammeWindowCache(playlistIds, viewportGuideChannelIds?.length ? "strict" : "soft");
 
   // Shared empty list — avoid allocating tens of thousands of `[]` on big playlists.
   // Never mutate EMPTY_PROGRAMS.
   const emptyPrograms: Program[] = EMPTY_PROGRAMS;
   const programsByChannelId: Record<string, Program[]> = {};
+  const queriedPlaylistIds = new Set(playlistIds);
   const channels = remapped.map((channel) => {
     const list = programmeWindowCache[channel.id];
     if (list?.length) {
       programsByChannelId[channel.id] = list;
       return { ...channel, programs: list };
     }
+    // Full refresh deltas must explicitly clear queried rows whose programmes
+    // disappeared. Off-screen rows remain stale-while-revalidate until scoped.
+    if (queriedPlaylistIds.has(channel.id)) programsByChannelId[channel.id] = emptyPrograms;
     return { ...channel, programs: emptyPrograms };
   });
 
@@ -791,17 +879,23 @@ export async function loadGuide(startISO?: string, hours = 8, force = false): Pr
 }
 
 /**
- * Viewport/focus ring fetch — patches programme cache only.
+ * Exact directional runway fetch — patches programme cache only.
  * It reads cache misses only, records negative results, and never emits().
  */
 export async function loadGuideProgramsForChannelIds(
   channelIds: string[],
   startISO?: string,
-  hours = 8,
+  hours = 6,
 ): Promise<Record<string, Program[]>> {
-  if (!nativeEpgAvailable || !channelIds.length) return {};
+  if (!channelIds.length) return {};
+  const unique = Array.from(new Set(channelIds.filter(Boolean)));
+  if (!nativeEpgAvailable) {
+    return Object.fromEntries(unique.map((id) => [id, EMPTY_PROGRAMS]));
+  }
   const parsed = MEM || (await ensureLoaded().catch(() => null));
-  if (!parsed?.channels?.length) return {};
+  if (!parsed?.channels?.length) {
+    return Object.fromEntries(unique.map((id) => [id, EMPTY_PROGRAMS]));
+  }
 
   const { startMs, endMs } = resolveGuideWindowBounds(startISO, hours);
   const cacheKey = `${startMs}|${endMs}|${parsed.guideEpoch || 0}`;
@@ -811,18 +905,19 @@ export async function loadGuideProgramsForChannelIds(
   }
 
   const remapped = withManualRemaps(parsed.channels);
-  const allPlaylistIds = remapped.map((channel) => channel.id).filter(Boolean);
-  const unique = Array.from(new Set(channelIds.filter(Boolean)));
-  const ring = buildFocusRing(allPlaylistIds, new Set(unique), unique, 48);
-  const queryIds = Array.from(new Set([...unique, ...ring]));
 
-  await loadProgrammeCacheMisses(remapped, queryIds, startMs, endMs);
+  // The grid supplies an exact direction-aware eight-page runway in its filtered
+  // on-screen order. Querying any larger source-order ring wastes SQLite/bridge
+  // work and can warm channels that are not even visible in the selected group.
+  await loadProgrammeCacheMisses(remapped, unique, startMs, endMs);
   const delta: Record<string, Program[]> = {};
-  for (const id of queryIds) {
+  for (const id of unique) {
     const cached = programmeWindowCache[id];
-    if (cached?.length) delta[id] = cached;
+    delta[id] = cached?.length ? cached : EMPTY_PROGRAMS;
   }
-  trimProgrammeWindowCache(queryIds);
+  // Soft-cap only here. The guide conveyor calls retainProgrammeWindowCache with
+  // the hysteresis keep set so previously warmed pages are not dropped early.
+  trimProgrammeWindowCache([...(viewportGuideChannelIds || []), ...unique]);
   return delta;
 }
 
@@ -845,8 +940,27 @@ export async function refreshEpgOnly(): Promise<SourceStatus> {
       if (!nativeEpgAvailable) throw new Error("Native EPG engine is unavailable in this Android build");
       if (!SOURCE_EPG) throw new Error("EPG is not configured for this build (missing EXPO_PUBLIC_EPG_URL).");
       setProgress({ phase: "downloading", ratio: 0.2, etaSeconds: null, message: null }, true);
-      const epg = await refreshNativeEpg(https(SOURCE_EPG));
-      setProgress({ phase: "caching", ratio: 0.9, etaSeconds: null }, true);
+      const epg = await refreshNativeEpg(https(SOURCE_EPG), true);
+      if (epg.notModified) {
+        const checkedAt = Date.now();
+        MEM = {
+          ...cached,
+          ...MEM,
+          ts: checkedAt,
+          epgProgramCount: Math.max(0, Math.round(epg.count || cached.epgProgramCount || 0)),
+          epgError: undefined,
+          guideEpoch:
+            typeof epg.guideEpoch === "number" && Number.isFinite(epg.guideEpoch)
+              ? Math.round(epg.guideEpoch)
+              : cached.guideEpoch,
+        };
+        setProgress({ phase: "finalizing", ratio: 0.99, etaSeconds: null }, true);
+        await persistMeta(MEM);
+        emit();
+        setProgress({ phase: "ready", ratio: 1, etaSeconds: 0, message: null }, true);
+        return MEM;
+      }
+      setProgress({ phase: "indexing", ratio: 0.91, etaSeconds: null }, true);
       const epgLogos = epg.channelLogos || {};
       const epgNames = epg.channelNames || {};
       const indexes = buildXmltvMatchIndexes({
@@ -858,16 +972,31 @@ export async function refreshEpgOnly(): Promise<SourceStatus> {
         channelNames: epgNames,
         idsWithPrograms: epg.channelIdsWithPrograms || [],
       });
-      const applied = await matchChannelsWithPhases(cached.channels, indexes, epgLogos, async (partial, quality) => {
-        MEM = {
-          ...cached,
-          ...MEM,
-          channels: partial,
-          epgChannelCount: quality.matched,
-          matchQuality: quality,
-        };
-        emit();
-      });
+      const policy = matchPolicyKey();
+      const policyUnchanged = (cached.matchPolicy || policy) === policy;
+      const epgUnchanged = !!cached.matchFingerprint && cached.matchFingerprint === indexes.fingerprint;
+      let refreshedChannels: Channel[];
+      let quality: EpgMatchQuality;
+      setProgress({ phase: "matching", ratio: 0.94, etaSeconds: null }, true);
+      if (policyUnchanged && epgUnchanged) {
+        refreshedChannels =
+          applyLogoOnlyUpdates(cached.channels, epgLogos, indexes.fingerprint, indexes.fingerprint) ||
+          cached.channels;
+        quality = cached.matchQuality || emptyMatchQuality();
+      } else {
+        const applied = await matchChannelsWithPhases(cached.channels, indexes, epgLogos, async (partial, partialQuality) => {
+          MEM = {
+            ...cached,
+            ...MEM,
+            channels: partial,
+            epgChannelCount: partialQuality.matched,
+            matchQuality: partialQuality,
+          };
+          emit();
+        });
+        refreshedChannels = applied.channels;
+        quality = applied.quality;
+      }
       const guideRefreshedAt = Date.now();
       const guideEpoch =
         typeof epg.guideEpoch === "number" && Number.isFinite(epg.guideEpoch)
@@ -878,18 +1007,20 @@ export async function refreshEpgOnly(): Promise<SourceStatus> {
         ...cached,
         ...MEM,
         ts: guideRefreshedAt,
-        channels: applied.channels,
+        channels: refreshedChannels,
         epgProgramCount: Math.max(0, Math.round(epg.count || 0)),
-        epgChannelCount: applied.quality.matched,
+        epgChannelCount: quality.matched,
         epgError: undefined,
         guideEpoch,
         guideRefreshedAt,
         matchFingerprint: indexes.fingerprint,
-        matchQuality: applied.quality,
-        matchPolicy: matchPolicyKey(),
+        matchQuality: quality,
+        matchPolicy: policy,
       };
+      setProgress({ phase: "caching", ratio: 0.975, etaSeconds: null }, true);
       await persistMeta(MEM);
-      await syncMatchesToNative(applied.channels, guideEpoch).catch(() => undefined);
+      setProgress({ phase: "finalizing", ratio: 0.99, etaSeconds: null }, true);
+      await syncMatchesToNative(refreshedChannels, guideEpoch).catch(() => undefined);
       emit();
       setProgress({ phase: "ready", ratio: 1, etaSeconds: 0, message: null }, true);
       return MEM;
@@ -980,6 +1111,7 @@ export async function sourceDiagnostics(): Promise<SourceDiagnostics> {
  */
 export async function clearGuideCache(): Promise<void> {
   MEM = null;
+  lastNativeMatchWriteFingerprint = "";
   lastSourceError = null;
   clearProgrammeWindowCache();
   viewportGuideChannelIds = null;
@@ -990,6 +1122,7 @@ export async function clearGuideCache(): Promise<void> {
   await clearNativeEpg();
   if (CHANNEL_CACHE) await FileSystem.deleteAsync(CHANNEL_CACHE, { idempotent: true }).catch(() => undefined);
   if (CHANNEL_CACHE_TMP) await FileSystem.deleteAsync(CHANNEL_CACHE_TMP, { idempotent: true }).catch(() => undefined);
+  if (CHANNEL_CACHE_BAK) await FileSystem.deleteAsync(CHANNEL_CACHE_BAK, { idempotent: true }).catch(() => undefined);
   if (LEGACY_CHANNEL_CACHE) await FileSystem.deleteAsync(LEGACY_CHANNEL_CACHE, { idempotent: true }).catch(() => undefined);
   void cleanupLegacyEpgArtifactsOnce();
   setProgress({ phase: "idle", ratio: 0, etaSeconds: null, message: null }, true);

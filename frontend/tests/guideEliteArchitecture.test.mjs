@@ -1,0 +1,90 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { buildVisibleGuideCellSlice } from "../src/core/guideCellCulling.ts";
+import { createDpadDoubleTapDetector } from "../src/core/dpadDoubleTap.ts";
+import { getGuideRailMetrics } from "../src/core/guideLayoutPolicy.ts";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+test("visible-cell culling keeps a bounded viewport slice and pins focused cell", () => {
+  const cells = Array.from({ length: 100 }, (_, index) => ({
+    key: `p${index}`,
+    left: index * 100,
+    width: 90,
+  }));
+  const slice = buildVisibleGuideCellSlice(cells, 2_000, 500, 100, "p90");
+  assert.ok(slice.length < 15);
+  assert.ok(slice.some(({ item }) => item.key === "p20"));
+  assert.ok(slice.some(({ item }) => item.key === "p90"));
+  assert.deepEqual(slice.map(({ sourceIndex }) => sourceIndex), [...slice.map(({ sourceIndex }) => sourceIndex)].sort((a, b) => a - b));
+});
+
+test("page jump requires two short same-direction taps inside the window", () => {
+  const detector = createDpadDoubleTapDetector(360);
+  assert.equal(detector.push("DOWN", 1_000), null);
+  assert.equal(detector.push("DOWN", 1_350), "DOWN");
+  assert.equal(detector.push("UP", 2_000), null);
+  assert.equal(detector.push("UP", 3_001), null);
+  assert.equal(detector.push("DOWN", 3_100), null);
+  assert.equal(detector.push("UP", 3_200), null);
+});
+
+test("extra compact density fits thinner rows and one-line names", () => {
+  const metrics = getGuideRailMetrics(1920, "extra_compact", true, true);
+  assert.ok(metrics.rowHeight >= 46 && metrics.rowHeight <= 50);
+  assert.ok(metrics.logoSize >= 24 && metrics.logoSize <= 28);
+  assert.equal(metrics.channelNameMaxLines, 1);
+});
+
+test("native tap event excludes repeats and preview buttons own left handoff", async () => {
+  const [activity, preview, guide, timeline, shell, focusLock] = await Promise.all([
+    readFile(join(root, "android/app/src/main/java/com/charmiptv/app/MainActivity.kt"), "utf8"),
+    readFile(join(root, "src/components/GuidePreviewRail.tsx"), "utf8"),
+    readFile(join(root, "app/(tabs)/guide.tsx"), "utf8"),
+    readFile(join(root, "src/components/TimelineGrid.tsx"), "utf8"),
+    readFile(join(root, "src/components/PurpleTvShell.tsx"), "utf8"),
+    readFile(join(root, "src/utils/tvGuideFocusLock.ts"), "utf8"),
+  ]);
+  assert.match(activity, /!activeDirectionalRepeated/);
+  assert.match(activity, /TvDpadTap/);
+  assert.match(preview, /registerGuidePreviewEntry\(node\)/);
+  assert.match(preview, />Favorite</);
+  assert.match(guide, /trapFocusLeft=\{false\}/);
+  assert.match(guide, /lockLeftEdge=\{false\}/);
+  assert.match(focusLock, /nextFocusLeft: locked \? handle : previewHandle \|\| -1/);
+  assert.match(timeline, /buildVisibleGuideCellSlice/);
+  assert.match(timeline, /tvFocusable=\{near \|\| keepFocused\}/);
+  assert.match(shell, /sidebarOverlay/);
+  assert.match(shell, /pointerEvents=\{drawerOpen \? "auto" : "none"\}/);
+  assert.doesNotMatch(shell, /purple-icon-rail|ICON_RAIL/);
+});
+
+test("runway applies focused, immediate, visible, then retained tiers", async () => {
+  const [store, timeline, box, guide] = await Promise.all([
+    readFile(join(root, "src/store.tsx"), "utf8"),
+    readFile(join(root, "src/components/TimelineGrid.tsx"), "utf8"),
+    readFile(join(root, "src/components/BoxGrid.tsx"), "utf8"),
+    readFile(join(root, "app/(tabs)/guide.tsx"), "utf8"),
+  ]);
+  assert.match(store, /\[focusedIds, immediateIds, visibleIds, remainingIds\]/);
+  assert.match(timeline, /visiblePageIds/);
+  assert.match(box, /visiblePageIds/);
+  assert.match(guide, /buildGuideRunwayIds\(filtered, 0, visibleRows, 1\)/);
+});
+
+test("EPG staging and metadata promotion preserve last-good caches", async () => {
+  const [database, nativeSource, webSource] = await Promise.all([
+    readFile(join(root, "android/app/src/main/java/com/charmiptv/app/EpgDatabase.kt"), "utf8"),
+    readFile(join(root, "src/source.native.ts"), "utf8"),
+    readFile(join(root, "src/source.ts"), "utf8"),
+  ]);
+  assert.match(database, /STORAGE_RECHECK_BATCHES/);
+  assert.match(database, /catch \(failure: Throwable\)/);
+  assert.match(database, /db\.delete\(STAGING_TABLE/);
+  assert.match(nativeSource, /CHANNEL_CACHE_BAK/);
+  assert.match(webSource, /CACHE_BAK_FILE/);
+  assert.match(webSource, /readValidCacheMeta\(CACHE_TMP_FILE\)/);
+});

@@ -125,16 +125,20 @@ test("parental pin normalize via verify after set", async () => {
 test("drawer shell boots closed without an icon rail", async () => {
   const shell = await source("src/components/PurpleTvShell.tsx");
   assert.match(shell, /useState\(false\)/);
-  assert.doesNotMatch(shell, /purple-icon-rail/);
-  assert.doesNotMatch(shell, /focusPurpleIconRail/);
+  assert.doesNotMatch(shell, /purple-icon-rail|focusPurpleIconRail|PURPLE_ICON_RAIL_WIDTH/);
   assert.match(shell, /isGuideSurfing/);
+  assert.match(shell, /focusable=\{drawerOpen\}/);
+  assert.match(shell, /outputRange: \[-PURPLE_SIDEBAR_WIDTH, 0\]/);
 });
 
-test("guide.tsx references GuidePreviewRail, solid reminder state, buildVisibleGroups", async () => {
+test("guide.tsx routes its left boundary to GuidePreviewRail with conveyor retain", async () => {
   const guide = await source("app/(tabs)/guide.tsx");
   assert.match(guide, /GuidePreviewRail/);
+  assert.match(guide, /focusGuidePreviewSurface\(\)/);
   assert.match(guide, /isReminded=/);
-  assert.match(guide, /armGuideLeftFocusLock/);
+  assert.match(guide, /expandRunwayKeepSet/);
+  assert.match(guide, /retainGuideSlidingCache/);
+  assert.doesNotMatch(guide, /focusPurpleIconRail/);
   assert.match(guide, /buildVisibleGroups/);
   assert.doesNotMatch(guide, /NowPlayingBar/);
   assert.doesNotMatch(guide, /focusPurpleIconRail/);
