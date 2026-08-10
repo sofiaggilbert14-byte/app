@@ -22,7 +22,8 @@ test("guide preview and ProgramModal share one reminder toggle source of truth",
   assert.match(guide, /reminderKeys\.has\(reminderKey/);
   assert.match(modal, /const \{ activeProgram, closeProgram, toggleReminder, reminders \} = useStore\(\)/);
   assert.doesNotMatch(modal, /addReminder|removeReminder/);
-  assert.match(preview, /isReminded \? "Cancel" : "Remind"/);
+  assert.match(preview, /isReminded \? "Reminded" : "Remind"/);
+  assert.match(preview, /isReminded \? "notifications" : "notifications-outline"/);
   assert.doesNotMatch(preview, /clock24h|onInfo|onRemind/);
 });
 
@@ -38,7 +39,7 @@ test("guide is a fixed left details panel plus right grid without drawer extras"
   assert.match(guide, /flex: 1/);
   assert.doesNotMatch(guide, /NowPlayingBar|guide-now-playing/);
   assert.doesNotMatch(guide, /footerAction|purple-guide-reset/);
-  assert.doesNotMatch(shell, /contextActions|recentChannels|onRecentPress|recentStrip|footerAction/);
+  assert.match(shell, /recentChannels|recentStrip|focusable=\{drawerOpen\}/);
 });
 
 test("focus metadata is immediate while decoder tune stays delayed and restores by channel id", async () => {
@@ -71,11 +72,9 @@ test("focus metadata is immediate while decoder tune stays delayed and restores 
   assert.doesNotMatch(timeline, /key: `\$\{item\.id\}:\$\{program\.start\}/);
 });
 
-test("Home programme metadata advances on a minute-aligned clock", async () => {
-  const nowPlaying = await source("src/components/NowPlayingBar.tsx");
-  assert.match(nowPlaying, /60_000 - \(Date\.now\(\) % 60_000\)/);
-  assert.match(nowPlaying, /setInterval\(\(\) => setNowMs\(Date\.now\(\)\), 60_000\)/);
-  assert.match(nowPlaying, /new Date\(nowMs\)/);
+test("Home no longer mounts a NowPlayingBar; guide owns live preview", async () => {
+  const home = await source("app/(tabs)/index.tsx");
+  assert.doesNotMatch(home, /NowPlayingBar|home-now-playing/);
 });
 
 test("EPG screen delivery uses an eight-page conveyor runway with retained bounded caches", async () => {

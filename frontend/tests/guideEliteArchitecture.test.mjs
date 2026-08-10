@@ -57,7 +57,8 @@ test("native tap event excludes repeats and preview buttons own left handoff", a
   assert.match(focusLock, /nextFocusLeft: locked \? handle : previewHandle \|\| -1/);
   assert.match(timeline, /buildVisibleGuideCellSlice/);
   assert.match(timeline, /tvFocusable=\{near \|\| keepFocused\}/);
-  assert.match(shell, /\{drawerOpen \? <Animated\.View/);
+  assert.match(shell, /sidebarOverlay/);
+  assert.match(shell, /pointerEvents=\{drawerOpen \? "auto" : "none"\}/);
   assert.doesNotMatch(shell, /purple-icon-rail|ICON_RAIL/);
 });
 

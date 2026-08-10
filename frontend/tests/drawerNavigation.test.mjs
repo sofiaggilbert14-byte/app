@@ -42,8 +42,9 @@ test("drawer uses bounded native motion and excludes hidden controls from TV foc
   ]);
   assert.match(shell, /useNativeDriver: true/);
   assert.match(shell, /styles\.sidebarSpacer|sidebarSpacer/);
-  assert.match(shell, /\{drawerOpen \? <Animated\.View/);
-  assert.match(shell, /pointerEvents="auto"/);
+  assert.match(shell, /sidebarOverlay/);
+  assert.match(shell, /pointerEvents=\{drawerOpen \? "auto" : "none"\}/);
+  assert.match(shell, /Animated\.View/);
   assert.match(shell, /trapFocusRight/);
   assert.match(shell, /closeDrawer\(\);/);
   assert.match(shell, /requestNativeFocusWithRetry\(\s*navRefs\.current\.get\(active\)/);
@@ -57,13 +58,14 @@ test("drawer uses bounded native motion and excludes hidden controls from TV foc
   assert.match(shell, /sidebarOverlay/);
   assert.match(shell, /onLongPress=\{exit\}/);
   assert.match(shell, /Hold Exit/);
-  // Closed drawer leaves no controls or layout peek strip.
+  // Drawer boots closed; no closed-state icon rail (full-bleed content only).
+  assert.match(shell, /useState\(false\)/);
+  assert.match(shell, /isGuideSurfing\(\)/);
+  assert.match(shell, /openDrawer/);
   assert.doesNotMatch(shell, /purple-icon-rail|focusPurpleIconRail|getPurpleIconRailMenuNode/);
   assert.doesNotMatch(shell, /PURPLE_RAIL_PEEK_WIDTH|PURPLE_ICON_RAIL_WIDTH|ICON_RAIL/);
-  assert.match(shell, /openDrawer/);
   assert.doesNotMatch(shell, /testID="purple-rail-menu"|purple-rail-/);
   assert.doesNotMatch(shell, /purple-rail-double-back-hint/);
-  assert.doesNotMatch(shell, /decorative rail when closed/);
   assert.doesNotMatch(shell, /testID="purple-rail-open-drawer"/);
   assert.match(shell, /combineTvEdgeInsets/);
   assert.doesNotMatch(shell, /NAV\.slice\(0,\s*6\)/);
@@ -79,7 +81,7 @@ test("guide tabs reclaim the left edge and top-row Up restores the active tab", 
     readFile(join(root, "app/(tabs)/guide.tsx"), "utf8"),
     readFile(join(root, "src/utils/tvGuideFocusLock.ts"), "utf8"),
   ]);
-  // Only shift group chips while the full drawer is open.
+  // Closed drawer is full-bleed — only shift group chips while the full drawer is open.
   assert.match(guide, /marginLeft: drawerOpen \? 140 : 0/);
   assert.match(guide, /transform: \[\{ translateX: groupSlideX \}\]/);
   assert.match(guide, /if \(chip\) requestNativeFocus\(chip\)/);
@@ -88,7 +90,10 @@ test("guide tabs reclaim the left edge and top-row Up restores the active tab", 
   assert.match(guide, /onLeftBoundary=\{onGuideLeftBoundary\}/);
   assert.match(guide, /focusGuidePreviewSurface\(\)/);
   assert.doesNotMatch(guide, /focusPurpleIconRail/);
+  assert.doesNotMatch(guide, /NowPlayingBar/);
   assert.match(guide, /trapFocusLeft=\{false\}/);
+  assert.match(guide, /expandRunwayKeepSet/);
+  assert.match(guide, /retainGuideSlidingCache/);
   assert.match(guide, /active=\{!activeProgram && !drawerOpen\}/);
   assert.match(guide, /lockLeftEdge=\{false\}/);
   assert.match(focusLock, /nextFocusLeft: locked \? handle : previewHandle \|\| -1/);
@@ -99,6 +104,7 @@ test("guide tabs reclaim the left edge and top-row Up restores the active tab", 
   assert.doesNotMatch(guide, /lastGuideFocusNodeRef/);
   assert.doesNotMatch(guide, /setGuideNavigationActive|guideNavigationActive/);
   assert.match(guide, /GuidePreviewRail/);
+  assert.match(guide, /isReminded=/);
   assert.match(guide, /setPreviewId\(null\)/);
   assert.match(guide, /useTvBackHandler/);
   assert.match(guide, /onBackTargetChange/);
@@ -118,11 +124,14 @@ test("grids never open the drawer from D-pad Left", async () => {
   assert.match(box, /lockFocusLeft/);
   assert.doesNotMatch(timeline, /mountedBandRef|viewPosition: 0\.12/);
   assert.doesNotMatch(box, /mountedRowBandRef|viewPosition: 0\.12/);
-  // Left boundary focuses the preview panel and never opens the drawer.
+  // Left boundary hands focus to the preview panel and never opens the drawer.
   assert.match(timeline, /onLeftBoundary\?: \(\) => void/);
   assert.match(box, /onLeftBoundary\?: \(\) => void/);
-  assert.doesNotMatch(timeline, /onLeftBoundary\?\.\(\)/);
-  assert.doesNotMatch(box, /onLeftBoundary\?\.\(\)/);
+  assert.match(timeline, /onViewportChannelIds\?: \(ids: string\[\], priorityIds\?: string\[\], pageSize\?: number\) => void/);
+  assert.match(box, /onViewportChannelIds\?: \(ids: string\[\], priorityIds\?: string\[\], pageSize\?: number\) => void/);
+  assert.match(timeline, /buildGuideRunwayIds/);
+  assert.match(timeline, /halfPage/);
+  assert.match(box, /buildGuideRunwayIds/);
   assert.doesNotMatch(timeline, /openDrawer\(\)/);
   assert.doesNotMatch(box, /openDrawer\(\)/);
   assert.match(timeline, /epg-timeline-now-indicator/);
@@ -142,7 +151,7 @@ test("legacy route-level guide redirects cannot override the drawer", async () =
   const sources = await Promise.all(routes.map((route) => readFile(join(root, `app/(tabs)/${route}.tsx`), "utf8")));
   for (const source of sources) assert.doesNotMatch(source, /useTvBackToGuide/);
   const home = await readFile(join(root, "app/(tabs)/index.tsx"), "utf8");
-  assert.match(home, /NowPlayingBar/);
+  assert.doesNotMatch(home, /NowPlayingBar/);
 });
 
 test("APK install artifact is separate from diagnostics evidence", async () => {

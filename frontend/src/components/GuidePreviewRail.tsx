@@ -199,12 +199,12 @@ export function GuidePreviewRail({
             testID="guide-preview-remind"
           >
             <Ionicons
-              name={isReminded ? "notifications-off-outline" : "notifications-outline"}
+              name={isReminded ? "notifications" : "notifications-outline"}
               size={12}
               color={isReminded ? REMINDER_COLOR : tvColors.purpleSoft}
             />
             <Text style={[styles.secondaryText, isReminded && styles.reminderActiveText]}>
-              {isReminded ? "Cancel" : "Remind"}
+              {isReminded ? "Reminded" : "Remind"}
             </Text>
           </Pressable>
           <Pressable
