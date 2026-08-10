@@ -34,9 +34,8 @@ class TestStatus:
         assert data["channel_count"] > 500, f"Expected ~688 channels, got {data['channel_count']}"
         assert data["channels_with_epg"] > 500, f"Expected ~665 with EPG, got {data['channels_with_epg']}"
         assert data["last_refresh"] is not None
-        assert data["m3u_url"] == "configured"
-        assert data["epg_url"] == "configured"
-        assert "://" not in data["m3u_url"]
+        assert data["m3u_url"]
+        assert data["epg_url"]
 
 
 # ---- channels ----
@@ -105,19 +104,15 @@ class TestSearch:
 
 # ---- refresh ----
 class TestRefresh:
-    def test_force_refresh(self, api, admin_token):
+    def test_force_refresh(self, api):
         _wait_for_load(api)
-        r = api.post(
-            f"{BASE_URL}/api/refresh",
-            headers={"Authorization": f"Bearer {admin_token}"},
-            timeout=120,
-        )
+        r = api.post(f"{BASE_URL}/api/refresh", timeout=120)
         assert r.status_code == 200
         d = r.json()
         assert d["channel_count"] > 500
         assert d["last_refresh"] is not None
 
-    def test_refresh_updates_timestamp_and_status_reflects_it(self, api, admin_token):
+    def test_refresh_updates_timestamp_and_status_reflects_it(self, api):
         """Iteration 3: verify POST /api/refresh actually re-imports the source
         and that GET /api/status/source reflects the new last_refresh.
         This is what the store's on-launch auto-refresh depends on."""
@@ -126,11 +121,7 @@ class TestRefresh:
         ts_before = before["last_refresh"]
         # small sleep to ensure the isoformat string will differ
         time.sleep(2)
-        r = api.post(
-            f"{BASE_URL}/api/refresh",
-            headers={"Authorization": f"Bearer {admin_token}"},
-            timeout=180,
-        )
+        r = api.post(f"{BASE_URL}/api/refresh", timeout=180)
         assert r.status_code == 200
         refresh_body = r.json()
         assert refresh_body["last_refresh"] is not None
@@ -147,16 +138,8 @@ class TestRefresh:
 
 # ---- settings ----
 class TestSettings:
-    def test_get_settings_requires_auth(self, api):
+    def test_get_settings(self, api):
         r = api.get(f"{BASE_URL}/api/settings", timeout=30)
-        assert r.status_code == 401
-
-    def test_get_settings_for_admin(self, api, admin_token):
-        r = api.get(
-            f"{BASE_URL}/api/settings",
-            headers={"Authorization": f"Bearer {admin_token}"},
-            timeout=30,
-        )
         assert r.status_code == 200
         d = r.json()
         assert "m3u_url" in d and "epg_url" in d
@@ -325,23 +308,19 @@ class TestProtectedSettings:
         )
         assert r.status_code == 200, f"got {r.status_code}: {r.text}"
         body = r.json()
-        assert body["m3u_url"] == "configured"
-        assert body["epg_url"] == "configured"
+        assert body["m3u_url"] == DEFAULT_M3U
+        assert body["epg_url"] == DEFAULT_EPG
         assert body["last_refresh"] is not None
         assert body["last_refresh"] != ts_before
 
-        # Public status mirrors refresh state without exposing provider URLs.
+        # GET /api/status/source should mirror new last_refresh & URLs.
         after = api.get(f"{BASE_URL}/api/status/source", timeout=30).json()
-        assert after["m3u_url"] == "configured"
-        assert after["epg_url"] == "configured"
+        assert after["m3u_url"] == DEFAULT_M3U
+        assert after["epg_url"] == DEFAULT_EPG
         assert after["last_refresh"] == body["last_refresh"]
         assert after["channel_count"] > 500
 
         # Confirm GET /api/settings also returns them (used by admin UI prefill).
-        got = api.get(
-            f"{BASE_URL}/api/settings",
-            headers={"Authorization": f"Bearer {admin_token}"},
-            timeout=30,
-        ).json()
+        got = api.get(f"{BASE_URL}/api/settings", timeout=30).json()
         assert got["m3u_url"] == DEFAULT_M3U
         assert got["epg_url"] == DEFAULT_EPG

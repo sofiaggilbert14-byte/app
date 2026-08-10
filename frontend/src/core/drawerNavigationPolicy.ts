@@ -5,7 +5,7 @@ export type DrawerBackDecision =
   | "arm-reopen";
 
 /** Second Back within this window opens the closed drawer; a single Back only arms. */
-export const DRAWER_REOPEN_DOUBLE_BACK_MS = 1100;
+export const DRAWER_REOPEN_DOUBLE_BACK_MS = 900;
 
 /**
  * Closed-drawer Back must not open the sidebar on the same press that leaves a

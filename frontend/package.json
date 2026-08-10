@@ -9,11 +9,9 @@
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo start --android",
     "web": "expo start --web",
-    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types ./tests/run-tests.mjs",
-    "benchmark:phase1": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types ./scripts/phase1-benchmark.mjs",
-    "torture:guide": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types ./scripts/phase2-guide-torture.mjs",
-    "verify:native-config": "node ./scripts/verify-native-config.mjs",
-    "doctor": "expo-doctor",
+    "test": "node --experimental-strip-types ./tests/run-tests.mjs",
+    "benchmark:phase1": "node --experimental-strip-types ./scripts/phase1-benchmark.mjs",
+    "torture:guide": "node --experimental-strip-types ./scripts/phase2-guide-torture.mjs",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit"
   },
@@ -23,11 +21,11 @@
     "@gorhom/bottom-sheet": "5.2.14",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-tvos/config-tv": "0.1.6",
-    "@react-navigation/native": "^7.1.8",
+    "@react-navigation/native": "7.3.15",
     "@shopify/flash-list": "2.0.2",
     "date-fns": "4.1.0",
     "dayjs": "1.11.13",
-    "expo": "54.0.36",
+    "expo": "54.0.35",
     "expo-blur": "15.0.8",
     "expo-build-properties": "~1.0.10",
     "expo-constants": "18.0.13",
@@ -71,9 +69,10 @@
     "patch-package": "8.0.1",
     "typescript": "5.9.3"
   },
-  "overrides": {
+  "resolutions": {
+    "react-native": "npm:react-native-tvos@0.81.5-1",
     "@eslint/plugin-kit": "0.3.4",
-    "postcss": "8.5.23",
+    "postcss": "8.5.10",
     "uuid": "11.1.1"
   },
   "expo": {
@@ -81,20 +80,8 @@
       "exclude": [
         "react-native"
       ]
-    },
-    "doctor": {
-      "appConfigFieldsNotSyncedCheck": {
-        "enabled": false
-      },
-      "reactNativeDirectoryCheck": {
-        "enabled": true,
-        "exclude": [
-          "react-native-vlc-media-player",
-          "react-native-vector-icons"
-        ],
-        "listUnknownPackages": true
-      }
     }
   },
-  "private": true
+  "private": true,
+  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }

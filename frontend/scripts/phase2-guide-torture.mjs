@@ -13,7 +13,7 @@ const simulation = runGuideTortureSimulation({
 });
 const elapsedMs = performance.now() - started;
 const layouts = [720, 1280, 1920].flatMap((width) =>
-  ["large", "normal", "compact", "extra_compact"].map((density) => {
+  ["large", "normal", "compact"].map((density) => {
     const metrics = getGuideRailMetrics(width, density, true, true);
     return {
       width,

@@ -7,15 +7,8 @@ import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { StreamPlayer, type StreamStatus } from "@/src/components/StreamPlayer";
 import { getLastAudioDiagnostics } from "@/src/core/audioDiagnostics";
-import {
-  focusGuideSurface,
-  noteGuidePreviewFocus,
-  registerGuidePreviewEntry,
-} from "@/src/utils/tvGuideFocusLock";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { fmtTime, progressPct } from "@/src/utils/time";
-
-const REMINDER_COLOR = "#FACC15";
 
 type Props = {
   width: number;
@@ -36,10 +29,10 @@ type Props = {
   onPreviewErrorRemount: () => void;
   onPlay: () => void;
   onFavorite: () => void;
-  canRemind: boolean;
-  isReminded: boolean;
-  onToggleReminder: () => void;
+  onRemind: () => void;
+  onInfo: () => void;
   onHideToggle: () => void;
+  clock24h: boolean;
 };
 
 export function GuidePreviewRail({
@@ -61,11 +54,13 @@ export function GuidePreviewRail({
   onPreviewErrorRemount,
   onPlay,
   onFavorite,
-  canRemind,
-  isReminded,
-  onToggleReminder,
+  onRemind,
+  onInfo,
   onHideToggle,
+  clock24h,
 }: Props) {
+  // fmtTime reads the global 24h preference; clock24h stays for callers/API symmetry.
+  void clock24h;
   const nowDate = useMemo(() => new Date(now), [now]);
   const progress = current ? progressPct(current, nowDate) : 0;
   const endsIn = current?.stop
@@ -95,7 +90,6 @@ export function GuidePreviewRail({
               <StreamPlayer
                 key={`guide-preview-${channel.id}-${previewEpoch}`}
                 uri={channel.url}
-                channelKey={channel.id}
                 onStatus={onPreviewStatus}
                 mode="preview"
                 sessionRole="preview"
@@ -159,16 +153,12 @@ export function GuidePreviewRail({
           </Text>
         ) : null}
         <Text style={styles.descLabel}>ABOUT</Text>
-        <Text accessibilityRole="text" accessibilityLabel={about} style={styles.description} numberOfLines={5}>
-          {about}
-        </Text>
+        <Text style={styles.description} numberOfLines={5}>{about}</Text>
 
         <View style={styles.actions}>
           <Pressable
-            ref={(node) => registerGuidePreviewEntry(node)}
             disabled={!channel}
             onPress={onPlay}
-            onFocus={noteGuidePreviewFocus}
             style={({ focused }: any) => [styles.watchButton, focused && styles.focused]}
             testID="guide-preview-play"
           >
@@ -178,50 +168,37 @@ export function GuidePreviewRail({
           <Pressable
             disabled={!channel}
             onPress={onFavorite}
-            onFocus={noteGuidePreviewFocus}
             style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
             testID="guide-preview-favorite"
           >
             <Ionicons name={isFavorite ? "heart" : "heart-outline"} size={12} color={tvColors.purpleSoft} />
-            <Text style={styles.secondaryText}>Favorite</Text>
+            <Text style={styles.secondaryText}>Fav</Text>
           </Pressable>
         </View>
         <View style={styles.actions}>
           <Pressable
-            disabled={!channel || !current || !canRemind}
-            onPress={onToggleReminder}
-            onFocus={noteGuidePreviewFocus}
-            style={({ focused }: any) => [
-              styles.secondaryButton,
-              isReminded && styles.reminderActive,
-              focused && styles.focused,
-            ]}
+            disabled={!channel || !current}
+            onPress={onRemind}
+            style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
             testID="guide-preview-remind"
           >
-            <Ionicons
-              name={isReminded ? "notifications" : "notifications-outline"}
-              size={12}
-              color={isReminded ? REMINDER_COLOR : tvColors.purpleSoft}
-            />
-            <Text style={[styles.secondaryText, isReminded && styles.reminderActiveText]}>
-              {isReminded ? "Reminded" : "Remind"}
-            </Text>
+            <Ionicons name="notifications-outline" size={12} color={tvColors.purpleSoft} />
+            <Text style={styles.secondaryText}>Remind</Text>
           </Pressable>
           <Pressable
-            onPress={() => focusGuideSurface(channel?.id)}
-            onFocus={noteGuidePreviewFocus}
+            disabled={!channel || !current}
+            onPress={onInfo}
             style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
-            testID="guide-preview-guide"
+            testID="guide-preview-info"
           >
-            <Ionicons name="grid-outline" size={12} color={tvColors.purpleSoft} />
-            <Text style={styles.secondaryText}>Guide</Text>
+            <Ionicons name="information-circle-outline" size={12} color={tvColors.purpleSoft} />
+            <Text style={styles.secondaryText}>Info</Text>
           </Pressable>
         </View>
         <View style={styles.actions}>
           {!hidePreview ? (
             <Pressable
               onPress={onToggleMute}
-              onFocus={noteGuidePreviewFocus}
               style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
               testID="guide-preview-mute"
             >
@@ -231,7 +208,6 @@ export function GuidePreviewRail({
           ) : null}
           <Pressable
             onPress={onHideToggle}
-            onFocus={noteGuidePreviewFocus}
             style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
             testID="guide-preview-hide"
           >
@@ -355,7 +331,5 @@ const styles = StyleSheet.create({
     borderColor: "transparent",
   },
   secondaryText: { color: "#fff", fontFamily: fonts.medium, fontSize: 7.5 },
-  reminderActive: { borderColor: REMINDER_COLOR, backgroundColor: "rgba(250,204,21,0.12)" },
-  reminderActiveText: { color: REMINDER_COLOR },
   focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
 });

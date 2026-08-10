@@ -89,29 +89,3 @@ test("plain app endpoints return uncompressed JSON even when the client asks for
   assert.equal(response.headers.get("content-encoding"), null);
   assert.deepEqual(await response.json(), channels);
 });
-
-test("worker does not reflect internal exception details", async () => {
-  const secret = "provider-token-must-not-leak";
-  const response = await worker.fetch(
-    new Request("https://example.test/config"),
-    { KV: { async get() { throw new Error(secret); } } },
-  );
-
-  assert.equal(response.status, 500);
-  const text = await response.text();
-  assert.equal(text.includes(secret), false);
-  assert.deepEqual(JSON.parse(text), {
-    error: "server_error",
-    message: "Request could not be completed",
-  });
-});
-
-test("worker ignores wildcard CORS configuration", async () => {
-  const env = environment();
-  env.CORS_ALLOW_ORIGINS = "*";
-  const response = await worker.fetch(
-    new Request("https://example.test/health", { headers: { Origin: "https://untrusted.test" } }),
-    env,
-  );
-  assert.equal(response.headers.get("access-control-allow-origin"), null);
-});

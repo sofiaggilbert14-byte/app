@@ -38,7 +38,6 @@ import {
   getLastAudioDiagnostics,
 } from "@/src/core/audioDiagnostics";
 import { pickDefaultSubtitleTrack, useSubtitlePreferences } from "@/src/core/subtitlePreferences";
-import { pickPreferredAudioTrack, useAudioTrackPreferences } from "@/src/core/audioTrackPreferences";
 import { noteStreamFailure } from "@/src/core/streamFailureRegistry";
 import * as FileSystem from "expo-file-system/legacy";
 
@@ -106,7 +105,6 @@ export default function PlayerScreen() {
   const [textTrackId, setTextTrackId] = useState<string | number | undefined>(undefined);
   const [tracksOpen, setTracksOpen] = useState(false);
   const { defaultLanguage: subtitleDefaultLanguage } = useSubtitlePreferences();
-  const audioPreferences = useAudioTrackPreferences();
 
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -127,7 +125,6 @@ export default function PlayerScreen() {
   const textTrackIdRef = useRef<string | number | undefined>(undefined);
   const subtitleDefaultLanguageRef = useRef(subtitleDefaultLanguage);
   const subtitleAutoAppliedRef = useRef<string | null>(null);
-  const audioAutoAppliedRef = useRef<string | null>(null);
 
   const isTV = Platform.OS !== "web" && Platform.isTV;
   const overlayHideMs = playerControlsTimeoutMs;
@@ -184,7 +181,6 @@ export default function PlayerScreen() {
     setTextTrackId(undefined);
     textTrackIdRef.current = undefined;
     subtitleAutoAppliedRef.current = null;
-    audioAutoAppliedRef.current = null;
     setTracksOpen(false);
   }, [channelId, retryToken]);
 
@@ -558,7 +554,6 @@ export default function PlayerScreen() {
           <StreamPlayer
             key={`play-${retryToken}`}
             uri={channel?.url || ""}
-            channelKey={channelId}
             sessionRole="fullscreen"
             audioTrack={audioTrackId}
             textTrack={textTrackId}
@@ -567,16 +562,6 @@ export default function PlayerScreen() {
               const text = tracks.text.filter((track) => track.id !== "" && track.id != null);
               setAudioTracks(audio);
               setTextTracks(text);
-              const appliedAudioFor = channelIdRef.current;
-              if (audioAutoAppliedRef.current !== appliedAudioFor) {
-                const pickedAudio = pickPreferredAudioTrack(
-                  audio.filter((track) => track.isSupported !== false),
-                  audioPreferences.byChannel[appliedAudioFor],
-                  audioPreferences.defaultLanguage,
-                );
-                if (pickedAudio) setAudioTrackId(pickedAudio.id);
-                audioAutoAppliedRef.current = appliedAudioFor;
-              }
               // Auto-pick default subtitle language once per channel; Off keeps textTrackId undefined.
               const appliedFor = channelIdRef.current;
               if (
@@ -784,10 +769,7 @@ export default function PlayerScreen() {
                   <Pressable
                     key={`a-${track.id}`}
                     disabled={track.isSupported === false}
-                    onPress={() => {
-                      setAudioTrackId(track.id);
-                      audioPreferences.rememberChannelTrack(channelId, track.id);
-                    }}
+                    onPress={() => setAudioTrackId(track.id)}
                     style={({ focused }: any) => [
                       styles.trackRow,
                       audioTrackId === track.id && styles.controlActive,

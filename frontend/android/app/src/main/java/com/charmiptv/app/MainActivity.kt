@@ -16,9 +16,6 @@ class MainActivity : ReactActivity() {
 
   private var lastAcceptedDirectionalRepeatAt = 0L
   private var lastAcceptedDirectionalKeyCode = -1
-  private var activeDirectionalKeyCode = -1
-  private var activeDirectionalDownAt = 0L
-  private var activeDirectionalRepeated = false
 
   override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
     val directional =
@@ -28,18 +25,14 @@ class MainActivity : ReactActivity() {
         event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT
 
     // Keep the first press instant and preserve normal Android TV remote repeat
-    // cadence. Cap pathological sub-frame repeat bursts before they can queue
-    // more native focus searches than React/FlashList can commit. 32 ms still
-    // permits roughly 31 row moves per second on capable Android TV hardware.
+    // cadence. The TV guide now keeps a native-sized focus runway and does not
+    // rebuild FlashList data per row, so high-end Android TV devices must not be
+    // artificially capped at an old weak-stick navigation rate.
     if (event.action == android.view.KeyEvent.ACTION_DOWN && directional) {
       if (event.repeatCount == 0) {
         lastAcceptedDirectionalKeyCode = event.keyCode
         lastAcceptedDirectionalRepeatAt = event.eventTime
-        activeDirectionalKeyCode = event.keyCode
-        activeDirectionalDownAt = event.eventTime
-        activeDirectionalRepeated = false
       } else {
-        activeDirectionalRepeated = true
         val elapsed = event.eventTime - lastAcceptedDirectionalRepeatAt
         if (event.keyCode == lastAcceptedDirectionalKeyCode && elapsed < MIN_DPAD_REPEAT_MS) {
           return true
@@ -48,25 +41,8 @@ class MainActivity : ReactActivity() {
         lastAcceptedDirectionalRepeatAt = event.eventTime
       }
     } else if (event.action == android.view.KeyEvent.ACTION_UP && directional) {
-      // Include 0 ms presses — some remotes stamp DOWN/UP with the same eventTime
-      // on ultra-short taps, which previously dropped the TvDpadTap entirely.
-      val completedShortTap =
-        !activeDirectionalRepeated &&
-          activeDirectionalKeyCode == event.keyCode &&
-          event.eventTime - activeDirectionalDownAt in 0..MAX_DPAD_TAP_MS
-      if (completedShortTap && !TvRemoteModule.pointerActive) {
-        val tapKey = when (event.keyCode) {
-          android.view.KeyEvent.KEYCODE_DPAD_UP -> "UP"
-          android.view.KeyEvent.KEYCODE_DPAD_DOWN -> "DOWN"
-          else -> null
-        }
-        if (tapKey != null) emitRemoteEvent("TvDpadTap", tapKey)
-      }
       lastAcceptedDirectionalKeyCode = -1
       lastAcceptedDirectionalRepeatAt = 0L
-      activeDirectionalKeyCode = -1
-      activeDirectionalDownAt = 0L
-      activeDirectionalRepeated = false
     }
 
     val key: String? = if (event.action == android.view.KeyEvent.ACTION_DOWN) {
@@ -83,23 +59,19 @@ class MainActivity : ReactActivity() {
       }
     } else null
     if (key != null) {
-      emitRemoteEvent("TvRemoteKey", key)
+      try {
+        val app = application as com.facebook.react.ReactApplication
+        val rc = try { app.reactHost?.currentReactContext } catch (e: Throwable) { null }
+          ?: try { app.reactNativeHost.reactInstanceManager.currentReactContext } catch (e: Throwable) { null }
+        rc?.getJSModule(com.facebook.react.modules.core.DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+          ?.emit("TvRemoteKey", key)
+      } catch (e: Throwable) {}
       // Pointer mode owns the D-pad entirely. Guide Up/Down must NOT be consumed —
       // Android's focus engine moves between guide cells; JS only handles boundaries
       // (Up → group tabs, bottom lock). Consuming Up/Down freezes guide surfing.
       if (TvRemoteModule.pointerActive) return true
     }
     return super.dispatchKeyEvent(event)
-  }
-
-  private fun emitRemoteEvent(name: String, value: String) {
-    try {
-      val app = application as com.facebook.react.ReactApplication
-      val rc = try { app.reactHost?.currentReactContext } catch (e: Throwable) { null }
-        ?: try { app.reactNativeHost.reactInstanceManager.currentReactContext } catch (e: Throwable) { null }
-      rc?.getJSModule(com.facebook.react.modules.core.DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-        ?.emit(name, value)
-    } catch (_: Throwable) {}
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -124,6 +96,7 @@ class MainActivity : ReactActivity() {
     // Static remote flags must never survive an Activity/bridge teardown.
     // A stale pointer flag consumes every D-pad key before Android focus sees it.
     TvRemoteModule.pointerActive = false
+    TvRemoteModule.guideNavigationActive = false
     super.onDestroy()
   }
 
@@ -149,7 +122,6 @@ class MainActivity : ReactActivity() {
   }
 
   companion object {
-    private const val MIN_DPAD_REPEAT_MS = 32L
-    private const val MAX_DPAD_TAP_MS = 560L
+    private const val MIN_DPAD_REPEAT_MS = 40L
   }
 }

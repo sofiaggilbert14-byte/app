@@ -16,7 +16,7 @@ The JavaScript bundle is packaged in the APK, so Metro is not required.
    - `EPG_URL` — XMLTV / EPG URL
 
    Optional fallbacks (Actions **variables**): `EXPO_PUBLIC_M3U_URL`,
-   `EXPO_PUBLIC_EPG_URL`, and `EXPO_PUBLIC_GUIDE_WINDOW_HOURS` (default `6`).
+   `EXPO_PUBLIC_EPG_URL`, and `EXPO_PUBLIC_GUIDE_WINDOW_HOURS` (default `8`).
 
    These are compiled into the APK at build time. The Purple TV and Purple Next
    workflows fail fast if neither secrets nor variables are present.
