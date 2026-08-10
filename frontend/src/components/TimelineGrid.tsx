@@ -553,7 +553,7 @@ export const TimelineGrid = memo(function TimelineGrid({
   lockLeftEdge?: boolean;
   /** Fired when Up is pressed on the first guide row so focus can exit to group chips. */
   onUpBoundary?: () => void;
-  /** Fired when Left is pressed on the channel rail — parent may focus the icon rail (never open drawer). */
+  /** Fired when Left is pressed on the channel rail — parent may reinforce the in-grid lock (never open drawer). */
   onLeftBoundary?: () => void;
   /** Reports the currently focused row index so the parent can relax trapFocusUp on row 0. */
   onFocusedRowChange?: (index: number) => void;
@@ -805,14 +805,10 @@ export const TimelineGrid = memo(function TimelineGrid({
           lastAxisRef.current = "h";
           lastAxisAtRef.current = Date.now();
         }
-        // Left edge: hand focus to the closed icon rail when provided; never open the drawer.
+        // Left edge: pin focus in-grid (parent may reinforce the lock). Never open the drawer.
         if (decision.boundary === "left-boundary") {
-          if (onLeftBoundary) {
-            gridOwnsFocusRef.current = false;
-            onLeftBoundary();
-            return;
-          }
           armGuideLeftFocusLock(focusedNodeRef.current);
+          onLeftBoundary?.();
           return;
         }
         // Bottom of guide: keep focus in-grid. Holding Down must never land on Exit.

@@ -122,15 +122,20 @@ test("parental pin normalize via verify after set", async () => {
   assert.equal(verifyParentalPin("1234"), false);
 });
 
-test("drawer shell has purple-icon-rail", async () => {
+test("drawer shell boots closed without an icon rail", async () => {
   const shell = await source("src/components/PurpleTvShell.tsx");
-  assert.match(shell, /purple-icon-rail/);
-  assert.match(shell, /focusPurpleIconRail/);
+  assert.match(shell, /useState\(false\)/);
+  assert.doesNotMatch(shell, /purple-icon-rail/);
+  assert.doesNotMatch(shell, /focusPurpleIconRail/);
+  assert.match(shell, /isGuideSurfing/);
 });
 
-test("guide.tsx references GuidePreviewRail, focusPurpleIconRail, buildVisibleGroups", async () => {
+test("guide.tsx references GuidePreviewRail, solid reminder state, buildVisibleGroups", async () => {
   const guide = await source("app/(tabs)/guide.tsx");
   assert.match(guide, /GuidePreviewRail/);
-  assert.match(guide, /focusPurpleIconRail/);
+  assert.match(guide, /isReminded=/);
+  assert.match(guide, /armGuideLeftFocusLock/);
   assert.match(guide, /buildVisibleGroups/);
+  assert.doesNotMatch(guide, /NowPlayingBar/);
+  assert.doesNotMatch(guide, /focusPurpleIconRail/);
 });

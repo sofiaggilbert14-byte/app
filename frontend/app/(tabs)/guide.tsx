@@ -16,7 +16,6 @@ import * as Haptics from "expo-haptics";
 import {
   PurpleTvShell,
   PURPLE_DRAWER_ANIMATION_MS,
-  focusPurpleIconRail,
   usePurpleTvDrawer,
 } from "@/src/components/PurpleTvShell";
 import { TimelineGrid } from "@/src/components/TimelineGrid";
@@ -24,11 +23,11 @@ import { BoxGrid } from "@/src/components/BoxGrid";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { GuidePreviewRail } from "@/src/components/GuidePreviewRail";
 import { EpgProgressBar } from "@/src/components/EpgProgressBar";
-import { NowPlayingBar } from "@/src/components/NowPlayingBar";
 import { Channel } from "@/src/api";
 import { useStore } from "@/src/store";
 import { setPriorityMatchChannelIds, setViewportGuideChannelIds } from "@/src/source";
 import { markGuideSurfing } from "@/src/utils/guideSurfGate";
+import { armGuideLeftFocusLock } from "@/src/utils/tvGuideFocusLock";
 import { hasGuidePrograms, useGuidePrograms } from "@/src/core/guideProgramsStore";
 import { getPowerProfileTuning } from "@/src/core/devicePowerProfile";
 import { channelHasEpgMatch } from "@/src/core/epgUserOverrides";
@@ -47,7 +46,7 @@ import { useParentalPin } from "@/src/core/parentalPin";
 import { failedStreamCount, isFailedChannel, noteStreamFailure } from "@/src/core/streamFailureRegistry";
 import { consumeGuideJump } from "@/src/core/guideSearchJump";
 import { fonts, radius, spacing, tvColors } from "@/src/theme";
-import { nowNext } from "@/src/utils/time";
+import { nowNext, reminderKey } from "@/src/utils/time";
 import { requestNativeFocus, requestNativeFocusWithRetry } from "@/src/utils/tvFocus";
 import { setGuideNavigationActive } from "@/src/utils/tvRemote";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
@@ -560,8 +559,11 @@ export default function PurpleGuideScreen() {
     if (chip) requestNativeFocusWithRetry(chip, [0, 40, 120]);
   }, [group]);
 
+  // Closed drawer is full-bleed with no icon rail — pin Left in-grid so rapid
+  // surfing cannot leak focus into the sidebar and freeze the guide.
   const onGuideLeftBoundary = useCallback(() => {
-    if (!drawerOpen) focusPurpleIconRail("menu");
+    if (drawerOpen) return;
+    armGuideLeftFocusLock(lastGuideFocusNodeRef.current);
   }, [drawerOpen]);
 
   const jumpToNow = useCallback(() => {
@@ -728,7 +730,7 @@ export default function PurpleGuideScreen() {
               style={[
                 styles.groupScroller,
                 {
-                  // Full-bleed when the closed icon rail overlays; title shift only while drawer open.
+                  // Full-bleed when the drawer is closed; title shift only while drawer open.
                   marginLeft: drawerOpen ? 140 : 0,
                   transform: [{ translateX: groupSlideX }],
                 },
@@ -786,7 +788,6 @@ export default function PurpleGuideScreen() {
         ) : null}
 
         <EpgProgressBar />
-        <NowPlayingBar testID="guide-now-playing" />
 
         {loading && channels.length === 0 ? (
           <View style={styles.center}>
@@ -931,6 +932,11 @@ export default function PurpleGuideScreen() {
               showChannelNumbers={channelNumbers}
               showLogos={channelLogos && !surfLogosSuppressed}
               isFavorite={!!previewChannel && favoriteSet.has(previewChannel.id)}
+              isReminded={
+                !!previewChannel &&
+                !!current &&
+                reminderKeys.has(reminderKey(previewChannel.id, current.start))
+              }
               hidePreview={hidePreview}
               muted={mutePreview}
               onToggleMute={() => setMutePreview(!mutePreview)}

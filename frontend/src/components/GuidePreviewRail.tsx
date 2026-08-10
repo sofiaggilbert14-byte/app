@@ -20,6 +20,8 @@ type Props = {
   showChannelNumbers: boolean;
   showLogos: boolean;
   isFavorite: boolean;
+  /** When true, the Remind control uses a solid notification icon like Favorites. */
+  isReminded?: boolean;
   hidePreview: boolean;
   muted: boolean;
   onToggleMute: () => void;
@@ -45,6 +47,7 @@ export function GuidePreviewRail({
   showChannelNumbers,
   showLogos,
   isFavorite,
+  isReminded,
   hidePreview,
   muted,
   onToggleMute,
@@ -182,8 +185,12 @@ export function GuidePreviewRail({
             style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
             testID="guide-preview-remind"
           >
-            <Ionicons name="notifications-outline" size={12} color={tvColors.purpleSoft} />
-            <Text style={styles.secondaryText}>Remind</Text>
+            <Ionicons
+              name={isReminded ? "notifications" : "notifications-outline"}
+              size={12}
+              color={isReminded ? "#FACC15" : tvColors.purpleSoft}
+            />
+            <Text style={styles.secondaryText}>{isReminded ? "Reminded" : "Remind"}</Text>
           </Pressable>
           <Pressable
             disabled={!channel || !current}

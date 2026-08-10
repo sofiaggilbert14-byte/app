@@ -330,16 +330,12 @@ export function BoxGrid({
       (event) => {
         if (!active) return;
         const key = event?.eventType;
-        // Left edge of compact grid — hand focus to icon rail when provided.
+        // Left edge of compact grid — pin focus in-grid; never open the drawer.
         if (key === "left" && gridOwnsFocusRef.current) {
           const col = focusedIndexRef.current % Math.max(1, numColumns);
           if (col === 0) {
-            if (onLeftBoundary) {
-              gridOwnsFocusRef.current = false;
-              onLeftBoundary();
-              return;
-            }
             armGuideLeftFocusLock(focusedNodeRef.current);
+            onLeftBoundary?.();
             return;
           }
         }
