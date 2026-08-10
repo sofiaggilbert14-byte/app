@@ -130,4 +130,3 @@ test("EPG finalization reports truthful late phases and skips identical match wr
   assert.match(bar, /phase === "matching"/);
   assert.match(bar, /phase === "finalizing"/);
 });
-
