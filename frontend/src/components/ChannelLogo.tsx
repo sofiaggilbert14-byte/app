@@ -24,8 +24,9 @@ const failureOrder: string[] = [];
 export function clearChannelLogoMemory(): void {
   for (const entry of loadQueue) entry.cancelled = true;
   loadQueue.splice(0, loadQueue.length);
-  // Cancelled in-flight loads may never call releaseLoadSlot after a hard clear.
-  activeLoads = 0;
+  // Keep accounting for requests already handed to expo-image. Their load,
+  // error, timeout, or unmount callbacks still release the held slots. Resetting
+  // this counter here would let a second wave exceed the concurrency cap.
   succeededUris.clear();
   failedUris.clear();
   successOrder.splice(0, successOrder.length);
@@ -54,7 +55,7 @@ function drainQueue(): void {
 
 function requestLoadSlot(onGranted: () => void): () => void {
   const entry: QueueEntry = { cancelled: false, grant: onGranted };
-  // Bound the waiter list — rapid surf used to enqueue unbounded work on weak sticks.
+  // Bound the waiter list â€” rapid surf used to enqueue unbounded work on weak sticks.
   while (loadQueue.length >= MAX_LOAD_QUEUE) {
     const dropped = loadQueue.shift();
     if (dropped) dropped.cancelled = true;
@@ -230,3 +231,4 @@ const styles = StyleSheet.create({
   },
   initials: { color: colors.onBrandTertiary, fontFamily: fonts.bold },
 });
+
