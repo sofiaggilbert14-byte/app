@@ -42,7 +42,8 @@ test("favorite storage remains ID-only and bounded", async () => {
 test("program runway stays wide without focus-time React state churn", async () => {
   const grid = await source("src/components/TimelineGrid.tsx");
   assert.doesNotMatch(grid, /cullDisabledRef|setDisableProgramCull/);
-  assert.match(grid, /drawDistance=\{Math\.max\(2200, ROW_H \* 36\)\}/);
+  assert.match(grid, /drawDistance=\{renderDrawDistance\}/);
+  assert.match(grid, /cacheProfile === "weak"/);
 });
 
 test("guide preview uses lighter stream buffers", async () => {

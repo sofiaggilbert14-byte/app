@@ -15,10 +15,7 @@ import * as Haptics from "expo-haptics";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { fonts, radius, spacing, tvColors } from "@/src/theme";
 import { combineTvEdgeInsets, getTvSafeInsets } from "@/src/utils/tvLayout";
-import {
-  focusGuideSurfaceWhenMounted,
-  reclaimGuideBottomFocusIfArmed,
-} from "@/src/utils/tvGuideFocusLock";
+import { reclaimGuideBottomFocusIfArmed } from "@/src/utils/tvGuideFocusLock";
 import { requestNativeFocusWithRetry } from "@/src/utils/tvFocus";
 import { useStore } from "@/src/store";
 import { evaluateDrawerBack } from "@/src/core/drawerNavigationPolicy";
@@ -229,9 +226,8 @@ export function PurpleTvShell({
     if (!drawerOpen) {
       setDrawerAutoFocus(false);
       setDrawerPreferredRoute(null);
-      // Guide owns post-drawer reclaim via focusClaimNonce → grid
-      // focusGuideSurfaceWhenMounted(restoreChannelId). A second Shell retry
-      // with undefined channelId races that path and yanks to the wrong row.
+      // Guide owns post-drawer reclaim via its nonce and mounted grid. A second
+      // Shell retry with no channel id races that path and yanks the wrong row.
       if (active !== "/guide") {
         setContentAutoFocus(true);
       }
@@ -297,11 +293,8 @@ export function PurpleTvShell({
   const navigate = useCallback(
     (route: Route) => {
       void Haptics.selectionAsync().catch(() => undefined);
-      // Claim Guide focus only when navigating TO Guide. Leaving Guide while
-      // also retrying guide focus fights the destination screen's autofocus.
-      if (route === "/guide") {
-        focusGuideSurfaceWhenMounted(undefined, [0, 32, 96, 180, 320, 520, 800]);
-      }
+      // Never focus content beneath a still-open drawer. A newly mounted Guide
+      // claims its own initial focus; an already-mounted Guide uses its nonce.
       closeDrawer();
       if (route !== active) router.replace(route as any);
     },

@@ -106,7 +106,7 @@ type TimelineRowProps = {
   windowEndMs: number;
   currentTimeMs: number;
   pxPerMinute: number;
-  /** Negated horizontal pan — applied only to the program track, never logos. */
+  /** Negated horizontal pan shared by channel identity and programme cells. */
   negScrollX: Animated.AnimatedMultiplication<number> | Animated.AnimatedInterpolation<number>;
   /** Coarse pan bucket (px) — limits which program cells are TV-focusable without per-frame re-renders. */
   panBucket: number;
@@ -444,123 +444,76 @@ const TimelineRow = memo(function TimelineRow({
 
   return (
     <View style={[styles.row, { height: rowHeight }]}>
-      {/* Logos stay layout-fixed in the row — never translated with the timeline pan. */}
-      <View
-        style={[
-          styles.logoCol,
-          {
-            width: logoWidth,
-            minWidth: logoWidth,
-            maxWidth: logoWidth,
-            height: rowHeight,
-          },
-        ]}
-      >
-        <Pressable
-          ref={setLogoRef}
-          style={({ focused }: any) => [
-            styles.logoCell,
-            { paddingHorizontal: horizontalPadding, gap: itemGap },
-            focused && styles.logoCellFocused,
-          ]}
-          focusable
-          // Prefer the channel logo (left edge) so Right from Live TV lands beside the sidebar,
-          // not mid-timeline on the live show cell.
-          hasTVPreferredFocus={preferInitialFocus}
-          onFocus={handleChannelFocus}
-          onPress={handleChannelPress}
-          onLongPress={handleChannelLongPress}
-          delayLongPress={450}
-          testID={`epg-channel-${item.id}`}
-        >
-          {showChannelNumbers && (
-            <Text style={[styles.channelNumber, { width: numberWidth, minWidth: numberWidth }]}>
-              {channelNumberById?.[item.id] || index + 1}
-            </Text>
-          )}
-          <ChannelLogo name={item.name} logo={item.logo} disabled={!showChannelLogos} size={logoSize} />
-          <Text
-            numberOfLines={nameMaxLines}
-            adjustsFontSizeToFit
-            minimumFontScale={0.82}
-            style={[styles.logoName, { fontSize: nameFontSize, lineHeight: nameLineHeight }]}
-          >
-            {item.name}
-          </Text>
-        </Pressable>
-      </View>
-
-      <View style={styles.timelineClip}>
+      <View style={styles.rowViewport}>
         <Animated.View
           style={[
-            styles.timelineTrack,
+            styles.rowPanTrack,
             {
-              width: timelineWidth,
+              width: logoWidth + timelineWidth,
               height: rowHeight,
               transform: [{ translateX: negScrollX }],
             },
           ]}
         >
-          {renderedPrograms.map(({ item: prepared, sourceIndex: programIndex }) => {
-            const near = programNearViewport(
-              prepared,
-              panBucket,
-              programViewportW,
-            );
-            const isPreferred = prepared.key === preferred?.key;
-            const keepFocused = getFocusedProgramKey?.() === prepared.key;
-            return (
-              <ProgramCell
-                key={prepared.key}
-                prepared={prepared}
-                programIndex={programIndex}
-                channel={item}
-                isPreferred={isPreferred}
-                hasReminder={!!reminderKeys?.has(reminderKey(item.id, prepared.program.start))}
-                tvFocusable={near || keepFocused}
-                extraCompact={nameMaxLines === 1}
-                lockFocusDown={lockFocusDown}
-                capturePreferred={capturePreferred}
-                onFocusNode={onFocusNode}
-                onProgramFocus={handleProgramFocus}
-                onProgramBlur={handleProgramBlur}
-                onProgramPress={onProgramPress}
-                onChannelLongPress={onChannelLongPress}
-              />
-            );
-          })}
-          {(preparedPrograms.length === 0 || preservePendingFocus) && (
+          <View style={[styles.logoCol, { width: logoWidth, height: rowHeight }]}>
             <Pressable
-              ref={setPendingRef}
+              ref={setLogoRef}
+              style={({ focused }: any) => [
+                styles.logoCell,
+                { paddingHorizontal: horizontalPadding, gap: itemGap },
+                focused && styles.logoCellFocused,
+              ]}
               focusable
-              onFocus={handlePendingFocus}
-              onBlur={handlePendingBlur}
+              hasTVPreferredFocus={preferInitialFocus}
+              onFocus={handleChannelFocus}
               onPress={handleChannelPress}
               onLongPress={handleChannelLongPress}
               delayLongPress={450}
-              style={({ focused }: any) => [
-                styles.progCell,
-                styles.pendingProgramCell,
-                // Once real cells exist, keep the focused native node alive but
-                // collapse it so it cannot paint over programme cells.
-                preparedPrograms.length > 0
-                  ? styles.pendingProgramCellHidden
-                  : { left: 0, width: Math.max(24, timelineWidth - 6) },
-                focused && preparedPrograms.length === 0 && styles.programCellFocused,
-              ]}
-              testID={`epg-pending-${item.id}`}
+              testID={`epg-channel-${item.id}`}
             >
-              {preparedPrograms.length === 0 ? (
-                <Text style={styles.noData}>
-                  {programRowState === "loading"
-                    ? "Loading programme data"
-                    : !channelHasEpgMatch(item)
-                      ? "Channel not matched to XMLTV"
-                      : "No programme supplied"}
+              {showChannelNumbers && (
+                <Text style={[styles.channelNumber, { width: numberWidth, minWidth: numberWidth }]}>
+                  {channelNumberById?.[item.id] || index + 1}
                 </Text>
-              ) : null}
+              )}
+              <ChannelLogo name={item.name} logo={item.logo} disabled={!showChannelLogos} size={logoSize} />
+              <Text numberOfLines={nameMaxLines} adjustsFontSizeToFit minimumFontScale={0.82}
+                style={[styles.logoName, { fontSize: nameFontSize, lineHeight: nameLineHeight }]}>
+                {item.name}
+              </Text>
             </Pressable>
-          )}
+          </View>
+
+          <View style={[styles.timelineTrack, { width: timelineWidth, height: rowHeight }]}>
+            {renderedPrograms.map(({ item: prepared, sourceIndex: programIndex }) => {
+              const near = programNearViewport(prepared, panBucket, programViewportW);
+              const isPreferred = prepared.key === preferred?.key;
+              const keepFocused = getFocusedProgramKey?.() === prepared.key;
+              return <ProgramCell key={prepared.key} prepared={prepared} programIndex={programIndex}
+                channel={item} isPreferred={isPreferred}
+                hasReminder={!!reminderKeys?.has(reminderKey(item.id, prepared.program.start))}
+                tvFocusable={near || keepFocused} extraCompact={nameMaxLines === 1}
+                lockFocusDown={lockFocusDown} capturePreferred={capturePreferred}
+                onFocusNode={onFocusNode} onProgramFocus={handleProgramFocus}
+                onProgramBlur={handleProgramBlur} onProgramPress={onProgramPress}
+                onChannelLongPress={onChannelLongPress} />;
+            })}
+            {(preparedPrograms.length === 0 || preservePendingFocus) && (
+              <Pressable ref={setPendingRef} focusable onFocus={handlePendingFocus}
+                onBlur={handlePendingBlur} onPress={handleChannelPress}
+                onLongPress={handleChannelLongPress} delayLongPress={450}
+                style={({ focused }: any) => [styles.progCell, styles.pendingProgramCell,
+                  preparedPrograms.length > 0 ? styles.pendingProgramCellHidden
+                    : { left: 0, width: Math.max(24, timelineWidth - 6) },
+                  focused && preparedPrograms.length === 0 && styles.programCellFocused]}
+                testID={`epg-pending-${item.id}`}>
+                {preparedPrograms.length === 0 ? <Text style={styles.noData}>
+                  {programRowState === "loading" ? "Loading programme data"
+                    : !channelHasEpgMatch(item) ? "Channel not matched to XMLTV" : "No programme supplied"}
+                </Text> : null}
+              </Pressable>
+            )}
+          </View>
         </Animated.View>
       </View>
     </View>
@@ -652,6 +605,9 @@ export const TimelineGrid = memo(function TimelineGrid({
   channelsRef.current = channels;
   // Coarse pan bucket only — avoids re-rendering every row on each pixel of horizontal pan.
   const [panBucket, setPanBucket] = useState(0);
+  // Once the shared rail is fully off-screen, stop mounting decoded logos until
+  // navigation returns to the channel edge.
+  const [channelRailVisible, setChannelRailVisible] = useState(true);
   // Preferred focus is mount-once only. Group changes must NOT reclaim it (steals chip focus).
   const hasClaimedFocusRef = useRef(false);
   const [preferFirstRow, setPreferFirstRow] = useState(() => !hasClaimedFocusRef.current);
@@ -768,7 +724,14 @@ export const TimelineGrid = memo(function TimelineGrid({
     (target: number, animated: boolean) => {
       const next = Math.max(0, target);
       scrollXRef.current = next;
-      const bucket = Math.floor(next / PAN_BUCKET_PX) * PAN_BUCKET_PX;
+      setChannelRailVisible((current) => {
+        const visible = next < Math.max(1, LOGO_W - 4);
+        return current === visible ? current : visible;
+      });
+      // Programme culling uses timeline-local coordinates. Shared scroll also
+      // contains the channel rail, so remove that portion before bucketing.
+      const timelineOffset = Math.max(0, next - LOGO_W);
+      const bucket = Math.floor(timelineOffset / PAN_BUCKET_PX) * PAN_BUCKET_PX;
       setPanBucket((prev) => (prev === bucket ? prev : bucket));
       panAnimRef.current?.stop();
       // JS driver: safer with FlashList recycling than native-driver multiply transforms.
@@ -786,7 +749,7 @@ export const TimelineGrid = memo(function TimelineGrid({
         panAnimRef.current = null;
       });
     },
-    [reduceMotion, scrollX],
+    [LOGO_W, reduceMotion, scrollX],
   );
 
   // Mount-once preferred focus only — restore the last watched row when tabs
@@ -826,10 +789,9 @@ export const TimelineGrid = memo(function TimelineGrid({
         });
       } catch {}
     }
-    setPreferFirstRow(true);
-    const clearPreferred = setTimeout(() => setPreferFirstRow(false), 700);
-    focusGuideSurfaceWhenMounted(restoreChannelId || rows[0]?.id, [0, 40, 120, 240, 420]);
-    return () => clearTimeout(clearPreferred);
+    // Explicit retry is the sole drawer-return focus claim. Do not also pulse
+    // hasTVPreferredFocus against a potentially recycled row.
+    focusGuideSurfaceWhenMounted(restoreChannelId || rows[0]?.id, [0, 40, 120, 240, 420, 700]);
   }, [focusClaimNonce, restoreChannelId]);
 
   // Group/filter changes: reset scroll position only. Do not touch preferred focus.
@@ -960,8 +922,8 @@ export const TimelineGrid = memo(function TimelineGrid({
 
     const margin = 18;
     const currentX = scrollXRef.current;
-    const leftEdge = prepared.left;
-    const rightEdge = prepared.left + prepared.width;
+    const leftEdge = LOGO_W + prepared.left;
+    const rightEdge = LOGO_W + prepared.left + prepared.width;
     let target = currentX;
 
     if (leftEdge < currentX + margin) {
@@ -970,23 +932,25 @@ export const TimelineGrid = memo(function TimelineGrid({
       target = Math.max(0, rightEdge - programViewportW + margin);
     }
 
-    const maxX = Math.max(0, timelineWidth - programViewportW);
+    const maxX = Math.max(0, LOGO_W + timelineWidth - programViewportW);
     target = Math.min(maxX, target);
     if (Math.abs(target - currentX) <= 8) return;
 
     const animated = lastAxisRef.current !== "h" || Date.now() - lastAxisAtRef.current > RAPID_VERTICAL_MS;
     setHorizontalOffset(target, animated);
-  }, [programViewportW, setHorizontalOffset, timelineWidth]);
+  }, [LOGO_W, programViewportW, setHorizontalOffset, timelineWidth]);
 
   const onRowChannelFocus = useCallback(
     (channel: Channel, rowIndex: number, logoNode?: unknown) => {
       focusRegionRef.current = "channel";
       focusedProgramKeyRef.current = null;
+      // A channel node must never retain focus while translated off-screen.
+      if (scrollXRef.current > 4) setHorizontalOffset(0, false);
       reportFocusedRow(rowIndex);
       onChannelFocus?.(channel);
       onBackTargetChange?.("channel", logoNode || focusedNodeRef.current);
     },
-    [onBackTargetChange, onChannelFocus, reportFocusedRow],
+    [onBackTargetChange, onChannelFocus, reportFocusedRow, setHorizontalOffset],
   );
 
   const onRowProgramFocus = useCallback(
@@ -1000,6 +964,12 @@ export const TimelineGrid = memo(function TimelineGrid({
     },
     [keepProgramVisible, onBackTargetChange, onProgramFocus, reportFocusedRow],
   );
+
+  const renderDrawDistance = cacheProfile === "weak"
+    ? Math.max(900, ROW_H * 18)
+    : cacheProfile === "max_preview"
+      ? Math.max(1800, ROW_H * 32)
+      : Math.max(1400, ROW_H * 24);
 
   const lastRowIndex = Math.max(0, channels.length - 1);
   lastRowIndexRef.current = lastRowIndex;
@@ -1030,7 +1000,7 @@ export const TimelineGrid = memo(function TimelineGrid({
         programViewportW={programViewportW}
         showChannelNumbers={showChannelNumbers}
         channelNumberById={channelNumberById}
-        showChannelLogos={showChannelLogos}
+        showChannelLogos={showChannelLogos && channelRailVisible}
         reminderKeys={reminderKeys}
         onChannelPress={onChannelPress}
         onChannelLongPress={onChannelLongPress}
@@ -1047,35 +1017,35 @@ export const TimelineGrid = memo(function TimelineGrid({
         getFocusedProgramKey={getFocusedProgramKey}
       />
     ),
-    [ROW_H, LOGO_W, LOGO_SIZE, railMetrics.numberWidth, railMetrics.nameFontSize, railMetrics.nameLineHeight, railMetrics.channelNameMaxLines, railMetrics.horizontalPadding, railMetrics.itemGap, timelineWidth, windowStartMs, windowEndMs, nowMs, PX_PER_MIN, negScrollX, panBucket, programViewportW, showChannelNumbers, channelNumberById, showChannelLogos, reminderKeys, onChannelPress, onChannelLongPress, onProgramPress, onRowProgramFocus, onRowChannelFocus, preferFirstRow, rememberFocusNode, lastRowIndex, lockLeftEdge, getFocusedProgramKey, restoreChannelId],
+    [ROW_H, LOGO_W, LOGO_SIZE, railMetrics.numberWidth, railMetrics.nameFontSize, railMetrics.nameLineHeight, railMetrics.channelNameMaxLines, railMetrics.horizontalPadding, railMetrics.itemGap, timelineWidth, windowStartMs, windowEndMs, nowMs, PX_PER_MIN, negScrollX, panBucket, programViewportW, showChannelNumbers, channelNumberById, showChannelLogos, channelRailVisible, reminderKeys, onChannelPress, onChannelLongPress, onProgramPress, onRowProgramFocus, onRowChannelFocus, preferFirstRow, rememberFocusNode, lastRowIndex, lockLeftEdge, getFocusedProgramKey, restoreChannelId],
   );
 
   return (
     <View style={styles.wrap} testID="epg-timeline-grid">
       <View style={styles.headerRow}>
-        <View style={[styles.corner, { width: LOGO_W }]}>
-          <Text style={styles.cornerText}>{dayjs(windowStart).format("MMM D")}</Text>
-        </View>
-        <View style={styles.headerTrack} onLayout={(event) => setProgramViewportW(event.nativeEvent.layout.width)}>
-          <Animated.View style={{ width: timelineWidth, height: HEADER_H, transform: [{ translateX: negScrollX }] }}>
-            {ticks.map((tick) => (
-              <Text key={tick.key} style={[styles.tickLabel, { left: tick.left }]}>{tick.label}</Text>
-            ))}
-            {showNow ? (
-              <View style={[styles.nowHeaderMark, { left: Math.max(0, nowOffset - 14) }]} pointerEvents="none">
-                <Text style={styles.nowHeaderText}>NOW</Text>
-                <View style={styles.nowHeaderCaret} />
-              </View>
-            ) : null}
+        <View style={styles.headerViewport}
+          onLayout={(event) => setProgramViewportW(event.nativeEvent.layout.width)}>
+          <Animated.View style={[styles.headerPanTrack,
+            { width: LOGO_W + timelineWidth, transform: [{ translateX: negScrollX }] }]}>
+            <View style={[styles.corner, { width: LOGO_W }]}>
+              <Text style={styles.cornerText}>{dayjs(windowStart).format("MMM D")}</Text>
+            </View>
+            <View style={[styles.headerTrack, { width: timelineWidth }]}>
+              {ticks.map((tick) => (
+                <Text key={tick.key} style={[styles.tickLabel, { left: tick.left }]}>{tick.label}</Text>
+              ))}
+              {showNow ? (
+                <View style={[styles.nowHeaderMark, { left: Math.max(0, nowOffset - 14) }]} pointerEvents="none">
+                  <Text style={styles.nowHeaderText}>NOW</Text>
+                  <View style={styles.nowHeaderCaret} />
+                </View>
+              ) : null}
+            </View>
           </Animated.View>
         </View>
       </View>
 
-      {/*
-        No horizontal ScrollView around the body. Logos are layout siblings of a
-        clipped timeline track that pans via translateX only — so Left/Right never
-        slides the channel column over show blocks.
-      */}
+      {/* Channel identity and programme cells share one horizontal pan track. */}
       <View
         style={styles.body}
         onLayout={(e: LayoutChangeEvent) => {
@@ -1089,7 +1059,7 @@ export const TimelineGrid = memo(function TimelineGrid({
             data={channels}
             ref={listRef}
             keyExtractor={(channel) => channel.id}
-            drawDistance={Math.max(2200, ROW_H * 36)}
+            drawDistance={renderDrawDistance}
             removeClippedSubviews={false}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingBottom: 120 }}
@@ -1103,19 +1073,19 @@ export const TimelineGrid = memo(function TimelineGrid({
         )}
         {showNow && bodyH > 0 && (
           <View
-            style={[styles.nowOverlay, { left: LOGO_W }]}
+            style={styles.nowOverlay}
             pointerEvents="none"
             testID="epg-timeline-now-indicator"
             accessibilityLabel="Guide timeline progress indicator"
           >
             <Animated.View
               style={{
-                width: timelineWidth,
+                width: LOGO_W + timelineWidth,
                 height: bodyH,
                 transform: [{ translateX: negScrollX }],
               }}
             >
-              <View style={[styles.nowLineTrack, { left: Math.max(0, nowOffset - 1) }]}>
+              <View style={[styles.nowLineTrack, { left: Math.max(0, LOGO_W + nowOffset - 1) }]}>
                 <View style={styles.nowLine} />
               </View>
             </Animated.View>
@@ -1131,6 +1101,7 @@ const styles = StyleSheet.create({
   body: { flex: 1, overflow: "hidden" },
   headerRow: {
     flexDirection: "row",
+    overflow: "hidden",
     borderBottomWidth: 1,
     borderBottomColor: tvColors.line,
     backgroundColor: "rgba(9,8,20,0.98)",
@@ -1147,7 +1118,9 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   cornerText: { color: ACCENT_SOFT, fontFamily: fonts.bold, fontSize: 11 },
-  headerTrack: { flex: 1, height: HEADER_H, overflow: "hidden" },
+  headerViewport: { flex: 1, height: HEADER_H, overflow: "hidden" },
+  headerPanTrack: { flexDirection: "row", height: HEADER_H, flexShrink: 0 },
+  headerTrack: { height: HEADER_H, overflow: "hidden", flexShrink: 0 },
   tickLabel: {
     position: "absolute",
     top: 7,
@@ -1157,6 +1130,8 @@ const styles = StyleSheet.create({
     width: 100,
   },
   row: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.055)", overflow: "hidden" },
+  rowViewport: { flex: 1, height: "100%", overflow: "hidden" },
+  rowPanTrack: { flexDirection: "row", flexShrink: 0 },
   logoCol: {
     zIndex: 20,
     elevation: 8,
@@ -1195,6 +1170,7 @@ const styles = StyleSheet.create({
   },
   timelineTrack: {
     position: "relative",
+    flexShrink: 0,
   },
   progCell: {
     position: "absolute",

@@ -351,10 +351,9 @@ export function BoxGrid({
         });
       } catch {}
     }
-    setPreferFirst(true);
-    const clearPreferred = setTimeout(() => setPreferFirst(false), 700);
-    focusGuideSurfaceWhenMounted(restoreChannelId || rows[0]?.id, [0, 40, 120, 240, 420]);
-    return () => clearTimeout(clearPreferred);
+    // Explicit retry is the sole drawer-return focus claim. Do not also pulse
+    // hasTVPreferredFocus against a potentially recycled card.
+    focusGuideSurfaceWhenMounted(restoreChannelId || rows[0]?.id, [0, 40, 120, 240, 420, 700]);
   }, [focusClaimNonce, restoreChannelId]);
 
   useEffect(() => {

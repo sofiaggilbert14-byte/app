@@ -80,15 +80,14 @@ test("native tap event excludes repeats and preview buttons own left handoff", a
   assert.match(timeline, /buildVisibleGuideCellSlice/);
   assert.match(timeline, /tvFocusable=\{near \|\| keepFocused\}/);
   assert.match(timeline, /recentlyOwned/);
+  assert.match(timeline, /styles\.rowPanTrack/);
+  assert.match(timeline, /width: logoWidth \+ timelineWidth/);
+  assert.match(timeline, /showChannelLogos && channelRailVisible/);
+  assert.match(timeline, /const timelineOffset = Math\.max\(0, next - LOGO_W\)/);
   assert.match(shell, /sidebarOverlay/);
   assert.match(shell, /pointerEvents=\{drawerOpen \? "auto" : "none"\}/);
-  assert.match(shell, /focusGuideSurfaceWhenMounted/);
-  // Shell must not reclaim Guide on every drawer close (races focusClaimNonce).
-  assert.doesNotMatch(
-    shell,
-    /if \(active === "\/guide" && !activeProgram\) \{\s*focusGuideSurfaceWhenMounted/,
-  );
-  assert.match(shell, /if \(route === "\/guide"\) \{\s*focusGuideSurfaceWhenMounted/);
+  // Shell never reaches behind the drawer to claim Guide focus.
+  assert.doesNotMatch(shell, /focusGuideSurfaceWhenMounted/);
   assert.doesNotMatch(shell, /purple-icon-rail|ICON_RAIL/);
 });
 

@@ -81,7 +81,7 @@ test("store patches per-row programmes and defers silent refresh while surfing",
   assert.doesNotMatch(timeline, /reclaimToken/);
   assert.doesNotMatch(timeline, /mountedBandRef/);
   assert.doesNotMatch(timeline, /disableProgramCull/);
-  assert.match(timeline, /drawDistance=\{Math\.max\(2200, ROW_H \* 36\)\}/);
+  assert.match(timeline, /drawDistance=\{renderDrawDistance\}/);
 });
 
 test("programme deltas keep explicit empty rows and use the exact screen runway", async () => {

@@ -550,7 +550,9 @@ function ExpoStream({
 
       let selectedAudio: any = null;
       let selectedBy: "user" | "current" | "auto-supported" | "auto-first" | "none" = "none";
-      if (requestedAudio && (media3Audio === "ffmpeg" || requestedAudio.isSupported !== false)) {
+      // isSupported is supplied by the checked-in expo-video native patch but
+      // is not part of Expo's upstream AudioTrack TypeScript declaration.
+      if (requestedAudio && (media3Audio === "ffmpeg" || (requestedAudio as any).isSupported !== false)) {
         selectedAudio = requestedAudio;
         selectedBy = audioTrack == null ? "auto-supported" : "user";
       } else if (currentAudio && (media3Audio === "ffmpeg" || currentAudio.isSupported !== false)) {
