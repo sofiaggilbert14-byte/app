@@ -181,7 +181,7 @@ const ChannelCard = memo(function ChannelCard({
         {next && (
           <Pressable focusable={false} onPress={handleNextPress}>
             <Text numberOfLines={1} style={styles.nextLine}>
-              Next: {fmtTime(next.start)} · {next.title}
+              Next: {fmtTime(next.start)} Â· {next.title}
             </Text>
           </Pressable>
         )}
@@ -316,7 +316,7 @@ export function BoxGrid({
     [numColumns, onFocusedRowChange, reportViewport],
   );
 
-  // Mount-once preferred focus — restore the last watched card after player.
+  // Mount-once preferred focus â€” restore the last watched card after player.
   useEffect(() => {
     if (hasClaimedFocusRef.current) return;
     if (!channels.length) return;
@@ -334,7 +334,7 @@ export function BoxGrid({
     return () => clearTimeout(clearPreferred);
   }, [channels, restoreChannelId]);
 
-  // Depend only on the nonce — channels identity churn must not re-fire reclaim.
+  // Depend only on the nonce â€” channels identity churn must not re-fire reclaim.
   useEffect(() => {
     if (!focusClaimNonce) return;
     const rows = channelsRef.current;
@@ -415,6 +415,11 @@ export function BoxGrid({
 
   const lastRowIndex = Math.max(0, Math.floor((Math.max(channels.length, 1) - 1) / Math.max(1, numColumns)));
   lastRowIndexRef.current = lastRowIndex;
+  const renderDrawDistance = cacheProfile === "weak"
+    ? 900
+    : cacheProfile === "max_preview"
+      ? 2400
+      : 1600;
 
   useTVEventHandler(
     useCallback(
@@ -505,7 +510,7 @@ export function BoxGrid({
         keyExtractor={(c) => c.id}
         // Re-render visible hearts when favorites change without recreating renderItem.
         extraData={favorites}
-        drawDistance={2400}
+        drawDistance={renderDrawDistance}
         removeClippedSubviews={false}
         contentContainerStyle={{ paddingBottom: 130, paddingHorizontal: spacing.xs, paddingTop: spacing.xs }}
         ListHeaderComponent={ListHeaderComponent}
@@ -559,3 +564,4 @@ const styles = StyleSheet.create({
   progressFill: { height: 4, backgroundColor: ACCENT },
   nextLine: { color: "rgba(233,213,255,0.78)", fontFamily: fonts.regular, fontSize: 11, marginTop: 6 },
 });
+
