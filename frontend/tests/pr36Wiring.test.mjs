@@ -10,7 +10,7 @@ const source = (path) => readFile(join(root, path), "utf8");
 test("PR #36 guide recovery wiring remains present", async () => {
   const guide = await source("app/(tabs)/guide.tsx");
   assert.match(guide, /previewEpoch/);
-  assert.match(guide, /focusGuideSurface\(guideSessionChannelId\)/);
+  assert.match(guide, /focusGuideProgramCell\(origin\.channelId, origin\.programStart\)/);
   assert.doesNotMatch(guide, /lastGuideFocusNodeRef|onGuideFocusNode=/);
 });
 
