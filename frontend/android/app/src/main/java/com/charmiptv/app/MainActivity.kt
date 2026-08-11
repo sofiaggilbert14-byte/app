@@ -82,7 +82,7 @@ class MainActivity : ReactActivity() {
         else -> null
       }
     } else null
-    if (key != null) {
+    if (key != null && (!TvRemoteModule.guideNavigationActive || TvRemoteModule.pointerActive)) {
       emitRemoteEvent("TvRemoteKey", key)
       // Pointer mode owns the D-pad entirely. Guide Up/Down must NOT be consumed —
       // Android's focus engine moves between guide cells; JS only handles boundaries
@@ -124,6 +124,7 @@ class MainActivity : ReactActivity() {
     // Static remote flags must never survive an Activity/bridge teardown.
     // A stale pointer flag consumes every D-pad key before Android focus sees it.
     TvRemoteModule.pointerActive = false
+    TvRemoteModule.guideNavigationActive = false
     super.onDestroy()
   }
 
@@ -149,7 +150,9 @@ class MainActivity : ReactActivity() {
   }
 
   companion object {
-    private const val MIN_DPAD_REPEAT_MS = 32L
+    // 48 ms keeps held navigation visibly fast (~21 moves/sec) while giving
+    // Fabric/FlashList time to mount the next native focus target.
+    private const val MIN_DPAD_REPEAT_MS = 48L
     private const val MAX_DPAD_TAP_MS = 560L
   }
 }

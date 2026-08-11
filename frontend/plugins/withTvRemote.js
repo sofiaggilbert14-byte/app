@@ -33,12 +33,19 @@ class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBas
     // JVM level with the @ReactMethod fun setPointerActive(...) below.
     @JvmField
     var pointerActive: Boolean = false
+    @JvmField
+    var guideNavigationActive: Boolean = false
     private const val MAX_SANE_CODEC_DIMENSION = 16_384
   }
 
   @ReactMethod
   fun setPointerActive(active: Boolean) {
     pointerActive = active
+  }
+
+  @ReactMethod
+  fun setGuideNavigationActive(active: Boolean) {
+    guideNavigationActive = active
   }
 
   @ReactMethod
@@ -220,8 +227,8 @@ function withTvRemotePackageRegistered(config) {
 
 function hardenMainActivity(src) {
   src = src
-    .replace(/private val minDpadRepeatMs = \d+L/, "private val minDpadRepeatMs = 32L")
-    .replace(/private const val MIN_DPAD_REPEAT_MS = \d+L/, "private const val MIN_DPAD_REPEAT_MS = 32L")
+    .replace(/private val minDpadRepeatMs = \d+L/, "private val minDpadRepeatMs = 48L")
+    .replace(/private const val MIN_DPAD_REPEAT_MS = \d+L/, "private const val MIN_DPAD_REPEAT_MS = 48L")
     .replace(/\n\s*TvRemoteModule\.guideNavigationActive = false/g, "");
   const classMatch = src.match(/class\s+MainActivity[^{]*\{/);
   if (classMatch && !src.includes("lastAcceptedDirectionalRepeatAt")) {
@@ -230,7 +237,7 @@ function hardenMainActivity(src) {
 
   private var lastAcceptedDirectionalRepeatAt = 0L
   private var lastAcceptedDirectionalKeyCode = -1
-  private val minDpadRepeatMs = 32L
+  private val minDpadRepeatMs = 48L
   private val maxDpadTapMs = 560L
   private var activeDirectionalKeyCode = -1
   private var activeDirectionalDownAt = 0L
@@ -303,6 +310,7 @@ function hardenMainActivity(src) {
   override fun onDestroy() {
     // Static remote flags must never survive an Activity/bridge teardown.
     TvRemoteModule.pointerActive = false
+    TvRemoteModule.guideNavigationActive = false
     super.onDestroy()
   }
 
@@ -343,7 +351,7 @@ function withTvRemoteKeyCapture(config) {
         else -> null
       }
     } else null
-    if (key != null) {
+    if (key != null && (!TvRemoteModule.guideNavigationActive || TvRemoteModule.pointerActive)) {
       try {
         val app = application as com.facebook.react.ReactApplication
         val rc = try { app.reactHost?.currentReactContext } catch (e: Throwable) { null }

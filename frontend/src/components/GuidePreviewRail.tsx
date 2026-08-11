@@ -14,8 +14,6 @@ import {
 import { fonts, radius, tvColors } from "@/src/theme";
 import { fmtTime, progressPct } from "@/src/utils/time";
 
-const REMINDER_COLOR = "#FACC15";
-
 type Props = {
   width: number;
   channel: Channel | null;
@@ -35,9 +33,7 @@ type Props = {
   onPreviewErrorRemount: () => void;
   onPlay: () => void;
   onFavorite: () => void;
-  canRemind: boolean;
-  isReminded: boolean;
-  onToggleReminder: () => void;
+  onOpenReminders: () => void;
   onHideToggle: () => void;
   /** Opens the app drawer and lands focus on the top drawer row. */
   onOpenDrawer: () => void;
@@ -62,12 +58,13 @@ export function GuidePreviewRail({
   onPreviewErrorRemount,
   onPlay,
   onFavorite,
-  canRemind,
-  isReminded,
-  onToggleReminder,
+  onOpenReminders,
   onHideToggle,
   onOpenDrawer,
 }: Props) {
+  const setPlayRef = React.useCallback((node: unknown) => {
+    registerGuidePreviewEntry(node);
+  }, []);
   const nowDate = useMemo(() => new Date(now), [now]);
   const progress = current ? progressPct(current, nowDate) : 0;
   const endsIn = current?.stop
@@ -167,7 +164,7 @@ export function GuidePreviewRail({
 
         <View style={styles.actions}>
           <Pressable
-            ref={(node) => registerGuidePreviewEntry(node)}
+            ref={setPlayRef}
             disabled={!channel}
             onPress={onPlay}
             onFocus={noteGuidePreviewFocus}
@@ -190,24 +187,20 @@ export function GuidePreviewRail({
         </View>
         <View style={styles.actions}>
           <Pressable
-            disabled={!channel || !current || !canRemind}
-            onPress={onToggleReminder}
+            onPress={onOpenReminders}
             onFocus={noteGuidePreviewFocus}
             style={({ focused }: any) => [
               styles.secondaryButton,
-              isReminded && styles.reminderActive,
               focused && styles.focused,
             ]}
             testID="guide-preview-remind"
           >
             <Ionicons
-              name={isReminded ? "notifications" : "notifications-outline"}
+              name="notifications-outline"
               size={12}
-              color={isReminded ? REMINDER_COLOR : tvColors.purpleSoft}
+              color={tvColors.purpleSoft}
             />
-            <Text style={[styles.secondaryText, isReminded && styles.reminderActiveText]}>
-              {isReminded ? "Reminded" : "Remind"}
-            </Text>
+            <Text style={styles.secondaryText}>Reminders</Text>
           </Pressable>
           <Pressable
             onPress={onOpenDrawer}
@@ -357,7 +350,5 @@ const styles = StyleSheet.create({
     borderColor: "transparent",
   },
   secondaryText: { color: "#fff", fontFamily: fonts.medium, fontSize: 7.5 },
-  reminderActive: { borderColor: REMINDER_COLOR, backgroundColor: "rgba(250,204,21,0.12)" },
-  reminderActiveText: { color: REMINDER_COLOR },
   focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
 });

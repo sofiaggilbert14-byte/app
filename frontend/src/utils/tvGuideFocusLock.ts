@@ -16,6 +16,7 @@ type GuideChannelEntry = {
 };
 
 const guideChannelNodes = new Map<string, GuideChannelEntry>();
+const guideProgramNodes = new Map<string, unknown>();
 /** Stable auxiliary-panel target used when leaving the guide to the left. */
 let guidePreviewEntryNode: unknown = null;
 let cancelGuideRestoreTimers: (() => void) | null = null;
@@ -231,4 +232,51 @@ export function armGuideLeftFocusLock(node: unknown, ms = 400) {
     }, ms);
     leftFocusLockTimers.set(key, timer);
   }
+}
+
+function guideProgramNodeKey(channelId: string, programStart: string): string {
+  return `${channelId}\u0000${programStart}`;
+}
+
+/** Track the exact programme cell so modal Back/X can restore its origin. */
+export function registerGuideProgramNode(
+  channelId: string,
+  programStart: string,
+  node: unknown,
+): void {
+  if (!channelId || !programStart) return;
+  const key = guideProgramNodeKey(channelId, programStart);
+  if (node) guideProgramNodes.set(key, node);
+  else guideProgramNodes.delete(key);
+}
+
+/** Restore the exact programme cell, resolving its current recycled ref per retry. */
+export function focusGuideProgramCell(
+  channelId: string,
+  programStart: string,
+  delays: number[] = [0, 16, 48, 96, 180],
+): boolean {
+  if (!channelId || !programStart) return false;
+  cancelPreviewFocusAttempts();
+  cancelGuideFocusRestore();
+  const key = guideProgramNodeKey(channelId, programStart);
+  const timers: ReturnType<typeof setTimeout>[] = [];
+  let cancelled = false;
+  let found = false;
+  const tryCurrentCell = () => {
+    if (cancelled) return;
+    const target = guideProgramNodes.get(key);
+    if (!target) return;
+    found = requestNativeFocus(target) || found;
+  };
+  for (const rawDelay of delays) {
+    const delay = Math.max(0, rawDelay);
+    if (delay === 0) tryCurrentCell();
+    else timers.push(setTimeout(tryCurrentCell, delay));
+  }
+  cancelGuideRestoreTimers = () => {
+    cancelled = true;
+    for (const timer of timers) clearTimeout(timer);
+  };
+  return found || timers.length > 0;
 }

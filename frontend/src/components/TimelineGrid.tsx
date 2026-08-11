@@ -25,6 +25,7 @@ import {
   armGuideBottomFocusLock,
   armGuideLeftFocusLock,
   focusGuideSurfaceWhenMounted,
+  registerGuideProgramNode,
   noteGuideChannelFocus,
   registerGuideChannelNode,
 } from "@/src/utils/tvGuideFocusLock";
@@ -37,8 +38,6 @@ import {
   type GuideScanDirection,
 } from "@/src/core/guideRunwayPolicy";
 import { buildVisibleGuideCellSlice } from "@/src/core/guideCellCulling";
-import { createDpadDoubleTapDetector } from "@/src/core/dpadDoubleTap";
-import { subscribeVerticalDpadTaps } from "@/src/utils/tvDpadTap";
 import { noteGuideRowSlice, noteProgramCellMounted } from "@/src/utils/guidePerfMetrics";
 
 const HEADER_H = 30;
@@ -184,10 +183,11 @@ const ProgramCell = memo(function ProgramCell({
   const setRef = useCallback(
     (node: any) => {
       cellRef.current = node;
+      registerGuideProgramNode(channel.id, prepared.program.start, node);
       if (isPreferred) capturePreferred(node);
       applyDownFocusLock(node, lockFocusDown);
     },
-    [capturePreferred, isPreferred, lockFocusDown],
+    [capturePreferred, channel.id, isPreferred, lockFocusDown, prepared.program.start],
   );
 
   useEffect(() => {
@@ -628,9 +628,12 @@ export const TimelineGrid = memo(function TimelineGrid({
   const lastAxisAtRef = useRef(0);
   // Ref-only: putting focused key in renderItem deps rebuilt every FlashList row on each cell focus.
   const focusedProgramKeyRef = useRef<string | null>(null);
-  const pageJumpDetectorRef = useRef(createDpadDoubleTapDetector());
-  const pageJumpAnchorRef = useRef(0);
-  const lastGridOwnedAtRef = useRef(0);
+  const viewportDispatchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingViewportRef = useRef<{
+    runway: string[];
+    priorities: string[];
+    pageSize: number;
+  } | null>(null);
   const rememberFocusNode = useCallback((node: unknown) => {
     if (node) focusedNodeRef.current = node;
   }, []);
@@ -639,7 +642,6 @@ export const TimelineGrid = memo(function TimelineGrid({
     (index: number) => {
       focusedRowRef.current = index;
       gridOwnsFocusRef.current = true;
-      lastGridOwnedAtRef.current = Date.now();
       const rows = channelsRef.current;
       const deep = index > 0;
       if (lastReportedDeepRef.current !== deep) {
@@ -678,7 +680,15 @@ export const TimelineGrid = memo(function TimelineGrid({
           rows[index + scanDirectionRef.current * 4]?.id,
           ...visiblePageIds,
         ].filter((id): id is string => !!id);
-        onViewportChannelIds(runway, priorityIds, visibleRows);
+        pendingViewportRef.current = { runway, priorities: priorityIds, pageSize: visibleRows };
+        if (!viewportDispatchRef.current) {
+          viewportDispatchRef.current = setTimeout(() => {
+            viewportDispatchRef.current = null;
+            const pending = pendingViewportRef.current;
+            pendingViewportRef.current = null;
+            if (pending) onViewportChannelIds(pending.runway, pending.priorities, pending.pageSize);
+          }, 16);
+        }
       }
     },
     [ROW_H, cacheProfile, onFocusedRowChange, onViewportChannelIds],
@@ -724,29 +734,32 @@ export const TimelineGrid = memo(function TimelineGrid({
     (target: number, animated: boolean) => {
       const next = Math.max(0, target);
       scrollXRef.current = next;
-      setChannelRailVisible((current) => {
-        const visible = next < Math.max(1, LOGO_W - 4);
-        return current === visible ? current : visible;
-      });
-      // Programme culling uses timeline-local coordinates. Shared scroll also
-      // contains the channel rail, so remove that portion before bucketing.
-      const timelineOffset = Math.max(0, next - LOGO_W);
-      const bucket = Math.floor(timelineOffset / PAN_BUCKET_PX) * PAN_BUCKET_PX;
-      setPanBucket((prev) => (prev === bucket ? prev : bucket));
+      const commitViewport = () => {
+        setChannelRailVisible((current) => {
+          const visible = next < Math.max(1, LOGO_W - 4);
+          return current === visible ? current : visible;
+        });
+        // Cull only after the pixels reach their destination. Updating the
+        // mounted slice before the pan completes can remove native focus.
+        const timelineOffset = Math.max(0, next - LOGO_W);
+        const bucket = Math.floor(timelineOffset / PAN_BUCKET_PX) * PAN_BUCKET_PX;
+        setPanBucket((prev) => (prev === bucket ? prev : bucket));
+      };
       panAnimRef.current?.stop();
-      // JS driver: safer with FlashList recycling than native-driver multiply transforms.
       if (!animated || reduceMotion) {
         scrollX.setValue(next);
+        commitViewport();
         return;
       }
       panAnimRef.current = Animated.timing(scrollX, {
         toValue: next,
         duration: HORIZONTAL_PAN_MS,
         easing: Easing.out(Easing.cubic),
-        useNativeDriver: false,
+        useNativeDriver: true,
       });
       panAnimRef.current.start(() => {
         panAnimRef.current = null;
+        commitViewport();
       });
     },
     [LOGO_W, reduceMotion, scrollX],
@@ -811,49 +824,11 @@ export const TimelineGrid = memo(function TimelineGrid({
   useEffect(
     () => () => {
       if (escapeTimer.current) clearTimeout(escapeTimer.current);
+      if (viewportDispatchRef.current) clearTimeout(viewportDispatchRef.current);
       panAnimRef.current?.stop();
     },
     [],
   );
-
-  useEffect(() => {
-    if (!active) {
-      pageJumpDetectorRef.current.reset();
-      return;
-    }
-    return subscribeVerticalDpadTaps((key) => {
-      const ownsFocus = gridOwnsFocusRef.current;
-      const recentlyOwned = Date.now() - lastGridOwnedAtRef.current <= 160;
-      if (!ownsFocus && !recentlyOwned) {
-        pageJumpDetectorRef.current.reset();
-        return;
-      }
-      // FlashList recycle can drop owns-focus for a frame between ultra-fast
-      // taps — still feed the detector so the second tap is never discarded.
-      if (ownsFocus) lastGridOwnedAtRef.current = Date.now();
-      const matched = pageJumpDetectorRef.current.push(key);
-      if (!matched) {
-        pageJumpAnchorRef.current = focusedRowRef.current;
-        return;
-      }
-      const rows = channelsRef.current;
-      if (!rows.length) return;
-      const direction: GuideScanDirection = matched === "DOWN" ? 1 : -1;
-      const visibleRows = Math.max(1, Math.floor((bodyHRef.current || ROW_H * 6) / ROW_H));
-      const target = Math.max(
-        0,
-        Math.min(rows.length - 1, pageJumpAnchorRef.current + direction * visibleRows),
-      );
-      scanDirectionRef.current = direction;
-      focusedProgramKeyRef.current = null;
-      // Jump immediately — do not wait on focus retries for the scroll itself.
-      try {
-        listRef.current?.scrollToIndex({ index: target, animated: false, viewPosition: 0.1 });
-      } catch {}
-      reportFocusedRow(target);
-      focusGuideSurfaceWhenMounted(rows[target]?.id, [0, 16, 48, 96]);
-    });
-  }, [ROW_H, active, reportFocusedRow]);
 
   useTVEventHandler(
     useCallback(
@@ -879,7 +854,6 @@ export const TimelineGrid = memo(function TimelineGrid({
         if (decision.boundary === "left-boundary") {
           if (onLeftBoundary) {
             gridOwnsFocusRef.current = false;
-            pageJumpDetectorRef.current.reset();
             onLeftBoundary();
             return;
           }
@@ -899,7 +873,6 @@ export const TimelineGrid = memo(function TimelineGrid({
           if (guideEscapeInFlight.current) return;
           guideEscapeInFlight.current = true;
           gridOwnsFocusRef.current = false;
-          pageJumpDetectorRef.current.reset();
           onUpBoundary?.();
           if (escapeTimer.current) clearTimeout(escapeTimer.current);
           escapeTimer.current = setTimeout(() => {
