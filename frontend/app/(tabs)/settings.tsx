@@ -701,11 +701,14 @@ export default function SettingsScreen() {
                   value={playerCompat.vlcAudioOutput}
                   options={[
                     { label: "Auto", value: "auto" },
-                    { label: "Stereo mix", value: "stereo" },
+                    { label: "Stereo / 2-channel", value: "stereo" },
                     { label: "Passthrough", value: "passthrough" },
                   ]}
                   onChange={playerCompat.setVlcAudioOutput}
                 />
+                <Text style={styles.help}>
+                  Stereo / 2-channel forces a downmix. Changing VLC or Media3 audio options remounts the active player so the new setting applies immediately.
+                </Text>
                 <ToggleRow
                   label="VLC hardware decode"
                   value={playerCompat.vlcHardwareDecode}
