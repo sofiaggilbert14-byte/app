@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { normalizePreferredAudioLanguage } from "@/src/core/preferredAudioLanguages";
 import { storage } from "@/src/utils/storage";
 
 const LANG_KEY = "gs_audio_default_lang";
@@ -29,7 +30,7 @@ export function useAudioTrackPreferences() {
       storage.getItem<Record<string, TrackId>>(CHANNEL_KEY, {}),
     ]).then(([defaultLanguage, byChannel]) => {
       cached = {
-        defaultLanguage: String(defaultLanguage || "").slice(0, 16),
+        defaultLanguage: normalizePreferredAudioLanguage(defaultLanguage),
         byChannel: byChannel && typeof byChannel === "object" ? byChannel : {},
       };
       if (mounted) setSnapshot(cached);
@@ -45,7 +46,7 @@ export function useAudioTrackPreferences() {
   return {
     ...snapshot,
     setDefaultLanguage: useCallback((raw: string) => {
-      cached = { ...cached, defaultLanguage: String(raw || "").slice(0, 16) };
+      cached = { ...cached, defaultLanguage: normalizePreferredAudioLanguage(raw) };
       emit();
       void storage.setItem(LANG_KEY, cached.defaultLanguage);
     }, []),

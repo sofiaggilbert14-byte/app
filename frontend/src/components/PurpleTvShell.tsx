@@ -15,7 +15,10 @@ import * as Haptics from "expo-haptics";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { fonts, radius, spacing, tvColors } from "@/src/theme";
 import { combineTvEdgeInsets, getTvSafeInsets } from "@/src/utils/tvLayout";
-import { reclaimGuideBottomFocusIfArmed } from "@/src/utils/tvGuideFocusLock";
+import {
+  focusGuideSurfaceWhenMounted,
+  reclaimGuideBottomFocusIfArmed,
+} from "@/src/utils/tvGuideFocusLock";
 import { requestNativeFocusWithRetry } from "@/src/utils/tvFocus";
 import { useStore } from "@/src/store";
 import { evaluateDrawerBack } from "@/src/core/drawerNavigationPolicy";
@@ -65,7 +68,7 @@ const NAV: NavItem[] = [
   { route: "/", label: "Live TV", icon: "tv-outline" },
   { route: "/guide", label: "TV Guide", icon: "calendar-outline" },
   { route: "/favorites", label: "Favorites", icon: "heart-outline" },
-  { route: "/reminders", label: "Reminders", icon: "notifications-outline" },
+  { route: "/reminders", label: "My Reminders", icon: "notifications-outline" },
   { route: "/channels", label: "Channels", icon: "list-outline" },
   { route: "/movies", label: "Movies", icon: "film-outline" },
   { route: "/series", label: "Series", icon: "albums-outline" },
@@ -77,11 +80,19 @@ const NAV: NavItem[] = [
 export const PURPLE_SIDEBAR_WIDTH = 156;
 export const PURPLE_DRAWER_ANIMATION_MS = 180;
 
+export type OpenDrawerOptions = {
+  /** Focus the first drawer row (Live TV) instead of the active route. */
+  focusTop?: boolean;
+};
+
 type DrawerContextValue = {
   drawerOpen: boolean;
   drawerProgress: Animated.Value;
-  openDrawer: () => void;
+  openDrawer: (options?: OpenDrawerOptions) => void;
   closeDrawer: () => void;
+  /** True when the next drawer-open focus pass should land on the top row. */
+  focusDrawerTop: boolean;
+  consumeFocusDrawerTop: () => void;
 };
 
 const DrawerContext = createContext<DrawerContextValue | null>(null);
@@ -89,13 +100,19 @@ const DrawerContext = createContext<DrawerContextValue | null>(null);
 export function PurpleTvDrawerProvider({ children }: { children: React.ReactNode }) {
   // Always boot closed — content is full-bleed; double-Back opens the drawer.
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [focusDrawerTop, setFocusDrawerTop] = useState(false);
   const drawerProgress = useRef(new Animated.Value(0)).current;
-  const openDrawer = useCallback(() => {
+  const openDrawer = useCallback((options?: OpenDrawerOptions) => {
     // Rapid D-pad surf must never yank the sidebar open under the guide.
     if (isGuideSurfing()) return;
+    setFocusDrawerTop(!!options?.focusTop);
     setDrawerOpen(true);
   }, []);
-  const closeDrawer = useCallback(() => setDrawerOpen(false), []);
+  const closeDrawer = useCallback(() => {
+    setFocusDrawerTop(false);
+    setDrawerOpen(false);
+  }, []);
+  const consumeFocusDrawerTop = useCallback(() => setFocusDrawerTop(false), []);
   useEffect(() => {
     const animation = Animated.timing(drawerProgress, {
       toValue: drawerOpen ? 1 : 0,
@@ -106,8 +123,15 @@ export function PurpleTvDrawerProvider({ children }: { children: React.ReactNode
     return () => animation.stop();
   }, [drawerOpen, drawerProgress]);
   const value = useMemo(
-    () => ({ drawerOpen, drawerProgress, openDrawer, closeDrawer }),
-    [closeDrawer, drawerOpen, drawerProgress, openDrawer],
+    () => ({
+      drawerOpen,
+      drawerProgress,
+      openDrawer,
+      closeDrawer,
+      focusDrawerTop,
+      consumeFocusDrawerTop,
+    }),
+    [closeDrawer, consumeFocusDrawerTop, drawerOpen, drawerProgress, focusDrawerTop, openDrawer],
   );
   return <DrawerContext.Provider value={value}>{children}</DrawerContext.Provider>;
 }
@@ -167,7 +191,14 @@ export function PurpleTvShell({
   onRecentPress?: (channelId: string) => void;
 }) {
   const router = useRouter();
-  const { drawerOpen, drawerProgress, openDrawer, closeDrawer } = usePurpleTvDrawer();
+  const {
+    drawerOpen,
+    drawerProgress,
+    openDrawer,
+    closeDrawer,
+    focusDrawerTop,
+    consumeFocusDrawerTop,
+  } = usePurpleTvDrawer();
   const { width, height } = useWindowDimensions();
   const { deviceLayoutMode, activeProgram } = useStore();
   const { calibration } = useTvCalibration();
@@ -184,6 +215,9 @@ export function PurpleTvShell({
   // Drawer boots closed — pulse content autoFocus once so guide/home can claim first focus.
   const [contentAutoFocus, setContentAutoFocus] = useState(() => !drawerOpen);
   const [drawerAutoFocus, setDrawerAutoFocus] = useState(drawerOpen);
+  const [drawerPreferredRoute, setDrawerPreferredRoute] = useState<Route | null>(
+    drawerOpen ? active : null,
+  );
   useEffect(() => {
     if (!contentAutoFocus) return;
     const timer = setTimeout(() => setContentAutoFocus(false), 700);
@@ -193,24 +227,36 @@ export function PurpleTvShell({
   useEffect(() => {
     if (!drawerOpen) {
       setDrawerAutoFocus(false);
-      // Guide owns mount-once preferred focus — never pulse content autoFocus there
-      // (it fights logo/program stickiness after Back → drawer → close).
-      if (active !== "/guide") setContentAutoFocus(true);
+      setDrawerPreferredRoute(null);
+      // Hand focus back to Guide immediately when the drawer closes on that
+      // route. Waiting only on guide.tsx races FlashList recycle and leaves
+      // Android on an unfocusable drawer Pressable (invisible/chaotic focus).
+      if (active === "/guide" && !activeProgram) {
+        focusGuideSurfaceWhenMounted(undefined, [0, 40, 120, 240, 400, 650, 900]);
+      } else if (active !== "/guide") {
+        setContentAutoFocus(true);
+      }
       return;
     }
 
     setContentAutoFocus(false);
+    const preferredRoute: Route = focusDrawerTop ? NAV[0].route : active;
+    if (focusDrawerTop) consumeFocusDrawerTop();
+    setDrawerPreferredRoute(preferredRoute);
     setDrawerAutoFocus(true);
-    const clearPreferred = setTimeout(() => setDrawerAutoFocus(false), 700);
+    const clearPreferred = setTimeout(() => {
+      setDrawerAutoFocus(false);
+      setDrawerPreferredRoute(null);
+    }, 700);
     const cancelFocus = requestNativeFocusWithRetry(
-      navRefs.current.get(active),
+      navRefs.current.get(preferredRoute),
       [0, PURPLE_DRAWER_ANIMATION_MS, 280, 420, 650],
     );
     return () => {
       clearTimeout(clearPreferred);
       cancelFocus?.();
     };
-  }, [active, drawerOpen]);
+  }, [active, activeProgram, consumeFocusDrawerTop, drawerOpen, focusDrawerTop]);
 
   const reopenArmedAtRef = useRef(0);
 
@@ -252,6 +298,11 @@ export function PurpleTvShell({
   const navigate = useCallback(
     (route: Route) => {
       void Haptics.selectionAsync().catch(() => undefined);
+      // Claim Guide focus before drawer rows become unfocusable, otherwise the
+      // still-focused nav Pressable vanishes from the focus graph mid-handoff.
+      if (route === "/guide" || active === "/guide") {
+        focusGuideSurfaceWhenMounted(undefined, [0, 32, 96, 180, 320, 520, 800]);
+      }
       closeDrawer();
       if (route !== active) router.replace(route as any);
     },
@@ -369,7 +420,7 @@ export function PurpleTvShell({
                     else navRefs.current.delete(item.route);
                   }}
                   focusable={drawerOpen}
-                  hasTVPreferredFocus={drawerAutoFocus && selected}
+                  hasTVPreferredFocus={drawerAutoFocus && drawerPreferredRoute === item.route}
                   onPress={() => navigate(item.route)}
                   style={({ focused }: any) => [
                     styles.navRow,

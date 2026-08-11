@@ -1,19 +1,101 @@
-import React, { useCallback, useMemo } from "react";
-import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  FlatList,
+  Pressable,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { PurpleTvShell } from "@/src/components/PurpleTvShell";
-import { useStore } from "@/src/store";
+import { ChannelLogo } from "@/src/components/ChannelLogo";
+import { useStore, type Reminder } from "@/src/store";
 import { fonts, radius, tvColors } from "@/src/theme";
-import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
 import { fmtDayTime } from "@/src/utils/time";
 
+const COLUMNS = 6;
+const PAGE_BG = "#2B0B4A";
+const CARD_BG = "rgba(18, 8, 36, 0.92)";
+const CARD_BORDER = "rgba(192, 132, 252, 0.35)";
+
+function formatEta(msLeft: number): string {
+  if (msLeft <= 0) return "LIVE";
+  const totalSec = Math.floor(msLeft / 1000);
+  const days = Math.floor(totalSec / 86400);
+  const hours = Math.floor((totalSec % 86400) / 3600);
+  const minutes = Math.floor((totalSec % 3600) / 60);
+  const seconds = totalSec % 60;
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+function ReminderCard({
+  item,
+  cardWidth,
+  nowMs,
+  onCancel,
+}: {
+  item: Reminder;
+  cardWidth: number;
+  nowMs: number;
+  onCancel: (key: string) => void;
+}) {
+  const startMs = Date.parse(item.start);
+  const msLeft = Number.isFinite(startMs) ? startMs - nowMs : 0;
+  const when = fmtDayTime(item.start);
+  const description =
+    item.programDesc?.trim() ||
+    `${item.programTitle || "Program"} on ${item.channelName || "channel"}.`;
+
+  return (
+    <View style={[styles.card, { width: cardWidth }]} testID={`reminder-card-${item.key}`}>
+      <View style={styles.cardHeader}>
+        <ChannelLogo
+          name={item.channelName || "Channel"}
+          logo={item.channelLogo || undefined}
+          size={42}
+        />
+        <View style={styles.cardHeaderText}>
+          <Text style={styles.channelName} numberOfLines={1}>
+            {item.channelName || "Channel"}
+          </Text>
+          <Text style={styles.whenLine} numberOfLines={2}>
+            {when}
+            <Text style={styles.whenSep}>{"  /  "}</Text>
+            <Text style={styles.etaLabel}>ETA : </Text>
+            <Text style={styles.etaValue}>{formatEta(msLeft)}</Text>
+          </Text>
+        </View>
+      </View>
+      <Text style={styles.programTitle} numberOfLines={2}>
+        {item.programTitle || "Upcoming programme"}
+      </Text>
+      <Text style={styles.description} numberOfLines={4}>
+        {description}
+      </Text>
+      <Pressable
+        onPress={() => onCancel(item.key)}
+        style={({ focused }: any) => [styles.cancelButton, focused && styles.cancelFocused]}
+        testID={`reminder-cancel-${item.key}`}
+      >
+        <Ionicons name="close-circle-outline" size={14} color="#fff" />
+        <Text style={styles.cancelText}>Cancel Reminder</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 export default function RemindersScreen() {
   const router = useRouter();
-  const { reminders, removeReminder, channelById, clock24h } = useStore();
-  void clock24h;
+  const { width } = useWindowDimensions();
+  const { reminders, removeReminder, channelById } = useStore();
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   useTvBackHandler(
     useCallback(() => {
@@ -22,54 +104,92 @@ export default function RemindersScreen() {
     }, []),
   );
 
-  const upcoming = useMemo(
-    () =>
-      [...reminders].sort((a, b) => Date.parse(a.start) - Date.parse(b.start)),
-    [reminders],
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const upcoming = useMemo(() => {
+    return [...reminders]
+      .map((item) => {
+        const channel = channelById(item.channelId);
+        return {
+          ...item,
+          channelName: item.channelName || channel?.name || "Channel",
+          channelLogo: item.channelLogo || channel?.logo || null,
+          programDesc: item.programDesc || "",
+        };
+      })
+      .sort((a, b) => Date.parse(a.start) - Date.parse(b.start));
+  }, [channelById, reminders]);
+
+  const gap = width >= 1200 ? 14 : 10;
+  const pagePad = 18;
+  const cardWidth = Math.max(
+    140,
+    Math.floor((width - pagePad * 2 - gap * (COLUMNS - 1) - 8) / COLUMNS),
   );
 
-  const openChannel = useCallback(
-    (channelId: string) => {
+  const returnToGuide = useCallback(() => {
+    void Haptics.selectionAsync().catch(() => undefined);
+    router.replace("/guide" as any);
+  }, [router]);
+
+  const cancelReminder = useCallback(
+    (key: string) => {
       void Haptics.selectionAsync().catch(() => undefined);
-      if (channelById(channelId)) openFullscreenPlayer(router, channelId);
-      else router.replace("/guide" as any);
+      void removeReminder(key);
     },
-    [channelById, router],
+    [removeReminder],
   );
 
   return (
     <PurpleTvShell active="/reminders">
       <View style={styles.page}>
-        <Text style={styles.kicker}>SCHEDULE</Text>
-        <Text style={styles.title}>Reminders</Text>
-        <Text style={styles.help}>Upcoming programme reminders on this device. Cancel anytime.</Text>
+        <View style={styles.topBar}>
+          <Pressable
+            hasTVPreferredFocus
+            onPress={returnToGuide}
+            style={({ focused }: any) => [styles.returnButton, focused && styles.returnFocused]}
+            testID="reminders-return-guide"
+          >
+            <Ionicons name="arrow-back" size={14} color="#fff" />
+            <Text style={styles.returnText}>Return to Guide</Text>
+          </Pressable>
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>{upcoming.length} UPCOMING</Text>
+          </View>
+        </View>
+
+        <Text style={styles.kicker}>YOUR WATCHLIST</Text>
+        <Text style={styles.title}>My Reminders</Text>
+        <Text style={styles.help}>
+          Never miss what you’re waiting for. Set reminders from the Guide — cards appear here
+          instantly and disappear the moment you cancel.
+        </Text>
+
         <FlatList
           data={upcoming}
           keyExtractor={(item) => item.key}
-          contentContainerStyle={styles.list}
+          numColumns={COLUMNS}
+          columnWrapperStyle={[styles.row, { gap }]}
+          contentContainerStyle={[styles.list, { gap }]}
           ListEmptyComponent={
-            <Text style={styles.empty}>No upcoming reminders. Open a programme in the guide and choose Remind me.</Text>
+            <View style={styles.emptyWrap}>
+              <Text style={styles.emptyTitle}>No reminders yet</Text>
+              <Text style={styles.empty}>
+                In the Guide, focus a future show and choose Remind. Each reminder creates one of
+                these cards.
+              </Text>
+            </View>
           }
           renderItem={({ item }) => (
-            <View style={styles.row}>
-              <Pressable
-                onPress={() => openChannel(item.channelId)}
-                style={({ focused }: any) => [styles.main, focused && styles.focused]}
-              >
-                <Text style={styles.when}>{fmtDayTime(item.start)}</Text>
-                <Text style={styles.program} numberOfLines={1}>{item.programTitle}</Text>
-                <Text style={styles.channel} numberOfLines={1}>{item.channelName}</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  void Haptics.selectionAsync().catch(() => undefined);
-                  void removeReminder(item.key);
-                }}
-                style={({ focused }: any) => [styles.cancel, focused && styles.focused]}
-              >
-                <Ionicons name="close" size={16} color="#fff" />
-              </Pressable>
-            </View>
+            <ReminderCard
+              item={item}
+              cardWidth={cardWidth}
+              nowMs={nowMs}
+              onCancel={cancelReminder}
+            />
           )}
         />
       </View>
@@ -78,36 +198,170 @@ export default function RemindersScreen() {
 }
 
 const styles = StyleSheet.create({
-  page: { flex: 1, padding: 14 },
-  kicker: { color: tvColors.purpleSoft, fontFamily: fonts.semibold, fontSize: 7.5, letterSpacing: 1 },
-  title: { color: "#fff", fontFamily: fonts.bold, fontSize: 18, marginTop: 2 },
-  help: { color: tvColors.textMuted, fontFamily: fonts.regular, fontSize: 8.5, marginTop: 6, marginBottom: 10 },
-  list: { paddingBottom: 40, gap: 8 },
-  empty: { color: tvColors.textMuted, fontFamily: fonts.regular, fontSize: 9, marginTop: 20 },
-  row: { flexDirection: "row", alignItems: "center", gap: 8 },
-  main: {
+  page: {
     flex: 1,
-    minHeight: 64,
+    paddingHorizontal: 18,
+    paddingTop: 12,
+    paddingBottom: 10,
+    backgroundColor: PAGE_BG,
+  },
+  topBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  returnButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    minHeight: 36,
+    paddingHorizontal: 12,
     borderRadius: radius.sm,
     borderWidth: 2,
     borderColor: "transparent",
-    backgroundColor: tvColors.panel,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 2,
+    backgroundColor: "rgba(255,255,255,0.08)",
   },
-  when: { color: tvColors.purpleSoft, fontFamily: fonts.medium, fontSize: 8 },
-  program: { color: "#fff", fontFamily: fonts.semibold, fontSize: 11 },
-  channel: { color: tvColors.textMuted, fontFamily: fonts.regular, fontSize: 8.5 },
-  cancel: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
+  returnFocused: {
+    borderColor: "#fff",
+    backgroundColor: tvColors.purpleDeep,
+  },
+  returnText: {
+    color: "#fff",
+    fontFamily: fonts.semibold,
+    fontSize: 11,
+  },
+  badge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: radius.pill,
+    backgroundColor: "rgba(168, 85, 247, 0.35)",
+  },
+  badgeText: {
+    color: "#F3E8FF",
+    fontFamily: fonts.semibold,
+    fontSize: 9,
+    letterSpacing: 0.6,
+  },
+  kicker: {
+    color: tvColors.purpleSoft,
+    fontFamily: fonts.semibold,
+    fontSize: 8,
+    letterSpacing: 1.4,
+  },
+  title: {
+    color: "#fff",
+    fontFamily: fonts.bold,
+    fontSize: 26,
+    marginTop: 2,
+  },
+  help: {
+    color: "rgba(255,255,255,0.72)",
+    fontFamily: fonts.regular,
+    fontSize: 10,
+    marginTop: 6,
+    marginBottom: 14,
+    maxWidth: 720,
+  },
+  list: {
+    paddingBottom: 36,
+  },
+  row: {
+    flexDirection: "row",
+  },
+  emptyWrap: {
+    marginTop: 28,
+    padding: 18,
+    borderRadius: radius.md,
+    backgroundColor: "rgba(0,0,0,0.18)",
+  },
+  emptyTitle: {
+    color: "#fff",
+    fontFamily: fonts.semibold,
+    fontSize: 14,
+    marginBottom: 6,
+  },
+  empty: {
+    color: "rgba(255,255,255,0.7)",
+    fontFamily: fonts.regular,
+    fontSize: 10,
+    lineHeight: 16,
+  },
+  card: {
+    backgroundColor: CARD_BG,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: CARD_BORDER,
+    padding: 12,
+    minHeight: 210,
+    justifyContent: "space-between",
+  },
+  cardHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  cardHeaderText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  channelName: {
+    color: "#fff",
+    fontFamily: fonts.bold,
+    fontSize: 13,
+  },
+  whenLine: {
+    color: "rgba(255,255,255,0.78)",
+    fontFamily: fonts.medium,
+    fontSize: 8.5,
+    lineHeight: 12,
+  },
+  whenSep: {
+    color: "rgba(255,255,255,0.35)",
+  },
+  etaLabel: {
+    color: tvColors.purpleSoft,
+    fontFamily: fonts.semibold,
+  },
+  etaValue: {
+    color: "#FDE68A",
+    fontFamily: fonts.bold,
+  },
+  programTitle: {
+    color: "#fff",
+    fontFamily: fonts.semibold,
+    fontSize: 12,
+    marginTop: 10,
+  },
+  description: {
+    color: "rgba(255,255,255,0.72)",
+    fontFamily: fonts.regular,
+    fontSize: 9,
+    lineHeight: 13,
+    marginTop: 6,
+    flexGrow: 1,
+  },
+  cancelButton: {
+    marginTop: 12,
+    minHeight: 34,
+    borderRadius: radius.sm,
     borderWidth: 2,
     borderColor: "transparent",
-    backgroundColor: tvColors.panelRaised,
+    backgroundColor: "rgba(124, 58, 237, 0.55)",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: 8,
   },
-  focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
+  cancelFocused: {
+    borderColor: "#fff",
+    backgroundColor: tvColors.purple,
+  },
+  cancelText: {
+    color: "#fff",
+    fontFamily: fonts.semibold,
+    fontSize: 9.5,
+  },
 });

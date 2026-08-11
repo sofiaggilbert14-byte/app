@@ -32,7 +32,10 @@ import {
   writeFavoritesBackup,
 } from "@/src/utils/favoritesBackup";
 import { formatDiagnosticsExport } from "@/src/core/diagnosticsExport";
-import { audioDiagnosticsExtras } from "@/src/core/audioDiagnostics";
+import {
+  audioDiagnosticsExtras,
+  getLastAudioDiagnostics,
+} from "@/src/core/audioDiagnostics";
 import { POWER_PROFILE_OPTIONS } from "@/src/core/devicePowerProfile";
 import {
   usePlaybackBufferProfile,
@@ -51,6 +54,12 @@ import {
 import { fonts, radius, tvColors } from "@/src/theme";
 import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
 import { useAudioTrackPreferences } from "@/src/core/audioTrackPreferences";
+import { PREFERRED_AUDIO_LANGUAGE_OPTIONS } from "@/src/core/preferredAudioLanguages";
+import {
+  usePlayerCompatibilityPreferences,
+  type Media3AudioMode,
+  type VlcAudioOutput,
+} from "@/src/core/playerCompatibilityPreferences";
 import {
   getDeviceCodecCapabilities,
   type DeviceCodecCapabilities,
@@ -145,6 +154,8 @@ export default function SettingsScreen() {
   const parental = useParentalPin();
   const subtitles = useSubtitlePreferences();
   const audioPreferences = useAudioTrackPreferences();
+  const playerCompat = usePlayerCompatibilityPreferences();
+  const latestAudio = getLastAudioDiagnostics();
   const [section, setSection] = useState<Section | null>(null);
   const [busy, setBusy] = useState(false);
   const [backupStatus, setBackupStatus] = useState<string | null>(null);
@@ -644,24 +655,67 @@ export default function SettingsScreen() {
                   Media3 exposes audio/CC tracks and uses the Android TV codec path. Choose Media3 to keep one player engine; VLC remains an optional compatibility mode.
                 </Text>
                 <View style={styles.divider} />
-                <Text style={styles.settingLabel}>Audio</Text>
-                <Text style={styles.help}>The app remembers the last working audio track for up to 128 channels and can prefer a language.</Text>
-                <View style={styles.pinInputRow}>
-                  <Text style={styles.infoLabel}>Preferred language</Text>
-                  <TextInput
-                    value={audioPreferences.defaultLanguage}
-                    onChangeText={audioPreferences.setDefaultLanguage}
-                    placeholder="eng"
-                    placeholderTextColor={tvColors.textMuted}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    maxLength={16}
-                    style={styles.pinInput}
-                    testID="settings-audio-lang"
-                  />
-                </View>
+                <Text style={styles.settingLabel}>Audio / CC</Text>
+                <Text style={styles.help}>
+                  Preferred audio language auto-selects a matching track when Media3 or VLC exposes one.
+                  The last working track is remembered per channel (up to 128). Use Audio/CC in the fullscreen player to pick a track manually.
+                </Text>
+                <ChoiceRow<string>
+                  label="Preferred audio language"
+                  value={audioPreferences.defaultLanguage}
+                  options={PREFERRED_AUDIO_LANGUAGE_OPTIONS}
+                  onChange={audioPreferences.setDefaultLanguage}
+                />
+                <ToggleRow
+                  label="Silent-audio fallback"
+                  value={playerCompat.silentAudioFallback}
+                  onChange={playerCompat.setSilentAudioFallback}
+                />
+                <Text style={styles.help}>
+                  When Media3 reports an unsupported or silent track, automatically try VLC compatibility mode (unless the engine is forced).
+                </Text>
                 <View style={styles.divider} />
-                <Text style={styles.settingLabel}>Subtitles</Text>
+                <Text style={styles.settingLabel}>Media3</Text>
+                <ChoiceRow<Media3AudioMode>
+                  label="Media3 audio mode"
+                  value={playerCompat.media3AudioMode}
+                  options={[
+                    { label: "Auto", value: "auto" },
+                    { label: "Device codecs", value: "device" },
+                    { label: "FFmpeg extension", value: "ffmpeg" },
+                  ]}
+                  onChange={playerCompat.setMedia3AudioMode}
+                />
+                <ToggleRow
+                  label="Media3 tunneling"
+                  value={playerCompat.media3Tunneling}
+                  onChange={playerCompat.setMedia3Tunneling}
+                />
+                <Text style={styles.help}>
+                  Tunneling can reduce latency on some Android TV devices but may break audio on others. Leave off unless you are testing.
+                </Text>
+                <View style={styles.divider} />
+                <Text style={styles.settingLabel}>VLC</Text>
+                <ChoiceRow<VlcAudioOutput>
+                  label="VLC audio output"
+                  value={playerCompat.vlcAudioOutput}
+                  options={[
+                    { label: "Auto", value: "auto" },
+                    { label: "Stereo mix", value: "stereo" },
+                    { label: "Passthrough", value: "passthrough" },
+                  ]}
+                  onChange={playerCompat.setVlcAudioOutput}
+                />
+                <ToggleRow
+                  label="VLC hardware decode"
+                  value={playerCompat.vlcHardwareDecode}
+                  onChange={playerCompat.setVlcHardwareDecode}
+                />
+                <Text style={styles.help}>
+                  Hardware decode is faster on most Fire TV / Android TV boxes. Turn it off only if a specific channel fails on VLC.
+                </Text>
+                <View style={styles.divider} />
+                <Text style={styles.settingLabel}>Subtitles (CC)</Text>
                 <Text style={styles.help}>Default language auto-selects when tracks appear. Size/background are stored for Settings (native burn-in styling is not available yet).</Text>
                 <View style={styles.pinInputRow}>
                   <Text style={styles.infoLabel}>Default language</Text>
@@ -739,6 +793,23 @@ export default function SettingsScreen() {
                   })()}
                 />
                 <InfoRow label="Failed streams" value={String(failedStreamCount())} />
+                <InfoRow label="Ambiguous matches" value={String(diagnostics?.matchQuality?.ambiguous ?? "—")} />
+                <InfoRow
+                  label="Last audio engine"
+                  value={latestAudio?.engine ? String(latestAudio.engine).toUpperCase() : "—"}
+                />
+                <InfoRow
+                  label="Last audio mime"
+                  value={latestAudio?.mimeType || "—"}
+                />
+                <InfoRow
+                  label="Last audio silent"
+                  value={latestAudio ? (latestAudio.silentAudio ? "Yes" : "No") : "—"}
+                />
+                <InfoRow
+                  label="Audio tracks seen"
+                  value={latestAudio?.trackCount != null ? String(latestAudio.trackCount) : "—"}
+                />
                 <InfoRow
                   label="Playlist refreshed"
                   value={
@@ -970,6 +1041,14 @@ export default function SettingsScreen() {
                   ]}
                   onChange={guideUi.setGroupLayout}
                 />
+                <ToggleRow
+                  label="Instant Guide / reduce motion"
+                  value={instantGuide}
+                  onChange={setInstantGuide}
+                />
+                <Text style={styles.help}>
+                  Snaps Guide panning and drawer motion so focus borders and metadata keep pace with rapid remote input. Enabled by default.
+                </Text>
                 <ToggleRow label="Mute guide preview" value={guideUi.mutePreview} onChange={guideUi.setMutePreview} />
                 <ToggleRow label="Hide guide preview" value={guideUi.hidePreview} onChange={guideUi.setHidePreview} />
                 <View style={styles.calibrationWrap}><TvCalibrationControls /></View>
