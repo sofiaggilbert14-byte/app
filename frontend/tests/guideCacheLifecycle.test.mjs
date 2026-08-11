@@ -32,6 +32,7 @@ test("sliding cache retains expanded keep set and strict-releases on blur", asyn
   assert.match(store, /retainProgrammeWindowCache\(keep\)/);
   assert.match(store, /pickKeepIdsAroundFocus\(source, keepLimit, lastChannelId\)/);
   assert.match(store, /pickKeepIdsAroundFocus\(source, keepLimit, lastChannelIdRef\.current\)/);
+  assert.match(store, /pendingPatchIdsRef\.current\.clear\(\)/);
 });
 
 test("prepared program orphan map stays bounded to current + focused keys", async () => {
@@ -40,6 +41,7 @@ test("prepared program orphan map stays bounded to current + focused keys", asyn
   assert.match(timeline, /keepKeys\.add\(focusedProgramKey\)/);
   assert.match(timeline, /previousPreparedByKeyRef\.current\.delete\(key\)/);
   assert.match(timeline, /pendingProgramCellHidden/);
+  assert.doesNotMatch(timeline, /setPreferFirstRow\(true\);\s*const clearPreferred = setTimeout\(\(\) => setPreferFirstRow\(false\), 700\)/);
 });
 
 test("critical trim can force-evict subscribed off-keep programme rows", async () => {

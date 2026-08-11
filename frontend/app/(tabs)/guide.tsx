@@ -448,6 +448,17 @@ export default function PurpleGuideScreen() {
         void patchProgramsForChannelIds(last.ids, last.priority);
       }
       return () => {
+        if (previewTimer.current) {
+          clearTimeout(previewTimer.current);
+          previewTimer.current = null;
+        }
+        if (previewRecoverTimer.current) {
+          clearTimeout(previewRecoverTimer.current);
+          previewRecoverTimer.current = null;
+        }
+        // A real route blur must unmount preview playback before cache release.
+        // The overlay drawer does not blur this route, so its runway stays warm.
+        setPreviewId(null);
         setViewportGuideChannelIds(null);
         setPriorityMatchChannelIds([]);
         releaseGuideSlidingCache();

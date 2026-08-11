@@ -286,13 +286,29 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       const source = lastKeepIdsRef.current.length
         ? lastKeepIdsRef.current
         : lastPatchRunwayIdsRef.current;
-      const keepLimit = critical ? 24 : 48;
+      const keepLimit = critical
+        ? powerProfile === "weak" ? 8 : powerProfile === "max_preview" ? 16 : 12
+        : powerProfile === "weak" ? 16 : powerProfile === "max_preview" ? 48 : 32;
       const keep = pickKeepIdsAroundFocus(source, keepLimit, lastChannelIdRef.current);
+      if (critical) {
+        // Invalidate and cancel pending patch work before strict eviction so an
+        // old async result cannot immediately repopulate off-screen rows.
+        runwayGenerationRef.current += 1;
+        pendingPatchGenerationRef.current = runwayGenerationRef.current;
+        pendingPatchIdsRef.current.clear();
+        pendingPatchPriorityIdsRef.current = [];
+        if (patchTimerRef.current) {
+          clearTimeout(patchTimerRef.current);
+          patchTimerRef.current = null;
+        }
+        retainGuidePrograms(keep, { force: true });
+        retainProgrammeWindowCache(keep);
+      }
       trimGuideProgramRows(keep, critical);
       trimProgrammeWindowCacheForMemoryPressure(keep, critical);
       clearChannelLogoMemory();
     }),
-    [],
+    [powerProfile],
   );
   const [epgGuideFilter, setEpgGuideFilterState] = useState<EpgGuideFilter>("all");
   const [epgManualRemaps, setEpgManualRemapsState] = useState<Record<string, string>>({});
@@ -892,7 +908,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     // Preserve a small warm runway for a fast return to Guide while releasing
     // the bulk of programme arrays before fullscreen video decoders start.
     // Cap around lastChannelId — slicing the ascending keep head drops focus.
-    const keepLimit = powerProfile === "weak" ? 48 : powerProfile === "max_preview" ? 128 : 96;
+    const keepLimit = powerProfile === "weak" ? 24 : powerProfile === "max_preview" ? 72 : 48;
     const source = lastKeepIdsRef.current.length
       ? lastKeepIdsRef.current
       : lastPatchRunwayIdsRef.current;
