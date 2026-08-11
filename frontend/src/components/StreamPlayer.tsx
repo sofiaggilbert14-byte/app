@@ -32,13 +32,7 @@ import {
   usePlaybackBufferProfile,
   type PlaybackBufferProfile,
 } from "@/src/core/playbackBufferProfile";
-import {
-  getMedia3AudioMode,
-  getMedia3Tunneling,
-  getVlcAudioOutput,
-  getVlcHardwareDecode,
-  usePlayerCompatibilityPreferences,
-} from "@/src/core/playerCompatibilityPreferences";
+import { usePlayerCompatibilityPreferences } from "@/src/core/playerCompatibilityPreferences";
 import {
   getPreferredAudioLanguage,
   getRememberedChannelAudioTrack,
@@ -284,13 +278,14 @@ function VlcStream({
   const referer = headers.Referer || headers.referer;
   const origin = headers.Origin || headers.origin;
   const userAgent = headers["User-Agent"] || headers["user-agent"] || "VLC/3.0.20 LibVLC/3.0.20";
+  const playerCompat = usePlayerCompatibilityPreferences();
   const initOptions = useMemo(() => {
     const fullMs = bufferProfile === "low_latency" ? 900 : bufferProfile === "stable" ? 3200 : 1800;
     const networkCaching = mode === "preview" ? 1000 : fullMs;
     const liveCaching = mode === "preview" ? 1000 : fullMs;
     const fileCaching = mode === "preview" ? 700 : Math.round(fullMs * 0.62);
-    const audioOutput = getVlcAudioOutput();
-    const hardwareDecode = getVlcHardwareDecode();
+    const audioOutput = playerCompat.vlcAudioOutput;
+    const hardwareDecode = playerCompat.vlcHardwareDecode;
     const options = [
       `--network-caching=${networkCaching}`,
       `--live-caching=${liveCaching}`,
@@ -302,7 +297,8 @@ function VlcStream({
       `--http-user-agent=${userAgent}`,
     ];
     if (!hardwareDecode) options.push("--avcodec-hw=none");
-    if (audioOutput === "stereo") options.push("--audio-filter=stereo_widen");
+    // stereo-mode=1 forces a 2-channel mix/downmix (not stereo_widen).
+    if (audioOutput === "stereo") options.push("--stereo-mode=1");
     if (audioOutput === "passthrough") {
       options.push("--aout=android_audiotrack");
       options.push("--audio-digital-hdmi-passthrough");
@@ -310,7 +306,15 @@ function VlcStream({
     if (referer) options.push(`--http-referrer=${referer}`);
     if (origin) options.push(`--http-origin=${origin}`);
     return options;
-  }, [bufferProfile, mode, origin, referer, userAgent]);
+  }, [
+    bufferProfile,
+    mode,
+    origin,
+    playerCompat.vlcAudioOutput,
+    playerCompat.vlcHardwareDecode,
+    referer,
+    userAgent,
+  ]);
   const mediaOptions = useMemo(
     () =>
       Object.entries(headers)
@@ -442,10 +446,11 @@ function ExpoStream({
     [sessionGeneration, sessionRole, setStatus],
   );
 
+  const playerCompat = usePlayerCompatibilityPreferences();
   useEffect(() => {
     try {
-      const tunneling = getMedia3Tunneling();
-      const media3Audio = getMedia3AudioMode();
+      const tunneling = playerCompat.media3Tunneling;
+      const media3Audio = playerCompat.media3AudioMode;
       // Tunneling prefers shorter forward buffers; ffmpeg mode keeps a slightly
       // larger decode cushion because the extension path is heavier on weak SoCs.
       const profile = tunneling && bufferProfile !== "stable" ? "low_latency" : bufferProfile;
@@ -475,13 +480,19 @@ function ExpoStream({
     } catch {
       /* older native builds may not expose audio mixing mode */
     }
-  }, [bufferProfile, mode, player]);
+  }, [
+    bufferProfile,
+    mode,
+    player,
+    playerCompat.media3AudioMode,
+    playerCompat.media3Tunneling,
+  ]);
 
   const reportAndSelectMedia3Tracks = useCallback(() => {
     try {
       const audioTracks = Array.isArray(player.availableAudioTracks) ? player.availableAudioTracks : [];
       const supportedTracks = audioTracks.filter((track: any) => track.isSupported !== false);
-      const media3Audio = getMedia3AudioMode();
+      const media3Audio = playerCompat.media3AudioMode;
       const mappedTracks = audioTracks.map((track: any) => ({
         id: track.id,
         name: [track.label || track.language || `Audio ${track.id}`, track.mimeType].filter(Boolean).join(" · "),
@@ -590,14 +601,30 @@ function ExpoStream({
         supportedCount: supportedTracks.length,
         selectedBy,
         silentAudio: false,
-        reason: `mode=${media3Audio};tunnel=${getMedia3Tunneling() ? 1 : 0}`,
+        reason: `mode=${media3Audio};tunnel=${playerCompat.media3Tunneling ? 1 : 0}`,
       });
 
       return supportedTracks.length > 0;
     } catch {
       return false;
     }
-  }, [audioTrack, channelKey, kind, player, sessionRole, textTrack, uri]);
+  }, [
+    audioTrack,
+    channelKey,
+    kind,
+    player,
+    playerCompat.media3AudioMode,
+    playerCompat.media3Tunneling,
+    sessionRole,
+    textTrack,
+    uri,
+  ]);
+
+  // Settings changes must re-apply track selection without waiting for a channel change.
+  useEffect(() => {
+    if (!mediaReady || blocked) return;
+    reportAndSelectMedia3Tracks();
+  }, [blocked, mediaReady, playerCompat.media3AudioMode, reportAndSelectMedia3Tracks]);
 
   const hardStop = useCallback(() => {
     loadIdRef.current += 1;
@@ -828,6 +855,9 @@ export function StreamPlayer({
   const [savedBufferProfile] = usePlaybackBufferProfile();
   const playerCompat = usePlayerCompatibilityPreferences();
   const effectiveBufferProfile = bufferProfile || savedBufferProfile;
+  // Remount engines when settings that only apply at construction change.
+  const vlcEngineKey = `vlc:${uri}:${playerCompat.vlcAudioOutput}:${playerCompat.vlcHardwareDecode ? 1 : 0}:${effectiveBufferProfile}`;
+  const media3EngineKey = `media3:${uri}:${playerCompat.media3AudioMode}:${playerCompat.media3Tunneling ? 1 : 0}:${effectiveBufferProfile}`;
   const forceVlc = playerEnginePreference === "vlc" && vlcAvailable && role !== "preview";
   const forceMedia3 = playerEnginePreference === "media3" && role !== "preview";
   const [session, setSession] = useState({ key: "", generation: 0 });
@@ -948,7 +978,7 @@ export function StreamPlayer({
   if (engine === "vlc") {
     return (
       <VlcStream
-        key={`vlc:${uri}`}
+        key={vlcEngineKey}
         uri={uri}
         onStatus={handleStatus}
         style={style}
@@ -966,7 +996,7 @@ export function StreamPlayer({
   }
   return (
     <ExpoStream
-      key={`media3:${uri}`}
+      key={media3EngineKey}
       uri={uri}
       channelKey={channelKey}
       onStatus={handleStatus}
