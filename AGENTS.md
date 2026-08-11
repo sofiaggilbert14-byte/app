@@ -19,6 +19,9 @@ CharmIPTV Phoenix — Expo/React Native Android TV guide + IPTV player (`fronten
 - Conveyor keep set is the expanded hysteresis band (`expandRunwayKeepSet` / `lastKeepIdsRef`), not the raw runway alone.
 - `loadGuide` must **soft**-trim the programme window cache so silent refresh cannot wipe hysteresis; strict retain belongs to `retainProgrammeWindowCache`.
 - `clearGuideCache()` must also call `clearGuidePrograms()` or Settings “Clear guide cache” leaves stale JS programme rows.
+- Power profile changes runway size: Compatibility (`weak`) uses 5 ahead / 1 behind; Normal 8/2; Max preview 10/2.
+- Reuse `buildChannelIndexMap` across viewport buckets — do not rebuild the id→index Map on every half-page focus move.
+- On Guide refocus, rewarm from `lastRunwayRef` before the first D-pad event.
 
 ### Settings locations
 - **Appearance**: Instant Guide / reduce motion, density, group layout, preview mute/hide

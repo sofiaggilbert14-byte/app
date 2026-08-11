@@ -30,7 +30,10 @@ import { markGuideSurfing } from "@/src/utils/guideSurfGate";
 import { useGuidePrograms } from "@/src/core/guideProgramsStore";
 import { getGuideRailMetrics } from "@/src/core/guideLayoutPolicy";
 import { buildGuideRunwayIds } from "@/src/core/guideRunwayPolicy";
-import { expandRunwayKeepSet } from "@/src/core/guideSlidingCache";
+import {
+  buildChannelIndexMap,
+  expandRunwayKeepSet,
+} from "@/src/core/guideSlidingCache";
 import {
   resetGuideSelection,
   setGuideFocusedProgram,
@@ -272,6 +275,13 @@ export default function PurpleGuideScreen() {
   const previousDrawerOpenRef = useRef(drawerOpen);
   const headerTitleProgress = useRef(new Animated.Value(drawerOpen ? 1 : 0)).current;
   const groupSlideX = useRef(new Animated.Value(0)).current;
+  const orderedFilteredIdsRef = useRef<string[]>([]);
+  const filteredIdIndexRef = useRef<Map<string, number>>(new Map());
+  const lastRunwayRef = useRef<{ ids: string[]; priority: string[]; pageSize: number }>({
+    ids: [],
+    priority: [],
+    pageSize: 8,
+  });
   const [previewEpoch, setPreviewEpoch] = useState(0);
   useEffect(() => {
     resetGuideSelection(guideSessionChannelId);
@@ -411,14 +421,32 @@ export default function PurpleGuideScreen() {
   );
 
   useFocusEffect(
-    useCallback(
-      () => () => {
+    useCallback(() => {
+      // Refocus after blur/player: rewarm the last runway so soft-trim on blur
+      // does not leave an empty FlashList waiting for the first D-pad event.
+      const last = lastRunwayRef.current;
+      if (last.ids.length) {
+        setViewportGuideChannelIds(last.ids);
+        setPriorityMatchChannelIds(
+          channels.length >= 400 ? last.ids.slice(0, 400) : [],
+        );
+        retainGuideSlidingCache(
+          expandRunwayKeepSet(
+            orderedFilteredIdsRef.current,
+            last.ids,
+            last.pageSize,
+            1,
+            filteredIdIndexRef.current,
+          ),
+        );
+        void patchProgramsForChannelIds(last.ids, last.priority);
+      }
+      return () => {
         setViewportGuideChannelIds(null);
         setPriorityMatchChannelIds([]);
         releaseGuideSlidingCache();
-      },
-      [releaseGuideSlidingCache],
-    ),
+      };
+    }, [channels.length, patchProgramsForChannelIds, releaseGuideSlidingCache, retainGuideSlidingCache]),
   );
 
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
@@ -479,9 +507,21 @@ export default function PurpleGuideScreen() {
     return searchChannelsInList(filteredMeta, q);
   }, [filteredMeta, groupQuery]);
 
+  const orderedFilteredIds = useMemo(
+    () => filtered.map((channel) => channel.id).filter(Boolean),
+    [filtered],
+  );
+  const filteredIdIndex = useMemo(
+    () => buildChannelIndexMap(orderedFilteredIds),
+    [orderedFilteredIds],
+  );
+  orderedFilteredIdsRef.current = orderedFilteredIds;
+  filteredIdIndexRef.current = filteredIdIndex;
+
   const showGroupSearch = searchOpen || filteredMeta.length > 80;
 
   const onViewportChannelIds = useCallback((ids: string[], priorityIds: string[] = [], pageSize = 8) => {
+    lastRunwayRef.current = { ids, priority: priorityIds, pageSize };
     setViewportGuideChannelIds(ids);
     if (channels.length >= 400) {
       setPriorityMatchChannelIds(ids.slice(0, 400));
@@ -490,17 +530,24 @@ export default function PurpleGuideScreen() {
     }
     // Conveyor belt: fetch the runway, retain fetch ± 1 page so reverse surfing
     // does not blank rows the user just left, and drop everything else.
-    const orderedIds = filtered.map((channel) => channel.id);
-    retainGuideSlidingCache(expandRunwayKeepSet(orderedIds, ids, pageSize, 1));
+    retainGuideSlidingCache(
+      expandRunwayKeepSet(orderedFilteredIds, ids, pageSize, 1, filteredIdIndex),
+    );
     void patchProgramsForChannelIds(ids, priorityIds);
-  }, [channels.length, filtered, patchProgramsForChannelIds, retainGuideSlidingCache]);
+  }, [
+    channels.length,
+    filteredIdIndex,
+    orderedFilteredIds,
+    patchProgramsForChannelIds,
+    retainGuideSlidingCache,
+  ]);
 
   const viewportSeedKeyRef = useRef("");
   // Seed only on cold load/group/reset. A silent refresh must not yank a deeply
   // scrolled guide's EPG query scope back to the first channels.
   useEffect(() => {
     if (!filtered.length) return;
-    const key = `${group}:${resetToken}`;
+    const key = `${group}:${resetToken}:${powerProfile}`;
     if (viewportSeedKeyRef.current === key) return;
     viewportSeedKeyRef.current = key;
     const rowHeight = getGuideRailMetrics(
@@ -510,35 +557,38 @@ export default function PurpleGuideScreen() {
       channelLogos,
     ).rowHeight;
     const visibleRows = Math.max(6, Math.min(24, Math.ceil(screenHeight / rowHeight)));
-    // Warm the complete initial direction-aware runway (current page plus eight
-    // pages ahead) before the first focus event instead of waiting on row 1.
-    const ids = buildGuideRunwayIds(filtered, 0, visibleRows, 1);
+    // Warm the complete initial direction-aware runway before the first focus
+    // event instead of waiting on row 1. Compatibility shortens ahead pages.
+    const ids = buildGuideRunwayIds(filtered, 0, visibleRows, 1, powerProfile);
+    lastRunwayRef.current = {
+      ids,
+      priority: [ids[0], ids[1], ids[2], ...ids.slice(0, visibleRows)].filter(
+        (id): id is string => !!id,
+      ),
+      pageSize: visibleRows,
+    };
     setViewportGuideChannelIds(ids);
     setPriorityMatchChannelIds(channels.length >= 400 ? ids : []);
     retainGuideSlidingCache(
-      expandRunwayKeepSet(
-        filtered.map((channel) => channel.id),
-        ids,
-        visibleRows,
-        1,
-      ),
+      expandRunwayKeepSet(orderedFilteredIds, ids, visibleRows, 1, filteredIdIndex),
     );
     // Prewarm immediately on Guide/group entry, before the first native focus
     // event. SQLite and the bridge can populate the first visible runway early.
     void patchProgramsForChannelIds(
       ids,
-      [ids[0], ids[1], ids[2], ...ids.slice(0, visibleRows)].filter(
-        (id): id is string => !!id,
-      ),
+      lastRunwayRef.current.priority,
     );
   }, [
     channelLogos,
     channelNumbers,
     channels.length,
     filtered,
+    filteredIdIndex,
     group,
     guideDensity,
+    orderedFilteredIds,
     patchProgramsForChannelIds,
+    powerProfile,
     retainGuideSlidingCache,
     resetToken,
     screenHeight,
@@ -1031,6 +1081,7 @@ export default function PurpleGuideScreen() {
                   lockLeftEdge={false}
                   restoreChannelId={guideSessionChannelId}
                   focusClaimNonce={focusClaimNonce}
+                  cacheProfile={powerProfile}
                   onUpBoundary={onGuideUpBoundary}
                   onLeftBoundary={onGuideLeftBoundary}
                   onFocusedRowChange={onFocusedGuideRow}
@@ -1061,6 +1112,7 @@ export default function PurpleGuideScreen() {
                   lockLeftEdge={false}
                   restoreChannelId={guideSessionChannelId}
                   focusClaimNonce={focusClaimNonce}
+                  cacheProfile={powerProfile}
                   onUpBoundary={onGuideUpBoundary}
                   onLeftBoundary={onGuideLeftBoundary}
                   onFocusedRowChange={onFocusedGuideRow}

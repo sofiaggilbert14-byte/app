@@ -582,6 +582,7 @@ export const TimelineGrid = memo(function TimelineGrid({
   onBackTargetChange,
   restoreChannelId,
   focusClaimNonce = 0,
+  cacheProfile = "normal",
   reduceMotion = false,
 }: {
   channels: Channel[];
@@ -618,6 +619,8 @@ export const TimelineGrid = memo(function TimelineGrid({
   restoreChannelId?: string | null;
   /** Bumped after drawer close when restore may have missed — re-prefer guide row. */
   focusClaimNonce?: number;
+  /** Device power profile — Compatibility shortens the SQLite runway. */
+  cacheProfile?: "normal" | "weak" | "max_preview";
   /** Snap expensive Guide motion while keeping focus/metadata immediate. */
   reduceMotion?: boolean;
 }) {
@@ -688,7 +691,13 @@ export const TimelineGrid = memo(function TimelineGrid({
         const viewportBucket = `${Math.floor(Math.max(0, index) / halfPage)}:${scanDirectionRef.current}`;
         if (lastViewportBucketRef.current === viewportBucket) return;
         lastViewportBucketRef.current = viewportBucket;
-        const runway = buildGuideRunwayIds(rows, index, visibleRows, scanDirectionRef.current);
+        const runway = buildGuideRunwayIds(
+          rows,
+          index,
+          visibleRows,
+          scanDirectionRef.current,
+          cacheProfile,
+        );
         const pageStart = Math.floor(Math.max(0, index) / visibleRows) * visibleRows;
         const visiblePageIds = rows
           .slice(pageStart, pageStart + visibleRows)
@@ -704,7 +713,7 @@ export const TimelineGrid = memo(function TimelineGrid({
         onViewportChannelIds(runway, priorityIds, visibleRows);
       }
     },
-    [ROW_H, onFocusedRowChange, onViewportChannelIds],
+    [ROW_H, cacheProfile, onFocusedRowChange, onViewportChannelIds],
   );
 
   const totalMin = mins(windowEnd, windowStart);

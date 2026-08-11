@@ -4,6 +4,7 @@ import {
   GUIDE_PREFETCH_PAGES_AHEAD,
   GUIDE_PREFETCH_PAGES_BEHIND,
   buildGuideRunwayIds,
+  guideRunwayPagesForProfile,
 } from "../src/core/guideRunwayPolicy.ts";
 
 const rows = Array.from({ length: 120 }, (_, index) => ({ id: `channel-${index}` }));
@@ -32,4 +33,13 @@ test("guide runway clamps cleanly at both playlist boundaries", () => {
   assert.equal(top.at(-1), "channel-29");
   assert.equal(bottom[0], "channel-90");
   assert.equal(bottom.at(-1), "channel-119");
+});
+
+test("compatibility power profile shortens the ahead runway", () => {
+  assert.deepEqual(guideRunwayPagesForProfile("weak"), { ahead: 5, behind: 1 });
+  const weakDown = buildGuideRunwayIds(rows, 65, 10, 1, "weak");
+  // Page start 60; 1 behind + current + 5 ahead = 60..119 → length 60.
+  assert.equal(weakDown[0], "channel-50");
+  assert.equal(weakDown.at(-1), "channel-119");
+  assert.equal(weakDown.length, 70);
 });

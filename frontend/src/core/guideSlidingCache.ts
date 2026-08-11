@@ -178,6 +178,18 @@ export function slidingWindowKeepSet(
   return keep;
 }
 
+/** Build once per filtered playlist; reuse across half-page viewport buckets. */
+export function buildChannelIndexMap(
+  orderedChannelIds: readonly string[],
+): Map<string, number> {
+  const indexById = new Map<string, number>();
+  for (let i = 0; i < orderedChannelIds.length; i++) {
+    const id = orderedChannelIds[i];
+    if (id && !indexById.has(id)) indexById.set(id, i);
+  }
+  return indexById;
+}
+
 /**
  * Expand a fetched runway with ±hysteresis pages so reverse surfing does not
  * immediately drop the page the user just left.
@@ -187,21 +199,18 @@ export function expandRunwayKeepSet(
   runwayIds: readonly string[],
   pageSize: number,
   hysteresisPages = 1,
+  indexById?: ReadonlyMap<string, number>,
 ): Set<string> {
   const keep = new Set<string>();
   if (!orderedChannelIds.length || !runwayIds.length) {
     for (const id of runwayIds) if (id) keep.add(id);
     return keep;
   }
-  const indexById = new Map<string, number>();
-  for (let i = 0; i < orderedChannelIds.length; i++) {
-    const id = orderedChannelIds[i];
-    if (id && !indexById.has(id)) indexById.set(id, i);
-  }
+  const indexMap = indexById ?? buildChannelIndexMap(orderedChannelIds);
   let min = Number.POSITIVE_INFINITY;
   let max = Number.NEGATIVE_INFINITY;
   for (const id of runwayIds) {
-    const index = indexById.get(id);
+    const index = indexMap.get(id);
     if (index == null) {
       keep.add(id);
       continue;

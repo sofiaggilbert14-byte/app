@@ -212,6 +212,7 @@ export function BoxGrid({
   lockLeftEdge = true,
   restoreChannelId,
   focusClaimNonce = 0,
+  cacheProfile = "normal",
 }: {
   channels: Channel[];
   now: string;
@@ -234,6 +235,7 @@ export function BoxGrid({
   lockLeftEdge?: boolean;
   restoreChannelId?: string | null;
   focusClaimNonce?: number;
+  cacheProfile?: "normal" | "weak" | "max_preview";
 }) {
   const { width, height } = useWindowDimensions();
   const numColumns = width >= 1400 ? 6 : width >= 1150 ? 5 : width >= 900 ? 4 : width >= 600 ? 3 : 2;
@@ -276,7 +278,13 @@ export function BoxGrid({
       const viewportBucket = `${Math.floor(Math.max(0, index) / itemsPerPage)}:${scanDirectionRef.current}`;
       if (lastViewportBucketRef.current === viewportBucket) return;
       lastViewportBucketRef.current = viewportBucket;
-      const runway = buildGuideRunwayIds(list, index, itemsPerPage, scanDirectionRef.current);
+      const runway = buildGuideRunwayIds(
+        list,
+        index,
+        itemsPerPage,
+        scanDirectionRef.current,
+        cacheProfile,
+      );
       const pageStart = Math.floor(Math.max(0, index) / itemsPerPage) * itemsPerPage;
       const visiblePageIds = list
         .slice(pageStart, pageStart + itemsPerPage)
@@ -289,7 +297,7 @@ export function BoxGrid({
       ].filter((id): id is string => !!id);
       onViewportChannelIds(runway, priorities, itemsPerPage);
     },
-    [height, numColumns, onViewportChannelIds],
+    [cacheProfile, height, numColumns, onViewportChannelIds],
   );
 
   const reportFocusedRow = useCallback(
