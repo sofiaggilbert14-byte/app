@@ -84,7 +84,7 @@ test("runway applies focused, immediate, visible, then retained tiers", async ()
   assert.match(store, /\[focusedIds, immediateIds, visibleIds, remainingIds\]/);
   assert.match(timeline, /visiblePageIds/);
   assert.match(box, /visiblePageIds/);
-  assert.match(guide, /buildGuideRunwayIds\(filtered, 0, visibleRows, 1\)/);
+  assert.match(guide, /buildGuideRunwayIds\(filtered, 0, visibleRows, 1, powerProfile\)/);
 });
 
 test("EPG staging and metadata promotion preserve last-good caches", async () => {

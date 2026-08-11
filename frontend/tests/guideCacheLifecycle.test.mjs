@@ -42,3 +42,15 @@ test("focusClaimNonce reclaim ignores channels identity churn", async () => {
   assert.doesNotMatch(timeline, /\[channels, focusClaimNonce, restoreChannelId\]/);
   assert.doesNotMatch(box, /\[channels, focusClaimNonce, restoreChannelId\]/);
 });
+
+test("guide rewarms last runway on focus and reuses channel index maps", async () => {
+  const [guide, sliding] = await Promise.all([
+    readFile(join(root, "app/(tabs)/guide.tsx"), "utf8"),
+    readFile(join(root, "src/core/guideSlidingCache.ts"), "utf8"),
+  ]);
+  assert.match(guide, /lastRunwayRef/);
+  assert.match(guide, /buildChannelIndexMap/);
+  assert.match(guide, /cacheProfile=\{powerProfile\}/);
+  assert.match(sliding, /export function buildChannelIndexMap/);
+  assert.match(sliding, /indexById\?: ReadonlyMap/);
+});
