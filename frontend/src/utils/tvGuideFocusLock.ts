@@ -21,6 +21,15 @@ let guidePreviewEntryNode: unknown = null;
 let cancelGuideRestoreTimers: (() => void) | null = null;
 let previewFocusAttempt = 0;
 let previewFocusTimers: ReturnType<typeof setTimeout>[] = [];
+const leftFocusLockTimers = new WeakMap<object, ReturnType<typeof setTimeout>>();
+
+function cancelDelayedLeftFocusLock(node: unknown): void {
+  if ((typeof node !== "object" && typeof node !== "function") || node === null) return;
+  const key = node as object;
+  const timer = leftFocusLockTimers.get(key);
+  if (timer) clearTimeout(timer);
+  leftFocusLockTimers.delete(key);
+}
 
 function cancelPreviewFocusAttempts(): void {
   previewFocusAttempt += 1;
@@ -66,6 +75,8 @@ export function registerGuideChannelNode(
 ): void {
   if (!channelId) return;
   if (node) {
+    const previous = guideChannelNodes.get(channelId);
+    if (previous?.node !== node) cancelDelayedLeftFocusLock(previous?.node);
     const entry: GuideChannelEntry = {
       node,
       handOffLeftToPreview: !!options?.handOffLeftToPreview,
@@ -74,6 +85,8 @@ export function registerGuideChannelNode(
     wireChannelLeftFocus(entry);
     return;
   }
+  const removed = guideChannelNodes.get(channelId);
+  cancelDelayedLeftFocusLock(removed?.node);
   guideChannelNodes.delete(channelId);
   // FlashList recycled the row that owned focus. Never retain its program/logo
   // host as a successful restoration target.
@@ -100,7 +113,7 @@ export function noteGuideChannelFocus(channelId: string, node: unknown): void {
     existing.node = node;
     wireChannelLeftFocus(existing);
   } else {
-    // Re-assert Left → Play after recycle; preview may have mounted later.
+    // Re-assert Left â†’ Play after recycle; preview may have mounted later.
     wireChannelLeftFocus(existing);
   }
 }
@@ -111,7 +124,7 @@ export function focusGuideSurface(channelId?: string | null): boolean {
   return focusGuideSurfaceWhenMounted(channelId, [0, 32, 80, 160, 280, 420, 650, 900]);
 }
 
-/** First registered guide channel node — used when session id is unknown. */
+/** First registered guide channel node â€” used when session id is unknown. */
 export function anyRegisteredGuideChannelId(): string | null {
   for (const channelId of guideChannelNodes.keys()) return channelId;
   return focusedGuideChannelId;
@@ -206,9 +219,17 @@ export function applyLeftFocusLock(node: any, locked: boolean) {
 }
 
 export function armGuideLeftFocusLock(node: unknown, ms = 400) {
+  cancelDelayedLeftFocusLock(node);
   applyLeftFocusLock(node, true);
   if (node) requestNativeFocus(node);
-  if (ms > 0) {
-    setTimeout(() => applyLeftFocusLock(node, true), ms);
+  if (ms > 0 && (typeof node === "object" || typeof node === "function") && node !== null) {
+    const key = node as object;
+    const timer = setTimeout(() => {
+      if (leftFocusLockTimers.get(key) !== timer) return;
+      leftFocusLockTimers.delete(key);
+      applyLeftFocusLock(node, true);
+    }, ms);
+    leftFocusLockTimers.set(key, timer);
   }
 }
+
