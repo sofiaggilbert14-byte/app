@@ -788,10 +788,13 @@ export const TimelineGrid = memo(function TimelineGrid({
   }, [channels, restoreChannelId]);
 
   // Drawer → Guide must re-claim preferred focus even after the mount-once pass.
+  // Depend only on the nonce — channels identity churn must not re-fire reclaim.
   useEffect(() => {
-    if (!focusClaimNonce || !channels.length) return;
+    if (!focusClaimNonce) return;
+    const rows = channelsRef.current;
+    if (!rows.length) return;
     const restoreIndex = restoreChannelId
-      ? channels.findIndex((channel) => channel.id === restoreChannelId)
+      ? rows.findIndex((channel) => channel.id === restoreChannelId)
       : 0;
     if (restoreIndex >= 0) {
       try {
@@ -804,9 +807,9 @@ export const TimelineGrid = memo(function TimelineGrid({
     }
     setPreferFirstRow(true);
     const clearPreferred = setTimeout(() => setPreferFirstRow(false), 700);
-    focusGuideSurfaceWhenMounted(restoreChannelId || channels[0]?.id, [0, 40, 120, 240, 420]);
+    focusGuideSurfaceWhenMounted(restoreChannelId || rows[0]?.id, [0, 40, 120, 240, 420]);
     return () => clearTimeout(clearPreferred);
-  }, [channels, focusClaimNonce, restoreChannelId]);
+  }, [focusClaimNonce, restoreChannelId]);
 
   // Group/filter changes: reset scroll position only. Do not touch preferred focus.
   useEffect(() => {

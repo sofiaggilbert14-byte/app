@@ -61,6 +61,15 @@ export function useAudioTrackPreferences() {
   };
 }
 
+export function getPreferredAudioLanguage(): string {
+  return cached.defaultLanguage;
+}
+
+export function getRememberedChannelAudioTrack(channelId: string | null | undefined): TrackId | undefined {
+  if (!channelId) return undefined;
+  return cached.byChannel[channelId];
+}
+
 export function pickPreferredAudioTrack<T extends { id: TrackId; name?: string }>(
   tracks: T[],
   rememberedId: TrackId | undefined,

@@ -1208,6 +1208,12 @@ async function clearCacheFiles(): Promise<void> {
 export async function clearGuideCache(): Promise<void> {
   MEM = null;
   lastSourceError = null;
+  try {
+    const { clearGuidePrograms } = await import("@/src/core/guideProgramsStore");
+    clearGuidePrograms();
+  } catch {
+    /* web/source bootstrap must still clear disk caches */
+  }
   await clearIndexedEpg();
   await clearCacheFiles();
   setProgress({ phase: "idle", ratio: 0, etaSeconds: null }, true);

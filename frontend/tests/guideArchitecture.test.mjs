@@ -109,7 +109,8 @@ test("EPG screen delivery uses an eight-page conveyor runway with retained bound
   assert.match(guide, /releaseGuideSlidingCache\(\)/);
   assert.match(store, /resolveStoredGuideLayout/);
   assert.match(store, /runwayGeneration !== runwayGenerationRef\.current/);
-  assert.match(store, /retainProgrammeWindowCache\(lastPatchRunwayIdsRef\.current\)/);
+  assert.match(store, /lastKeepIdsRef/);
+  assert.match(store, /retainProgrammeWindowCache\(keep\)/);
   assert.match(native, /hours = 6/);
   assert.match(programStore, /maxProgrammeRows = 1800/);
   assert.match(programStore, /setGuideProgramRowLimit/);
