@@ -79,7 +79,7 @@ test("native tap event excludes repeats and preview buttons own left handoff", a
   assert.match(focusLock, /nextFocusLeft: locked \? handle : previewHandle \|\| -1/);
   assert.match(timeline, /buildVisibleGuideCellSlice/);
   assert.match(timeline, /tvFocusable=\{near \|\| keepFocused\}/);
-  assert.match(timeline, /recentlyOwned/);
+  assert.doesNotMatch(timeline, /pageJumpDetectorRef|subscribeVerticalDpadTaps/);
   assert.match(timeline, /styles\.rowPanTrack/);
   assert.match(timeline, /width: logoWidth \+ timelineWidth/);
   assert.match(timeline, /showChannelLogos && channelRailVisible/);
@@ -118,6 +118,27 @@ test("memory cleanup preserves active logo accounting and cancels recycled focus
   assert.doesNotMatch(clearMemoryBody, /activeLoads\s*=\s*0/);
   assert.match(focusLock, /leftFocusLockTimers = new WeakMap/);
   assert.match(focusLock, /cancelDelayedLeftFocusLock\(removed\?\.node\)/);
+});
+
+test("Guide focus stays continuous in every direction and restores modal origin", async () => {
+  const [guide, timeline, box, preview, focusLock] = await Promise.all([
+    readFile(join(root, "app/(tabs)/guide.tsx"), "utf8"),
+    readFile(join(root, "src/components/TimelineGrid.tsx"), "utf8"),
+    readFile(join(root, "src/components/BoxGrid.tsx"), "utf8"),
+    readFile(join(root, "src/components/GuidePreviewRail.tsx"), "utf8"),
+    readFile(join(root, "src/utils/tvGuideFocusLock.ts"), "utf8"),
+  ]);
+  assert.doesNotMatch(timeline, /subscribeVerticalDpadTaps|pageJumpDetectorRef/);
+  assert.doesNotMatch(box, /subscribeVerticalDpadTaps|pageJumpDetectorRef/);
+  assert.match(timeline, /useNativeDriver: true/);
+  assert.match(timeline, /commitViewport\(\)/);
+  assert.match(timeline, /pendingViewportRef/);
+  assert.match(focusLock, /registerGuideProgramNode/);
+  assert.match(focusLock, /focusGuideProgramCell/);
+  assert.match(guide, /modalOriginRef/);
+  assert.match(guide, /focusGuideProgramCell\(origin\.channelId, origin\.programStart\)/);
+  assert.match(preview, /ref=\{setPlayRef\}/);
+  assert.match(preview, /onPress=\{onOpenReminders\}/);
 });
 
 test("EPG staging and metadata promotion preserve last-good caches", async () => {
