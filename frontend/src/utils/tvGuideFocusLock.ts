@@ -113,7 +113,7 @@ export function noteGuideChannelFocus(channelId: string, node: unknown): void {
     existing.node = node;
     wireChannelLeftFocus(existing);
   } else {
-    // Re-assert Left â†’ Play after recycle; preview may have mounted later.
+    // Re-assert Left → Play after recycle; preview may have mounted later.
     wireChannelLeftFocus(existing);
   }
 }
@@ -124,7 +124,7 @@ export function focusGuideSurface(channelId?: string | null): boolean {
   return focusGuideSurfaceWhenMounted(channelId, [0, 32, 80, 160, 280, 420, 650, 900]);
 }
 
-/** First registered guide channel node â€” used when session id is unknown. */
+/** First registered guide channel node — used when session id is unknown. */
 export function anyRegisteredGuideChannelId(): string | null {
   for (const channelId of guideChannelNodes.keys()) return channelId;
   return focusedGuideChannelId;
@@ -232,4 +232,3 @@ export function armGuideLeftFocusLock(node: unknown, ms = 400) {
     leftFocusLockTimers.set(key, timer);
   }
 }
-
