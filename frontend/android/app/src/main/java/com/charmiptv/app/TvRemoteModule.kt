@@ -18,12 +18,19 @@ class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBas
     // JVM level with the @ReactMethod fun setPointerActive(...) below.
     @JvmField
     var pointerActive: Boolean = false
+    @JvmField
+    var guideNavigationActive: Boolean = false
     private const val MAX_SANE_CODEC_DIMENSION = 16_384
   }
 
   @ReactMethod
   fun setPointerActive(active: Boolean) {
     pointerActive = active
+  }
+
+  @ReactMethod
+  fun setGuideNavigationActive(active: Boolean) {
+    guideNavigationActive = active
   }
 
   @ReactMethod
