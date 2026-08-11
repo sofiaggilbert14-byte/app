@@ -101,22 +101,24 @@ test("favorites backup offers SAF portable export", async () => {
   assert.match(backup, /requestDirectoryPermissionsAsync/);
 });
 
-test("TvRemote checked-in Android keeps only active pointer and key APIs", async () => {
+test("TvRemote suppresses duplicate Guide bridge events without consuming native focus", async () => {
   const [plugin, mod, activity] = await Promise.all([
     source("plugins/withTvRemote.js"),
     source("android/app/src/main/java/com/charmiptv/app/TvRemoteModule.kt"),
     source("android/app/src/main/java/com/charmiptv/app/MainActivity.kt"),
   ]);
-  for (const needle of ["guideNavigationActive", "setGuideNavigationActive", "moveFocus", "focusView"]) {
+  for (const needle of ["moveFocus", "focusView"]) {
     assert.doesNotMatch(mod, new RegExp(needle));
   }
-  assert.doesNotMatch(plugin, /fun setGuideNavigationActive|fun moveFocus|fun focusView/);
+  assert.match(mod, /fun setGuideNavigationActive/);
+  assert.match(plugin, /fun setGuideNavigationActive/);
   assert.match(plugin, /KOTLIN_NAMESPACE/);
   assert.match(plugin, /hardenMainActivity/);
-  assert.match(plugin, /minDpadRepeatMs = 32L/);
-  assert.match(activity, /MIN_DPAD_REPEAT_MS = 32L/);
+  assert.match(plugin, /minDpadRepeatMs = 48L/);
+  assert.match(activity, /MIN_DPAD_REPEAT_MS = 48L/);
   assert.match(activity, /Static remote flags must never survive/);
   assert.match(activity, /TvRemoteModule\.pointerActive = false/);
+  assert.match(activity, /!TvRemoteModule\.guideNavigationActive \|\| TvRemoteModule\.pointerActive/);
   // Guide surfing must use Android focus — never consume Up/Down when "active".
   assert.doesNotMatch(activity, /guideNavigationActive && \(key == "UP"/);
   assert.doesNotMatch(plugin, /guideNavigationActive && \(key == "UP"/);
