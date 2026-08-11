@@ -139,6 +139,18 @@ function recordStablePlayback(role: SessionRole, engine: Engine, uri: string): v
   failureStateByKey.set(key, state);
 }
 
+/** True while any fullscreen engine circuit is cooling down for this URI. */
+export function isFullscreenCircuitOpen(uri?: string): boolean {
+  if (!uri) return false;
+  const clean = parsePipeHeaders(uri).uri || uri;
+  return (
+    isCircuitOpen("fullscreen", "media3", uri) ||
+    isCircuitOpen("fullscreen", "vlc", uri) ||
+    (clean !== uri &&
+      (isCircuitOpen("fullscreen", "media3", clean) || isCircuitOpen("fullscreen", "vlc", clean)))
+  );
+}
+
 /** Explicit Retry / user recover — clear fullscreen circuit entries for this URI. */
 export function clearFullscreenCircuit(uri?: string): void {
   if (!uri) {
@@ -364,12 +376,20 @@ function VlcStream({
     if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
     recordFailure(sessionRole, engine, uri, "stream-error");
     if (isCircuitOpen(sessionRole, engine, uri)) {
+      // Stop LibVLC before unmounting the native view — otherwise blocked→null
+      // leaks a running decoder until a later remount.
+      hardStop();
       setBlocked(true);
       emit("loading", "circuit-open");
     } else {
       emit("error", "stream-error");
     }
-  }, [emit, engine, sessionGeneration, sessionRole, setBlocked, uri]);
+  }, [emit, engine, hardStop, sessionGeneration, sessionRole, setBlocked, uri]);
+
+  useEffect(() => {
+    if (!blocked) return;
+    hardStop();
+  }, [blocked, hardStop]);
 
   if (blocked || !VLCPlayer) return null;
 
@@ -891,9 +911,16 @@ export function StreamPlayer({
     return () => sub.remove();
   }, []);
 
+  // Fullscreen remounts immediately when Settings change. Guide preview stays
+  // mounted under Tabs keep-alive — freeze the applied compat key while the
+  // Guide route is unfocused so Settings toggles cannot remount a background decoder.
+  const appliedCompatKeyRef = useRef(`${media3EngineKey}|${vlcEngineKey}`);
+  if (role !== "preview" || isFocused) {
+    appliedCompatKeyRef.current = `${media3EngineKey}|${vlcEngineKey}`;
+  }
   // Include engine remount keys so mid-play Settings changes reset fallback /
   // stable gates. Otherwise a prior silent-audio swap blocks the next attempt.
-  const sessionKey = `${role}:${uri}:${initialEngine}:${media3EngineKey}:${vlcEngineKey}`;
+  const sessionKey = `${role}:${uri}:${initialEngine}:${appliedCompatKeyRef.current}`;
   useEffect(() => {
     const generation = beginSession(role);
     setSession({ key: sessionKey, generation });

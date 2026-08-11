@@ -28,6 +28,7 @@ test("sliding cache retains expanded keep set and strict-releases on blur", asyn
   const store = await readFile(join(root, "src/store.tsx"), "utf8");
   assert.match(store, /lastKeepIdsRef/);
   assert.match(store, /retainGuidePrograms\(keep\)/);
+  assert.match(store, /retainGuidePrograms\(keep, \{ force: true \}\)/);
   assert.match(store, /retainProgrammeWindowCache\(keep\)/);
   assert.match(store, /pickKeepIdsAroundFocus\(source, keepLimit, lastChannelId\)/);
   assert.match(store, /pickKeepIdsAroundFocus\(source, keepLimit, lastChannelIdRef\.current\)/);
@@ -38,6 +39,14 @@ test("prepared program orphan map stays bounded to current + focused keys", asyn
   assert.match(timeline, /previousPreparedByKeyRef/);
   assert.match(timeline, /keepKeys\.add\(focusedProgramKey\)/);
   assert.match(timeline, /previousPreparedByKeyRef\.current\.delete\(key\)/);
+  assert.match(timeline, /pendingProgramCellHidden/);
+});
+
+test("critical trim can force-evict subscribed off-keep programme rows", async () => {
+  const programStore = await readFile(join(root, "src/core/guideProgramsStore.ts"), "utf8");
+  assert.match(programStore, /force\?: boolean/);
+  assert.match(programStore, /trim\(keep, critical\)/);
+  assert.match(programStore, /if \(!force && \(listenersByChannelId\.get/);
 });
 
 test("focusClaimNonce reclaim ignores channels identity churn", async () => {

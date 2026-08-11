@@ -23,6 +23,7 @@ import {
   StreamStatus,
   vlcAvailable,
   clearFullscreenCircuit,
+  isFullscreenCircuitOpen,
   type StreamTrack,
 } from "@/src/components/StreamPlayer";
 import { useStore } from "@/src/store";
@@ -39,7 +40,7 @@ import {
 } from "@/src/core/audioDiagnostics";
 import { pickDefaultSubtitleTrack, useSubtitlePreferences } from "@/src/core/subtitlePreferences";
 import { pickPreferredAudioTrack, useAudioTrackPreferences } from "@/src/core/audioTrackPreferences";
-import { noteStreamFailure } from "@/src/core/streamFailureRegistry";
+import { clearStreamFailure, noteStreamFailure } from "@/src/core/streamFailureRegistry";
 import * as FileSystem from "expo-file-system/legacy";
 
 const CHANNEL_PREVIEW_DELAY_MS = 650;
@@ -413,13 +414,24 @@ export default function PlayerScreen() {
   useEffect(() => {
     if (!autoRetryStreams || !hasStream || status !== "error") return;
     if (retryAttempt >= MAX_AUTO_STREAM_RETRIES) return;
+    // Circuit-open / cooldown: remounting only storms native decoders. Wait for
+    // the deliberate Retry button (which clears the breaker).
+    if (failReason === "circuit-open" || isFullscreenCircuitOpen(channel?.url)) return;
     if (retryTimer.current) clearTimeout(retryTimer.current);
     const delay = STREAM_RETRY_MS * Math.min(4, 2 ** retryAttempt);
     retryTimer.current = setTimeout(() => restartStream(false), delay);
     return () => {
       if (retryTimer.current) clearTimeout(retryTimer.current);
     };
-  }, [autoRetryStreams, hasStream, restartStream, retryAttempt, status]);
+  }, [
+    autoRetryStreams,
+    channel?.url,
+    failReason,
+    hasStream,
+    restartStream,
+    retryAttempt,
+    status,
+  ]);
 
   useEffect(() => {
     if (!isTV) return;
@@ -459,10 +471,20 @@ export default function PlayerScreen() {
         textTrackIdRef.current = undefined;
         setTracksOpen(false);
       }
-      if (next === "error" || reason === "silent-audio") {
+      // Recoverable engine swaps / silent-audio must not poison Failed Streams.
+      if (
+        next === "error" &&
+        reason !== "silent-audio" &&
+        reason !== "engine-swap" &&
+        reason !== "start-timeout" &&
+        reason !== "circuit-open"
+      ) {
         noteStreamFailure(channelIdRef.current);
       }
-      if (next === "playing") setFailReason(null);
+      if (next === "playing") {
+        setFailReason(null);
+        clearStreamFailure(channelIdRef.current);
+      }
     },
     [],
   );

@@ -16,7 +16,12 @@ test("player remounts Media3/VLC engines when compatibility settings change", as
   assert.doesNotMatch(source, /--audio-filter=stereo_widen/);
   assert.match(source, /reportAndSelectMedia3Tracks\(\)/);
   // Settings remount must reset silent-audio / start-timeout fallback gates.
-  assert.match(source, /\$\{role\}:\$\{uri\}:\$\{initialEngine\}:\$\{media3EngineKey\}:\$\{vlcEngineKey\}/);
+  assert.match(source, /appliedCompatKeyRef/);
+  assert.match(source, /\$\{role\}:\$\{uri\}:\$\{initialEngine\}:\$\{appliedCompatKeyRef\.current\}/);
+  // Preview freezes compat keys while Guide is unfocused (Tabs keep-alive).
+  assert.match(source, /role !== "preview" \|\| isFocused/);
   assert.match(source, /maxBufferBytes: 48 \* 1024 \* 1024/);
   assert.match(source, /if \(media3Audio === "ffmpeg"\) return selectedAudio != null/);
+  assert.match(source, /export function isFullscreenCircuitOpen/);
+  assert.match(source, /hardStop\(\);\s*setBlocked\(true\)/);
 });
