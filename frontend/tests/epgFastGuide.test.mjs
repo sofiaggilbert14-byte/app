@@ -99,7 +99,7 @@ test("programme deltas keep explicit empty rows and use the exact screen runway"
   assert.match(policy, /GUIDE_PREFETCH_PAGES_AHEAD = 8/);
   assert.match(native, /allPlaylistIds\.slice\(0, 96\)/);
   assert.doesNotMatch(box, /mountedRowBandRef/);
-  assert.match(box, /drawDistance=\{2400\}/);
+  assert.match(box, /drawDistance=\{renderDrawDistance\}/);
 });
 
 test("native EPG uses HTTP validators and skips all rematch work on 304", async () => {

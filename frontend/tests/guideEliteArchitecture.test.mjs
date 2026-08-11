@@ -101,7 +101,23 @@ test("runway applies focused, immediate, visible, then retained tiers", async ()
   assert.match(store, /\[focusedIds, immediateIds, visibleIds, remainingIds\]/);
   assert.match(timeline, /visiblePageIds/);
   assert.match(box, /visiblePageIds/);
+  assert.match(box, /cacheProfile === "weak"[\s\S]*?900/);
+  assert.match(box, /drawDistance=\{renderDrawDistance\}/);
   assert.match(guide, /buildGuideRunwayIds\(filtered, 0, visibleRows, 1, powerProfile\)/);
+});
+
+test("memory cleanup preserves active logo accounting and cancels recycled focus work", async () => {
+  const [logo, focusLock] = await Promise.all([
+    readFile(join(root, "src/components/ChannelLogo.tsx"), "utf8"),
+    readFile(join(root, "src/utils/tvGuideFocusLock.ts"), "utf8"),
+  ]);
+  const clearMemoryBody = logo.slice(
+    logo.indexOf("export function clearChannelLogoMemory"),
+    logo.indexOf("function remember"),
+  );
+  assert.doesNotMatch(clearMemoryBody, /activeLoads\s*=\s*0/);
+  assert.match(focusLock, /leftFocusLockTimers = new WeakMap/);
+  assert.match(focusLock, /cancelDelayedLeftFocusLock\(removed\?\.node\)/);
 });
 
 test("EPG staging and metadata promotion preserve last-good caches", async () => {

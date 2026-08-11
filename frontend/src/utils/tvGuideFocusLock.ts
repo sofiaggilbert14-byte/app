@@ -21,6 +21,15 @@ let guidePreviewEntryNode: unknown = null;
 let cancelGuideRestoreTimers: (() => void) | null = null;
 let previewFocusAttempt = 0;
 let previewFocusTimers: ReturnType<typeof setTimeout>[] = [];
+const leftFocusLockTimers = new WeakMap<object, ReturnType<typeof setTimeout>>();
+
+function cancelDelayedLeftFocusLock(node: unknown): void {
+  if ((typeof node !== "object" && typeof node !== "function") || node === null) return;
+  const key = node as object;
+  const timer = leftFocusLockTimers.get(key);
+  if (timer) clearTimeout(timer);
+  leftFocusLockTimers.delete(key);
+}
 
 function cancelPreviewFocusAttempts(): void {
   previewFocusAttempt += 1;
@@ -66,6 +75,8 @@ export function registerGuideChannelNode(
 ): void {
   if (!channelId) return;
   if (node) {
+    const previous = guideChannelNodes.get(channelId);
+    if (previous?.node !== node) cancelDelayedLeftFocusLock(previous?.node);
     const entry: GuideChannelEntry = {
       node,
       handOffLeftToPreview: !!options?.handOffLeftToPreview,
@@ -74,6 +85,8 @@ export function registerGuideChannelNode(
     wireChannelLeftFocus(entry);
     return;
   }
+  const removed = guideChannelNodes.get(channelId);
+  cancelDelayedLeftFocusLock(removed?.node);
   guideChannelNodes.delete(channelId);
   // FlashList recycled the row that owned focus. Never retain its program/logo
   // host as a successful restoration target.
@@ -206,9 +219,16 @@ export function applyLeftFocusLock(node: any, locked: boolean) {
 }
 
 export function armGuideLeftFocusLock(node: unknown, ms = 400) {
+  cancelDelayedLeftFocusLock(node);
   applyLeftFocusLock(node, true);
   if (node) requestNativeFocus(node);
-  if (ms > 0) {
-    setTimeout(() => applyLeftFocusLock(node, true), ms);
+  if (ms > 0 && (typeof node === "object" || typeof node === "function") && node !== null) {
+    const key = node as object;
+    const timer = setTimeout(() => {
+      if (leftFocusLockTimers.get(key) !== timer) return;
+      leftFocusLockTimers.delete(key);
+      applyLeftFocusLock(node, true);
+    }, ms);
+    leftFocusLockTimers.set(key, timer);
   }
 }

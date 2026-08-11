@@ -415,6 +415,11 @@ export function BoxGrid({
 
   const lastRowIndex = Math.max(0, Math.floor((Math.max(channels.length, 1) - 1) / Math.max(1, numColumns)));
   lastRowIndexRef.current = lastRowIndex;
+  const renderDrawDistance = cacheProfile === "weak"
+    ? 900
+    : cacheProfile === "max_preview"
+      ? 2400
+      : 1600;
 
   useTVEventHandler(
     useCallback(
@@ -505,7 +510,7 @@ export function BoxGrid({
         keyExtractor={(c) => c.id}
         // Re-render visible hearts when favorites change without recreating renderItem.
         extraData={favorites}
-        drawDistance={2400}
+        drawDistance={renderDrawDistance}
         removeClippedSubviews={false}
         contentContainerStyle={{ paddingBottom: 130, paddingHorizontal: spacing.xs, paddingTop: spacing.xs }}
         ListHeaderComponent={ListHeaderComponent}
