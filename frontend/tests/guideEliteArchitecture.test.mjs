@@ -64,6 +64,12 @@ test("native tap event excludes repeats and preview buttons own left handoff", a
   assert.match(guide, /lockLeftEdge=\{false\}/);
   assert.match(guide, /focusClaimNonce/);
   assert.match(guide, /openDrawer\(\{ focusTop: true \}\)/);
+  assert.match(guide, /guide-more-groups-overlay/);
+  assert.match(guide, /guide-pin-overlay/);
+  assert.match(guide, /trapFocusUp trapFocusDown trapFocusLeft trapFocusRight/);
+  assert.match(guide, /pointerEvents="none"/);
+  assert.doesNotMatch(guide, /pointerEvents=\{drawerOpen \? "auto" : "none"\}/);
+  assert.match(guide, /clearStreamFailure\(channel\.id\)/);
   // Drawer-close reclaim is nonce-only — no parallel focusGuideSurface race.
   assert.match(guide, /setFocusClaimNonce\(\(value\) => value \+ 1\)/);
   assert.doesNotMatch(

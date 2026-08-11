@@ -908,7 +908,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       patchTimerRef.current = null;
     }
     // Strict retain first so blur cannot leave hundreds of off-runway rows warm.
-    retainGuidePrograms(keep);
+    // Force empties subscribed off-keep rows — FlashList may still be mounted.
+    retainGuidePrograms(keep, { force: true });
     retainProgrammeWindowCache(keep);
     trimGuideProgramRows(keep, true);
     trimProgrammeWindowCacheForMemoryPressure(keep, true);

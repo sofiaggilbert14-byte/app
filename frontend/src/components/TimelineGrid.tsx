@@ -541,20 +541,24 @@ const TimelineRow = memo(function TimelineRow({
               style={({ focused }: any) => [
                 styles.progCell,
                 styles.pendingProgramCell,
-                { left: 0, width: Math.max(24, timelineWidth - 6) },
-                focused && styles.programCellFocused,
+                // Once real cells exist, keep the focused native node alive but
+                // collapse it so it cannot paint over programme cells.
+                preparedPrograms.length > 0
+                  ? styles.pendingProgramCellHidden
+                  : { left: 0, width: Math.max(24, timelineWidth - 6) },
+                focused && preparedPrograms.length === 0 && styles.programCellFocused,
               ]}
               testID={`epg-pending-${item.id}`}
             >
-              <Text style={styles.noData}>
-                {preparedPrograms.length > 0
-                  ? "Guide ready"
-                  : programRowState === "loading"
+              {preparedPrograms.length === 0 ? (
+                <Text style={styles.noData}>
+                  {programRowState === "loading"
                     ? "Loading programme data"
                     : !channelHasEpgMatch(item)
                       ? "Channel not matched to XMLTV"
                       : "No programme supplied"}
-              </Text>
+                </Text>
+              ) : null}
             </Pressable>
           )}
         </Animated.View>
@@ -1208,6 +1212,15 @@ const styles = StyleSheet.create({
     borderStyle: "dashed",
     borderColor: "rgba(196,181,253,0.28)",
     backgroundColor: "rgba(24,23,42,0.50)",
+  },
+  pendingProgramCellHidden: {
+    left: 0,
+    top: 0,
+    width: 1,
+    height: 1,
+    opacity: 0,
+    borderWidth: 0,
+    overflow: "hidden",
   },
   progLive: { borderColor: "rgba(168,85,247,0.50)", backgroundColor: "rgba(59,23,104,0.60)" },
   progReminded: { borderColor: "rgba(250,204,21,0.55)" },

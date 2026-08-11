@@ -50,16 +50,18 @@ function subscribe(channelId: string, listener: () => void): () => void {
   };
 }
 
-function trim(keepIds: ReadonlySet<string> = new Set()): void {
+function trim(keepIds: ReadonlySet<string> = new Set(), force = false): void {
   if (programsByChannelId.size <= maxProgrammeRows) return;
 
-  // Never evict a row while a mounted guide component is subscribed to it.
-  // Focusable rows must remain stable even when a user holds Up/Down faster
-  // than viewport EPG work can catch up.
+  // Prefer keeping mounted (subscribed) rows during normal surfing so focus
+  // stays stable. Critical / force paths may empty off-keep subscribed rows —
+  // subscribers re-render to EMPTY_PROGRAMS without dropping their identity.
   for (const channelId of Array.from(programsByChannelId.keys())) {
     if (programsByChannelId.size <= maxProgrammeRows) return;
-    if (keepIds.has(channelId) || (listenersByChannelId.get(channelId)?.size || 0) > 0) continue;
+    if (keepIds.has(channelId)) continue;
+    if (!force && (listenersByChannelId.get(channelId)?.size || 0) > 0) continue;
     programsByChannelId.delete(channelId);
+    notify(channelId);
   }
 }
 
@@ -68,14 +70,14 @@ export function setGuideProgramRowLimit(limit: number): void {
   trim();
 }
 
-/** Memory-pressure trim that always preserves focused/visible rows and subscribers. */
+/** Memory-pressure trim. Critical force-evicts subscribed off-keep rows. */
 export function trimGuideProgramRows(keepIds: Iterable<string>, critical = false): void {
   const keep = new Set(Array.from(keepIds).filter(Boolean));
   const previous = maxProgrammeRows;
   maxProgrammeRows = critical
     ? Math.max(128, keep.size)
     : Math.max(256, Math.floor(previous / 2), keep.size);
-  trim(keep);
+  trim(keep, critical);
   maxProgrammeRows = previous;
 }
 
@@ -137,18 +139,27 @@ export function clearGuidePrograms(): void {
   for (const id of ids) notify(id);
 }
 
+export type RetainGuideProgramsOptions = {
+  /** When true, also empty subscribed off-keep rows (blur / critical pressure). */
+  force?: boolean;
+};
+
 /**
  * Keep only the sliding-window channel ids. Off-window rows are dropped so a
  * held D-pad run cannot accumulate the whole playlist in JS heap. Mounted
- * (subscribed) rows stay until FlashList recycles them.
+ * (subscribed) rows stay until FlashList recycles them unless `force` is set.
  */
-export function retainGuidePrograms(keepIds: Iterable<string>): void {
+export function retainGuidePrograms(
+  keepIds: Iterable<string>,
+  options?: RetainGuideProgramsOptions,
+): void {
   const keep = keepIds instanceof Set ? keepIds : new Set(Array.from(keepIds).filter(Boolean));
   if (!keep.size) return;
+  const force = !!options?.force;
   const drop: string[] = [];
   for (const id of programsByChannelId.keys()) {
     if (keep.has(id)) continue;
-    if ((listenersByChannelId.get(id)?.size || 0) > 0) continue;
+    if (!force && (listenersByChannelId.get(id)?.size || 0) > 0) continue;
     drop.push(id);
   }
   if (!drop.length) return;

@@ -53,7 +53,12 @@ import {
 import { useGuideUiPreferences } from "@/src/core/guideUiPreferences";
 import { resolveChannelNumber, useChannelCustomize } from "@/src/core/channelCustomize";
 import { useParentalPin } from "@/src/core/parentalPin";
-import { failedStreamCount, isFailedChannel, noteStreamFailure } from "@/src/core/streamFailureRegistry";
+import {
+  clearStreamFailure,
+  failedStreamCount,
+  isFailedChannel,
+  noteStreamFailure,
+} from "@/src/core/streamFailureRegistry";
 import { consumeGuideJump } from "@/src/core/guideSearchJump";
 import { fonts, radius, spacing, tvColors } from "@/src/theme";
 import { nowNext, reminderKey } from "@/src/utils/time";
@@ -165,7 +170,9 @@ function GuideSelectionPreview({
     previewStatus !== "error";
 
   useEffect(() => {
-    if (previewStatus === "error" && channel?.id) noteStreamFailure(channel.id);
+    if (!channel?.id) return;
+    if (previewStatus === "error") noteStreamFailure(channel.id);
+    if (previewStatus === "playing") clearStreamFailure(channel.id);
   }, [channel?.id, previewStatus]);
 
   return (
@@ -887,7 +894,8 @@ export default function PurpleGuideScreen() {
       <View style={styles.page}>
         <View style={styles.header}>
           <Animated.View
-            pointerEvents={drawerOpen ? "auto" : "none"}
+            // Title is decorative — never steal hits/focus beside an open drawer.
+            pointerEvents="none"
             style={[styles.guideTitleBlock, { opacity: headerTitleProgress }]}
           >
             <Text style={styles.kicker}>TV GUIDE</Text>
@@ -1126,89 +1134,94 @@ export default function PurpleGuideScreen() {
 
         {moreGroupsOpen ? (
           <View style={styles.overlay} testID="guide-more-groups-overlay">
-            <View style={styles.overlayCard}>
-              <View style={styles.overlayHeader}>
-                <Text style={styles.overlayTitle}>More groups</Text>
-                <Pressable
-                  onPress={() => setMoreGroupsOpen(false)}
-                  style={({ focused }: any) => [styles.overlayClose, focused && styles.focused]}
-                >
-                  <Text style={styles.secondaryText}>Close</Text>
-                </Pressable>
+            {/* Trap D-pad inside the sheet so focus cannot fall onto the guide grid. */}
+            <FocusGuide autoFocus trapFocusUp trapFocusDown trapFocusLeft trapFocusRight>
+              <View style={styles.overlayCard}>
+                <View style={styles.overlayHeader}>
+                  <Text style={styles.overlayTitle}>More groups</Text>
+                  <Pressable
+                    onPress={() => setMoreGroupsOpen(false)}
+                    style={({ focused }: any) => [styles.overlayClose, focused && styles.focused]}
+                  >
+                    <Text style={styles.secondaryText}>Close</Text>
+                  </Pressable>
+                </View>
+                <ScrollView style={styles.overlayList} showsVerticalScrollIndicator={false}>
+                  {(() => {
+                    let lastLetter = "";
+                    return overflowGroups.map((item) => {
+                      const letter = (item.trim().charAt(0) || "#").toUpperCase();
+                      const showLetter = letter !== lastLetter;
+                      if (showLetter) lastLetter = letter;
+                      return (
+                        <View key={item}>
+                          {showLetter ? <Text style={styles.overlayLetter}>{letter}</Text> : null}
+                          <Pressable
+                            onPress={() => chooseGroup(item)}
+                            onLongPress={() => togglePinGroup(item)}
+                            delayLongPress={420}
+                            style={({ focused }: any) => [styles.overlayRow, focused && styles.focused]}
+                          >
+                            <Text style={styles.overlayRowText} numberOfLines={1}>
+                              {item}
+                              {groupCounts[item] ? `  ${groupCounts[item]}` : ""}
+                            </Text>
+                          </Pressable>
+                        </View>
+                      );
+                    });
+                  })()}
+                </ScrollView>
               </View>
-              <ScrollView style={styles.overlayList} showsVerticalScrollIndicator={false}>
-                {(() => {
-                  let lastLetter = "";
-                  return overflowGroups.map((item) => {
-                    const letter = (item.trim().charAt(0) || "#").toUpperCase();
-                    const showLetter = letter !== lastLetter;
-                    if (showLetter) lastLetter = letter;
-                    return (
-                      <View key={item}>
-                        {showLetter ? <Text style={styles.overlayLetter}>{letter}</Text> : null}
-                        <Pressable
-                          onPress={() => chooseGroup(item)}
-                          onLongPress={() => togglePinGroup(item)}
-                          delayLongPress={420}
-                          style={({ focused }: any) => [styles.overlayRow, focused && styles.focused]}
-                        >
-                          <Text style={styles.overlayRowText} numberOfLines={1}>
-                            {item}
-                            {groupCounts[item] ? `  ${groupCounts[item]}` : ""}
-                          </Text>
-                        </Pressable>
-                      </View>
-                    );
-                  });
-                })()}
-              </ScrollView>
-            </View>
+            </FocusGuide>
           </View>
         ) : null}
 
         {pinPromptGroup ? (
           <View style={styles.overlay} testID="guide-pin-overlay">
-            <View style={styles.pinCard}>
-              <Text style={styles.overlayTitle}>Enter PIN</Text>
-              <Text style={styles.pinHint}>Unlock “{pinPromptGroup}”</Text>
-              <Text style={styles.pinDigits}>{pinDigits.padEnd(4, "•").slice(0, 4)}</Text>
-              {pinError ? <Text style={styles.pinError}>Incorrect PIN</Text> : null}
-              <View style={styles.pinPad}>
-                {["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"].map((digit) => (
+            <FocusGuide autoFocus trapFocusUp trapFocusDown trapFocusLeft trapFocusRight>
+              <View style={styles.pinCard}>
+                <Text style={styles.overlayTitle}>Enter PIN</Text>
+                <Text style={styles.pinHint}>Unlock “{pinPromptGroup}”</Text>
+                <Text style={styles.pinDigits}>{pinDigits.padEnd(4, "•").slice(0, 4)}</Text>
+                {pinError ? <Text style={styles.pinError}>Incorrect PIN</Text> : null}
+                <View style={styles.pinPad}>
+                  {["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"].map((digit) => (
+                    <Pressable
+                      key={digit}
+                      onPress={() => {
+                        setPinError(false);
+                        setPinDigits((prev) => {
+                          const next = (prev + digit).slice(0, 8);
+                          return next;
+                        });
+                      }}
+                      style={({ focused }: any) => [styles.pinKey, focused && styles.focused]}
+                    >
+                      <Text style={styles.pinKeyText}>{digit}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <View style={styles.pinActions}>
                   <Pressable
-                    key={digit}
                     onPress={() => {
+                      setPinPromptGroup(null);
+                      setPinDigits("");
                       setPinError(false);
-                      setPinDigits((prev) => {
-                        const next = (prev + digit).slice(0, 8);
-                        return next;
-                      });
                     }}
-                    style={({ focused }: any) => [styles.pinKey, focused && styles.focused]}
+                    style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
                   >
-                    <Text style={styles.pinKeyText}>{digit}</Text>
+                    <Text style={styles.secondaryText}>Cancel</Text>
                   </Pressable>
-                ))}
+                  <Pressable
+                    onPress={submitPin}
+                    style={({ focused }: any) => [styles.watchButton, focused && styles.focused]}
+                  >
+                    <Text style={styles.watchText}>Unlock</Text>
+                  </Pressable>
+                </View>
               </View>
-              <View style={styles.pinActions}>
-                <Pressable
-                  onPress={() => {
-                    setPinPromptGroup(null);
-                    setPinDigits("");
-                    setPinError(false);
-                  }}
-                  style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
-                >
-                  <Text style={styles.secondaryText}>Cancel</Text>
-                </Pressable>
-                <Pressable
-                  onPress={submitPin}
-                  style={({ focused }: any) => [styles.watchButton, focused && styles.focused]}
-                >
-                  <Text style={styles.watchText}>Unlock</Text>
-                </Pressable>
-              </View>
-            </View>
+            </FocusGuide>
           </View>
         ) : null}
       </View>

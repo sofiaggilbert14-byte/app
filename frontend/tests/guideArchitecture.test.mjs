@@ -63,6 +63,7 @@ test("focus metadata is immediate while decoder tune stays delayed and restores 
   assert.match(focusLock, /guideChannelNodes\.delete\(channelId\)/);
   assert.doesNotMatch(focusLock, /\|\|\s*guideEntryNode/);
   assert.match(timeline, /preservePendingFocus/);
+  assert.match(timeline, /pendingProgramCellHidden/);
   assert.match(timeline, /lastViewportBucketRef/);
   assert.match(timeline, /viewport \* 0\.3/);
   assert.match(box, /lastViewportBucketRef/);

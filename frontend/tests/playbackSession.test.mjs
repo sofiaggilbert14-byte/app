@@ -163,6 +163,13 @@ test("StreamPlayer and player route use role-scoped session teardown", async () 
   assert.match(playerRoute, /sessionRole="fullscreen"/);
   assert.match(playerRoute, /clearFullscreenCircuit/);
   assert.match(playerRoute, /MAX_AUTO_STREAM_RETRIES/);
+  assert.match(playerRoute, /isFullscreenCircuitOpen/);
+  assert.match(playerRoute, /clearStreamFailure\(channelIdRef\.current\)/);
+  assert.match(playerRoute, /failReason === "circuit-open"/);
+  assert.doesNotMatch(
+    playerRoute,
+    /if \(next === "error" \|\| reason === "silent-audio"\) \{\s*noteStreamFailure/,
+  );
   assert.match(playerRoute, /restartStream\(false\)/);
   assert.match(handoff, /FULLSCREEN_HANDOFF_SETTLE_MS = 90/);
   assert.match(vlcPatch, /removeLifecycleEventListener/);
