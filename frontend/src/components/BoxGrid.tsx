@@ -32,8 +32,6 @@ import {
   buildGuideRunwayIds,
   type GuideScanDirection,
 } from "@/src/core/guideRunwayPolicy";
-import { createDpadDoubleTapDetector } from "@/src/core/dpadDoubleTap";
-import { subscribeVerticalDpadTaps } from "@/src/utils/tvDpadTap";
 
 const ACCENT = "#A855F7";
 const ACCENT_SOFT = "#E9D5FF";
@@ -257,8 +255,6 @@ export function BoxGrid({
   const escapeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasClaimedFocusRef = useRef(false);
   const gridOwnsFocusRef = useRef(false);
-  const pageJumpDetectorRef = useRef(createDpadDoubleTapDetector());
-  const pageJumpAnchorRef = useRef(0);
   const [preferFirst, setPreferFirst] = useState(() => !hasClaimedFocusRef.current);
   const rememberFocusNode = useCallback((node: unknown) => {
     if (node) focusedNodeRef.current = node;
@@ -374,44 +370,6 @@ export function BoxGrid({
     },
     [],
   );
-
-  const lastGridOwnedAtRef = useRef(0);
-
-  useEffect(() => {
-    if (!active) {
-      pageJumpDetectorRef.current.reset();
-      return;
-    }
-    return subscribeVerticalDpadTaps((key) => {
-      const ownsFocus = gridOwnsFocusRef.current;
-      const recentlyOwned = Date.now() - lastGridOwnedAtRef.current <= 160;
-      if (!ownsFocus && !recentlyOwned) {
-        pageJumpDetectorRef.current.reset();
-        return;
-      }
-      if (ownsFocus) lastGridOwnedAtRef.current = Date.now();
-      const matched = pageJumpDetectorRef.current.push(key);
-      if (!matched) {
-        pageJumpAnchorRef.current = focusedIndexRef.current;
-        return;
-      }
-      const list = channelsRef.current;
-      if (!list.length) return;
-      const direction: GuideScanDirection = matched === "DOWN" ? 1 : -1;
-      const visibleRows = Math.max(1, Math.ceil(height / 148));
-      const itemsPerPage = Math.max(1, numColumns) * visibleRows;
-      const target = Math.max(
-        0,
-        Math.min(list.length - 1, pageJumpAnchorRef.current + direction * itemsPerPage),
-      );
-      scanDirectionRef.current = direction;
-      try {
-        listRef.current?.scrollToIndex({ index: target, animated: false, viewPosition: 0.1 });
-      } catch {}
-      reportFocusedRow(target);
-      focusGuideSurfaceWhenMounted(list[target]?.id, [0, 16, 48, 96]);
-    });
-  }, [active, height, numColumns, reportFocusedRow]);
 
   const lastRowIndex = Math.max(0, Math.floor((Math.max(channels.length, 1) - 1) / Math.max(1, numColumns)));
   lastRowIndexRef.current = lastRowIndex;
