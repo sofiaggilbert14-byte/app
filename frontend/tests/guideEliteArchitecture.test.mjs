@@ -70,7 +70,7 @@ test("native tap event excludes repeats and preview buttons own left handoff", a
   assert.match(guide, /pointerEvents="none"/);
   assert.doesNotMatch(guide, /pointerEvents=\{drawerOpen \? "auto" : "none"\}/);
   assert.match(guide, /clearStreamFailure\(channel\.id\)/);
-  // Drawer-close reclaim is nonce-only â€” no parallel focusGuideSurface race.
+  // Drawer-close reclaim is nonce-only — no parallel focusGuideSurface race.
   assert.match(guide, /setFocusClaimNonce\(\(value\) => value \+ 1\)/);
   assert.doesNotMatch(
     guide,
@@ -133,4 +133,3 @@ test("EPG staging and metadata promotion preserve last-good caches", async () =>
   assert.match(webSource, /CACHE_BAK_FILE/);
   assert.match(webSource, /readValidCacheMeta\(CACHE_TMP_FILE\)/);
 });
-
