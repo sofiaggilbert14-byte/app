@@ -25,6 +25,7 @@ import {
   armGuideBottomFocusLock,
   armGuideLeftFocusLock,
   focusGuideSurfaceWhenMounted,
+  registerGuideProgramNode,
   noteGuideChannelFocus,
   registerGuideChannelNode,
 } from "@/src/utils/tvGuideFocusLock";
@@ -37,8 +38,6 @@ import {
   type GuideScanDirection,
 } from "@/src/core/guideRunwayPolicy";
 import { buildVisibleGuideCellSlice } from "@/src/core/guideCellCulling";
-import { createDpadDoubleTapDetector } from "@/src/core/dpadDoubleTap";
-import { subscribeVerticalDpadTaps } from "@/src/utils/tvDpadTap";
 import { noteGuideRowSlice, noteProgramCellMounted } from "@/src/utils/guidePerfMetrics";
 
 const HEADER_H = 30;
@@ -184,10 +183,11 @@ const ProgramCell = memo(function ProgramCell({
   const setRef = useCallback(
     (node: any) => {
       cellRef.current = node;
+      registerGuideProgramNode(channel.id, prepared.program.start, node);
       if (isPreferred) capturePreferred(node);
       applyDownFocusLock(node, lockFocusDown);
     },
-    [capturePreferred, isPreferred, lockFocusDown],
+    [capturePreferred, channel.id, isPreferred, lockFocusDown, prepared.program.start],
   );
 
   useEffect(() => {
@@ -498,187 +498,15 @@ const TimelineRow = memo(function TimelineRow({
                 onProgramBlur={handleProgramBlur} onProgramPress={onProgramPress}
                 onChannelLongPress={onChannelLongPress} />;
             })}
-            {(preparedPrograms.length === 0 || preservePendingFocus) && (
-              <Pressable ref={setPendingRef} focusable onFocus={handlePendingFocus}
-                onBlur={handlePendingBlur} onPress={handleChannelPress}
-                onLongPress={handleChannelLongPress} delayLongPress={450}
-                style={({ focused }: any) => [styles.progCell, styles.pendingProgramCell,
-                  preparedPrograms.length > 0 ? styles.pendingProgramCellHidden
-                    : { left: 0, width: Math.max(24, timelineWidth - 6) },
-                  focused && preparedPrograms.length === 0 && styles.programCellFocused]}
-                testID={`epg-pending-${item.id}`}>
-                {preparedPrograms.length === 0 ? <Text style={styles.noData}>
-                  {programRowState === "loading" ? "Loading programme data"
-                    : !channelHasEpgMatch(item) ? "Channel not matched to XMLTV" : "No programme supplied"}
-                </Text> : null}
-              </Pressable>
-            )}
-          </View>
-        </Animated.View>
-      </View>
-    </View>
-  );
-});
-
-export const TimelineGrid = memo(function TimelineGrid({
-  channels,
-  windowStart,
-  windowEnd,
-  now,
-  onProgramPress,
-  onProgramFocus,
-  onChannelPress,
-  onChannelFocus,
-  onChannelLongPress,
-  refreshing,
-  onRefresh,
-  density = "extra_compact",
-  showChannelNumbers = false,
-  channelNumberById,
-  showChannelLogos = true,
-  reminderKeys,
-  resetToken = 0,
-  active = true,
-  lockLeftEdge = true,
-  onUpBoundary,
-  onLeftBoundary,
-  onFocusedRowChange,
-  onViewportChannelIds,
-  onBackTargetChange,
-  restoreChannelId,
-  focusClaimNonce = 0,
-  cacheProfile = "normal",
-  reduceMotion = false,
-}: {
-  channels: Channel[];
-  windowStart: string;
-  windowEnd: string;
-  now: string;
-  onProgramPress: (p: Program, c: Channel) => void;
-  /** Metadata focus is immediate; decoder preview remains parent-delayed. */
-  onProgramFocus?: (p: Program, c: Channel) => void;
-  onChannelPress: (c: Channel) => void;
-  onChannelFocus?: (c: Channel) => void;
-  onChannelLongPress?: (c: Channel) => void;
-  refreshing?: boolean;
-  onRefresh?: () => void;
-  density?: "large" | "normal" | "compact" | "extra_compact";
-  showChannelNumbers?: boolean;
-  channelNumberById?: Record<string, number>;
-  showChannelLogos?: boolean;
-  reminderKeys?: ReadonlySet<string>;
-  resetToken?: number;
-  active?: boolean;
-  lockLeftEdge?: boolean;
-  /** Fired when Up is pressed on the first guide row so focus can exit to group chips. */
-  onUpBoundary?: () => void;
-  /** Fired when Left is pressed on the channel rail so the preview/actions panel can take focus. */
-  onLeftBoundary?: () => void;
-  /** Reports the currently focused row index so the parent can relax trapFocusUp on row 0. */
-  onFocusedRowChange?: (index: number) => void;
-  /** Visible-ish channel ids around the focused row (viewport + overscan) for EPG query scoping. */
-  onViewportChannelIds?: (ids: string[], priorityIds?: string[], pageSize?: number) => void;
-  /** Tell parent whether focus is on channel logo vs programme (for Back step-left). */
-  onBackTargetChange?: (region: "channel" | "program", logoNode: unknown) => void;
-  /** Session-only row restore after returning from fullscreen player. */
-  restoreChannelId?: string | null;
-  /** Bumped after drawer close when restore may have missed — re-prefer guide row. */
-  focusClaimNonce?: number;
-  /** Device power profile — Compatibility shortens the SQLite runway. */
-  cacheProfile?: "normal" | "weak" | "max_preview";
-  /** Snap expensive Guide motion while keeping focus/metadata immediate. */
-  reduceMotion?: boolean;
-}) {
-  const { width } = useWindowDimensions();
-  const big = width >= 900;
-  const railMetrics = getGuideRailMetrics(width, density, showChannelNumbers, showChannelLogos);
-  const ROW_H = railMetrics.rowHeight;
-  const LOGO_W = railMetrics.railWidth;
-  const LOGO_SIZE = railMetrics.logoSize;
-  const scrollX = useRef(new Animated.Value(0)).current;
-  const negScrollX = useMemo(() => Animated.multiply(scrollX, -1), [scrollX]);
-  const panAnimRef = useRef<Animated.CompositeAnimation | null>(null);
-  const [bodyH, setBodyH] = useState(0);
-  const [programViewportW, setProgramViewportW] = useState(0);
-  const bodyHRef = useRef(0);
-  const channelsRef = useRef(channels);
-  channelsRef.current = channels;
-  // Coarse pan bucket only — avoids re-rendering every row on each pixel of horizontal pan.
-  const [panBucket, setPanBucket] = useState(0);
-  // Once the shared rail is fully off-screen, stop mounting decoded logos until
-  // navigation returns to the channel edge.
-  const [channelRailVisible, setChannelRailVisible] = useState(true);
-  // Preferred focus is mount-once only. Group changes must NOT reclaim it (steals chip focus).
-  const hasClaimedFocusRef = useRef(false);
-  const [preferFirstRow, setPreferFirstRow] = useState(() => !hasClaimedFocusRef.current);
-  const listRef = useRef<any>(null);
-  const focusRegionRef = useRef<"channel" | "program">("program");
-  const focusedRowRef = useRef(0);
-  const focusedNodeRef = useRef<unknown>(null);
-  const lastRowIndexRef = useRef(0);
-  const gridOwnsFocusRef = useRef(false);
-  const lastReportedDeepRef = useRef(false);
-  const lastViewportBucketRef = useRef("");
-  const lastPrefetchIndexRef = useRef(0);
-  const scanDirectionRef = useRef<GuideScanDirection>(1);
-  const guideEscapeInFlight = useRef(false);
-  const escapeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const scrollXRef = useRef(0);
-  const lastAxisRef = useRef<"v" | "h" | null>(null);
-  const lastAxisAtRef = useRef(0);
-  // Ref-only: putting focused key in renderItem deps rebuilt every FlashList row on each cell focus.
-  const focusedProgramKeyRef = useRef<string | null>(null);
-  const pageJumpDetectorRef = useRef(createDpadDoubleTapDetector());
-  const pageJumpAnchorRef = useRef(0);
-  const lastGridOwnedAtRef = useRef(0);
-  const rememberFocusNode = useCallback((node: unknown) => {
-    if (node) focusedNodeRef.current = node;
-  }, []);
-
-  const reportFocusedRow = useCallback(
-    (index: number) => {
-      focusedRowRef.current = index;
-      gridOwnsFocusRef.current = true;
-      lastGridOwnedAtRef.current = Date.now();
-      const rows = channelsRef.current;
-      const deep = index > 0;
-      if (lastReportedDeepRef.current !== deep) {
-        lastReportedDeepRef.current = deep;
-        onFocusedRowChange?.(index);
-      } else if (index === 0) {
-        onFocusedRowChange?.(index);
-      }
-      if (onViewportChannelIds && rows.length) {
-        const visibleRows = Math.max(6, Math.ceil((bodyHRef.current || ROW_H * 6) / ROW_H));
-        if (index > lastPrefetchIndexRef.current) scanDirectionRef.current = 1;
-        else if (index < lastPrefetchIndexRef.current) scanDirectionRef.current = -1;
-        lastPrefetchIndexRef.current = index;
-        // Half-page buckets so held surfing refreshes the runway before the
-        // focused page fully exits the previous prefetch window.
-        const halfPage = Math.max(1, Math.floor(visibleRows / 2));
-        const viewportBucket = `${Math.floor(Math.max(0, index) / halfPage)}:${scanDirectionRef.current}`;
-        if (lastViewportBucketRef.current === viewportBucket) return;
-        lastViewportBucketRef.current = viewportBucket;
-        const runway = buildGuideRunwayIds(
-          rows,
-          index,
-          visibleRows,
-          scanDirectionRef.current,
-          cacheProfile,
-        );
-        const pageStart = Math.floor(Math.max(0, index) / visibleRows) * visibleRows;
-        const visiblePageIds = rows
-          .slice(pageStart, pageStart + visibleRows)
-          .map((row) => row.id);
-        const priorityIds = [
-          rows[index]?.id,
-          rows[index + scanDirectionRef.current]?.id,
-          rows[index + scanDirectionRef.current * 2]?.id,
-          rows[index + scanDirectionRef.current * 3]?.id,
-          rows[index + scanDirectionRef.current * 4]?.id,
-          ...visiblePageIds,
-        ].filter((id): id is string => !!id);
-        onViewportChannelIds(runway, priorityIds, visibleRows);
+            {(preparedProgr…2070 tokens truncated…bleRows };
+        if (!viewportDispatchRef.current) {
+          viewportDispatchRef.current = setTimeout(() => {
+            viewportDispatchRef.current = null;
+            const pending = pendingViewportRef.current;
+            pendingViewportRef.current = null;
+            if (pending) onViewportChannelIds(pending.runway, pending.priorities, pending.pageSize);
+          }, 16);
+        }
       }
     },
     [ROW_H, cacheProfile, onFocusedRowChange, onViewportChannelIds],
@@ -724,29 +552,32 @@ export const TimelineGrid = memo(function TimelineGrid({
     (target: number, animated: boolean) => {
       const next = Math.max(0, target);
       scrollXRef.current = next;
-      setChannelRailVisible((current) => {
-        const visible = next < Math.max(1, LOGO_W - 4);
-        return current === visible ? current : visible;
-      });
-      // Programme culling uses timeline-local coordinates. Shared scroll also
-      // contains the channel rail, so remove that portion before bucketing.
-      const timelineOffset = Math.max(0, next - LOGO_W);
-      const bucket = Math.floor(timelineOffset / PAN_BUCKET_PX) * PAN_BUCKET_PX;
-      setPanBucket((prev) => (prev === bucket ? prev : bucket));
+      const commitViewport = () => {
+        setChannelRailVisible((current) => {
+          const visible = next < Math.max(1, LOGO_W - 4);
+          return current === visible ? current : visible;
+        });
+        // Cull only after the pixels reach their destination. Updating the
+        // mounted slice before the pan completes can remove native focus.
+        const timelineOffset = Math.max(0, next - LOGO_W);
+        const bucket = Math.floor(timelineOffset / PAN_BUCKET_PX) * PAN_BUCKET_PX;
+        setPanBucket((prev) => (prev === bucket ? prev : bucket));
+      };
       panAnimRef.current?.stop();
-      // JS driver: safer with FlashList recycling than native-driver multiply transforms.
       if (!animated || reduceMotion) {
         scrollX.setValue(next);
+        commitViewport();
         return;
       }
       panAnimRef.current = Animated.timing(scrollX, {
         toValue: next,
         duration: HORIZONTAL_PAN_MS,
         easing: Easing.out(Easing.cubic),
-        useNativeDriver: false,
+        useNativeDriver: true,
       });
       panAnimRef.current.start(() => {
         panAnimRef.current = null;
+        commitViewport();
       });
     },
     [LOGO_W, reduceMotion, scrollX],
@@ -811,49 +642,11 @@ export const TimelineGrid = memo(function TimelineGrid({
   useEffect(
     () => () => {
       if (escapeTimer.current) clearTimeout(escapeTimer.current);
+      if (viewportDispatchRef.current) clearTimeout(viewportDispatchRef.current);
       panAnimRef.current?.stop();
     },
     [],
   );
-
-  useEffect(() => {
-    if (!active) {
-      pageJumpDetectorRef.current.reset();
-      return;
-    }
-    return subscribeVerticalDpadTaps((key) => {
-      const ownsFocus = gridOwnsFocusRef.current;
-      const recentlyOwned = Date.now() - lastGridOwnedAtRef.current <= 160;
-      if (!ownsFocus && !recentlyOwned) {
-        pageJumpDetectorRef.current.reset();
-        return;
-      }
-      // FlashList recycle can drop owns-focus for a frame between ultra-fast
-      // taps — still feed the detector so the second tap is never discarded.
-      if (ownsFocus) lastGridOwnedAtRef.current = Date.now();
-      const matched = pageJumpDetectorRef.current.push(key);
-      if (!matched) {
-        pageJumpAnchorRef.current = focusedRowRef.current;
-        return;
-      }
-      const rows = channelsRef.current;
-      if (!rows.length) return;
-      const direction: GuideScanDirection = matched === "DOWN" ? 1 : -1;
-      const visibleRows = Math.max(1, Math.floor((bodyHRef.current || ROW_H * 6) / ROW_H));
-      const target = Math.max(
-        0,
-        Math.min(rows.length - 1, pageJumpAnchorRef.current + direction * visibleRows),
-      );
-      scanDirectionRef.current = direction;
-      focusedProgramKeyRef.current = null;
-      // Jump immediately — do not wait on focus retries for the scroll itself.
-      try {
-        listRef.current?.scrollToIndex({ index: target, animated: false, viewPosition: 0.1 });
-      } catch {}
-      reportFocusedRow(target);
-      focusGuideSurfaceWhenMounted(rows[target]?.id, [0, 16, 48, 96]);
-    });
-  }, [ROW_H, active, reportFocusedRow]);
 
   useTVEventHandler(
     useCallback(
@@ -879,7 +672,6 @@ export const TimelineGrid = memo(function TimelineGrid({
         if (decision.boundary === "left-boundary") {
           if (onLeftBoundary) {
             gridOwnsFocusRef.current = false;
-            pageJumpDetectorRef.current.reset();
             onLeftBoundary();
             return;
           }
@@ -899,7 +691,6 @@ export const TimelineGrid = memo(function TimelineGrid({
           if (guideEscapeInFlight.current) return;
           guideEscapeInFlight.current = true;
           gridOwnsFocusRef.current = false;
-          pageJumpDetectorRef.current.reset();
           onUpBoundary?.();
           if (escapeTimer.current) clearTimeout(escapeTimer.current);
           escapeTimer.current = setTimeout(() => {
