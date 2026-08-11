@@ -460,7 +460,9 @@ function ExpoStream({
             maxBufferBytes: (media3Audio === "ffmpeg" ? 36 : 28) * 1024 * 1024,
           }
         : profile === "stable"
-          ? { preferredForwardBufferDuration: 6, maxBufferBytes: 72 * 1024 * 1024 }
+          // Cap Stable below the old 72MB ceiling — Fire TV sticks OOM when the
+          // guide preview + fullscreen decoder both retain large forward buffers.
+          ? { preferredForwardBufferDuration: 6, maxBufferBytes: 48 * 1024 * 1024 }
           : {
               preferredForwardBufferDuration: media3Audio === "ffmpeg" ? 3.5 : 3,
               maxBufferBytes: (media3Audio === "ffmpeg" ? 56 : 48) * 1024 * 1024,
@@ -604,6 +606,9 @@ function ExpoStream({
         reason: `mode=${media3Audio};tunnel=${playerCompat.media3Tunneling ? 1 : 0}`,
       });
 
+      // FFmpeg mode may decode tracks marked isSupported=false. Treat a selected
+      // track as success so silent-audio fallback does not false-trigger.
+      if (media3Audio === "ffmpeg") return selectedAudio != null && audioTracks.length > 0;
       return supportedTracks.length > 0;
     } catch {
       return false;
@@ -886,7 +891,9 @@ export function StreamPlayer({
     return () => sub.remove();
   }, []);
 
-  const sessionKey = `${role}:${uri}:${initialEngine}`;
+  // Include engine remount keys so mid-play Settings changes reset fallback /
+  // stable gates. Otherwise a prior silent-audio swap blocks the next attempt.
+  const sessionKey = `${role}:${uri}:${initialEngine}:${media3EngineKey}:${vlcEngineKey}`;
   useEffect(() => {
     const generation = beginSession(role);
     setSession({ key: sessionKey, generation });

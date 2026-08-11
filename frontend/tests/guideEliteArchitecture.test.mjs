@@ -64,6 +64,12 @@ test("native tap event excludes repeats and preview buttons own left handoff", a
   assert.match(guide, /lockLeftEdge=\{false\}/);
   assert.match(guide, /focusClaimNonce/);
   assert.match(guide, /openDrawer\(\{ focusTop: true \}\)/);
+  // Drawer-close reclaim is nonce-only — no parallel focusGuideSurface race.
+  assert.match(guide, /setFocusClaimNonce\(\(value\) => value \+ 1\)/);
+  assert.doesNotMatch(
+    guide,
+    /setFocusClaimNonce\(\(value\) => value \+ 1\);\s*focusGuideSurface\(guideSessionChannelId\)/,
+  );
   assert.match(focusLock, /nextFocusLeft: locked \? handle : previewHandle \|\| -1/);
   assert.match(timeline, /buildVisibleGuideCellSlice/);
   assert.match(timeline, /tvFocusable=\{near \|\| keepFocused\}/);
@@ -71,6 +77,12 @@ test("native tap event excludes repeats and preview buttons own left handoff", a
   assert.match(shell, /sidebarOverlay/);
   assert.match(shell, /pointerEvents=\{drawerOpen \? "auto" : "none"\}/);
   assert.match(shell, /focusGuideSurfaceWhenMounted/);
+  // Shell must not reclaim Guide on every drawer close (races focusClaimNonce).
+  assert.doesNotMatch(
+    shell,
+    /if \(active === "\/guide" && !activeProgram\) \{\s*focusGuideSurfaceWhenMounted/,
+  );
+  assert.match(shell, /if \(route === "\/guide"\) \{\s*focusGuideSurfaceWhenMounted/);
   assert.doesNotMatch(shell, /purple-icon-rail|ICON_RAIL/);
 });
 

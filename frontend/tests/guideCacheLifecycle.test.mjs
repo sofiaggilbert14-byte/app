@@ -29,7 +29,15 @@ test("sliding cache retains expanded keep set and strict-releases on blur", asyn
   assert.match(store, /lastKeepIdsRef/);
   assert.match(store, /retainGuidePrograms\(keep\)/);
   assert.match(store, /retainProgrammeWindowCache\(keep\)/);
-  assert.match(store, /const keep = lastKeepIdsRef\.current\.length/);
+  assert.match(store, /pickKeepIdsAroundFocus\(source, keepLimit, lastChannelId\)/);
+  assert.match(store, /pickKeepIdsAroundFocus\(source, keepLimit, lastChannelIdRef\.current\)/);
+});
+
+test("prepared program orphan map stays bounded to current + focused keys", async () => {
+  const timeline = await readFile(join(root, "src/components/TimelineGrid.tsx"), "utf8");
+  assert.match(timeline, /previousPreparedByKeyRef/);
+  assert.match(timeline, /keepKeys\.add\(focusedProgramKey\)/);
+  assert.match(timeline, /previousPreparedByKeyRef\.current\.delete\(key\)/);
 });
 
 test("focusClaimNonce reclaim ignores channels identity churn", async () => {

@@ -51,8 +51,9 @@ test("drawer uses bounded native motion and excludes hidden controls from TV foc
   assert.match(shell, /drawerAutoFocus && drawerPreferredRoute === item\.route/);
   assert.match(shell, /PURPLE_DRAWER_ANIMATION_MS,\s*280,\s*420,\s*650/);
   // Guide owns preferred focus — content autoFocus must not pulse when drawer closes on /guide.
-  assert.match(shell, /active === "\/guide"/);
+  assert.match(shell, /active !== "\/guide"/);
   assert.match(shell, /focusGuideSurfaceWhenMounted/);
+  assert.match(shell, /route === "\/guide"/);
   assert.match(shell, /focusTop/);
   assert.match(shell, /evaluateDrawerBack/);
   assert.match(shell, /close-drawer/);
