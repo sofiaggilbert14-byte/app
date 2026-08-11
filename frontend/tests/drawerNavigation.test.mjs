@@ -102,11 +102,11 @@ test("guide tabs reclaim the left edge and top-row Up restores the active tab", 
   assert.doesNotMatch(guide, /openDrawer\(\)/);
   assert.match(guide, /openFullscreenPlayer/);
   assert.match(guide, /drawerWasOpenForFocusRef/);
-  assert.match(guide, /focusGuideSurface\(guideSessionChannelId\)/);
+  assert.match(guide, /focusGuideSurface\(origin\?\.channelId \|\| guideSessionChannelId\)/);
   assert.doesNotMatch(guide, /lastGuideFocusNodeRef/);
-  assert.doesNotMatch(guide, /setGuideNavigationActive|guideNavigationActive/);
+  assert.match(guide, /setGuideNavigationActive\(true\)/);
   assert.match(guide, /GuidePreviewRail/);
-  assert.match(guide, /isReminded=/);
+  assert.match(guide, /onOpenReminders=/);
   assert.match(guide, /setPreviewId\(null\)/);
   assert.match(guide, /useTvBackHandler/);
   assert.match(guide, /onBackTargetChange/);
