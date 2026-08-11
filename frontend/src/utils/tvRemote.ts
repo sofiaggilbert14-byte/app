@@ -34,6 +34,13 @@ export function setPointerActive(active: boolean) {
   } catch {}
 }
 
+/** Avoid duplicating every Guide D-pad repeat across the JS bridge. */
+export function setGuideNavigationActive(active: boolean) {
+  try {
+    TvRemote?.setGuideNavigationActive?.(active);
+  } catch {}
+}
+
 // Inject a real tap at screen coordinates (dp) so the element under the virtual
 // cursor receives a normal onPress.
 export function tap(x: number, y: number) {
