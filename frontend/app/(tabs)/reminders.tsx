@@ -10,7 +10,7 @@ import {
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { PurpleTvShell } from "@/src/components/PurpleTvShell";
+import { PurpleTvShell, usePurpleTvDrawer } from "@/src/components/PurpleTvShell";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { useStore, type Reminder } from "@/src/store";
 import { fonts, radius, tvColors } from "@/src/theme";
@@ -18,9 +18,6 @@ import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
 import { fmtDayTime } from "@/src/utils/time";
 
 const COLUMNS = 6;
-const PAGE_BG = "#2B0B4A";
-const CARD_BG = "rgba(18, 8, 36, 0.92)";
-const CARD_BORDER = "rgba(192, 132, 252, 0.35)";
 
 function formatEta(msLeft: number): string {
   if (msLeft <= 0) return "LIVE";
@@ -94,6 +91,7 @@ function ReminderCard({
 export default function RemindersScreen() {
   const router = useRouter();
   const { width } = useWindowDimensions();
+  const { openDrawer } = usePurpleTvDrawer();
   const { reminders, removeReminder, channelById } = useStore();
   const [nowMs, setNowMs] = useState(() => Date.now());
 
@@ -135,6 +133,11 @@ export default function RemindersScreen() {
     router.replace("/guide" as any);
   }, [router]);
 
+  const openDrawerFromReminders = useCallback(() => {
+    void Haptics.selectionAsync().catch(() => undefined);
+    openDrawer({ focusTop: true });
+  }, [openDrawer]);
+
   const cancelReminder = useCallback(
     (key: string) => {
       void Haptics.selectionAsync().catch(() => undefined);
@@ -145,17 +148,29 @@ export default function RemindersScreen() {
 
   return (
     <PurpleTvShell active="/reminders">
-      <View style={styles.page}>
+      {/* Full-bleed page — same canvas as Guide/Live TV. Drawer is overlay-only
+          when opened; there is no permanent left nav rail on this screen. */}
+      <View style={styles.page} testID="reminders-page">
         <View style={styles.topBar}>
-          <Pressable
-            hasTVPreferredFocus
-            onPress={returnToGuide}
-            style={({ focused }: any) => [styles.returnButton, focused && styles.returnFocused]}
-            testID="reminders-return-guide"
-          >
-            <Ionicons name="arrow-back" size={14} color="#fff" />
-            <Text style={styles.returnText}>Return to Guide</Text>
-          </Pressable>
+          <View style={styles.topActions}>
+            <Pressable
+              hasTVPreferredFocus
+              onPress={returnToGuide}
+              style={({ focused }: any) => [styles.returnButton, focused && styles.returnFocused]}
+              testID="reminders-return-guide"
+            >
+              <Ionicons name="arrow-back" size={14} color="#fff" />
+              <Text style={styles.returnText}>Return to Guide</Text>
+            </Pressable>
+            <Pressable
+              onPress={openDrawerFromReminders}
+              style={({ focused }: any) => [styles.returnButton, focused && styles.returnFocused]}
+              testID="reminders-open-drawer"
+            >
+              <Ionicons name="menu-outline" size={14} color="#fff" />
+              <Text style={styles.returnText}>Drawer</Text>
+            </Pressable>
+          </View>
           <View style={styles.badge}>
             <Text style={styles.badgeText}>{upcoming.length} UPCOMING</Text>
           </View>
@@ -203,13 +218,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingTop: 12,
     paddingBottom: 10,
-    backgroundColor: PAGE_BG,
+    backgroundColor: tvColors.canvas,
   },
   topBar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 10,
+  },
+  topActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
   returnButton: {
     flexDirection: "row",
@@ -220,7 +240,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
     borderWidth: 2,
     borderColor: "transparent",
-    backgroundColor: "rgba(255,255,255,0.08)",
+    backgroundColor: tvColors.panel,
   },
   returnFocused: {
     borderColor: "#fff",
@@ -235,7 +255,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: radius.pill,
-    backgroundColor: "rgba(168, 85, 247, 0.35)",
+    backgroundColor: tvColors.purpleDeep,
   },
   badgeText: {
     color: "#F3E8FF",
@@ -256,7 +276,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   help: {
-    color: "rgba(255,255,255,0.72)",
+    color: tvColors.textMuted,
     fontFamily: fonts.regular,
     fontSize: 10,
     marginTop: 6,
@@ -273,7 +293,9 @@ const styles = StyleSheet.create({
     marginTop: 28,
     padding: 18,
     borderRadius: radius.md,
-    backgroundColor: "rgba(0,0,0,0.18)",
+    backgroundColor: tvColors.panel,
+    borderWidth: 1,
+    borderColor: tvColors.line,
   },
   emptyTitle: {
     color: "#fff",
@@ -282,16 +304,16 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   empty: {
-    color: "rgba(255,255,255,0.7)",
+    color: tvColors.textMuted,
     fontFamily: fonts.regular,
     fontSize: 10,
     lineHeight: 16,
   },
   card: {
-    backgroundColor: CARD_BG,
+    backgroundColor: tvColors.panel,
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: CARD_BORDER,
+    borderColor: tvColors.lineStrong,
     padding: 12,
     minHeight: 210,
     justifyContent: "space-between",
@@ -335,7 +357,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   description: {
-    color: "rgba(255,255,255,0.72)",
+    color: tvColors.textMuted,
     fontFamily: fonts.regular,
     fontSize: 9,
     lineHeight: 13,
@@ -348,7 +370,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
     borderWidth: 2,
     borderColor: "transparent",
-    backgroundColor: "rgba(124, 58, 237, 0.55)",
+    backgroundColor: tvColors.purpleDeep,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",

@@ -64,6 +64,7 @@ export type PurpleRecentChannel = {
   logo?: string | null;
 };
 
+/** Drawer nav items — My Reminders sits directly under Favorites. */
 const NAV: NavItem[] = [
   { route: "/", label: "Live TV", icon: "tv-outline" },
   { route: "/guide", label: "TV Guide", icon: "calendar-outline" },
