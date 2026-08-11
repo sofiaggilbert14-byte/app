@@ -23,13 +23,19 @@ test("visible-cell culling keeps a bounded viewport slice and pins focused cell"
 });
 
 test("page jump requires two short same-direction taps inside the window", () => {
-  const detector = createDpadDoubleTapDetector(360);
+  const detector = createDpadDoubleTapDetector(300);
   assert.equal(detector.push("DOWN", 1_000), null);
-  assert.equal(detector.push("DOWN", 1_350), "DOWN");
+  assert.equal(detector.push("DOWN", 1_280), "DOWN");
   assert.equal(detector.push("UP", 2_000), null);
-  assert.equal(detector.push("UP", 3_001), null);
-  assert.equal(detector.push("DOWN", 3_100), null);
-  assert.equal(detector.push("UP", 3_200), null);
+  assert.equal(detector.push("UP", 2_301), null);
+  assert.equal(detector.push("DOWN", 2_400), null);
+  assert.equal(detector.push("UP", 2_500), null);
+});
+
+test("ultra-fast same-ms double taps still page-jump", () => {
+  const detector = createDpadDoubleTapDetector(300);
+  assert.equal(detector.push("DOWN", 5_000), null);
+  assert.equal(detector.push("DOWN", 5_000), "DOWN");
 });
 
 test("extra compact density fits thinner rows and one-line names", () => {
@@ -52,13 +58,19 @@ test("native tap event excludes repeats and preview buttons own left handoff", a
   assert.match(activity, /TvDpadTap/);
   assert.match(preview, /registerGuidePreviewEntry\(node\)/);
   assert.match(preview, />Favorite</);
+  assert.match(preview, />Drawer</);
+  assert.match(preview, /guide-preview-drawer/);
   assert.match(guide, /trapFocusLeft=\{false\}/);
   assert.match(guide, /lockLeftEdge=\{false\}/);
+  assert.match(guide, /focusClaimNonce/);
+  assert.match(guide, /openDrawer\(\{ focusTop: true \}\)/);
   assert.match(focusLock, /nextFocusLeft: locked \? handle : previewHandle \|\| -1/);
   assert.match(timeline, /buildVisibleGuideCellSlice/);
   assert.match(timeline, /tvFocusable=\{near \|\| keepFocused\}/);
+  assert.match(timeline, /recentlyOwned/);
   assert.match(shell, /sidebarOverlay/);
   assert.match(shell, /pointerEvents=\{drawerOpen \? "auto" : "none"\}/);
+  assert.match(shell, /focusGuideSurfaceWhenMounted/);
   assert.doesNotMatch(shell, /purple-icon-rail|ICON_RAIL/);
 });
 

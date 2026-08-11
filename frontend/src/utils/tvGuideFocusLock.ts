@@ -106,7 +106,15 @@ export function noteGuideChannelFocus(channelId: string, node: unknown): void {
 }
 
 export function focusGuideSurface(channelId?: string | null): boolean {
-  return focusGuideSurfaceWhenMounted(channelId, [0, 40, 120, 240]);
+  // Include post-drawer-animation retries so selecting TV Guide never leaves
+  // Android stranded on a now-unfocusable drawer row.
+  return focusGuideSurfaceWhenMounted(channelId, [0, 32, 80, 160, 280, 420, 650, 900]);
+}
+
+/** First registered guide channel node — used when session id is unknown. */
+export function anyRegisteredGuideChannelId(): string | null {
+  for (const channelId of guideChannelNodes.keys()) return channelId;
+  return focusedGuideChannelId;
 }
 
 /** Resolve the current recycled row on every attempt, not a stale native ref. */
@@ -121,11 +129,10 @@ export function focusGuideSurfaceWhenMounted(
   let found = false;
   const tryCurrentRow = () => {
     if (cancelled) return;
+    const preferredId = channelId || focusedGuideChannelId;
     const entry =
-      (channelId ? guideChannelNodes.get(channelId) : undefined) ||
-      (!channelId && focusedGuideChannelId
-        ? guideChannelNodes.get(focusedGuideChannelId)
-        : undefined);
+      (preferredId ? guideChannelNodes.get(preferredId) : undefined) ||
+      (guideChannelNodes.size ? guideChannelNodes.values().next().value : undefined);
     const target = entry?.node;
     if (!target) return;
     found = requestNativeFocus(target) || found;

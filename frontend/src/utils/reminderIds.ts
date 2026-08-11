@@ -6,7 +6,9 @@ export type ReminderLike = {
   notificationId?: string;
   channelId: string;
   channelName?: string;
+  channelLogo?: string | null;
   programTitle?: string;
+  programDesc?: string;
   start: string;
   stop?: string | null;
 };
@@ -33,7 +35,9 @@ export function sanitizeReminders(raw: unknown, nowMs = Date.now()): ReminderLik
       notificationId: typeof row.notificationId === "string" ? row.notificationId : undefined,
       channelId,
       channelName: typeof row.channelName === "string" ? row.channelName : undefined,
+      channelLogo: typeof row.channelLogo === "string" ? row.channelLogo : row.channelLogo ?? null,
       programTitle: typeof row.programTitle === "string" ? row.programTitle : undefined,
+      programDesc: typeof row.programDesc === "string" ? row.programDesc : undefined,
       start,
       stop: row.stop ?? null,
     });

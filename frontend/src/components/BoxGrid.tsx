@@ -211,6 +211,7 @@ export function BoxGrid({
   active = true,
   lockLeftEdge = true,
   restoreChannelId,
+  focusClaimNonce = 0,
 }: {
   channels: Channel[];
   now: string;
@@ -232,6 +233,7 @@ export function BoxGrid({
   active?: boolean;
   lockLeftEdge?: boolean;
   restoreChannelId?: string | null;
+  focusClaimNonce?: number;
 }) {
   const { width, height } = useWindowDimensions();
   const numColumns = width >= 1400 ? 6 : width >= 1150 ? 5 : width >= 900 ? 4 : width >= 600 ? 3 : 2;
@@ -325,6 +327,26 @@ export function BoxGrid({
   }, [channels, restoreChannelId]);
 
   useEffect(() => {
+    if (!focusClaimNonce || !channels.length) return;
+    const restoreIndex = restoreChannelId
+      ? channels.findIndex((channel) => channel.id === restoreChannelId)
+      : 0;
+    if (restoreIndex >= 0) {
+      try {
+        listRef.current?.scrollToIndex({
+          index: Math.max(0, restoreIndex),
+          animated: false,
+          viewPosition: 0.45,
+        });
+      } catch {}
+    }
+    setPreferFirst(true);
+    const clearPreferred = setTimeout(() => setPreferFirst(false), 700);
+    focusGuideSurfaceWhenMounted(restoreChannelId || channels[0]?.id, [0, 40, 120, 240, 420]);
+    return () => clearTimeout(clearPreferred);
+  }, [channels, focusClaimNonce, restoreChannelId]);
+
+  useEffect(() => {
     if (!resetToken) return;
     lastReportedDeepRef.current = false;
     lastViewportBucketRef.current = "";
@@ -343,16 +365,21 @@ export function BoxGrid({
     [],
   );
 
+  const lastGridOwnedAtRef = useRef(0);
+
   useEffect(() => {
     if (!active) {
       pageJumpDetectorRef.current.reset();
       return;
     }
     return subscribeVerticalDpadTaps((key) => {
-      if (!gridOwnsFocusRef.current) {
+      const ownsFocus = gridOwnsFocusRef.current;
+      const recentlyOwned = Date.now() - lastGridOwnedAtRef.current <= 160;
+      if (!ownsFocus && !recentlyOwned) {
         pageJumpDetectorRef.current.reset();
         return;
       }
+      if (ownsFocus) lastGridOwnedAtRef.current = Date.now();
       const matched = pageJumpDetectorRef.current.push(key);
       if (!matched) {
         pageJumpAnchorRef.current = focusedIndexRef.current;
@@ -372,7 +399,7 @@ export function BoxGrid({
         listRef.current?.scrollToIndex({ index: target, animated: false, viewPosition: 0.1 });
       } catch {}
       reportFocusedRow(target);
-      focusGuideSurfaceWhenMounted(list[target]?.id, [0, 24, 64, 120, 220]);
+      focusGuideSurfaceWhenMounted(list[target]?.id, [0, 16, 48, 96]);
     });
   }, [active, height, numColumns, reportFocusedRow]);
 

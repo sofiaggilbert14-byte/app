@@ -1,11 +1,12 @@
 export type VerticalDpadKey = "UP" | "DOWN";
 
 /**
- * Window between two completed short taps that counts as a page jump.
- * Fire-TV / Android TV remotes often space intentional doubles around
- * 300–500 ms; 360 was too tight once JS focus flicker ate a few frames.
+ * Max gap between two completed short taps that still counts as a page jump.
+ * Keep this tight so only rapid succession doubles jump; slower pairs remain
+ * two normal single-row moves. Reliability comes from not dropping the second
+ * tap during FlashList focus flicker — not from widening this window.
  */
-export const DPAD_DOUBLE_TAP_WINDOW_MS = 560;
+export const DPAD_DOUBLE_TAP_WINDOW_MS = 300;
 
 export type DpadDoubleTapDetector = {
   push: (key: VerticalDpadKey, at?: number) => VerticalDpadKey | null;

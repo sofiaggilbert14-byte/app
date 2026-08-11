@@ -581,6 +581,7 @@ export const TimelineGrid = memo(function TimelineGrid({
   onViewportChannelIds,
   onBackTargetChange,
   restoreChannelId,
+  focusClaimNonce = 0,
   reduceMotion = false,
 }: {
   channels: Channel[];
@@ -613,9 +614,10 @@ export const TimelineGrid = memo(function TimelineGrid({
   onViewportChannelIds?: (ids: string[], priorityIds?: string[], pageSize?: number) => void;
   /** Tell parent whether focus is on channel logo vs programme (for Back step-left). */
   onBackTargetChange?: (region: "channel" | "program", logoNode: unknown) => void;
-  /** Bumped after drawer close when restore may have missed — re-prefer row 0 logo. */
   /** Session-only row restore after returning from fullscreen player. */
   restoreChannelId?: string | null;
+  /** Bumped after drawer close when restore may have missed — re-prefer guide row. */
+  focusClaimNonce?: number;
   /** Snap expensive Guide motion while keeping focus/metadata immediate. */
   reduceMotion?: boolean;
 }) {
@@ -785,6 +787,27 @@ export const TimelineGrid = memo(function TimelineGrid({
     return () => clearTimeout(clearPreferred);
   }, [channels, restoreChannelId]);
 
+  // Drawer → Guide must re-claim preferred focus even after the mount-once pass.
+  useEffect(() => {
+    if (!focusClaimNonce || !channels.length) return;
+    const restoreIndex = restoreChannelId
+      ? channels.findIndex((channel) => channel.id === restoreChannelId)
+      : 0;
+    if (restoreIndex >= 0) {
+      try {
+        listRef.current?.scrollToIndex({
+          index: Math.max(0, restoreIndex),
+          animated: false,
+          viewPosition: 0.45,
+        });
+      } catch {}
+    }
+    setPreferFirstRow(true);
+    const clearPreferred = setTimeout(() => setPreferFirstRow(false), 700);
+    focusGuideSurfaceWhenMounted(restoreChannelId || channels[0]?.id, [0, 40, 120, 240, 420]);
+    return () => clearTimeout(clearPreferred);
+  }, [channels, focusClaimNonce, restoreChannelId]);
+
   // Group/filter changes: reset scroll position only. Do not touch preferred focus.
   useEffect(() => {
     if (!resetToken) return;
@@ -813,15 +836,15 @@ export const TimelineGrid = memo(function TimelineGrid({
       return;
     }
     return subscribeVerticalDpadTaps((key) => {
-      if (!gridOwnsFocusRef.current) {
-        // FlashList recycle can drop owns-focus for a frame between taps.
-        // Keep the pending first tap unless we've been off-grid for real.
-        if (Date.now() - lastGridOwnedAtRef.current > 120) {
-          pageJumpDetectorRef.current.reset();
-        }
+      const ownsFocus = gridOwnsFocusRef.current;
+      const recentlyOwned = Date.now() - lastGridOwnedAtRef.current <= 160;
+      if (!ownsFocus && !recentlyOwned) {
+        pageJumpDetectorRef.current.reset();
         return;
       }
-      lastGridOwnedAtRef.current = Date.now();
+      // FlashList recycle can drop owns-focus for a frame between ultra-fast
+      // taps — still feed the detector so the second tap is never discarded.
+      if (ownsFocus) lastGridOwnedAtRef.current = Date.now();
       const matched = pageJumpDetectorRef.current.push(key);
       if (!matched) {
         pageJumpAnchorRef.current = focusedRowRef.current;
@@ -837,11 +860,12 @@ export const TimelineGrid = memo(function TimelineGrid({
       );
       scanDirectionRef.current = direction;
       focusedProgramKeyRef.current = null;
+      // Jump immediately — do not wait on focus retries for the scroll itself.
       try {
         listRef.current?.scrollToIndex({ index: target, animated: false, viewPosition: 0.1 });
       } catch {}
       reportFocusedRow(target);
-      focusGuideSurfaceWhenMounted(rows[target]?.id, [0, 24, 64, 120, 220]);
+      focusGuideSurfaceWhenMounted(rows[target]?.id, [0, 16, 48, 96]);
     });
   }, [ROW_H, active, reportFocusedRow]);
 

@@ -106,6 +106,7 @@ function GuideSelectionPreview({
   onFavorite,
   onToggleReminder,
   onHideToggle,
+  onOpenDrawer,
 }: {
   width: number;
   channelById: ReadonlyMap<string, Channel>;
@@ -128,6 +129,7 @@ function GuideSelectionPreview({
   onFavorite: (channelId: string) => void;
   onToggleReminder: (program: Program, channel: Channel) => void;
   onHideToggle: () => void;
+  onOpenDrawer: () => void;
 }) {
   const selection = useGuideSelection();
   const channel = (selection.channelId ? channelById.get(selection.channelId) : null) || fallbackChannel;
@@ -189,13 +191,14 @@ function GuideSelectionPreview({
         if (displayedProgram && channel) onToggleReminder(displayedProgram, channel);
       }}
       onHideToggle={onHideToggle}
+      onOpenDrawer={onOpenDrawer}
     />
   );
 }
 
 export default function PurpleGuideScreen() {
   const router = useRouter();
-  const { drawerOpen } = usePurpleTvDrawer();
+  const { drawerOpen, openDrawer } = usePurpleTvDrawer();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const {
     channels,
@@ -331,6 +334,7 @@ export default function PurpleGuideScreen() {
   // exact recycled native node is stale, use the registered guide surface entry
   // instead of preferring row 0 and unexpectedly jumping to the first channel.
   const drawerWasOpenForFocusRef = useRef(drawerOpen);
+  const [focusClaimNonce, setFocusClaimNonce] = useState(0);
   useEffect(() => {
     const wasOpen = drawerWasOpenForFocusRef.current;
     drawerWasOpenForFocusRef.current = drawerOpen;
@@ -341,9 +345,15 @@ export default function PurpleGuideScreen() {
     if (!wasOpen || drawerOpen || activeProgram) return;
     // Restore only through currently registered channel rows. A recycled native
     // node must never be treated as a successful fallback.
+    setFocusClaimNonce((value) => value + 1);
     focusGuideSurface(guideSessionChannelId);
     return cancelGuideFocusRestore;
   }, [activeProgram, drawerOpen]);
+
+  const openDrawerFromPreview = useCallback(() => {
+    void Haptics.selectionAsync().catch(() => undefined);
+    openDrawer({ focusTop: true });
+  }, [openDrawer]);
 
   // After Remind/Cancel sheet closes, return focus to the guide cell — never Live TV.
   useEffect(() => {
@@ -989,6 +999,7 @@ export default function PurpleGuideScreen() {
               onFavorite={toggleFavorite}
               onToggleReminder={(program, channel) => void toggleReminder(program, channel)}
               onHideToggle={() => setHidePreview(!hidePreview)}
+              onOpenDrawer={openDrawerFromPreview}
             />
 
             {/* The preview/details/actions rail is a fixed left sibling. The Guide
@@ -1019,6 +1030,7 @@ export default function PurpleGuideScreen() {
                   // no mounted focus tree and therefore needs no self-lock.
                   lockLeftEdge={false}
                   restoreChannelId={guideSessionChannelId}
+                  focusClaimNonce={focusClaimNonce}
                   onUpBoundary={onGuideUpBoundary}
                   onLeftBoundary={onGuideLeftBoundary}
                   onFocusedRowChange={onFocusedGuideRow}
@@ -1048,6 +1060,7 @@ export default function PurpleGuideScreen() {
                   // no mounted focus tree and therefore needs no self-lock.
                   lockLeftEdge={false}
                   restoreChannelId={guideSessionChannelId}
+                  focusClaimNonce={focusClaimNonce}
                   onUpBoundary={onGuideUpBoundary}
                   onLeftBoundary={onGuideLeftBoundary}
                   onFocusedRowChange={onFocusedGuideRow}

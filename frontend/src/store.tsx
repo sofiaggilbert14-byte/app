@@ -109,7 +109,9 @@ export type Reminder = {
   notificationId: string;
   channelId: string;
   channelName: string;
+  channelLogo?: string | null;
   programTitle: string;
+  programDesc?: string;
   start: string;
   stop: string | null;
 };
@@ -568,7 +570,9 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
         notificationId: id,
         channelId: channel.id,
         channelName: channel.name,
+        channelLogo: channel.logo || null,
         programTitle: program.title,
+        programDesc: program.desc || "",
         start: program.start,
         stop: program.stop,
       };

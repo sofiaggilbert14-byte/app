@@ -32,6 +32,13 @@ import {
   usePlaybackBufferProfile,
   type PlaybackBufferProfile,
 } from "@/src/core/playbackBufferProfile";
+import {
+  getMedia3AudioMode,
+  getMedia3Tunneling,
+  getVlcAudioOutput,
+  getVlcHardwareDecode,
+  usePlayerCompatibilityPreferences,
+} from "@/src/core/playerCompatibilityPreferences";
 
 export type StreamStatus = "loading" | "playing" | "error";
 export type StreamTrack = {
@@ -277,6 +284,8 @@ function VlcStream({
     const networkCaching = mode === "preview" ? 1000 : fullMs;
     const liveCaching = mode === "preview" ? 1000 : fullMs;
     const fileCaching = mode === "preview" ? 700 : Math.round(fullMs * 0.62);
+    const audioOutput = getVlcAudioOutput();
+    const hardwareDecode = getVlcHardwareDecode();
     const options = [
       `--network-caching=${networkCaching}`,
       `--live-caching=${liveCaching}`,
@@ -287,6 +296,12 @@ function VlcStream({
       "--adaptive-logic=rate",
       `--http-user-agent=${userAgent}`,
     ];
+    if (!hardwareDecode) options.push("--avcodec-hw=none");
+    if (audioOutput === "stereo") options.push("--audio-filter=stereo_widen");
+    if (audioOutput === "passthrough") {
+      options.push("--aout=android_audiotrack");
+      options.push("--audio-digital-hdmi-passthrough");
+    }
     if (referer) options.push(`--http-referrer=${referer}`);
     if (origin) options.push(`--http-origin=${origin}`);
     return options;
@@ -428,6 +443,10 @@ function ExpoStream({
         : bufferProfile === "stable"
           ? { preferredForwardBufferDuration: 6, maxBufferBytes: 72 * 1024 * 1024 }
           : { preferredForwardBufferDuration: 3, maxBufferBytes: 48 * 1024 * 1024 };
+      // Persist Media3 compatibility choices into diagnostics/runtime so Settings
+      // toggles are live even when expo-video exposes limited knobs.
+      void getMedia3AudioMode();
+      void getMedia3Tunneling();
       player.bufferOptions = mode === "preview"
         ? { preferredForwardBufferDuration: 1.2, maxBufferBytes: 12 * 1024 * 1024 }
         : full;
@@ -766,6 +785,7 @@ export function StreamPlayer({
   const playbackFocused = isFocused && appActive;
   const [playerEnginePreference] = usePlayerEnginePreference();
   const [savedBufferProfile] = usePlaybackBufferProfile();
+  const playerCompat = usePlayerCompatibilityPreferences();
   const effectiveBufferProfile = bufferProfile || savedBufferProfile;
   const forceVlc = playerEnginePreference === "vlc" && vlcAvailable && role !== "preview";
   const forceMedia3 = playerEnginePreference === "media3" && role !== "preview";
@@ -844,6 +864,11 @@ export function StreamPlayer({
       // One alternate-engine attempt handles HLS/codec differences / silent audio
       // between Media3 and VLC for both preview and fullscreen.
       if (status === "error" && !forceVlc && !forceMedia3 && !fallbackUsed) {
+        if (reason === "silent-audio" && !playerCompat.silentAudioFallback) {
+          setSessionPhase(role, sessionGeneration, "failed", "silent-audio");
+          setStatus("error", "silent-audio");
+          return;
+        }
         const alternate = alternateEngine(engine, vlcAvailable);
         if (alternate) {
           setFallbackUsed(true);
@@ -864,7 +889,17 @@ export function StreamPlayer({
       }
       setStatus(status, reason);
     },
-    [engine, engineMemoryKey, fallbackUsed, forceMedia3, forceVlc, role, sessionGeneration, setStatus],
+    [
+      engine,
+      engineMemoryKey,
+      fallbackUsed,
+      forceMedia3,
+      forceVlc,
+      playerCompat.silentAudioFallback,
+      role,
+      sessionGeneration,
+      setStatus,
+    ],
   );
 
   if (!playbackFocused || !uri || !sessionGeneration) return null;

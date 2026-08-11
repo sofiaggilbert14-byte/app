@@ -8,7 +8,6 @@ import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { StreamPlayer, type StreamStatus } from "@/src/components/StreamPlayer";
 import { getLastAudioDiagnostics } from "@/src/core/audioDiagnostics";
 import {
-  focusGuideSurface,
   noteGuidePreviewFocus,
   registerGuidePreviewEntry,
 } from "@/src/utils/tvGuideFocusLock";
@@ -40,6 +39,8 @@ type Props = {
   isReminded: boolean;
   onToggleReminder: () => void;
   onHideToggle: () => void;
+  /** Opens the app drawer and lands focus on the top drawer row. */
+  onOpenDrawer: () => void;
 };
 
 export function GuidePreviewRail({
@@ -65,6 +66,7 @@ export function GuidePreviewRail({
   isReminded,
   onToggleReminder,
   onHideToggle,
+  onOpenDrawer,
 }: Props) {
   const nowDate = useMemo(() => new Date(now), [now]);
   const progress = current ? progressPct(current, nowDate) : 0;
@@ -208,13 +210,13 @@ export function GuidePreviewRail({
             </Text>
           </Pressable>
           <Pressable
-            onPress={() => focusGuideSurface(channel?.id)}
+            onPress={onOpenDrawer}
             onFocus={noteGuidePreviewFocus}
             style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
-            testID="guide-preview-guide"
+            testID="guide-preview-drawer"
           >
-            <Ionicons name="grid-outline" size={12} color={tvColors.purpleSoft} />
-            <Text style={styles.secondaryText}>Guide</Text>
+            <Ionicons name="menu-outline" size={12} color={tvColors.purpleSoft} />
+            <Text style={styles.secondaryText}>Drawer</Text>
           </Pressable>
         </View>
         <View style={styles.actions}>
