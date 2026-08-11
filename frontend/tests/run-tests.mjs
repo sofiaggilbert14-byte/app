@@ -14,3 +14,4 @@ import "./guideShellPolish.test.mjs";
 import "./guideArchitecture.test.mjs";
 import "./guideEliteArchitecture.test.mjs";
 import "./remindersPage.test.mjs";
+import "./guideCacheLifecycle.test.mjs";

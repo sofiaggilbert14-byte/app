@@ -326,10 +326,13 @@ export function BoxGrid({
     return () => clearTimeout(clearPreferred);
   }, [channels, restoreChannelId]);
 
+  // Depend only on the nonce — channels identity churn must not re-fire reclaim.
   useEffect(() => {
-    if (!focusClaimNonce || !channels.length) return;
+    if (!focusClaimNonce) return;
+    const rows = channelsRef.current;
+    if (!rows.length) return;
     const restoreIndex = restoreChannelId
-      ? channels.findIndex((channel) => channel.id === restoreChannelId)
+      ? rows.findIndex((channel) => channel.id === restoreChannelId)
       : 0;
     if (restoreIndex >= 0) {
       try {
@@ -342,9 +345,9 @@ export function BoxGrid({
     }
     setPreferFirst(true);
     const clearPreferred = setTimeout(() => setPreferFirst(false), 700);
-    focusGuideSurfaceWhenMounted(restoreChannelId || channels[0]?.id, [0, 40, 120, 240, 420]);
+    focusGuideSurfaceWhenMounted(restoreChannelId || rows[0]?.id, [0, 40, 120, 240, 420]);
     return () => clearTimeout(clearPreferred);
-  }, [channels, focusClaimNonce, restoreChannelId]);
+  }, [focusClaimNonce, restoreChannelId]);
 
   useEffect(() => {
     if (!resetToken) return;

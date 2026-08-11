@@ -39,6 +39,11 @@ import {
   getVlcHardwareDecode,
   usePlayerCompatibilityPreferences,
 } from "@/src/core/playerCompatibilityPreferences";
+import {
+  getPreferredAudioLanguage,
+  getRememberedChannelAudioTrack,
+  pickPreferredAudioTrack,
+} from "@/src/core/audioTrackPreferences";
 
 export type StreamStatus = "loading" | "playing" | "error";
 export type StreamTrack = {
@@ -402,6 +407,7 @@ function VlcStream({
 
 function ExpoStream({
   uri: rawUri,
+  channelKey,
   onStatus: setStatus,
   style,
   engine,
@@ -438,15 +444,22 @@ function ExpoStream({
 
   useEffect(() => {
     try {
-      const full = bufferProfile === "low_latency"
-        ? { preferredForwardBufferDuration: 1.5, maxBufferBytes: 28 * 1024 * 1024 }
-        : bufferProfile === "stable"
+      const tunneling = getMedia3Tunneling();
+      const media3Audio = getMedia3AudioMode();
+      // Tunneling prefers shorter forward buffers; ffmpeg mode keeps a slightly
+      // larger decode cushion because the extension path is heavier on weak SoCs.
+      const profile = tunneling && bufferProfile !== "stable" ? "low_latency" : bufferProfile;
+      const full = profile === "low_latency"
+        ? {
+            preferredForwardBufferDuration: media3Audio === "ffmpeg" ? 2.0 : 1.5,
+            maxBufferBytes: (media3Audio === "ffmpeg" ? 36 : 28) * 1024 * 1024,
+          }
+        : profile === "stable"
           ? { preferredForwardBufferDuration: 6, maxBufferBytes: 72 * 1024 * 1024 }
-          : { preferredForwardBufferDuration: 3, maxBufferBytes: 48 * 1024 * 1024 };
-      // Persist Media3 compatibility choices into diagnostics/runtime so Settings
-      // toggles are live even when expo-video exposes limited knobs.
-      void getMedia3AudioMode();
-      void getMedia3Tunneling();
+          : {
+              preferredForwardBufferDuration: media3Audio === "ffmpeg" ? 3.5 : 3,
+              maxBufferBytes: (media3Audio === "ffmpeg" ? 56 : 48) * 1024 * 1024,
+            };
       player.bufferOptions = mode === "preview"
         ? { preferredForwardBufferDuration: 1.2, maxBufferBytes: 12 * 1024 * 1024 }
         : full;
@@ -468,18 +481,46 @@ function ExpoStream({
     try {
       const audioTracks = Array.isArray(player.availableAudioTracks) ? player.availableAudioTracks : [];
       const supportedTracks = audioTracks.filter((track: any) => track.isSupported !== false);
+      const media3Audio = getMedia3AudioMode();
+      const mappedTracks = audioTracks.map((track: any) => ({
+        id: track.id,
+        name: [track.label || track.language || `Audio ${track.id}`, track.mimeType].filter(Boolean).join(" · "),
+        mimeType: track.mimeType,
+        isSupported: track.isSupported !== false,
+        language: track.language,
+        raw: track,
+      }));
+      const preferred = audioTrack == null
+        ? pickPreferredAudioTrack(
+            mappedTracks,
+            getRememberedChannelAudioTrack(channelKey),
+            getPreferredAudioLanguage(),
+          )
+        : undefined;
+      const preferredRaw = preferred
+        ? audioTracks.find((track: any) => String(track.id) === String(preferred.id)) || null
+        : null;
+      // device mode prefers isSupported tracks; ffmpeg mode will still try unsupported
+      // tracks before falling back because the FFmpeg extension may decode them.
+      const candidatePool = media3Audio === "device"
+        ? supportedTracks
+        : media3Audio === "ffmpeg"
+          ? audioTracks
+          : supportedTracks.length
+            ? supportedTracks
+            : audioTracks;
       const requestedAudio = audioTrack == null
-        ? null
+        ? preferredRaw
         : audioTracks.find((track) => String(track.id) === String(audioTrack)) || null;
       const currentAudio = player.audioTrack as any;
-      const automaticSupported = supportedTracks[0] || null;
+      const automaticSupported = candidatePool[0] || supportedTracks[0] || null;
 
       let selectedAudio: any = null;
       let selectedBy: "user" | "current" | "auto-supported" | "auto-first" | "none" = "none";
-      if (requestedAudio && requestedAudio.isSupported !== false) {
+      if (requestedAudio && (media3Audio === "ffmpeg" || requestedAudio.isSupported !== false)) {
         selectedAudio = requestedAudio;
-        selectedBy = "user";
-      } else if (currentAudio && currentAudio.isSupported !== false) {
+        selectedBy = audioTrack == null ? "auto-supported" : "user";
+      } else if (currentAudio && (media3Audio === "ffmpeg" || currentAudio.isSupported !== false)) {
         selectedAudio = currentAudio;
         selectedBy = "current";
       } else if (automaticSupported) {
@@ -487,7 +528,7 @@ function ExpoStream({
         selectedBy = "auto-supported";
       } else if (requestedAudio) {
         selectedAudio = requestedAudio;
-        selectedBy = "user";
+        selectedBy = audioTrack == null ? "auto-first" : "user";
       } else if (currentAudio) {
         selectedAudio = currentAudio;
         selectedBy = "current";
@@ -549,14 +590,14 @@ function ExpoStream({
         supportedCount: supportedTracks.length,
         selectedBy,
         silentAudio: false,
-        reason: null,
+        reason: `mode=${media3Audio};tunnel=${getMedia3Tunneling() ? 1 : 0}`,
       });
 
       return supportedTracks.length > 0;
     } catch {
       return false;
     }
-  }, [audioTrack, kind, player, sessionRole, textTrack, uri]);
+  }, [audioTrack, channelKey, kind, player, sessionRole, textTrack, uri]);
 
   const hardStop = useCallback(() => {
     loadIdRef.current += 1;
@@ -927,6 +968,7 @@ export function StreamPlayer({
     <ExpoStream
       key={`media3:${uri}`}
       uri={uri}
+      channelKey={channelKey}
       onStatus={handleStatus}
       style={style}
       engine="media3"

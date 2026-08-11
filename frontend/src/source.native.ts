@@ -1,6 +1,7 @@
 import dayjs from "dayjs";
 import * as FileSystem from "expo-file-system/legacy";
 import type { Channel, GuideResponse, Program, SourceStatus } from "@/src/api";
+import { clearGuidePrograms } from "@/src/core/guideProgramsStore";
 import {
   enforcePlaylistByteLimit,
   enforcePlaylistTextLimit,
@@ -849,7 +850,9 @@ export async function loadGuide(startISO?: string, hours = 6, force = false): Pr
   playlistIds = Array.from(new Set(playlistIds));
 
   await loadProgrammeCacheMisses(remapped, playlistIds, startMs, endMs);
-  trimProgrammeWindowCache(playlistIds, viewportGuideChannelIds?.length ? "strict" : "soft");
+  // Soft trim only — strict viewport trim would wipe the conveyor hysteresis band
+  // that retainProgrammeWindowCache(expandRunwayKeepSet(...)) intentionally keeps.
+  trimProgrammeWindowCache(playlistIds, "soft");
 
   // Shared empty list — avoid allocating tens of thousands of `[]` on big playlists.
   // Never mutate EMPTY_PROGRAMS.
@@ -1118,6 +1121,7 @@ export async function clearGuideCache(): Promise<void> {
   lastNativeMatchWriteFingerprint = "";
   lastSourceError = null;
   clearProgrammeWindowCache();
+  clearGuidePrograms();
   viewportGuideChannelIds = null;
   if (progressTimer) {
     clearTimeout(progressTimer);

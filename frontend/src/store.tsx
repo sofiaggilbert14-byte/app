@@ -233,6 +233,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const pendingPatchIdsRef = useRef(new Set<string>());
   const pendingPatchPriorityIdsRef = useRef<string[]>([]);
   const lastPatchRunwayIdsRef = useRef<string[]>([]);
+  /** Expanded conveyor keep set (± hysteresis). Prefer this over raw runway on retain. */
+  const lastKeepIdsRef = useRef<string[]>([]);
   const runwayGenerationRef = useRef(0);
   const pendingPatchGenerationRef = useRef(0);
   const windowStartRef = useRef("");
@@ -798,8 +800,11 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
         // and reapply the newest conveyor keep set because the completed native
         // request may have repopulated rows that the newer runway already evicted.
         if (runwayGeneration !== runwayGenerationRef.current) {
-          retainGuidePrograms(lastPatchRunwayIdsRef.current);
-          retainProgrammeWindowCache(lastPatchRunwayIdsRef.current);
+          const keep = lastKeepIdsRef.current.length
+            ? lastKeepIdsRef.current
+            : lastPatchRunwayIdsRef.current;
+          retainGuidePrograms(keep);
+          retainProgrammeWindowCache(keep);
           return false;
         }
         // Native returns explicit empty arrays too, clearing stale rows without
@@ -869,6 +874,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const retainGuideSlidingCache = useCallback((keepIds: Iterable<string>) => {
     const keep = Array.from(keepIds).filter(Boolean);
     if (!keep.length) return;
+    lastKeepIdsRef.current = keep;
     retainGuidePrograms(keep);
     retainProgrammeWindowCache(keep);
   }, []);
@@ -877,8 +883,12 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     // Preserve a small warm runway for a fast return to Guide while releasing
     // the bulk of programme arrays before fullscreen video decoders start.
     const keepLimit = powerProfile === "weak" ? 48 : powerProfile === "max_preview" ? 128 : 96;
-    const keep = lastPatchRunwayIdsRef.current.slice(0, keepLimit);
+    const source = lastKeepIdsRef.current.length
+      ? lastKeepIdsRef.current
+      : lastPatchRunwayIdsRef.current;
+    const keep = source.slice(0, keepLimit);
     lastPatchRunwayIdsRef.current = keep;
+    lastKeepIdsRef.current = keep;
     runwayGenerationRef.current += 1;
     pendingPatchGenerationRef.current = runwayGenerationRef.current;
     pendingPatchIdsRef.current.clear();
@@ -887,6 +897,9 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       clearTimeout(patchTimerRef.current);
       patchTimerRef.current = null;
     }
+    // Strict retain first so blur cannot leave hundreds of off-runway rows warm.
+    retainGuidePrograms(keep);
+    retainProgrammeWindowCache(keep);
     trimGuideProgramRows(keep, true);
     trimProgrammeWindowCacheForMemoryPressure(keep, true);
     clearChannelLogoMemory();
@@ -1063,6 +1076,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       pendingPatchIdsRef.current.clear();
       pendingPatchPriorityIdsRef.current = [];
       lastPatchRunwayIdsRef.current = [];
+      lastKeepIdsRef.current = [];
       if (favoritesPersistTimer.current) clearTimeout(favoritesPersistTimer.current);
       if (favoritesPendingRef.current) void storage.setItem(FAV_KEY, favoritesPendingRef.current);
       if (recentPersistTimer.current) clearTimeout(recentPersistTimer.current);
