@@ -55,7 +55,7 @@ function drainQueue(): void {
 
 function requestLoadSlot(onGranted: () => void): () => void {
   const entry: QueueEntry = { cancelled: false, grant: onGranted };
-  // Bound the waiter list â€” rapid surf used to enqueue unbounded work on weak sticks.
+  // Bound the waiter list — rapid surf used to enqueue unbounded work on weak sticks.
   while (loadQueue.length >= MAX_LOAD_QUEUE) {
     const dropped = loadQueue.shift();
     if (dropped) dropped.cancelled = true;
@@ -231,4 +231,3 @@ const styles = StyleSheet.create({
   },
   initials: { color: colors.onBrandTertiary, fontFamily: fonts.bold },
 });
-
