@@ -1,0 +1,66 @@
+name: Guide Surgery
+
+on:
+  push:
+    branches:
+      - agent/guide-focus-memory-surgery
+    paths:
+      - '.github/scripts/apply_guide_surgery.py'
+      - '.github/workflows/guide-surgery.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  surgery:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout surgery branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/guide-focus-memory-surgery
+          fetch-depth: 0
+
+      - name: Apply deterministic surgery
+        run: python .github/scripts/apply_guide_surgery.py
+
+      - name: Show changed files
+        run: git diff --stat && git diff --check
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend
+        working-directory: frontend
+        run: npm ci
+
+      - name: Test
+        working-directory: frontend
+        run: npm test
+
+      - name: Typecheck
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Commit validated surgery
+        run: |
+          git config user.name "CharmIPTV Surgery Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add frontend
+          if git diff --cached --quiet; then
+            echo "No frontend changes to commit"
+            exit 1
+          fi
+          git commit -m "fix(guide): unify focus lifecycle and bound memory"
+          git push origin HEAD:agent/guide-focus-memory-surgery
