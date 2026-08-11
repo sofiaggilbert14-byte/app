@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const source = (path) => readFile(join(root, path), "utf8");
 
-test("guide preview and ProgramModal share one reminder toggle source of truth", async () => {
+test("ProgramModal owns reminder toggling and Guide preview opens My Reminders", async () => {
   const [store, guide, modal, preview] = await Promise.all([
     source("src/store.tsx"),
     source("app/(tabs)/guide.tsx"),
@@ -17,13 +17,12 @@ test("guide preview and ProgramModal share one reminder toggle source of truth",
   assert.match(store, /toggleReminder: \(program: Program, channel: Channel\)/);
   assert.match(store, /reminderDesiredStateRef/);
   assert.match(store, /reminderMutationRef/);
-  assert.match(guide, /onToggleReminder\(displayedProgram, channel\)/);
-  assert.match(guide, /toggleReminder\(program, channel\)/);
-  assert.match(guide, /reminderKeys\.has\(reminderKey/);
+  assert.match(guide, /onOpenReminders/);
+  assert.match(guide, /router\.replace\("\/reminders"/);
   assert.match(modal, /const \{ activeProgram, closeProgram, toggleReminder, reminders \} = useStore\(\)/);
   assert.doesNotMatch(modal, /addReminder|removeReminder/);
-  assert.match(preview, /isReminded \? "Reminded" : "Remind"/);
-  assert.match(preview, /isReminded \? "notifications" : "notifications-outline"/);
+  assert.match(preview, /onPress=\{onOpenReminders\}/);
+  assert.match(preview, />Reminders</);
   assert.doesNotMatch(preview, /clock24h|onInfo|onRemind/);
 });
 
@@ -53,7 +52,7 @@ test("focus metadata is immediate while decoder tune stays delayed and restores 
   assert.match(guide, /useGuideSelection\(\)/);
   assert.match(guide, /schedulePreview\(/);
   assert.match(guide, /previewId === requestedId && previewStatus !== "error"/);
-  assert.match(guide, /focusGuideSurface\(guideSessionChannelId\)/);
+  assert.match(guide, /focusGuideProgramCell\(origin\.channelId, origin\.programStart\)/);
   assert.match(timeline, /noteGuideChannelFocus\(item\.id/);
   assert.match(box, /noteGuideChannelFocus\(item\.id/);
   assert.match(focusLock, /registerGuideChannelNode/);
