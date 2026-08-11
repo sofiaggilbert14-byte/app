@@ -228,12 +228,10 @@ export function PurpleTvShell({
     if (!drawerOpen) {
       setDrawerAutoFocus(false);
       setDrawerPreferredRoute(null);
-      // Hand focus back to Guide immediately when the drawer closes on that
-      // route. Waiting only on guide.tsx races FlashList recycle and leaves
-      // Android on an unfocusable drawer Pressable (invisible/chaotic focus).
-      if (active === "/guide" && !activeProgram) {
-        focusGuideSurfaceWhenMounted(undefined, [0, 40, 120, 240, 400, 650, 900]);
-      } else if (active !== "/guide") {
+      // Guide owns post-drawer reclaim via focusClaimNonce → grid
+      // focusGuideSurfaceWhenMounted(restoreChannelId). A second Shell retry
+      // with undefined channelId races that path and yanks to the wrong row.
+      if (active !== "/guide") {
         setContentAutoFocus(true);
       }
       return;
@@ -298,9 +296,9 @@ export function PurpleTvShell({
   const navigate = useCallback(
     (route: Route) => {
       void Haptics.selectionAsync().catch(() => undefined);
-      // Claim Guide focus before drawer rows become unfocusable, otherwise the
-      // still-focused nav Pressable vanishes from the focus graph mid-handoff.
-      if (route === "/guide" || active === "/guide") {
+      // Claim Guide focus only when navigating TO Guide. Leaving Guide while
+      // also retrying guide focus fights the destination screen's autofocus.
+      if (route === "/guide") {
         focusGuideSurfaceWhenMounted(undefined, [0, 32, 96, 180, 320, 520, 800]);
       }
       closeDrawer();

@@ -8,7 +8,7 @@
 import {
   GUIDE_PREFETCH_PAGES_AHEAD,
   GUIDE_PREFETCH_PAGES_BEHIND,
-} from "@/src/core/guideRunwayPolicy";
+} from "./guideRunwayPolicy.ts";
 
 export type GuideSurfDirection = "up" | "down" | "none";
 
@@ -194,6 +194,34 @@ export function buildChannelIndexMap(
  * Expand a fetched runway with ±hysteresis pages so reverse surfing does not
  * immediately drop the page the user just left.
  */
+/**
+ * Cap a keep list around focus so blur / memory-pressure release does not keep
+ * the head of an ascending ID list (which drops the focused neighborhood).
+ */
+export function pickKeepIdsAroundFocus(
+  sourceIds: readonly string[],
+  keepLimit: number,
+  focusChannelId?: string | null,
+): string[] {
+  const limit = Math.max(0, Math.floor(keepLimit || 0));
+  if (!sourceIds.length || limit <= 0) return [];
+  if (sourceIds.length <= limit) return sourceIds.filter(Boolean);
+  const focusIndex = focusChannelId ? sourceIds.indexOf(focusChannelId) : -1;
+  if (focusIndex < 0) {
+    // Prefer the middle of the warm runway over the playlist head.
+    const start = Math.max(0, Math.floor((sourceIds.length - limit) / 2));
+    return sourceIds.slice(start, start + limit).filter(Boolean);
+  }
+  const half = Math.floor(limit / 2);
+  let start = Math.max(0, focusIndex - half);
+  let end = start + limit;
+  if (end > sourceIds.length) {
+    end = sourceIds.length;
+    start = Math.max(0, end - limit);
+  }
+  return sourceIds.slice(start, end).filter(Boolean);
+}
+
 export function expandRunwayKeepSet(
   orderedChannelIds: readonly string[],
   runwayIds: readonly string[],

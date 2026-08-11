@@ -24,6 +24,8 @@ const failureOrder: string[] = [];
 export function clearChannelLogoMemory(): void {
   for (const entry of loadQueue) entry.cancelled = true;
   loadQueue.splice(0, loadQueue.length);
+  // Cancelled in-flight loads may never call releaseLoadSlot after a hard clear.
+  activeLoads = 0;
   succeededUris.clear();
   failedUris.clear();
   successOrder.splice(0, successOrder.length);

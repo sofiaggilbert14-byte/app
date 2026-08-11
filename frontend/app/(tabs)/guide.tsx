@@ -353,11 +353,10 @@ export default function PurpleGuideScreen() {
       return;
     }
     if (!wasOpen || drawerOpen || activeProgram) return;
-    // Restore only through currently registered channel rows. A recycled native
-    // node must never be treated as a successful fallback.
+    // Sole post-drawer reclaim path: bump nonce so TimelineGrid/BoxGrid restore
+    // the session channel. Do not also call focusGuideSurface here — Shell and
+    // the shared cancelGuideRestoreTimers would race and yank focus.
     setFocusClaimNonce((value) => value + 1);
-    focusGuideSurface(guideSessionChannelId);
-    return cancelGuideFocusRestore;
   }, [activeProgram, drawerOpen]);
 
   const openDrawerFromPreview = useCallback(() => {

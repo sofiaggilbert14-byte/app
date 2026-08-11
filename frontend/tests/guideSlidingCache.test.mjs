@@ -8,6 +8,7 @@ import {
   computeSlidingCacheWindow,
   expandRunwayKeepSet,
   getSlidingCachePages,
+  pickKeepIdsAroundFocus,
   slidingWindowChannelIds,
   slidingWindowKeepSet,
 } from "../src/core/guideSlidingCache.ts";
@@ -57,6 +58,15 @@ test("expandRunwayKeepSet adds one page of hysteresis on each side", () => {
   assert.equal(keep.has("channel-129"), true);
   assert.equal(keep.has("channel-20"), false);
   assert.equal(keep.has("channel-130"), false);
+});
+
+test("pickKeepIdsAroundFocus keeps the focused neighborhood, not the list head", () => {
+  const source = channelIds.slice(0, 80);
+  const keep = pickKeepIdsAroundFocus(source, 8, "channel-40");
+  assert.equal(keep.length, 8);
+  assert.ok(keep.includes("channel-40"));
+  assert.equal(keep.includes("channel-0"), false);
+  assert.deepEqual(pickKeepIdsAroundFocus(source, 8, null).length, 8);
 });
 
 test("eviction band does not shrink while focus stays inside previous window", () => {

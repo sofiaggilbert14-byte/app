@@ -24,6 +24,7 @@ import {
   setGuideProgramRowLimit,
   trimGuideProgramRows,
 } from "@/src/core/guideProgramsStore";
+import { pickKeepIdsAroundFocus } from "@/src/core/guideSlidingCache";
 import { reminderKey, setTimeFormat24h } from "@/src/utils/time";
 import { subscribeAndroidMemoryPressure } from "@/src/utils/androidMemoryPressure";
 import { clearChannelLogoMemory } from "@/src/components/ChannelLogo";
@@ -244,6 +245,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [favorites, setFavorites] = useState<string[]>([]);
   const [recentIds, setRecentIds] = useState<string[]>([]);
   const [lastChannelId, setLastChannelId] = useState<string | null>(null);
+  const lastChannelIdRef = useRef<string | null>(null);
+  lastChannelIdRef.current = lastChannelId;
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const remindersRef = useRef<Reminder[]>([]);
   const reminderDesiredStateRef = useRef(new Map<string, boolean>());
@@ -278,9 +281,15 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     () => subscribeAndroidMemoryPressure((pressure) => {
       const critical = pressure === "critical";
       // Mounted Guide rows are protected by subscriptions; SQLite/user data are
-      // never touched by Android memory-pressure cleanup.
-      trimGuideProgramRows(lastPatchRunwayIdsRef.current, critical);
-      trimProgrammeWindowCacheForMemoryPressure(lastPatchRunwayIdsRef.current, critical);
+      // never touched by Android memory-pressure cleanup. Prefer the expanded
+      // hysteresis keep set (focus-centered) over the raw runway head.
+      const source = lastKeepIdsRef.current.length
+        ? lastKeepIdsRef.current
+        : lastPatchRunwayIdsRef.current;
+      const keepLimit = critical ? 24 : 48;
+      const keep = pickKeepIdsAroundFocus(source, keepLimit, lastChannelIdRef.current);
+      trimGuideProgramRows(keep, critical);
+      trimProgrammeWindowCacheForMemoryPressure(keep, critical);
       clearChannelLogoMemory();
     }),
     [],
@@ -882,11 +891,12 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const releaseGuideSlidingCache = useCallback(() => {
     // Preserve a small warm runway for a fast return to Guide while releasing
     // the bulk of programme arrays before fullscreen video decoders start.
+    // Cap around lastChannelId — slicing the ascending keep head drops focus.
     const keepLimit = powerProfile === "weak" ? 48 : powerProfile === "max_preview" ? 128 : 96;
     const source = lastKeepIdsRef.current.length
       ? lastKeepIdsRef.current
       : lastPatchRunwayIdsRef.current;
-    const keep = source.slice(0, keepLimit);
+    const keep = pickKeepIdsAroundFocus(source, keepLimit, lastChannelId);
     lastPatchRunwayIdsRef.current = keep;
     lastKeepIdsRef.current = keep;
     runwayGenerationRef.current += 1;
@@ -903,7 +913,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     trimGuideProgramRows(keep, true);
     trimProgrammeWindowCacheForMemoryPressure(keep, true);
     clearChannelLogoMemory();
-  }, [powerProfile]);
+  }, [lastChannelId, powerProfile]);
 
   const setSelectedDate = useCallback(
     (d: string) => {

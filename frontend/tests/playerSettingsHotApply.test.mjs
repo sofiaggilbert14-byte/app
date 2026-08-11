@@ -15,4 +15,8 @@ test("player remounts Media3/VLC engines when compatibility settings change", as
   assert.match(source, /--stereo-mode=1/);
   assert.doesNotMatch(source, /--audio-filter=stereo_widen/);
   assert.match(source, /reportAndSelectMedia3Tracks\(\)/);
+  // Settings remount must reset silent-audio / start-timeout fallback gates.
+  assert.match(source, /\$\{role\}:\$\{uri\}:\$\{initialEngine\}:\$\{media3EngineKey\}:\$\{vlcEngineKey\}/);
+  assert.match(source, /maxBufferBytes: 48 \* 1024 \* 1024/);
+  assert.match(source, /if \(media3Audio === "ffmpeg"\) return selectedAudio != null/);
 });

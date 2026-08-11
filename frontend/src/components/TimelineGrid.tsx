@@ -341,6 +341,14 @@ const TimelineRow = memo(function TimelineRow({
       .sort((a, b) => a.item.left - b.item.left);
   }, [orphanedFocusedProgram, visiblePrograms]);
   for (const program of preparedPrograms) previousPreparedByKeyRef.current.set(program.key, program);
+  // Bound orphan lookup memory: keep current prepared keys + focused orphan only.
+  {
+    const keepKeys = new Set(preparedPrograms.map((program) => program.key));
+    if (focusedProgramKey) keepKeys.add(focusedProgramKey);
+    for (const key of Array.from(previousPreparedByKeyRef.current.keys())) {
+      if (!keepKeys.has(key)) previousPreparedByKeyRef.current.delete(key);
+    }
+  }
   const preferred =
     renderedPrograms.find(({ item: program }) => program.isLive)?.item ||
     renderedPrograms[0]?.item;
