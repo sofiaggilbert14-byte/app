@@ -229,7 +229,6 @@ export function BoxGrid({
   restoreChannelId,
   focusClaimNonce = 0,
   cacheProfile = "normal",
-  pageRequest,
 }: {
   channels: Channel[];
   now: string;
@@ -253,7 +252,6 @@ export function BoxGrid({
   restoreChannelId?: string | null;
   focusClaimNonce?: number;
   cacheProfile?: "normal" | "weak" | "max_preview";
-  pageRequest?: { nonce: number; direction: -1 | 1 } | null;
 }) {
   const { width, height } = useWindowDimensions();
   const numColumns = width >= 1400 ? 6 : width >= 1150 ? 5 : width >= 900 ? 4 : width >= 600 ? 3 : 2;
@@ -467,10 +465,6 @@ export function BoxGrid({
     if (!active) return;
     return addGuidePageKeyListener((key) => pageGuide(key === "UP" ? -1 : 1));
   }, [active, pageGuide]);
-
-  useEffect(() => {
-    if (pageRequest) pageGuide(pageRequest.direction);
-  }, [pageGuide, pageRequest]);
 
   const lastRowIndex = Math.max(0, Math.floor((Math.max(channels.length, 1) - 1) / Math.max(1, numColumns)));
   lastRowIndexRef.current = lastRowIndex;

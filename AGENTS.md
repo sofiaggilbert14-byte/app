@@ -22,7 +22,7 @@ CharmIPTV Phoenix — Expo/React Native Android TV guide + IPTV player (`fronten
 - Blur / memory-pressure release must use `pickKeepIdsAroundFocus` around `lastChannelId` — never `source.slice(0, keepLimit)` on an ascending keep list (drops the focused neighborhood).
 - `loadGuide` must **soft**-trim the programme window cache so silent refresh cannot wipe hysteresis; strict retain belongs to `retainProgrammeWindowCache`.
 - `clearGuideCache()` must also call `clearGuidePrograms()` or Settings “Clear guide cache” leaves stale JS programme rows.
-- Power profile changes runway size: Compatibility (`weak`) uses 5 ahead / 1 behind; Normal 8/2; Max preview 10/2.
+- Power profile changes the symmetric runway size: Compatibility (`weak`) uses 5 pages each way; Normal 8/8; Max preview 10/10.
 - Reuse `buildChannelIndexMap` across viewport buckets — do not rebuild the id→index Map on every half-page focus move.
 - On Guide refocus, rewarm from `lastRunwayRef` before the first D-pad event.
 - TimelineGrid `previousPreparedByKeyRef` must prune to current prepared keys + focused orphan key or it grows unbounded while surfing.

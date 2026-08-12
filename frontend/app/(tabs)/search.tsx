@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useRouter } from "expo-router";
+import { useIsFocused } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { PurpleTvShell } from "@/src/components/PurpleTvShell";
@@ -17,6 +18,7 @@ const SUGGESTIONS = ["News", "Sports", "Movies", "Kids", "Discovery"];
 
 export default function SearchScreen() {
   const router = useRouter();
+  const isFocused = useIsFocused();
   const { channels, addRecent, openProgram, channelLogos } = useStore();
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
@@ -238,7 +240,7 @@ export default function SearchScreen() {
                       delayLongPress={420}
                       style={({ focused }: any) => [styles.resultRow, focused && styles.focused]}
                     >
-                      <ChannelLogo name={channel.name} logo={channel.logo} disabled={!channelLogos} size={28} />
+                      <ChannelLogo name={channel.name} logo={channel.logo} disabled={!isFocused || !channelLogos} size={28} />
                       <Text numberOfLines={1} style={styles.resultName}>{channel.name}</Text>
                       <Ionicons name="play" size={13} color={tvColors.purpleSoft} />
                     </Pressable>
@@ -261,7 +263,7 @@ export default function SearchScreen() {
                       delayLongPress={420}
                       style={({ focused }: any) => [styles.resultRow, focused && styles.focused]}
                     >
-                      <ChannelLogo name={channel.name} logo={channel.logo} disabled={!channelLogos} size={28} />
+                      <ChannelLogo name={channel.name} logo={channel.logo} disabled={!isFocused || !channelLogos} size={28} />
                       <View style={{ flex: 1 }}>
                         <Text numberOfLines={1} style={styles.resultName}>{program.title}</Text>
                         <Text numberOfLines={1} style={styles.resultSub}>{channel.name}</Text>

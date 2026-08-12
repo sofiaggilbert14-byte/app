@@ -142,7 +142,7 @@ test("Guide focus stays continuous in every direction and restores modal origin"
   assert.match(timeline, /preparedPrograms\.length > 0 && !focused/);
 });
 
-test("Guide page skip uses dedicated Channel/Page keys without stealing D-pad arrows", async () => {
+test("Guide page skip uses only dedicated Channel/Page remote keys", async () => {
   const [activity, remote, timeline, box, guide] = await Promise.all([
     readFile(join(root, "android/app/src/main/java/com/charmiptv/app/MainActivity.kt"), "utf8"),
     readFile(join(root, "src/utils/tvRemote.ts"), "utf8"),
@@ -157,11 +157,9 @@ test("Guide page skip uses dedicated Channel/Page keys without stealing D-pad ar
   assert.match(remote, /addGuidePageKeyListener/);
   assert.match(timeline, /addGuidePageKeyListener/);
   assert.match(box, /addGuidePageKeyListener/);
-  assert.match(guide, /guide-page-charm-up/);
-  assert.match(guide, /guide-page-charm-down/);
-  assert.match(guide, /focusable=\{false\}/);
-  assert.match(timeline, /pageRequest\.direction/);
-  assert.match(box, /pageRequest\.direction/);
+  assert.doesNotMatch(guide, /GuidePageCharms|guide-page-charm|pageCharm/);
+  assert.doesNotMatch(timeline, /pageRequest/);
+  assert.doesNotMatch(box, /pageRequest/);
   assert.doesNotMatch(timeline, /subscribeVerticalDpadTaps|pageJumpDetectorRef/);
 });
 
@@ -182,17 +180,21 @@ test("held Guide navigation admits one painted focus move at a time", async () =
   assert.match(module, /coerceIn\(60L, 120L\)/);
   assert.match(remote, /guideFocusSyncEnabled === active/);
   assert.match(remote, /acknowledgeGuideFocusAfterPaint/);
+  assert.match(remote, /requestAnimationFrame\(\(\) => \{[\s\S]*requestAnimationFrame/);
   assert.match(timeline, /acknowledgeGuideFocusAfterPaint\(programRowState !== "loading"\)/);
+  assert.match(timeline, /verticalTargetOrSelf/);
+  assert.match(timeline, /scheduleFocusedCandidateRewire/);
   assert.match(box, /acknowledgeGuideFocusAfterPaint\(programRowState !== "loading"\)/);
   assert.match(guide, /setGuideRepeatInterval\(powerTuning\.guideRepeatIntervalMs\)/);
 });
 
 test("hidden tabs stop Guide input, clocks, and decoded-logo work", async () => {
-  const [guide, channels, reminders, collection] = await Promise.all([
+  const [guide, channels, reminders, collection, search] = await Promise.all([
     readFile(join(root, "app/(tabs)/guide.tsx"), "utf8"),
     readFile(join(root, "app/(tabs)/channels.tsx"), "utf8"),
     readFile(join(root, "app/(tabs)/reminders.tsx"), "utf8"),
     readFile(join(root, "src/components/PurpleChannelCollection.tsx"), "utf8"),
+    readFile(join(root, "app/(tabs)/search.tsx"), "utf8"),
   ]);
   assert.match(guide, /active=\{isFocused && !activeProgram && !drawerOpen\}/);
   assert.match(guide, /if \(!isFocused\) return;[\s\S]*setInterval\(\(\) => setNow/);
@@ -201,6 +203,7 @@ test("hidden tabs stop Guide input, clocks, and decoded-logo work", async () => 
   assert.match(channels, /logos=\{isFocused && channelLogos\}/);
   assert.match(reminders, /logos=\{isFocused && channelLogos\}/);
   assert.match(collection, /logos=\{isFocused && channelLogos\}/);
+  assert.match(search, /disabled=\{!isFocused \|\| !channelLogos\}/);
 });
 
 test("EPG staging and metadata promotion preserve last-good caches", async () => {
