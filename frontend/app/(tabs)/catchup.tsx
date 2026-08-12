@@ -5,6 +5,7 @@ import { useIsFocused } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { PurpleTvShell } from "@/src/components/PurpleTvShell";
+import { PurpleDrawerButton } from "@/src/components/PurpleDrawerButton";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { Channel } from "@/src/api";
 import { useStore } from "@/src/store";
@@ -47,9 +48,12 @@ export default function CatchUpScreen() {
     <PurpleTvShell active="/catchup">
       <View style={styles.page}>
         <View style={styles.header}>
-          <View>
-            <Text style={styles.kicker}>RECENT LIVE</Text>
-            <Text style={styles.title}>Catch Up</Text>
+          <View style={styles.headerLeft}>
+            <PurpleDrawerButton testID="catchup-open-drawer" />
+            <View>
+              <Text style={styles.kicker}>RECENT LIVE</Text>
+              <Text style={styles.title}>Catch Up</Text>
+            </View>
           </View>
         </View>
 
@@ -105,6 +109,7 @@ export default function CatchUpScreen() {
 const styles = StyleSheet.create({
   page: { flex: 1, padding: 14 },
   header: { minHeight: 50, justifyContent: "center", borderBottomWidth: 1, borderBottomColor: tvColors.line },
+  headerLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
   kicker: { color: tvColors.purpleSoft, fontFamily: fonts.semibold, fontSize: 7.5, letterSpacing: 1 },
   title: { color: "#fff", fontFamily: fonts.bold, fontSize: 18, marginTop: 2 },
   banner: {

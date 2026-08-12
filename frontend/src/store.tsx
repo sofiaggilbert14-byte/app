@@ -263,7 +263,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     resolveStoredGuideLayout(null, Platform.isTV, Platform.OS),
   );
   const [guideDensity, setGuideDensityState] = useState<GuideDensity>("extra_compact");
-  const [safePreviewMode, setSafePreviewModeState] = useState<SafePreviewMode>("delayed");
+  const [safePreviewMode, setSafePreviewModeState] = useState<SafePreviewMode>("surf");
   const [channelNumbers, setChannelNumbersState] = useState(false);
   const [channelLogos, setChannelLogosState] = useState(true);
   const [deviceLayoutMode, setDeviceLayoutModeState] = useState<DeviceLayoutMode>("auto");
@@ -980,7 +980,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
         void storage.setItem(GUIDE_DENSITY_KEY, "extra_compact");
         void storage.setItem(EXTRA_COMPACT_DEFAULT_MIGRATION_KEY, true);
       }
-      setSafePreviewModeState((await storage.getItem<SafePreviewMode>(SAFE_PREVIEW_MODE_KEY, "delayed")) || "delayed");
+      setSafePreviewModeState((await storage.getItem<SafePreviewMode>(SAFE_PREVIEW_MODE_KEY, "surf")) || "surf");
       setChannelNumbersState((await storage.getItem<boolean>(CHANNEL_NUMBERS_KEY, false)) || false);
       setChannelLogosState((await storage.getItem<boolean>(CHANNEL_LOGOS_KEY, true)) ?? true);
       setDeviceLayoutModeState((await storage.getItem<DeviceLayoutMode>(DEVICE_LAYOUT_MODE_KEY, "auto")) || "auto");

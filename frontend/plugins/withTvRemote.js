@@ -256,7 +256,24 @@ function hardenMainActivity(src) {
   src = src
     .replace(/private val minDpadRepeatMs = \d+L/, "private val minDpadRepeatMs = 48L")
     .replace(/private val guideFocusAckTimeoutMs = \d+L/, "private val guideFocusAckTimeoutMs = 240L")
-    .replace(/private const val MIN_DPAD_REPEAT_MS = \d+L/, "private const val MIN_DPAD_REPEAT_MS = 48L");
+    .replace(/private const val MIN_DPAD_REPEAT_MS = \d+L/, "private const val MIN_DPAD_REPEAT_MS = 48L")
+    .replace(
+      /      val pageKey = when \(event\.keyCode\) \{[\s\S]*?\n      \}\n      if \(pageKey != null\)/,
+      `      val pageKey = when (event.keyCode) {
+        android.view.KeyEvent.KEYCODE_CHANNEL_UP,
+        android.view.KeyEvent.KEYCODE_PAGE_UP,
+        android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS -> "UP"
+        android.view.KeyEvent.KEYCODE_CHANNEL_DOWN,
+        android.view.KeyEvent.KEYCODE_PAGE_DOWN,
+        android.view.KeyEvent.KEYCODE_MEDIA_NEXT -> "DOWN"
+        else -> when (event.scanCode) {
+          0x192, 0x1b8 -> "UP"
+          0x193, 0x1b9 -> "DOWN"
+          else -> null
+        }
+      }
+      if (pageKey != null)`,
+    );
   const classMatch = src.match(/class\s+MainActivity[^{]*\{/);
   if (classMatch && !src.includes("lastAcceptedDirectionalRepeatAt")) {
     const idx = src.indexOf(classMatch[0]) + classMatch[0].length;
@@ -316,10 +333,16 @@ function hardenMainActivity(src) {
     ) {
       val pageKey = when (event.keyCode) {
         android.view.KeyEvent.KEYCODE_CHANNEL_UP,
-        android.view.KeyEvent.KEYCODE_PAGE_UP -> "UP"
+        android.view.KeyEvent.KEYCODE_PAGE_UP,
+        android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS -> "UP"
         android.view.KeyEvent.KEYCODE_CHANNEL_DOWN,
-        android.view.KeyEvent.KEYCODE_PAGE_DOWN -> "DOWN"
-        else -> null
+        android.view.KeyEvent.KEYCODE_PAGE_DOWN,
+        android.view.KeyEvent.KEYCODE_MEDIA_NEXT -> "DOWN"
+        else -> when (event.scanCode) {
+          0x192, 0x1b8 -> "UP"
+          0x193, 0x1b9 -> "DOWN"
+          else -> null
+        }
       }
       if (pageKey != null) {
         try {

@@ -5,6 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import Constants from "expo-constants";
 import { PurpleTvShell } from "@/src/components/PurpleTvShell";
+import { PurpleDrawerButton } from "@/src/components/PurpleDrawerButton";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { TvCalibrationControls } from "@/src/components/TvCalibrationControls";
 import {
@@ -437,9 +438,12 @@ export default function SettingsScreen() {
     <PurpleTvShell active="/settings">
       <View style={styles.page}>
         <View style={styles.header}>
-          <View>
-            <Text style={styles.kicker}>SYSTEM</Text>
-            <Text style={styles.title}>{selected ? selected.label : "Settings"}</Text>
+          <View style={styles.headerLeft}>
+            <PurpleDrawerButton testID="settings-open-drawer" />
+            <View>
+              <Text style={styles.kicker}>SYSTEM</Text>
+              <Text style={styles.title}>{selected ? selected.label : "Settings"}</Text>
+            </View>
           </View>
         </View>
 
@@ -1178,6 +1182,7 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 const styles = StyleSheet.create({
   page: { flex: 1, padding: 14 },
   header: { minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: tvColors.line },
+  headerLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
   kicker: { color: tvColors.purpleSoft, fontFamily: fonts.semibold, fontSize: 7.5, letterSpacing: 1 },
   title: { color: "#fff", fontFamily: fonts.bold, fontSize: 18, marginTop: 2 },
   backButton: { alignSelf: "flex-start", minHeight: 30, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, borderRadius: 5, borderWidth: 2, borderColor: "transparent", backgroundColor: tvColors.panel, marginBottom: 8 },

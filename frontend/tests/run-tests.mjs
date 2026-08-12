@@ -17,3 +17,4 @@ import "./remindersPage.test.mjs";
 import "./guideCacheLifecycle.test.mjs";
 import "./guideSlidingCache.test.mjs";
 import "./playerSettingsHotApply.test.mjs";
+import "./navigationGuideFollowup.test.mjs";

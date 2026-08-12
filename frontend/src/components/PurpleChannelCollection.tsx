@@ -6,6 +6,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { PurpleTvShell } from "@/src/components/PurpleTvShell";
+import { PurpleDrawerButton } from "@/src/components/PurpleDrawerButton";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { Channel } from "@/src/api";
 import { useStore } from "@/src/store";
@@ -88,9 +89,12 @@ export function PurpleChannelCollection({
     <PurpleTvShell active={active}>
       <View style={styles.page}>
         <View style={styles.header}>
-          <View>
-            <Text style={styles.kicker}>{subtitle.toUpperCase()}</Text>
-            <Text style={styles.title}>{title}</Text>
+          <View style={styles.headerLeft}>
+            <PurpleDrawerButton testID={`${active.slice(1)}-open-drawer`} />
+            <View>
+              <Text style={styles.kicker}>{subtitle.toUpperCase()}</Text>
+              <Text style={styles.title}>{title}</Text>
+            </View>
           </View>
           <Text style={styles.count}>{items.length} available channels</Text>
         </View>
@@ -152,6 +156,7 @@ export function PurpleChannelCollection({
 const styles = StyleSheet.create({
   page: { flex: 1, padding: 14 },
   header: { minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: tvColors.line },
+  headerLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
   kicker: { color: tvColors.purpleSoft, fontFamily: fonts.semibold, fontSize: 7.5, letterSpacing: 1 },
   title: { color: "#fff", fontFamily: fonts.bold, fontSize: 18, marginTop: 2 },
   count: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 8.5 },
