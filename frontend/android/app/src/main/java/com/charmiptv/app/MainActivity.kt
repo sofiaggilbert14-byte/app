@@ -16,11 +16,30 @@ class MainActivity : ReactActivity() {
 
   private var lastAcceptedDirectionalRepeatAt = 0L
   private var lastAcceptedDirectionalKeyCode = -1
-  private var activeDirectionalKeyCode = -1
-  private var activeDirectionalDownAt = 0L
-  private var activeDirectionalRepeated = false
 
   override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+    // Dedicated Channel/Page buttons provide safe one-page Guide jumps. They
+    // never overload ordinary D-pad taps, so channel-by-channel focus remains
+    // deterministic and a held arrow cannot accidentally trigger a page jump.
+    if (
+      event.action == android.view.KeyEvent.ACTION_DOWN &&
+        event.repeatCount == 0 &&
+        TvRemoteModule.guideNavigationActive &&
+        !TvRemoteModule.pointerActive
+    ) {
+      val pageKey = when (event.keyCode) {
+        android.view.KeyEvent.KEYCODE_CHANNEL_UP,
+        android.view.KeyEvent.KEYCODE_PAGE_UP -> "UP"
+        android.view.KeyEvent.KEYCODE_CHANNEL_DOWN,
+        android.view.KeyEvent.KEYCODE_PAGE_DOWN -> "DOWN"
+        else -> null
+      }
+      if (pageKey != null) {
+        emitRemoteEvent("TvGuidePageKey", pageKey)
+        return true
+      }
+    }
+
     val directional =
       event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP ||
         event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN ||
@@ -35,11 +54,7 @@ class MainActivity : ReactActivity() {
       if (event.repeatCount == 0) {
         lastAcceptedDirectionalKeyCode = event.keyCode
         lastAcceptedDirectionalRepeatAt = event.eventTime
-        activeDirectionalKeyCode = event.keyCode
-        activeDirectionalDownAt = event.eventTime
-        activeDirectionalRepeated = false
       } else {
-        activeDirectionalRepeated = true
         val elapsed = event.eventTime - lastAcceptedDirectionalRepeatAt
         if (event.keyCode == lastAcceptedDirectionalKeyCode && elapsed < MIN_DPAD_REPEAT_MS) {
           return true
@@ -48,25 +63,8 @@ class MainActivity : ReactActivity() {
         lastAcceptedDirectionalRepeatAt = event.eventTime
       }
     } else if (event.action == android.view.KeyEvent.ACTION_UP && directional) {
-      // Include 0 ms presses — some remotes stamp DOWN/UP with the same eventTime
-      // on ultra-short taps, which previously dropped the TvDpadTap entirely.
-      val completedShortTap =
-        !activeDirectionalRepeated &&
-          activeDirectionalKeyCode == event.keyCode &&
-          event.eventTime - activeDirectionalDownAt in 0..MAX_DPAD_TAP_MS
-      if (completedShortTap && !TvRemoteModule.pointerActive) {
-        val tapKey = when (event.keyCode) {
-          android.view.KeyEvent.KEYCODE_DPAD_UP -> "UP"
-          android.view.KeyEvent.KEYCODE_DPAD_DOWN -> "DOWN"
-          else -> null
-        }
-        if (tapKey != null) emitRemoteEvent("TvDpadTap", tapKey)
-      }
       lastAcceptedDirectionalKeyCode = -1
       lastAcceptedDirectionalRepeatAt = 0L
-      activeDirectionalKeyCode = -1
-      activeDirectionalDownAt = 0L
-      activeDirectionalRepeated = false
     }
 
     val key: String? = if (event.action == android.view.KeyEvent.ACTION_DOWN) {
@@ -153,6 +151,5 @@ class MainActivity : ReactActivity() {
     // 48 ms keeps held navigation visibly fast (~21 moves/sec) while giving
     // Fabric/FlashList time to mount the next native focus target.
     private const val MIN_DPAD_REPEAT_MS = 48L
-    private const val MAX_DPAD_TAP_MS = 560L
   }
 }
