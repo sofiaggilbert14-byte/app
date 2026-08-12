@@ -36,15 +36,15 @@ export type SlidingCacheWindow = {
 };
 
 const PROFILE_PAGES: Record<GuideCacheProfile, SlidingCachePages> = {
-  // Match the on-screen EPG runway (8 ahead / 2 behind) plus one page of slack.
+  // Match the symmetric on-screen EPG runway plus one page of eviction slack.
   normal: {
     behind: GUIDE_PREFETCH_PAGES_BEHIND,
     ahead: GUIDE_PREFETCH_PAGES_AHEAD,
     hysteresis: 1,
   },
-  weak: { behind: 1, ahead: 5, hysteresis: 1 },
+  weak: { behind: 5, ahead: 5, hysteresis: 1 },
   max_preview: {
-    behind: GUIDE_PREFETCH_PAGES_BEHIND,
+    behind: GUIDE_PREFETCH_PAGES_BEHIND + 2,
     ahead: GUIDE_PREFETCH_PAGES_AHEAD + 2,
     hysteresis: 1,
   },

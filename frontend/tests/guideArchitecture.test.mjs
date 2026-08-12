@@ -77,7 +77,7 @@ test("Home no longer mounts a NowPlayingBar; guide owns live preview", async () 
   assert.doesNotMatch(home, /NowPlayingBar|home-now-playing/);
 });
 
-test("EPG screen delivery uses an eight-page conveyor runway with retained bounded caches", async () => {
+test("EPG screen delivery uses a symmetric eight-page conveyor runway with retained bounded caches", async () => {
   const [native, programStore, store, runway, sliding, guide] = await Promise.all([
     source("src/source.native.ts"),
     source("src/core/guideProgramsStore.ts"),
@@ -87,7 +87,7 @@ test("EPG screen delivery uses an eight-page conveyor runway with retained bound
     source("app/(tabs)/guide.tsx"),
   ]);
   assert.match(runway, /GUIDE_PREFETCH_PAGES_AHEAD = 8/);
-  assert.match(runway, /GUIDE_PREFETCH_PAGES_BEHIND = 2/);
+  assert.match(runway, /GUIDE_PREFETCH_PAGES_BEHIND = 8/);
   assert.match(sliding, /expandRunwayKeepSet/);
   assert.match(sliding, /hysteresis/);
   assert.match(programStore, /export function retainGuidePrograms/);

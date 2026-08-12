@@ -75,9 +75,9 @@ export function setGuideRepeatInterval(milliseconds: number) {
 }
 
 /**
- * Release the next held-key movement only after the focused native cell and its
- * scroll offset have had a frame to paint. Loading EPG shells get one extra
- * frame so the Guide runway can advance without ever queueing invisible moves.
+ * Release the next held-key movement only after the focused native cell, scroll,
+ * and recycled vertical neighbor have had two frames to settle. Loading EPG
+ * shells get a short additional delay without queueing invisible moves.
  */
 export function acknowledgeGuideFocusAfterPaint(epgReady = true) {
   const generation = ++focusAckGeneration;
@@ -87,9 +87,12 @@ export function acknowledgeGuideFocusAfterPaint(epgReady = true) {
     focusAckTimer = null;
     requestAnimationFrame(() => {
       if (generation !== focusAckGeneration) return;
-      try {
-        TvRemote?.acknowledgeGuideFocusMove?.();
-      } catch {}
+      requestAnimationFrame(() => {
+        if (generation !== focusAckGeneration) return;
+        try {
+          TvRemote?.acknowledgeGuideFocusMove?.();
+        } catch {}
+      });
     });
   };
   if (epgReady) acknowledge();

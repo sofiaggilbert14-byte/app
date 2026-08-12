@@ -228,9 +228,11 @@ const ProgramCell = memo(function ProgramCell({
   const handleProgramFocus = useCallback(() => {
     setGuideFocusSyncActive(true);
     noteGuideProgramFocus(channel.id, cellRef.current);
-    wireFocusCandidate(rowIndex, prepared.key, cellRef.current);
     onFocusNode?.(cellRef.current);
     onProgramFocus(prepared, channel);
+    // The row callback scrolls first. Wire vertical neighbors afterwards so an
+    // upward move never keeps a pre-scroll, missing target.
+    wireFocusCandidate(rowIndex, prepared.key, cellRef.current);
     acknowledgeGuideFocusAfterPaint(true);
   }, [channel, onFocusNode, onProgramFocus, prepared, rowIndex, wireFocusCandidate]);
   const handleProgramPress = useCallback(
@@ -446,11 +448,11 @@ const TimelineRow = memo(function TimelineRow({
   const handleChannelFocus = useCallback(() => {
     setGuideFocusSyncActive(true);
     noteGuideChannelFocus(item.id, logoPressableRef.current);
-    wireFocusCandidate(index, "channel", logoPressableRef.current);
     // Re-wire Left → preview after recycle; Play may have mounted after this row.
     if (!lockFocusLeft) applyLeftFocusLock(logoPressableRef.current, false);
     onFocusNode?.(logoPressableRef.current);
     onRowChannelFocus(item, index, logoPressableRef.current);
+    wireFocusCandidate(index, "channel", logoPressableRef.current);
     acknowledgeGuideFocusAfterPaint(programRowState !== "loading");
   }, [index, item, lockFocusLeft, onFocusNode, onRowChannelFocus, programRowState, wireFocusCandidate]);
   const handleChannelLongPress = useCallback(() => onChannelLongPress?.(item), [onChannelLongPress, item]);
@@ -487,12 +489,12 @@ const TimelineRow = memo(function TimelineRow({
     setGuideFocusSyncActive(true);
     if (preparedPrograms.length === 0) setPreservePendingFocus(true);
     noteGuideProgramFocus(item.id, pendingPressableRef.current);
-    wireFocusCandidate(index, "pending", pendingPressableRef.current);
     onFocusNode?.(pendingPressableRef.current);
     // Keep a stable focus target in the programme column while a row's EPG
     // request is pending. Android can then continue vertical movement instead
     // of losing focus because the destination has no programme Pressable.
     onRowPendingFocus(item, index, pendingPressableRef.current);
+    wireFocusCandidate(index, "pending", pendingPressableRef.current);
     acknowledgeGuideFocusAfterPaint(false);
   }, [index, item, onFocusNode, onRowPendingFocus, preparedPrograms.length, wireFocusCandidate]);
   const handlePendingBlur = useCallback(() => {
@@ -612,7 +614,6 @@ export const TimelineGrid = memo(function TimelineGrid({
   focusClaimNonce = 0,
   cacheProfile = "normal",
   reduceMotion = false,
-  pageRequest,
 }: {
   channels: Channel[];
   windowStart: string;
@@ -652,8 +653,6 @@ export const TimelineGrid = memo(function TimelineGrid({
   cacheProfile?: "normal" | "weak" | "max_preview";
   /** Snap expensive Guide motion while keeping focus/metadata immediate. */
   reduceMotion?: boolean;
-  /** Touch/mouse charm request. Hardware Channel/Page keys use the native event. */
-  pageRequest?: { nonce: number; direction: -1 | 1 } | null;
 }) {
   const { width } = useWindowDimensions();
   const big = width >= 900;
@@ -697,6 +696,8 @@ export const TimelineGrid = memo(function TimelineGrid({
   const focusedProgramKeyRef = useRef<string | null>(null);
   const focusCandidatesByRowRef = useRef(new Map<number, Map<string, FocusCandidate>>());
   const focusedCandidateRef = useRef<{ rowIndex: number; key: string } | null>(null);
+  const focusRewireFrameRef = useRef<number | null>(null);
+  const wireFocusCandidateRef = useRef<(rowIndex: number, key: string, node: unknown) => void>(() => {});
   const viewportDispatchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingViewportRef = useRef<{
     runway: string[];
@@ -707,12 +708,30 @@ export const TimelineGrid = memo(function TimelineGrid({
     if (node) focusedNodeRef.current = node;
   }, []);
 
+  const scheduleFocusedCandidateRewire = useCallback(() => {
+    if (focusRewireFrameRef.current != null) return;
+    focusRewireFrameRef.current = requestAnimationFrame(() => {
+      focusRewireFrameRef.current = null;
+      const focused = focusedCandidateRef.current;
+      if (!focused) return;
+      const candidate = focusCandidatesByRowRef.current
+        .get(focused.rowIndex)
+        ?.get(focused.key);
+      if (!candidate?.node) return;
+      wireFocusCandidateRef.current(focused.rowIndex, focused.key, candidate.node);
+    });
+  }, []);
+
   const registerFocusCandidate = useCallback(
     (rowIndex: number, candidate: FocusCandidate | null, key: string) => {
       let row = focusCandidatesByRowRef.current.get(rowIndex);
       if (!candidate) {
         row?.delete(key);
         if (row?.size === 0) focusCandidatesByRowRef.current.delete(rowIndex);
+        const focused = focusedCandidateRef.current;
+        if (focused && Math.abs(rowIndex - focused.rowIndex) <= 1) {
+          scheduleFocusedCandidateRewire();
+        }
         return;
       }
       if (!row) {
@@ -720,8 +739,14 @@ export const TimelineGrid = memo(function TimelineGrid({
         focusCandidatesByRowRef.current.set(rowIndex, row);
       }
       row.set(key, candidate);
+      const focused = focusedCandidateRef.current;
+      if (focused && Math.abs(rowIndex - focused.rowIndex) <= 1) {
+        // FlashList often mounts the previous row only after an upward scroll.
+        // Rewire the still-focused native node as soon as that target exists.
+        scheduleFocusedCandidateRewire();
+      }
     },
-    [],
+    [scheduleFocusedCandidateRewire],
   );
 
   const wireFocusCandidate = useCallback((rowIndex: number, key: string, node: unknown) => {
@@ -735,6 +760,7 @@ export const TimelineGrid = memo(function TimelineGrid({
       .sort((a, b) => a.left - b.left);
     const currentIndex = candidates.findIndex((candidate) => candidate.key === key);
     const center = current.left + current.width / 2;
+    const selfHandle = findNodeHandle(node as any) || -1;
     const nearestVertical = (targetRowIndex: number): number => {
       const targetRow = focusCandidatesByRowRef.current.get(targetRowIndex);
       if (!targetRow?.size) return -1;
@@ -758,6 +784,10 @@ export const TimelineGrid = memo(function TimelineGrid({
       }
       return best ? findNodeHandle(best.node) || -1 : -1;
     };
+    const verticalTargetOrSelf = (targetRowIndex: number) => {
+      const target = nearestVertical(targetRowIndex);
+      return target > 0 ? target : selfHandle;
+    };
     const props: Record<string, number> = {};
     if (current.kind === "program") {
       props.nextFocusLeft = currentIndex > 0
@@ -771,14 +801,15 @@ export const TimelineGrid = memo(function TimelineGrid({
       if (firstProgram) props.nextFocusRight = findNodeHandle(firstProgram.node) || -1;
     }
     if (rowIndex === 0) wireGuideTopBoundary(node);
-    else props.nextFocusUp = nearestVertical(rowIndex - 1);
+    else props.nextFocusUp = verticalTargetOrSelf(rowIndex - 1);
     props.nextFocusDown = rowIndex >= channelsRef.current.length - 1
-      ? findNodeHandle(node as any) || -1
-      : nearestVertical(rowIndex + 1);
+      ? selfHandle
+      : verticalTargetOrSelf(rowIndex + 1);
     try {
       (node as any)?.setNativeProps?.(props);
     } catch {}
   }, []);
+  wireFocusCandidateRef.current = wireFocusCandidate;
 
   const keepFocusedRowVisible = useCallback((index: number) => {
     const viewport = bodyHRef.current;
@@ -808,6 +839,7 @@ export const TimelineGrid = memo(function TimelineGrid({
       focusedRowRef.current = index;
       gridOwnsFocusRef.current = true;
       keepFocusedRowVisible(index);
+      scheduleFocusedCandidateRewire();
       const rows = channelsRef.current;
       const deep = index > 0;
       if (lastReportedDeepRef.current !== deep) {
@@ -857,7 +889,7 @@ export const TimelineGrid = memo(function TimelineGrid({
         }
       }
     },
-    [ROW_H, cacheProfile, keepFocusedRowVisible, onFocusedRowChange, onViewportChannelIds],
+    [ROW_H, cacheProfile, keepFocusedRowVisible, onFocusedRowChange, onViewportChannelIds, scheduleFocusedCandidateRewire],
   );
 
   const totalMin = mins(windowEnd, windowStart);
@@ -993,6 +1025,7 @@ export const TimelineGrid = memo(function TimelineGrid({
     () => () => {
       if (escapeTimer.current) clearTimeout(escapeTimer.current);
       if (viewportDispatchRef.current) clearTimeout(viewportDispatchRef.current);
+      if (focusRewireFrameRef.current != null) cancelAnimationFrame(focusRewireFrameRef.current);
       panAnimRef.current?.stop();
       focusCandidatesByRowRef.current.clear();
       focusedCandidateRef.current = null;
@@ -1033,10 +1066,6 @@ export const TimelineGrid = memo(function TimelineGrid({
     if (!active) return;
     return addGuidePageKeyListener((key) => pageGuide(key === "UP" ? -1 : 1));
   }, [active, pageGuide]);
-
-  useEffect(() => {
-    if (pageRequest) pageGuide(pageRequest.direction);
-  }, [pageGuide, pageRequest]);
 
   useTVEventHandler(
     useCallback(

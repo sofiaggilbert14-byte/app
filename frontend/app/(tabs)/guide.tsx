@@ -149,49 +149,6 @@ const GuideGroupChip = memo(function GuideGroupChip({
   );
 });
 
-type GuidePageRequest = { nonce: number; direction: -1 | 1 };
-
-const GuidePageCharms = memo(function GuidePageCharms({
-  left,
-  disabled,
-  onPage,
-}: {
-  left: number;
-  disabled: boolean;
-  onPage: (direction: -1 | 1) => void;
-}) {
-  return (
-    <View pointerEvents={disabled ? "none" : "box-none"} style={[styles.pageCharmRail, { left }]}>
-      <Pressable
-        focusable={false}
-        accessible
-        accessibilityRole="button"
-        accessibilityLabel="Page up in guide"
-        disabled={disabled}
-        onPress={() => onPage(-1)}
-        style={({ pressed }: any) => [styles.pageCharm, pressed && styles.pageCharmPressed]}
-        testID="guide-page-charm-up"
-      >
-        <Ionicons name="chevron-up" size={15} color="#fff" />
-        <Text style={styles.pageCharmText}>PAGE</Text>
-      </Pressable>
-      <Pressable
-        focusable={false}
-        accessible
-        accessibilityRole="button"
-        accessibilityLabel="Page down in guide"
-        disabled={disabled}
-        onPress={() => onPage(1)}
-        style={({ pressed }: any) => [styles.pageCharm, pressed && styles.pageCharmPressed]}
-        testID="guide-page-charm-down"
-      >
-        <Text style={styles.pageCharmText}>PAGE</Text>
-        <Ionicons name="chevron-down" size={15} color="#fff" />
-      </Pressable>
-    </View>
-  );
-});
-
 /**
  * The only Guide subtree subscribed to repeated focus selection. TimelineGrid
  * and the screen shell therefore stay render-stable while Android moves focus;
@@ -378,7 +335,6 @@ export default function PurpleGuideScreen() {
   const [pinPromptGroup, setPinPromptGroup] = useState<string | null>(null);
   const [pinDigits, setPinDigits] = useState("");
   const [pinError, setPinError] = useState(false);
-  const [pageRequest, setPageRequest] = useState<GuidePageRequest | null>(null);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewRecoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const surfReleaseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -568,7 +524,9 @@ export default function PurpleGuideScreen() {
       if (last.ids.length) {
         setViewportGuideChannelIds(last.ids);
         setPriorityMatchChannelIds(
-          channels.length >= 400 ? last.ids.slice(0, 400) : [],
+          channels.length >= 400
+            ? Array.from(new Set([...last.priority, ...last.ids])).slice(0, 400)
+            : [],
         );
         retainGuideSlidingCache(
           expandRunwayKeepSet(
@@ -675,7 +633,11 @@ export default function PurpleGuideScreen() {
     lastRunwayRef.current = { ids, priority: priorityIds, pageSize };
     setViewportGuideChannelIds(ids);
     if (channels.length >= 400) {
-      setPriorityMatchChannelIds(ids.slice(0, 400));
+      // Match the focused/next rows first. A symmetric runway starts at its
+      // oldest retained row, which must not delay the visible edge.
+      setPriorityMatchChannelIds(
+        Array.from(new Set([...priorityIds, ...ids])).slice(0, 400),
+      );
     } else {
       setPriorityMatchChannelIds([]);
     }
@@ -719,7 +681,11 @@ export default function PurpleGuideScreen() {
       pageSize: visibleRows,
     };
     setViewportGuideChannelIds(ids);
-    setPriorityMatchChannelIds(channels.length >= 400 ? ids : []);
+    setPriorityMatchChannelIds(
+      channels.length >= 400
+        ? Array.from(new Set([...lastRunwayRef.current.priority, ...ids])).slice(0, 400)
+        : [],
+    );
     retainGuideSlidingCache(
       expandRunwayKeepSet(orderedFilteredIds, ids, visibleRows, 1, filteredIdIndex),
     );
@@ -816,16 +782,6 @@ export default function PurpleGuideScreen() {
     // Twenty-five percent smaller than the original 260-360px / 24% rail.
     return Math.round(Math.min(270, Math.max(195, screenWidth * 0.18)));
   }, [screenWidth]);
-  const pageCharmLeft = (groupLayout === "vertical" ? 126 : 0) + detailsRailWidth + 4;
-  const requestGuidePage = useCallback((direction: -1 | 1) => {
-    setPageRequest((current) => ({ nonce: (current?.nonce || 0) + 1, direction }));
-  }, []);
-  useEffect(() => {
-    if (!pageRequest) return;
-    const clear = setTimeout(() => setPageRequest(null), 250);
-    return () => clearTimeout(clear);
-  }, [pageRequest]);
-
   const armPreviewForChannel = useCallback(
     (channel: Channel) => {
       if (previewTimer.current) clearTimeout(previewTimer.current);
@@ -1264,7 +1220,6 @@ export default function PurpleGuideScreen() {
                   onLeftBoundary={onGuideLeftBoundary}
                   onFocusedRowChange={onFocusedGuideRow}
                   onViewportChannelIds={onViewportChannelIds}
-                  pageRequest={pageRequest}
                 />
               ) : (
                 <TimelineGrid
@@ -1298,15 +1253,9 @@ export default function PurpleGuideScreen() {
                   onViewportChannelIds={onViewportChannelIds}
                   onBackTargetChange={onGuideBackTarget}
                   reduceMotion={instantGuide}
-                  pageRequest={pageRequest}
                 />
               )}
             </FocusGuide>
-            <GuidePageCharms
-              left={pageCharmLeft}
-              disabled={!isFocused || !!activeProgram || drawerOpen}
-              onPage={requestGuidePage}
-            />
           </View>
         )}
 
@@ -1467,29 +1416,6 @@ const styles = StyleSheet.create({
     borderColor: tvColors.line,
     borderRadius: radius.sm,
   },
-  pageCharmRail: {
-    position: "absolute",
-    top: "50%",
-    zIndex: 8,
-    gap: 7,
-    transform: [{ translateX: -18 }, { translateY: -42 }],
-  },
-  pageCharm: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1.5,
-    borderColor: "rgba(245,243,255,0.92)",
-    backgroundColor: tvColors.purple,
-    shadowColor: "#000",
-    shadowOpacity: 0.4,
-    shadowRadius: 6,
-    elevation: 5,
-  },
-  pageCharmPressed: { opacity: 0.72, transform: [{ scale: 0.96 }] },
-  pageCharmText: { color: "#fff", fontFamily: fonts.bold, fontSize: 5.5, letterSpacing: 0.6 },
   watchButton: {
     flex: 1,
     minWidth: 0,
