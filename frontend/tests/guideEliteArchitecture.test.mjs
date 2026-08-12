@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildVisibleGuideCellSlice } from "../src/core/guideCellCulling.ts";
-import { createDpadDoubleTapDetector } from "../src/core/dpadDoubleTap.ts";
+import { buildGuidePatchTiers, keepUsefulGuidePatch } from "../src/core/guidePatchPolicy.ts";
 import { getGuideRailMetrics } from "../src/core/guideLayoutPolicy.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -22,20 +22,15 @@ test("visible-cell culling keeps a bounded viewport slice and pins focused cell"
   assert.deepEqual(slice.map(({ sourceIndex }) => sourceIndex), [...slice.map(({ sourceIndex }) => sourceIndex)].sort((a, b) => a - b));
 });
 
-test("page jump requires two short same-direction taps inside the window", () => {
-  const detector = createDpadDoubleTapDetector(300);
-  assert.equal(detector.push("DOWN", 1_000), null);
-  assert.equal(detector.push("DOWN", 1_280), "DOWN");
-  assert.equal(detector.push("UP", 2_000), null);
-  assert.equal(detector.push("UP", 2_301), null);
-  assert.equal(detector.push("DOWN", 2_400), null);
-  assert.equal(detector.push("UP", 2_500), null);
-});
-
-test("ultra-fast same-ms double taps still page-jump", () => {
-  const detector = createDpadDoubleTapDetector(300);
-  assert.equal(detector.push("DOWN", 5_000), null);
-  assert.equal(detector.push("DOWN", 5_000), "DOWN");
+test("Guide patch policy prioritizes the visible edge and keeps useful in-flight rows", () => {
+  const ids = Array.from({ length: 50 }, (_, index) => `c${index}`);
+  const tiers = buildGuidePatchTiers(ids, ["c20", "c21", "c22"], 12, 24);
+  assert.deepEqual(tiers[0].slice(0, 3), ["c20", "c21", "c22"]);
+  assert.ok(tiers.every((tier) => tier.length <= 24));
+  assert.deepEqual(keepUsefulGuidePatch({ c1: [], c20: [], c49: [] }, ["c20", "c49"]), {
+    c20: [],
+    c49: [],
+  });
 });
 
 test("extra compact density fits thinner rows and one-line names", () => {
@@ -45,7 +40,7 @@ test("extra compact density fits thinner rows and one-line names", () => {
   assert.equal(metrics.channelNameMaxLines, 1);
 });
 
-test("native tap event excludes repeats and preview buttons own left handoff", async () => {
+test("native focus graph avoids dead tap events and wires every preview action", async () => {
   const [activity, preview, guide, timeline, shell, focusLock] = await Promise.all([
     readFile(join(root, "android/app/src/main/java/com/charmiptv/app/MainActivity.kt"), "utf8"),
     readFile(join(root, "src/components/GuidePreviewRail.tsx"), "utf8"),
@@ -54,9 +49,8 @@ test("native tap event excludes repeats and preview buttons own left handoff", a
     readFile(join(root, "src/components/PurpleTvShell.tsx"), "utf8"),
     readFile(join(root, "src/utils/tvGuideFocusLock.ts"), "utf8"),
   ]);
-  assert.match(activity, /!activeDirectionalRepeated/);
-  assert.match(activity, /TvDpadTap/);
-  assert.match(preview, /registerGuidePreviewEntry\(node\)/);
+  assert.doesNotMatch(activity, /TvDpadTap|activeDirectionalRepeated/);
+  assert.match(preview, /registerGuidePreviewNode\(key, node, preferred\)/);
   assert.match(preview, />Favorite</);
   assert.match(preview, />Drawer</);
   assert.match(preview, /guide-preview-drawer/);
@@ -98,10 +92,11 @@ test("runway applies focused, immediate, visible, then retained tiers", async ()
     readFile(join(root, "src/components/BoxGrid.tsx"), "utf8"),
     readFile(join(root, "app/(tabs)/guide.tsx"), "utf8"),
   ]);
-  assert.match(store, /\[focusedIds, immediateIds, visibleIds, remainingIds\]/);
+  assert.match(store, /buildGuidePatchTiers\(ids, priorityOrder, 12, 24\)/);
+  assert.match(store, /keepUsefulGuidePatch\(delta \|\| \{\}, keep\)/);
   assert.match(timeline, /visiblePageIds/);
   assert.match(box, /visiblePageIds/);
-  assert.match(box, /cacheProfile === "weak"[\s\S]*?900/);
+  assert.match(box, /cacheProfile === "weak"[\s\S]*?320/);
   assert.match(box, /drawDistance=\{renderDrawDistance\}/);
   assert.match(guide, /buildGuideRunwayIds\(filtered, 0, visibleRows, 1, powerProfile\)/);
 });
@@ -137,8 +132,31 @@ test("Guide focus stays continuous in every direction and restores modal origin"
   assert.match(focusLock, /focusGuideProgramCell/);
   assert.match(guide, /modalOriginRef/);
   assert.match(guide, /focusGuideProgramCell\(origin\.channelId, origin\.programStart\)/);
-  assert.match(preview, /ref=\{setPlayRef\}/);
+  assert.match(preview, /ref=\{playFocus\.setRef\}/);
   assert.match(preview, /onPress=\{onOpenReminders\}/);
+  assert.match(preview, /usePreviewFocusNode\("favorite"\)/);
+  assert.match(focusLock, /wireAuxiliaryPanelsToGuide/);
+  assert.match(focusLock, /registerGuideTopEntry/);
+  assert.match(timeline, /wireFocusCandidate/);
+  assert.match(timeline, /keepFocusedRowVisible/);
+  assert.match(timeline, /preparedPrograms\.length > 0 && !focused/);
+});
+
+test("Guide page skip uses dedicated Channel/Page keys without stealing D-pad arrows", async () => {
+  const [activity, remote, timeline, box] = await Promise.all([
+    readFile(join(root, "android/app/src/main/java/com/charmiptv/app/MainActivity.kt"), "utf8"),
+    readFile(join(root, "src/utils/tvRemote.ts"), "utf8"),
+    readFile(join(root, "src/components/TimelineGrid.tsx"), "utf8"),
+    readFile(join(root, "src/components/BoxGrid.tsx"), "utf8"),
+  ]);
+  assert.match(activity, /KEYCODE_CHANNEL_UP/);
+  assert.match(activity, /KEYCODE_PAGE_DOWN/);
+  assert.match(activity, /emitRemoteEvent\("TvGuidePageKey", pageKey\)/);
+  assert.match(activity, /event\.repeatCount == 0/);
+  assert.match(remote, /addGuidePageKeyListener/);
+  assert.match(timeline, /addGuidePageKeyListener/);
+  assert.match(box, /addGuidePageKeyListener/);
+  assert.doesNotMatch(timeline, /subscribeVerticalDpadTaps|pageJumpDetectorRef/);
 });
 
 test("EPG staging and metadata promotion preserve last-good caches", async () => {
