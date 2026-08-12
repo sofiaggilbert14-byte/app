@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -68,6 +68,7 @@ import {
   focusGuideProgramCell,
   focusGuidePreviewSurface,
   focusGuideSurface,
+  registerGuideTopEntry,
 } from "@/src/utils/tvGuideFocusLock";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
@@ -88,6 +89,57 @@ function chipLabel(name: string): string {
   if (name === "Recently Watched") return "Recent";
   return name;
 }
+
+const GuideGroupChip = memo(function GuideGroupChip({
+  item,
+  count,
+  active,
+  pinned,
+  vertical,
+  onChoose,
+  onTogglePin,
+  onNode,
+}: {
+  item: string;
+  count: number;
+  active: boolean;
+  pinned: boolean;
+  vertical: boolean;
+  onChoose: (item: string) => void;
+  onTogglePin: (item: string) => void;
+  onNode: (item: string, node: unknown) => void;
+}) {
+  const nodeRef = useRef<unknown>(null);
+  const setRef = useCallback((node: unknown) => {
+    nodeRef.current = node;
+    onNode(item, node);
+    if (active) registerGuideTopEntry(node);
+  }, [active, item, onNode]);
+  const handleFocus = useCallback(() => registerGuideTopEntry(nodeRef.current), []);
+  const handlePress = useCallback(() => onChoose(item), [item, onChoose]);
+  const handleLongPress = useCallback(() => onTogglePin(item), [item, onTogglePin]);
+  const label = `${chipLabel(item)}${count > 0 ? ` ${count}` : ""}`;
+  return (
+    <Pressable
+      ref={setRef}
+      onFocus={handleFocus}
+      onPress={handlePress}
+      onLongPress={handleLongPress}
+      delayLongPress={420}
+      style={({ focused }: any) => [
+        styles.groupChip,
+        vertical && styles.groupChipVertical,
+        active && styles.groupChipActive,
+        pinned && styles.groupChipPinned,
+        focused && styles.focused,
+      ]}
+    >
+      <Text numberOfLines={1} style={[styles.groupText, active && styles.groupTextActive]}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+});
 
 /**
  * The only Guide subtree subscribed to repeated focus selection. TimelineGrid
@@ -274,6 +326,13 @@ export default function PurpleGuideScreen() {
   const groupChangedAt = useRef(0);
   const bootRetryRef = useRef(0);
   const groupChipRefs = useRef(new Map<string, any>());
+  const moreGroupsChipRef = useRef<any>(null);
+  const setMoreGroupsChipRef = useCallback((node: any) => {
+    moreGroupsChipRef.current = node;
+  }, []);
+  const focusMoreGroupsChip = useCallback(() => {
+    registerGuideTopEntry(moreGroupsChipRef.current);
+  }, []);
   const lastFocusAtRef = useRef(0);
   const rapidSurfUntilRef = useRef(0);
   const hadProgramModalRef = useRef(false);
@@ -837,7 +896,10 @@ export default function PurpleGuideScreen() {
     const chip = groupChipRefs.current.get(group);
     // Group chips are permanently mounted. One synchronous request avoids a
     // delayed retry pulling focus back after the user moves across the tabs.
-    if (chip) requestNativeFocus(chip);
+    if (chip) {
+      registerGuideTopEntry(chip);
+      requestNativeFocus(chip);
+    }
   }, [group]);
 
   const onGuideLeftBoundary = useCallback(() => {
@@ -884,38 +946,25 @@ export default function PurpleGuideScreen() {
     }, 700);
   }, []);
 
+  const rememberGroupChipNode = useCallback((item: string, node: unknown) => {
+    if (node) groupChipRefs.current.set(item, node);
+    else groupChipRefs.current.delete(item);
+  }, []);
   const renderGroupChip = useCallback(
-    (item: string) => {
-      const count = groupCounts[item] || 0;
-      const label = `${chipLabel(item)}${count > 0 ? ` ${count}` : ""}`;
-      return (
-        <Pressable
-          key={item}
-          ref={(node) => {
-            if (node) groupChipRefs.current.set(item, node);
-            else groupChipRefs.current.delete(item);
-          }}
-          onPress={() => chooseGroup(item)}
-          onLongPress={() => togglePinGroup(item)}
-          delayLongPress={420}
-          style={({ focused }: any) => [
-            styles.groupChip,
-            groupLayout === "vertical" && styles.groupChipVertical,
-            group === item && styles.groupChipActive,
-            pinnedGroups.includes(item) && styles.groupChipPinned,
-            focused && styles.focused,
-          ]}
-        >
-          <Text
-            numberOfLines={1}
-            style={[styles.groupText, group === item && styles.groupTextActive]}
-          >
-            {label}
-          </Text>
-        </Pressable>
-      );
-    },
-    [chooseGroup, group, groupCounts, groupLayout, pinnedGroups, togglePinGroup],
+    (item: string) => (
+      <GuideGroupChip
+        key={item}
+        item={item}
+        count={groupCounts[item] || 0}
+        active={group === item}
+        pinned={pinnedGroups.includes(item)}
+        vertical={groupLayout === "vertical"}
+        onChoose={chooseGroup}
+        onTogglePin={togglePinGroup}
+        onNode={rememberGroupChipNode}
+      />
+    ),
+    [chooseGroup, group, groupCounts, groupLayout, pinnedGroups, rememberGroupChipNode, togglePinGroup],
   );
 
   return (
@@ -948,6 +997,8 @@ export default function PurpleGuideScreen() {
                 {groups.map(renderGroupChip)}
                 {overflowGroups.length > 0 ? (
                   <Pressable
+                    ref={setMoreGroupsChipRef}
+                    onFocus={focusMoreGroupsChip}
                     onPress={() => setMoreGroupsOpen(true)}
                     style={({ focused }: any) => [styles.groupChip, focused && styles.focused]}
                     testID="guide-more-groups"
@@ -1052,6 +1103,8 @@ export default function PurpleGuideScreen() {
                 {groups.map(renderGroupChip)}
                 {overflowGroups.length > 0 ? (
                   <Pressable
+                    ref={setMoreGroupsChipRef}
+                    onFocus={focusMoreGroupsChip}
                     onPress={() => setMoreGroupsOpen(true)}
                     style={({ focused }: any) => [
                       styles.groupChip,
