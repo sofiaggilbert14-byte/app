@@ -5,6 +5,7 @@ import { useIsFocused } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { PurpleTvShell } from "@/src/components/PurpleTvShell";
+import { PurpleDrawerButton } from "@/src/components/PurpleDrawerButton";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { Channel, Program } from "@/src/api";
 import { useStore } from "@/src/store";
@@ -123,8 +124,13 @@ export default function SearchScreen() {
     <PurpleTvShell active="/search">
       <View style={styles.page}>
         <View style={styles.header}>
-          <Text style={styles.kicker}>FIND CHANNELS & PROGRAMS</Text>
-          <Text style={styles.title}>Search</Text>
+          <View style={styles.headerLeft}>
+            <PurpleDrawerButton testID="search-open-drawer" />
+            <View>
+              <Text style={styles.kicker}>FIND CHANNELS & PROGRAMS</Text>
+              <Text style={styles.title}>Search</Text>
+            </View>
+          </View>
         </View>
 
         <View style={styles.body}>
@@ -297,6 +303,7 @@ export default function SearchScreen() {
 const styles = StyleSheet.create({
   page: { flex: 1, padding: 14 },
   header: { minHeight: 50, justifyContent: "center", borderBottomWidth: 1, borderBottomColor: tvColors.line },
+  headerLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
   kicker: { color: tvColors.purpleSoft, fontFamily: fonts.semibold, fontSize: 7.5, letterSpacing: 1 },
   title: { color: "#fff", fontFamily: fonts.bold, fontSize: 18, marginTop: 2 },
   body: { flex: 1, flexDirection: "row", gap: 16, paddingTop: 18 },

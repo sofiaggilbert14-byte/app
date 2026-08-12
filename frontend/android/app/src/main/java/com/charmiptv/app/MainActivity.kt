@@ -29,10 +29,18 @@ class MainActivity : ReactActivity() {
     ) {
       val pageKey = when (event.keyCode) {
         android.view.KeyEvent.KEYCODE_CHANNEL_UP,
-        android.view.KeyEvent.KEYCODE_PAGE_UP -> "UP"
+        android.view.KeyEvent.KEYCODE_PAGE_UP,
+        android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS -> "UP"
         android.view.KeyEvent.KEYCODE_CHANNEL_DOWN,
-        android.view.KeyEvent.KEYCODE_PAGE_DOWN -> "DOWN"
-        else -> null
+        android.view.KeyEvent.KEYCODE_PAGE_DOWN,
+        android.view.KeyEvent.KEYCODE_MEDIA_NEXT -> "DOWN"
+        else -> when (event.scanCode) {
+          // ONN/vendor key layouts can leave the Android keyCode UNKNOWN while
+          // retaining Linux channel / 10-channel scan codes.
+          0x192, 0x1b8 -> "UP"
+          0x193, 0x1b9 -> "DOWN"
+          else -> null
+        }
       }
       if (pageKey != null) {
         emitRemoteEvent("TvGuidePageKey", pageKey)

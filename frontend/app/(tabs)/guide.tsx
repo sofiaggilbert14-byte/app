@@ -6,7 +6,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
   useWindowDimensions,
 } from "react-native";
@@ -48,9 +47,9 @@ import {
   filterChannelsByGroup,
   listPlaylistGroupNames,
   pinGroup,
-  searchChannelsInList,
   unpinGroup,
 } from "@/src/core/guideGroups";
+import { buildGuideAlphabetTargets, GUIDE_ALPHABET } from "@/src/core/guideAlphabet";
 import { useGuideUiPreferences } from "@/src/core/guideUiPreferences";
 import { resolveChannelNumber, useChannelCustomize } from "@/src/core/channelCustomize";
 import { useParentalPin } from "@/src/core/parentalPin";
@@ -66,9 +65,11 @@ import { nowNext } from "@/src/utils/time";
 import { requestNativeFocus } from "@/src/utils/tvFocus";
 import {
   cancelGuideFocusRestore,
+  focusGuideAlphabetSurface,
   focusGuideProgramCell,
   focusGuidePreviewSurface,
   focusGuideSurface,
+  registerGuideAlphabetEntry,
   registerGuideTopEntry,
 } from "@/src/utils/tvGuideFocusLock";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
@@ -145,6 +146,50 @@ const GuideGroupChip = memo(function GuideGroupChip({
       <Text numberOfLines={1} style={[styles.groupText, active && styles.groupTextActive]}>
         {label}
       </Text>
+    </Pressable>
+  );
+});
+
+const GuideAlphabetButton = memo(function GuideAlphabetButton({
+  letter,
+  available,
+  selected,
+  defaultEntry,
+  onChoose,
+}: {
+  letter: string;
+  available: boolean;
+  selected: boolean;
+  defaultEntry: boolean;
+  onChoose: (letter: string) => void;
+}) {
+  const nodeRef = useRef<unknown>(null);
+  const setRef = useCallback((node: unknown) => {
+    nodeRef.current = node;
+    if (defaultEntry) registerGuideAlphabetEntry(node);
+  }, [defaultEntry]);
+  const handleFocus = useCallback(() => {
+    cancelGuideFocusRestore();
+    setGuideFocusSyncActive(false);
+    registerGuideAlphabetEntry(nodeRef.current);
+  }, []);
+  const handlePress = useCallback(() => onChoose(letter), [letter, onChoose]);
+
+  return (
+    <Pressable
+      ref={setRef}
+      accessibilityLabel={available ? `Jump to ${letter} channels` : `No ${letter} channels`}
+      onFocus={handleFocus}
+      onPress={handlePress}
+      style={({ focused }: any) => [
+        styles.alphabetChip,
+        !available && styles.alphabetChipEmpty,
+        selected && styles.alphabetChipSelected,
+        focused && styles.focused,
+      ]}
+      testID={`guide-alpha-${letter}`}
+    >
+      <Text style={[styles.alphabetText, !available && styles.alphabetTextEmpty]}>{letter}</Text>
     </Pressable>
   );
 });
@@ -329,8 +374,7 @@ export default function PurpleGuideScreen() {
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewStatus, setPreviewStatus] = useState<StreamStatus>("loading");
   const [resetToken, setResetToken] = useState(0);
-  const [groupQuery, setGroupQuery] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [alphabetLetter, setAlphabetLetter] = useState<string | null>(null);
   const [moreGroupsOpen, setMoreGroupsOpen] = useState(false);
   const [pinPromptGroup, setPinPromptGroup] = useState<string | null>(null);
   const [pinDigits, setPinDigits] = useState("");
@@ -343,7 +387,6 @@ export default function PurpleGuideScreen() {
   const bootRetryRef = useRef(0);
   const groupChipRefs = useRef(new Map<string, any>());
   const moreGroupsChipRef = useRef<any>(null);
-  const disableGuideFocusSync = useCallback(() => setGuideFocusSyncActive(false), []);
   const setMoreGroupsChipRef = useCallback((node: any) => {
     moreGroupsChipRef.current = node;
   }, []);
@@ -372,6 +415,11 @@ export default function PurpleGuideScreen() {
   useEffect(
     () => subscribeAndroidMemoryPressure((pressure) => {
       if (previewTimer.current) clearTimeout(previewTimer.current);
+      previewTimer.current = null;
+      if (previewRecoverTimer.current) clearTimeout(previewRecoverTimer.current);
+      previewRecoverTimer.current = null;
+      if (surfReleaseTimer.current) clearTimeout(surfReleaseTimer.current);
+      surfReleaseTimer.current = null;
       if (memoryLogoRestoreTimer.current) clearTimeout(memoryLogoRestoreTimer.current);
       headerTitleProgress.stopAnimation();
       groupSlideX.stopAnimation();
@@ -510,7 +558,12 @@ export default function PurpleGuideScreen() {
     () => () => {
       if (previewTimer.current) clearTimeout(previewTimer.current);
       if (previewRecoverTimer.current) clearTimeout(previewRecoverTimer.current);
+      if (surfReleaseTimer.current) clearTimeout(surfReleaseTimer.current);
       if (memoryLogoRestoreTimer.current) clearTimeout(memoryLogoRestoreTimer.current);
+      previewTimer.current = null;
+      previewRecoverTimer.current = null;
+      surfReleaseTimer.current = null;
+      memoryLogoRestoreTimer.current = null;
       setViewportGuideChannelIds(null);
     },
     [],
@@ -544,9 +597,13 @@ export default function PurpleGuideScreen() {
           clearTimeout(previewTimer.current);
           previewTimer.current = null;
         }
-      if (previewRecoverTimer.current) {
+        if (previewRecoverTimer.current) {
           clearTimeout(previewRecoverTimer.current);
           previewRecoverTimer.current = null;
+        }
+        if (surfReleaseTimer.current) {
+          clearTimeout(surfReleaseTimer.current);
+          surfReleaseTimer.current = null;
         }
         // A real route blur must unmount preview playback before cache release.
         // The overlay drawer does not blur this route, so its runway stays warm.
@@ -609,12 +666,8 @@ export default function PurpleGuideScreen() {
     return list.filter((c) => !channelHasEpgMatch(c));
   }, [channels, customOrder, epgGuideFilter, favoriteSet, group, hiddenIdSet, recent, recentIdSet]);
 
-  // Within-group search — empty query keeps the filteredMeta identity ref.
-  const filtered = useMemo(() => {
-    const q = groupQuery.trim();
-    if (!q) return filteredMeta;
-    return searchChannelsInList(filteredMeta, q);
-  }, [filteredMeta, groupQuery]);
+  // Keep the complete group identity stable; A-Z performs a targeted row jump.
+  const filtered = filteredMeta;
 
   const orderedFilteredIds = useMemo(
     () => filtered.map((channel) => channel.id).filter(Boolean),
@@ -627,7 +680,14 @@ export default function PurpleGuideScreen() {
   orderedFilteredIdsRef.current = orderedFilteredIds;
   filteredIdIndexRef.current = filteredIdIndex;
 
-  const showGroupSearch = searchOpen || filteredMeta.length > 80;
+  const alphabetTargets = useMemo(
+    () => buildGuideAlphabetTargets(filtered),
+    [filtered],
+  );
+  const alphabetDefaultLetter = useMemo(
+    () => GUIDE_ALPHABET.find((letter) => !!alphabetTargets[letter]) || "A",
+    [alphabetTargets],
+  );
 
   const onViewportChannelIds = useCallback((ids: string[], priorityIds: string[] = [], pageSize = 8) => {
     lastRunwayRef.current = { ids, priority: priorityIds, pageSize };
@@ -653,6 +713,56 @@ export default function PurpleGuideScreen() {
     orderedFilteredIds,
     patchProgramsForChannelIds,
     retainGuideSlidingCache,
+  ]);
+
+  const jumpToAlphabetLetter = useCallback((letter: string) => {
+    setAlphabetLetter(letter);
+    void Haptics.selectionAsync().catch(() => undefined);
+    const targetId = alphabetTargets[letter];
+    if (!targetId) return;
+    const targetIndex = filteredIdIndex.get(targetId);
+    if (targetIndex == null) return;
+
+    const previousIndex = guideSessionChannelId
+      ? filteredIdIndex.get(guideSessionChannelId)
+      : undefined;
+    cancelGuideFocusRestore();
+    guideSessionChannelId = targetId;
+    resetGuideSelection(targetId);
+
+    // Warm the destination runway before native focus reaches a recycled row.
+    // This is one bounded fetch/retain pass, not another cache.
+    const rowHeight = getGuideRailMetrics(
+      screenWidth,
+      guideDensity,
+      channelNumbers,
+      channelLogos,
+    ).rowHeight;
+    const visibleRows = Math.max(6, Math.min(24, Math.ceil(screenHeight / rowHeight)));
+    const direction = previousIndex != null && targetIndex < previousIndex ? -1 : 1;
+    const runway = buildGuideRunwayIds(filtered, targetIndex, visibleRows, direction, powerProfile);
+    const priority = [
+      targetId,
+      filtered[targetIndex + direction]?.id,
+      filtered[targetIndex + direction * 2]?.id,
+      ...runway.slice(0, visibleRows),
+    ].filter((id): id is string => !!id);
+    onViewportChannelIds(runway, priority, visibleRows);
+
+    // Reuse the grid's single nonce-based scroll/focus path; never create a
+    // competing direct focus timer in the screen.
+    setFocusClaimNonce((value) => value + 1);
+  }, [
+    alphabetTargets,
+    channelLogos,
+    channelNumbers,
+    filtered,
+    filteredIdIndex,
+    guideDensity,
+    onViewportChannelIds,
+    powerProfile,
+    screenHeight,
+    screenWidth,
   ]);
 
   const viewportSeedKeyRef = useRef("");
@@ -762,12 +872,16 @@ export default function PurpleGuideScreen() {
       : powerTuning.surfSettleExtraMs;
 
   const schedulePreview = useCallback((requestedId: string, delay: number, hasUrl: boolean) => {
+    if (previewTimer.current) {
+      clearTimeout(previewTimer.current);
+      previewTimer.current = null;
+    }
     if (safePreviewMode === "off" || !hasUrl) {
       setPreviewId(null);
       return;
     }
-    if (previewTimer.current) clearTimeout(previewTimer.current);
     previewTimer.current = setTimeout(() => {
+      previewTimer.current = null;
       // Break the sticky error latch — always remount the decoder for this tune.
       setPreviewStatus("loading");
       setPreviewEpoch((value) => value + 1);
@@ -872,7 +986,7 @@ export default function PurpleGuideScreen() {
     setGroup(next);
     resetGuideSelection(null);
     setPreviewId(null);
-    setGroupQuery("");
+    setAlphabetLetter(null);
     setMoreGroupsOpen(false);
     // Scroll/filter reset only — never reclaim grid preferred focus (keeps chip focused).
     setResetToken((value) => value + 1);
@@ -929,6 +1043,7 @@ export default function PurpleGuideScreen() {
 
   const onGuideUpBoundary = useCallback(() => {
     cancelGuideFocusRestore();
+    if (focusGuideAlphabetSurface()) return;
     const chip = groupChipRefs.current.get(group);
     // Group chips are permanently mounted. One synchronous request avoids a
     // delayed retry pulling focus back after the user moves across the tabs.
@@ -960,7 +1075,7 @@ export default function PurpleGuideScreen() {
       guideSessionChannelId = jump.channelId;
       setGroup(nextGroup);
       resetGuideSelection(jump.channelId);
-      setGroupQuery("");
+      setAlphabetLetter(null);
       setResetToken((value) => value + 1);
       const ch = channelById(jump.channelId);
       if (ch) {
@@ -1047,43 +1162,34 @@ export default function PurpleGuideScreen() {
           ) : (
             <View style={[styles.groupScroller, { marginLeft: drawerOpen ? 140 : 0 }]}>
               <Text style={styles.verticalHeaderHint}>{chipLabel(group)}</Text>
-              {showGroupSearch ? (
-                <TextInput
-                  onFocus={disableGuideFocusSync}
-                  value={groupQuery}
-                  onChangeText={setGroupQuery}
-                  placeholder="Filter in group"
-                  placeholderTextColor={tvColors.textMuted}
-                  style={styles.groupSearchInput}
-                  testID="guide-group-search"
-                />
-              ) : (
-                <Pressable
-                  onFocus={disableGuideFocusSync}
-                  onPress={() => setSearchOpen(true)}
-                  style={({ focused }: any) => [styles.searchReveal, focused && styles.focused]}
-                >
-                  <Ionicons name="search-outline" size={12} color={tvColors.purpleSoft} />
-                  <Text style={styles.groupText}>Search</Text>
-                </Pressable>
-              )}
             </View>
           )}
         </View>
 
-        {groupLayout === "horizontal" && showGroupSearch ? (
-          <View style={styles.searchRow}>
-            <TextInput
-              onFocus={disableGuideFocusSync}
-              value={groupQuery}
-              onChangeText={setGroupQuery}
-              placeholder="Filter in group"
-              placeholderTextColor={tvColors.textMuted}
-              style={styles.groupSearchInput}
-              testID="guide-group-search"
-            />
-          </View>
-        ) : null}
+        <View
+          style={[
+            styles.alphabetRow,
+            { marginLeft: (groupLayout === "vertical" ? 126 : 0) + detailsRailWidth + 8 },
+          ]}
+          testID="guide-alphabet-bar"
+        >
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.alphabetContent}
+          >
+            {GUIDE_ALPHABET.map((letter) => (
+              <GuideAlphabetButton
+                key={letter}
+                letter={letter}
+                available={!!alphabetTargets[letter]}
+                selected={alphabetLetter === letter}
+                defaultEntry={letter === alphabetDefaultLetter}
+                onChoose={jumpToAlphabetLetter}
+              />
+            ))}
+          </ScrollView>
+        </View>
 
         <EpgProgressBar />
         {loading && channels.length === 0 ? (
@@ -1379,31 +1485,29 @@ const styles = StyleSheet.create({
   groupText: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 8.5 },
   groupTextActive: { color: "#fff", fontFamily: fonts.semibold },
   verticalHeaderHint: { color: "#fff", fontFamily: fonts.bold, fontSize: 14 },
-  searchRow: { minHeight: 30 },
-  searchReveal: {
-    minHeight: 26,
-    maxWidth: 120,
-    flexDirection: "row",
+  alphabetRow: { minHeight: 28, overflow: "hidden" },
+  alphabetContent: {
+    flexGrow: 1,
     alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 8,
-    borderRadius: 5,
+    justifyContent: "center",
+    gap: 2,
+    paddingHorizontal: 3,
+    paddingVertical: 1,
+  },
+  alphabetChip: {
+    width: 22,
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 4,
     borderWidth: 2,
     borderColor: "transparent",
     backgroundColor: tvColors.panel,
   },
-  groupSearchInput: {
-    minHeight: 28,
-    borderRadius: 5,
-    borderWidth: 1,
-    borderColor: tvColors.line,
-    backgroundColor: tvColors.panel,
-    color: "#fff",
-    fontFamily: fonts.medium,
-    fontSize: 10,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
+  alphabetChipEmpty: { opacity: 0.48 },
+  alphabetChipSelected: { backgroundColor: tvColors.purple },
+  alphabetText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 7.5 },
+  alphabetTextEmpty: { color: tvColors.textMuted },
   body: { flex: 1, flexDirection: "row", gap: 8, minHeight: 0, position: "relative" },
   verticalGroups: { width: 118, flexShrink: 0, maxHeight: "100%" },
   verticalGroupList: { paddingVertical: 2, paddingRight: 2 },

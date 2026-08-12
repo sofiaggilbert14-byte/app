@@ -454,12 +454,13 @@ export function BoxGrid({
       0,
       Math.min(rows.length - 1, focusedIndexRef.current + direction * pageSize),
     );
+    reportFocusedRow(targetIndex);
     try {
       listRef.current?.scrollToIndex({ index: targetIndex, animated: false, viewPosition: 0.45 });
       verticalOffsetRef.current = Math.max(0, Math.floor(targetIndex / numColumns) * 148 - height * 0.45);
     } catch {}
-    focusGuideSurfaceWhenMounted(rows[targetIndex]?.id, [0, 16, 40, 80, 140, 240]);
-  }, [active, height, numColumns]);
+    focusGuideSurfaceWhenMounted(rows[targetIndex]?.id, [0, 16, 40, 80, 140, 240, 420, 700]);
+  }, [active, height, numColumns, reportFocusedRow]);
 
   useEffect(() => {
     if (!active) return;

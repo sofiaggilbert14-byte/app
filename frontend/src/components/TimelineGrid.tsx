@@ -694,6 +694,10 @@ export const TimelineGrid = memo(function TimelineGrid({
   const lastAxisAtRef = useRef(0);
   // Ref-only: putting focused key in renderItem deps rebuilt every FlashList row on each cell focus.
   const focusedProgramKeyRef = useRef<string | null>(null);
+  // Preserve the exact horizontal time anchor while vertical surfing crosses a
+  // cold/loading row. A full-width pending cell's visual center is not the
+  // user's time column and previously caused upward focus to jump far right.
+  const verticalFocusAnchorRef = useRef<number | null>(null);
   const focusCandidatesByRowRef = useRef(new Map<number, Map<string, FocusCandidate>>());
   const focusedCandidateRef = useRef<{ rowIndex: number; key: string } | null>(null);
   const focusRewireFrameRef = useRef<number | null>(null);
@@ -759,7 +763,10 @@ export const TimelineGrid = memo(function TimelineGrid({
       .filter((candidate) => !!findNodeHandle(candidate.node))
       .sort((a, b) => a.left - b.left);
     const currentIndex = candidates.findIndex((candidate) => candidate.key === key);
-    const center = current.left + current.width / 2;
+    const geometricCenter = current.left + current.width / 2;
+    const center = current.key === "pending" && verticalFocusAnchorRef.current != null
+      ? verticalFocusAnchorRef.current
+      : geometricCenter;
     const selfHandle = findNodeHandle(node as any) || -1;
     const nearestVertical = (targetRowIndex: number): number => {
       const targetRow = focusCandidatesByRowRef.current.get(targetRowIndex);
@@ -1015,6 +1022,7 @@ export const TimelineGrid = memo(function TimelineGrid({
     lastPrefetchIndexRef.current = 0;
     scanDirectionRef.current = 1;
     focusedRowRef.current = 0;
+    verticalFocusAnchorRef.current = null;
     try {
       setHorizontalOffset(0, false);
       listRef.current?.scrollToOffset({ offset: 0, animated: false });
@@ -1055,12 +1063,13 @@ export const TimelineGrid = memo(function TimelineGrid({
       Math.min(rows.length - 1, focusedRowRef.current + direction * visibleRows),
     );
     focusedProgramKeyRef.current = null;
+    reportFocusedRow(targetIndex);
     try {
       listRef.current?.scrollToIndex({ index: targetIndex, animated: false, viewPosition: 0.45 });
       verticalOffsetRef.current = Math.max(0, targetIndex * ROW_H - bodyHRef.current * 0.45);
     } catch {}
-    focusGuideSurfaceWhenMounted(rows[targetIndex]?.id, [0, 16, 40, 80, 140, 240]);
-  }, [ROW_H, active]);
+    focusGuideSurfaceWhenMounted(rows[targetIndex]?.id, [0, 16, 40, 80, 140, 240, 420, 700]);
+  }, [ROW_H, active, reportFocusedRow]);
 
   useEffect(() => {
     if (!active) return;
@@ -1156,6 +1165,7 @@ export const TimelineGrid = memo(function TimelineGrid({
     (channel: Channel, rowIndex: number, logoNode?: unknown) => {
       focusRegionRef.current = "channel";
       focusedProgramKeyRef.current = null;
+      verticalFocusAnchorRef.current = null;
       // A channel node must never retain focus while translated off-screen.
       if (scrollXRef.current > 4) setHorizontalOffset(0, false);
       reportFocusedRow(rowIndex);
@@ -1168,6 +1178,7 @@ export const TimelineGrid = memo(function TimelineGrid({
   const onRowProgramFocus = useCallback(
     (prepared: PreparedProgram, channel: Channel, rowIndex: number) => {
       focusRegionRef.current = "program";
+      verticalFocusAnchorRef.current = prepared.left + prepared.width / 2;
       reportFocusedRow(rowIndex);
       focusedProgramKeyRef.current = prepared.key;
       keepProgramVisible(prepared, channel);

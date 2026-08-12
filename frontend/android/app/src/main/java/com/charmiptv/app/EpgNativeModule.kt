@@ -100,7 +100,14 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         val deleted = database.deleteExpired(now - GUIDE_HISTORY_MS)
         // Rare idle reclaim only after a large expiry — never every refresh.
         database.maybeIncrementalVacuum(MIN_VACUUM_DELETED_ROWS, deleted)
-        rebuildCurrentCache(now)
+        // The Guide reads bounded channel windows and never consumes getCurrent.
+        // Invalidate this optional compatibility cache after refresh and rebuild
+        // it lazily only if a caller actually asks for the all-current snapshot.
+        // This avoids retaining one extra NativeEpgProgram per channel all day.
+        synchronized(currentCacheLock) {
+          currentCache.clear()
+          currentCacheValidUntilMs = 0L
+        }
 
         val logos = Arguments.createMap()
         for ((channelId, logoUrl) in channelLogos) {

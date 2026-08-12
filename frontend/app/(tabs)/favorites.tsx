@@ -5,6 +5,7 @@ import { useIsFocused } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { PurpleTvShell } from "@/src/components/PurpleTvShell";
+import { PurpleDrawerButton } from "@/src/components/PurpleDrawerButton";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { Channel } from "@/src/api";
 import { useStore } from "@/src/store";
@@ -138,15 +139,18 @@ export default function FavoritesScreen() {
     <PurpleTvShell active="/favorites">
       <View style={styles.page}>
         <View style={styles.header}>
-          <View style={styles.headerCopy}>
-            <Text style={styles.kicker}>MY CHANNELS</Text>
-            <View style={styles.titleRow}>
-              <Text style={styles.title}>All Favorites</Text>
-              <Text numberOfLines={2} style={styles.addHint}>
-                {folderMode
-                  ? "Long-press a channel to add or remove it from this folder. Use Rename to cycle the folder name."
-                  : "Long-press removes a favorite. Select a folder, then long-press to assign."}
-              </Text>
+          <View style={styles.headerLeft}>
+            <PurpleDrawerButton testID="favorites-open-drawer" />
+            <View style={styles.headerCopy}>
+              <Text style={styles.kicker}>MY CHANNELS</Text>
+              <View style={styles.titleRow}>
+                <Text style={styles.title}>All Favorites</Text>
+                <Text numberOfLines={2} style={styles.addHint}>
+                  {folderMode
+                    ? "Long-press a channel to add or remove it from this folder. Use Rename to cycle the folder name."
+                    : "Long-press removes a favorite. Select a folder, then long-press to assign."}
+                </Text>
+              </View>
             </View>
           </View>
           <View style={styles.headerRight}>
@@ -235,6 +239,7 @@ export default function FavoritesScreen() {
 const styles = StyleSheet.create({
   page: { flex: 1, padding: 14 },
   header: { minHeight: 54, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: tvColors.line, gap: 14 },
+  headerLeft: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 12 },
   headerCopy: { flex: 1, minWidth: 0 },
   kicker: { color: tvColors.purpleSoft, fontFamily: fonts.semibold, fontSize: 7.5, letterSpacing: 1 },
   titleRow: { flexDirection: "row", alignItems: "center", gap: 12, minWidth: 0 },

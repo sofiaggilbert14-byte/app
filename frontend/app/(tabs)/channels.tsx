@@ -5,6 +5,7 @@ import { useIsFocused } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { PurpleTvShell } from "@/src/components/PurpleTvShell";
+import { PurpleDrawerButton } from "@/src/components/PurpleDrawerButton";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { Channel } from "@/src/api";
 import { useStore } from "@/src/store";
@@ -94,9 +95,12 @@ export default function ChannelsScreen() {
     <PurpleTvShell active="/channels">
       <View style={styles.page}>
         <View style={styles.header}>
-          <View>
-            <Text style={styles.kicker}>LIVE TV</Text>
-            <Text style={styles.title}>All Channels</Text>
+          <View style={styles.headerLeft}>
+            <PurpleDrawerButton testID="channels-open-drawer" />
+            <View>
+              <Text style={styles.kicker}>LIVE TV</Text>
+              <Text style={styles.title}>All Channels</Text>
+            </View>
           </View>
           <View style={styles.headerRight}>
             <Text style={styles.count}>{sorted.length} channels</Text>
@@ -157,6 +161,7 @@ export default function ChannelsScreen() {
 const styles = StyleSheet.create({
   page: { flex: 1, padding: 14 },
   header: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: tvColors.line, paddingBottom: 8 },
+  headerLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
   kicker: { color: tvColors.purpleSoft, fontFamily: fonts.semibold, fontSize: 7.5, letterSpacing: 1 },
   title: { color: "#fff", fontFamily: fonts.bold, fontSize: 18, marginTop: 2 },
   headerRight: { flexDirection: "row", alignItems: "center", gap: 12 },
