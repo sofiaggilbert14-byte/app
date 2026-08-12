@@ -25,6 +25,7 @@ import {
   trimGuideProgramRows,
 } from "@/src/core/guideProgramsStore";
 import { pickKeepIdsAroundFocus } from "@/src/core/guideSlidingCache";
+import { buildGuidePatchTiers, keepUsefulGuidePatch } from "@/src/core/guidePatchPolicy";
 import { reminderKey, setTimeFormat24h } from "@/src/utils/time";
 import { subscribeAndroidMemoryPressure } from "@/src/utils/androidMemoryPressure";
 import { clearChannelLogoMemory } from "@/src/components/ChannelLogo";
@@ -792,19 +793,12 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     patchInFlightRef.current = true;
     const ids = Array.from(pendingPatchIdsRef.current);
     const priorityOrder = pendingPatchPriorityIdsRef.current;
-    const prioritySet = new Set(priorityOrder);
-    const runwayGeneration = pendingPatchGenerationRef.current;
     pendingPatchIdsRef.current.clear();
     pendingPatchPriorityIdsRef.current = [];
     const start = windowStartRef.current;
     const end = windowEndRef.current;
     const guideEpoch = guideEpochRef.current;
     try {
-      const focusedIds = priorityOrder.slice(0, 1).filter((id) => ids.includes(id));
-      const immediateIds = priorityOrder.slice(1, 3).filter((id) => ids.includes(id));
-      const visibleIds = priorityOrder.slice(3).filter((id) => ids.includes(id));
-      const urgentIds = [...focusedIds, ...immediateIds, ...visibleIds];
-      const remainingIds = ids.filter((id) => !prioritySet.has(id));
       const applyTier = async (tierIds: string[]) => {
         if (!tierIds.length) return true;
         const delta = await loadGuideProgramsForChannelIds(tierIds, start, guideWindowHoursRef.current);
@@ -821,27 +815,26 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
           pendingPatchGenerationRef.current = runwayGenerationRef.current;
           return false;
         }
-        // Focus advanced while SQLite was reading. Discard the obsolete result
-        // and reapply the newest conveyor keep set because the completed native
-        // request may have repopulated rows that the newer runway already evicted.
-        if (runwayGeneration !== runwayGenerationRef.current) {
-          const keep = lastKeepIdsRef.current.length
-            ? lastKeepIdsRef.current
-            : lastPatchRunwayIdsRef.current;
-          retainGuidePrograms(keep);
-          retainProgrammeWindowCache(keep);
-          return false;
-        }
+        // Focus may advance while SQLite is reading. Keep results that still
+        // belong to the newest hysteresis band instead of discarding the whole
+        // query and repeatedly starting over until the remote is released.
+        const keep = lastKeepIdsRef.current.length
+          ? lastKeepIdsRef.current
+          : lastPatchRunwayIdsRef.current;
+        const usefulDelta = keepUsefulGuidePatch(delta || {}, keep);
         // Native returns explicit empty arrays too, clearing stale rows without
-        // waiting for the complete five-page runway.
-        if (delta && Object.keys(delta).length) {
-          applyGuidePrograms(makeGuideProgramWindowKey(start, end, guideEpochRef.current), delta);
+        // waiting for the complete runway.
+        if (Object.keys(usefulDelta).length) {
+          applyGuidePrograms(makeGuideProgramWindowKey(start, end, guideEpochRef.current), usefulDelta);
         }
+        retainGuidePrograms(keep);
+        retainProgrammeWindowCache(keep);
         return true;
       };
-      const tiers = urgentIds.length
-        ? [focusedIds, immediateIds, visibleIds, remainingIds]
-        : [ids];
+      // One leading batch avoids paying a native bridge round-trip for only one
+      // row while still getting the focused page on glass first. Tail chunks
+      // are bounded so a long runway never creates one giant JS allocation.
+      const tiers = buildGuidePatchTiers(ids, priorityOrder, 12, 24);
       for (const tier of tiers) {
         if (!(await applyTier(tier))) return;
         // A newer runway supersedes the old tail. Finish its focused tier next
