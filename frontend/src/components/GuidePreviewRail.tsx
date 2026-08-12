@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useCallback, useMemo, useRef } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import dayjs from "dayjs";
@@ -9,7 +9,7 @@ import { StreamPlayer, type StreamStatus } from "@/src/components/StreamPlayer";
 import { getLastAudioDiagnostics } from "@/src/core/audioDiagnostics";
 import {
   noteGuidePreviewFocus,
-  registerGuidePreviewEntry,
+  registerGuidePreviewNode,
 } from "@/src/utils/tvGuideFocusLock";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { fmtTime, progressPct } from "@/src/utils/time";
@@ -39,6 +39,16 @@ type Props = {
   onOpenDrawer: () => void;
 };
 
+function usePreviewFocusNode(key: string, preferred = false) {
+  const nodeRef = useRef<unknown>(null);
+  const setRef = useCallback((node: unknown) => {
+    nodeRef.current = node;
+    registerGuidePreviewNode(key, node, preferred);
+  }, [key, preferred]);
+  const onFocus = useCallback(() => noteGuidePreviewFocus(nodeRef.current), []);
+  return { setRef, onFocus };
+}
+
 export function GuidePreviewRail({
   width,
   channel,
@@ -62,9 +72,13 @@ export function GuidePreviewRail({
   onHideToggle,
   onOpenDrawer,
 }: Props) {
-  const setPlayRef = React.useCallback((node: unknown) => {
-    registerGuidePreviewEntry(node);
-  }, []);
+  const playFocus = usePreviewFocusNode("play", true);
+  const favoriteFocus = usePreviewFocusNode("favorite");
+  const remindersFocus = usePreviewFocusNode("reminders");
+  const drawerFocus = usePreviewFocusNode("drawer");
+  const muteFocus = usePreviewFocusNode("mute");
+  const hideFocus = usePreviewFocusNode("hide");
+  const showFocus = usePreviewFocusNode("show-preview");
   const nowDate = useMemo(() => new Date(now), [now]);
   const progress = current ? progressPct(current, nowDate) : 0;
   const endsIn = current?.stop
@@ -123,7 +137,9 @@ export function GuidePreviewRail({
         </View>
       ) : (
         <Pressable
+          ref={showFocus.setRef}
           onPress={onHideToggle}
+          onFocus={showFocus.onFocus}
           style={({ focused }: any) => [styles.hiddenPreview, focused && styles.focused]}
           testID="guide-preview-show"
         >
@@ -164,10 +180,10 @@ export function GuidePreviewRail({
 
         <View style={styles.actions}>
           <Pressable
-            ref={setPlayRef}
+            ref={playFocus.setRef}
             disabled={!channel}
             onPress={onPlay}
-            onFocus={noteGuidePreviewFocus}
+            onFocus={playFocus.onFocus}
             style={({ focused }: any) => [styles.watchButton, focused && styles.focused]}
             testID="guide-preview-play"
           >
@@ -175,9 +191,10 @@ export function GuidePreviewRail({
             <Text style={styles.watchText}>Play</Text>
           </Pressable>
           <Pressable
+            ref={favoriteFocus.setRef}
             disabled={!channel}
             onPress={onFavorite}
-            onFocus={noteGuidePreviewFocus}
+            onFocus={favoriteFocus.onFocus}
             style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
             testID="guide-preview-favorite"
           >
@@ -187,8 +204,9 @@ export function GuidePreviewRail({
         </View>
         <View style={styles.actions}>
           <Pressable
+            ref={remindersFocus.setRef}
             onPress={onOpenReminders}
-            onFocus={noteGuidePreviewFocus}
+            onFocus={remindersFocus.onFocus}
             style={({ focused }: any) => [
               styles.secondaryButton,
               focused && styles.focused,
@@ -203,8 +221,9 @@ export function GuidePreviewRail({
             <Text style={styles.secondaryText}>Reminders</Text>
           </Pressable>
           <Pressable
+            ref={drawerFocus.setRef}
             onPress={onOpenDrawer}
-            onFocus={noteGuidePreviewFocus}
+            onFocus={drawerFocus.onFocus}
             style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
             testID="guide-preview-drawer"
           >
@@ -215,8 +234,9 @@ export function GuidePreviewRail({
         <View style={styles.actions}>
           {!hidePreview ? (
             <Pressable
+              ref={muteFocus.setRef}
               onPress={onToggleMute}
-              onFocus={noteGuidePreviewFocus}
+              onFocus={muteFocus.onFocus}
               style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
               testID="guide-preview-mute"
             >
@@ -225,8 +245,9 @@ export function GuidePreviewRail({
             </Pressable>
           ) : null}
           <Pressable
+            ref={hideFocus.setRef}
             onPress={onHideToggle}
-            onFocus={noteGuidePreviewFocus}
+            onFocus={hideFocus.onFocus}
             style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
             testID="guide-preview-hide"
           >

@@ -9,6 +9,7 @@ export type GuideSelection = {
 const EMPTY_SELECTION: GuideSelection = { channelId: null, program: null };
 let snapshot: GuideSelection = EMPTY_SELECTION;
 const listeners = new Set<() => void>();
+let emitTimer: ReturnType<typeof setTimeout> | null = null;
 
 function emit(): void {
   for (const listener of Array.from(listeners)) {
@@ -19,6 +20,16 @@ function emit(): void {
       // Preview metadata must never block native focus movement.
     }
   }
+}
+
+function scheduleEmit(): void {
+  if (emitTimer) return;
+  // Keep preview metadata renders out of the native onFocus callback. Multiple
+  // D-pad events in one JS turn collapse to the newest selection.
+  emitTimer = setTimeout(() => {
+    emitTimer = null;
+    emit();
+  }, 0);
 }
 
 export function getGuideSelection(): GuideSelection {
@@ -36,14 +47,14 @@ export function setGuideFocusedProgram(channelId: string, program: Program): voi
     return;
   }
   snapshot = { channelId, program };
-  emit();
+  scheduleEmit();
 }
 
 export function resetGuideSelection(channelId: string | null = null): void {
   const next = channelId ? { channelId, program: null } : EMPTY_SELECTION;
   if (snapshot.channelId === next.channelId && snapshot.program === next.program) return;
   snapshot = next;
-  emit();
+  scheduleEmit();
 }
 
 export function subscribeGuideSelection(listener: () => void): () => void {

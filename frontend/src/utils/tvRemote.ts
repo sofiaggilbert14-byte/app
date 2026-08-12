@@ -34,6 +34,17 @@ export function setPointerActive(active: boolean) {
   } catch {}
 }
 
+/** Dedicated Channel/Page buttons; ordinary D-pad arrows never emit here. */
+export function addGuidePageKeyListener(cb: (key: "UP" | "DOWN") => void): () => void {
+  const eventName = "TvGuidePageKey";
+  if (emitter) {
+    const sub = emitter.addListener(eventName, (key: "UP" | "DOWN") => cb(key));
+    return () => sub.remove();
+  }
+  const sub = DeviceEventEmitter.addListener(eventName, (key: "UP" | "DOWN") => cb(key));
+  return () => sub.remove();
+}
+
 /** Avoid duplicating every Guide D-pad repeat across the JS bridge. */
 export function setGuideNavigationActive(active: boolean) {
   try {
