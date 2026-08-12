@@ -228,8 +228,7 @@ function withTvRemotePackageRegistered(config) {
 function hardenMainActivity(src) {
   src = src
     .replace(/private val minDpadRepeatMs = \d+L/, "private val minDpadRepeatMs = 48L")
-    .replace(/private const val MIN_DPAD_REPEAT_MS = \d+L/, "private const val MIN_DPAD_REPEAT_MS = 48L")
-    .replace(/\n\s*TvRemoteModule\.guideNavigationActive = false/g, "");
+    .replace(/private const val MIN_DPAD_REPEAT_MS = \d+L/, "private const val MIN_DPAD_REPEAT_MS = 48L");
   const classMatch = src.match(/class\s+MainActivity[^{]*\{/);
   if (classMatch && !src.includes("lastAcceptedDirectionalRepeatAt")) {
     const idx = src.indexOf(classMatch[0]) + classMatch[0].length;
@@ -238,10 +237,6 @@ function hardenMainActivity(src) {
   private var lastAcceptedDirectionalRepeatAt = 0L
   private var lastAcceptedDirectionalKeyCode = -1
   private val minDpadRepeatMs = 48L
-  private val maxDpadTapMs = 560L
-  private var activeDirectionalKeyCode = -1
-  private var activeDirectionalDownAt = 0L
-  private var activeDirectionalRepeated = false
 `;
     src = src.slice(0, idx) + fields + src.slice(idx);
     src = src.replace(
@@ -256,44 +251,51 @@ function hardenMainActivity(src) {
       if (event.repeatCount == 0) {
         lastAcceptedDirectionalKeyCode = event.keyCode
         lastAcceptedDirectionalRepeatAt = event.eventTime
-        activeDirectionalKeyCode = event.keyCode
-        activeDirectionalDownAt = event.eventTime
-        activeDirectionalRepeated = false
       } else {
-        activeDirectionalRepeated = true
         val elapsed = event.eventTime - lastAcceptedDirectionalRepeatAt
         if (event.keyCode == lastAcceptedDirectionalKeyCode && elapsed < minDpadRepeatMs) return true
         lastAcceptedDirectionalKeyCode = event.keyCode
         lastAcceptedDirectionalRepeatAt = event.eventTime
       }
     } else if (event.action == android.view.KeyEvent.ACTION_UP && directional) {
-      val completedShortTap =
-        !activeDirectionalRepeated &&
-          activeDirectionalKeyCode == event.keyCode &&
-          event.eventTime - activeDirectionalDownAt in 0..maxDpadTapMs
-      if (completedShortTap && !TvRemoteModule.pointerActive) {
-        val tapKey = when (event.keyCode) {
-          android.view.KeyEvent.KEYCODE_DPAD_UP -> "UP"
-          android.view.KeyEvent.KEYCODE_DPAD_DOWN -> "DOWN"
-          else -> null
-        }
-        if (tapKey != null) {
-          try {
-            val app = application as com.facebook.react.ReactApplication
-            val rc = try { app.reactHost?.currentReactContext } catch (e: Throwable) { null }
-              ?: try { app.reactNativeHost.reactInstanceManager.currentReactContext } catch (e: Throwable) { null }
-            rc?.getJSModule(com.facebook.react.modules.core.DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-              ?.emit("TvDpadTap", tapKey)
-          } catch (_: Throwable) {}
-        }
-      }
       lastAcceptedDirectionalKeyCode = -1
       lastAcceptedDirectionalRepeatAt = 0L
-      activeDirectionalKeyCode = -1
-      activeDirectionalDownAt = 0L
-      activeDirectionalRepeated = false
     }
 `,
+    );
+  }
+
+  if (src.includes("dispatchKeyEvent") && !src.includes('"TvGuidePageKey"')) {
+    const pageKeys = `    // Channel/Page keys page the Guide without overloading ordinary D-pad taps.
+    if (
+      event.action == android.view.KeyEvent.ACTION_DOWN &&
+        event.repeatCount == 0 &&
+        TvRemoteModule.guideNavigationActive &&
+        !TvRemoteModule.pointerActive
+    ) {
+      val pageKey = when (event.keyCode) {
+        android.view.KeyEvent.KEYCODE_CHANNEL_UP,
+        android.view.KeyEvent.KEYCODE_PAGE_UP -> "UP"
+        android.view.KeyEvent.KEYCODE_CHANNEL_DOWN,
+        android.view.KeyEvent.KEYCODE_PAGE_DOWN -> "DOWN"
+        else -> null
+      }
+      if (pageKey != null) {
+        try {
+          val app = application as com.facebook.react.ReactApplication
+          val rc = try { app.reactHost?.currentReactContext } catch (e: Throwable) { null }
+            ?: try { app.reactNativeHost.reactInstanceManager.currentReactContext } catch (e: Throwable) { null }
+          rc?.getJSModule(com.facebook.react.modules.core.DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+            ?.emit("TvGuidePageKey", pageKey)
+        } catch (_: Throwable) {}
+        return true
+      }
+    }
+
+`;
+    src = src.replace(
+      "  override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {\n",
+      `  override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {\n${pageKeys}`,
     );
   }
 
