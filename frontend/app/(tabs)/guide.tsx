@@ -11,6 +11,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
+import { useIsFocused } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import {
@@ -74,7 +75,11 @@ import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
 import type { StreamStatus } from "@/src/components/StreamPlayer";
 import { subscribeAndroidMemoryPressure } from "@/src/utils/androidMemoryPressure";
-import { setGuideNavigationActive } from "@/src/utils/tvRemote";
+import {
+  setGuideFocusSyncActive,
+  setGuideNavigationActive,
+  setGuideRepeatInterval,
+} from "@/src/utils/tvRemote";
 
 // Session-only guide position survives the root player route unmounting tabs.
 // Do not persist to disk: this is navigation state, not a user preference.
@@ -115,7 +120,10 @@ const GuideGroupChip = memo(function GuideGroupChip({
     onNode(item, node);
     if (active) registerGuideTopEntry(node);
   }, [active, item, onNode]);
-  const handleFocus = useCallback(() => registerGuideTopEntry(nodeRef.current), []);
+  const handleFocus = useCallback(() => {
+    setGuideFocusSyncActive(false);
+    registerGuideTopEntry(nodeRef.current);
+  }, []);
   const handlePress = useCallback(() => onChoose(item), [item, onChoose]);
   const handleLongPress = useCallback(() => onTogglePin(item), [item, onTogglePin]);
   const label = `${chipLabel(item)}${count > 0 ? ` ${count}` : ""}`;
@@ -138,6 +146,49 @@ const GuideGroupChip = memo(function GuideGroupChip({
         {label}
       </Text>
     </Pressable>
+  );
+});
+
+type GuidePageRequest = { nonce: number; direction: -1 | 1 };
+
+const GuidePageCharms = memo(function GuidePageCharms({
+  left,
+  disabled,
+  onPage,
+}: {
+  left: number;
+  disabled: boolean;
+  onPage: (direction: -1 | 1) => void;
+}) {
+  return (
+    <View pointerEvents={disabled ? "none" : "box-none"} style={[styles.pageCharmRail, { left }]}>
+      <Pressable
+        focusable={false}
+        accessible
+        accessibilityRole="button"
+        accessibilityLabel="Page up in guide"
+        disabled={disabled}
+        onPress={() => onPage(-1)}
+        style={({ pressed }: any) => [styles.pageCharm, pressed && styles.pageCharmPressed]}
+        testID="guide-page-charm-up"
+      >
+        <Ionicons name="chevron-up" size={15} color="#fff" />
+        <Text style={styles.pageCharmText}>PAGE</Text>
+      </Pressable>
+      <Pressable
+        focusable={false}
+        accessible
+        accessibilityRole="button"
+        accessibilityLabel="Page down in guide"
+        disabled={disabled}
+        onPress={() => onPage(1)}
+        style={({ pressed }: any) => [styles.pageCharm, pressed && styles.pageCharmPressed]}
+        testID="guide-page-charm-down"
+      >
+        <Text style={styles.pageCharmText}>PAGE</Text>
+        <Ionicons name="chevron-down" size={15} color="#fff" />
+      </Pressable>
+    </View>
   );
 });
 
@@ -252,12 +303,17 @@ function GuideSelectionPreview({
 
 export default function PurpleGuideScreen() {
   const router = useRouter();
+  const isFocused = useIsFocused();
   const { drawerOpen, openDrawer } = usePurpleTvDrawer();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   useFocusEffect(
     useCallback(() => {
       setGuideNavigationActive(true);
-      return () => setGuideNavigationActive(false);
+      setGuideFocusSyncActive(false);
+      return () => {
+        setGuideFocusSyncActive(false);
+        setGuideNavigationActive(false);
+      };
     }, []),
   );
   const {
@@ -306,6 +362,9 @@ export default function PurpleGuideScreen() {
   const { isGroupLocked, unlockGroup, verifyPin, hasPin } = useParentalPin();
 
   const powerTuning = useMemo(() => getPowerProfileTuning(powerProfile), [powerProfile]);
+  useEffect(() => {
+    setGuideRepeatInterval(powerTuning.guideRepeatIntervalMs);
+  }, [powerTuning.guideRepeatIntervalMs]);
   const [surfLogosSuppressed, setSurfLogosSuppressed] = useState(false);
 
   const [now, setNow] = useState(() => new Date().toISOString());
@@ -319,6 +378,7 @@ export default function PurpleGuideScreen() {
   const [pinPromptGroup, setPinPromptGroup] = useState<string | null>(null);
   const [pinDigits, setPinDigits] = useState("");
   const [pinError, setPinError] = useState(false);
+  const [pageRequest, setPageRequest] = useState<GuidePageRequest | null>(null);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewRecoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const surfReleaseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -327,10 +387,12 @@ export default function PurpleGuideScreen() {
   const bootRetryRef = useRef(0);
   const groupChipRefs = useRef(new Map<string, any>());
   const moreGroupsChipRef = useRef<any>(null);
+  const disableGuideFocusSync = useCallback(() => setGuideFocusSyncActive(false), []);
   const setMoreGroupsChipRef = useCallback((node: any) => {
     moreGroupsChipRef.current = node;
   }, []);
   const focusMoreGroupsChip = useCallback(() => {
+    setGuideFocusSyncActive(false);
     registerGuideTopEntry(moreGroupsChipRef.current);
   }, []);
   const lastFocusAtRef = useRef(0);
@@ -383,6 +445,12 @@ export default function PurpleGuideScreen() {
     const syncTimer = setTimeout(() => setGridReminderKeys(reminderKeys), 220);
     return () => clearTimeout(syncTimer);
   }, [activeProgram, reminderKeys]);
+
+  useEffect(() => {
+    if (drawerOpen || activeProgram || moreGroupsOpen || pinPromptGroup) {
+      setGuideFocusSyncActive(false);
+    }
+  }, [activeProgram, drawerOpen, moreGroupsOpen, pinPromptGroup]);
 
   useEffect(() => {
     if (previousDrawerOpenRef.current !== drawerOpen) {
@@ -476,9 +544,11 @@ export default function PurpleGuideScreen() {
   // Tick often enough for the timeline "now" indicator / progress fills without
   // rebuilding guide geometry (TimelineGrid keeps layout independent of now).
   useEffect(() => {
+    if (!isFocused) return;
+    setNow(new Date().toISOString());
     const timer = setInterval(() => setNow(new Date().toISOString()), 30_000);
     return () => clearInterval(timer);
-  }, []);
+  }, [isFocused]);
 
   useEffect(
     () => () => {
@@ -627,7 +697,7 @@ export default function PurpleGuideScreen() {
   // Seed only on cold load/group/reset. A silent refresh must not yank a deeply
   // scrolled guide's EPG query scope back to the first channels.
   useEffect(() => {
-    if (!filtered.length) return;
+    if (!isFocused || !filtered.length) return;
     const key = `${group}:${resetToken}:${powerProfile}`;
     if (viewportSeedKeyRef.current === key) return;
     viewportSeedKeyRef.current = key;
@@ -667,6 +737,7 @@ export default function PurpleGuideScreen() {
     filteredIdIndex,
     group,
     guideDensity,
+    isFocused,
     orderedFilteredIds,
     patchProgramsForChannelIds,
     powerProfile,
@@ -745,6 +816,15 @@ export default function PurpleGuideScreen() {
     // Twenty-five percent smaller than the original 260-360px / 24% rail.
     return Math.round(Math.min(270, Math.max(195, screenWidth * 0.18)));
   }, [screenWidth]);
+  const pageCharmLeft = (groupLayout === "vertical" ? 126 : 0) + detailsRailWidth + 4;
+  const requestGuidePage = useCallback((direction: -1 | 1) => {
+    setPageRequest((current) => ({ nonce: (current?.nonce || 0) + 1, direction }));
+  }, []);
+  useEffect(() => {
+    if (!pageRequest) return;
+    const clear = setTimeout(() => setPageRequest(null), 250);
+    return () => clearTimeout(clear);
+  }, [pageRequest]);
 
   const armPreviewForChannel = useCallback(
     (channel: Channel) => {
@@ -1013,6 +1093,7 @@ export default function PurpleGuideScreen() {
               <Text style={styles.verticalHeaderHint}>{chipLabel(group)}</Text>
               {showGroupSearch ? (
                 <TextInput
+                  onFocus={disableGuideFocusSync}
                   value={groupQuery}
                   onChangeText={setGroupQuery}
                   placeholder="Filter in group"
@@ -1022,6 +1103,7 @@ export default function PurpleGuideScreen() {
                 />
               ) : (
                 <Pressable
+                  onFocus={disableGuideFocusSync}
                   onPress={() => setSearchOpen(true)}
                   style={({ focused }: any) => [styles.searchReveal, focused && styles.focused]}
                 >
@@ -1036,6 +1118,7 @@ export default function PurpleGuideScreen() {
         {groupLayout === "horizontal" && showGroupSearch ? (
           <View style={styles.searchRow}>
             <TextInput
+              onFocus={disableGuideFocusSync}
               value={groupQuery}
               onChangeText={setGroupQuery}
               placeholder="Filter in group"
@@ -1126,7 +1209,7 @@ export default function PurpleGuideScreen() {
               now={now}
               channelNumberById={channelNumberById}
               showChannelNumbers={channelNumbers}
-              showLogos={channelLogos && !surfLogosSuppressed}
+              showLogos={isFocused && channelLogos && !surfLogosSuppressed}
               favoriteSet={favoriteSet}
               hidePreview={hidePreview}
               muted={mutePreview}
@@ -1167,10 +1250,10 @@ export default function PurpleGuideScreen() {
                   onRefresh={hardRefresh}
                   showChannelNumbers={channelNumbers}
                   channelNumberById={channelNumberById}
-                  showChannelLogos={channelLogos && !surfLogosSuppressed}
+                  showChannelLogos={isFocused && channelLogos && !surfLogosSuppressed}
                   reminderKeys={gridReminderKeys}
                   resetToken={resetToken}
-                  active={!activeProgram && !drawerOpen}
+                  active={isFocused && !activeProgram && !drawerOpen}
                   // Preview is the native Left neighbor; the closed drawer has
                   // no mounted focus tree and therefore needs no self-lock.
                   lockLeftEdge={false}
@@ -1181,6 +1264,7 @@ export default function PurpleGuideScreen() {
                   onLeftBoundary={onGuideLeftBoundary}
                   onFocusedRowChange={onFocusedGuideRow}
                   onViewportChannelIds={onViewportChannelIds}
+                  pageRequest={pageRequest}
                 />
               ) : (
                 <TimelineGrid
@@ -1198,10 +1282,10 @@ export default function PurpleGuideScreen() {
                   density={guideDensity}
                   showChannelNumbers={channelNumbers}
                   channelNumberById={channelNumberById}
-                  showChannelLogos={channelLogos && !surfLogosSuppressed}
+                  showChannelLogos={isFocused && channelLogos && !surfLogosSuppressed}
                   reminderKeys={gridReminderKeys}
                   resetToken={resetToken}
-                  active={!activeProgram && !drawerOpen}
+                  active={isFocused && !activeProgram && !drawerOpen}
                   // Preview is the native Left neighbor; the closed drawer has
                   // no mounted focus tree and therefore needs no self-lock.
                   lockLeftEdge={false}
@@ -1214,9 +1298,15 @@ export default function PurpleGuideScreen() {
                   onViewportChannelIds={onViewportChannelIds}
                   onBackTargetChange={onGuideBackTarget}
                   reduceMotion={instantGuide}
+                  pageRequest={pageRequest}
                 />
               )}
             </FocusGuide>
+            <GuidePageCharms
+              left={pageCharmLeft}
+              disabled={!isFocused || !!activeProgram || drawerOpen}
+              onPage={requestGuidePage}
+            />
           </View>
         )}
 
@@ -1365,7 +1455,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
-  body: { flex: 1, flexDirection: "row", gap: 8, minHeight: 0 },
+  body: { flex: 1, flexDirection: "row", gap: 8, minHeight: 0, position: "relative" },
   verticalGroups: { width: 118, flexShrink: 0, maxHeight: "100%" },
   verticalGroupList: { paddingVertical: 2, paddingRight: 2 },
   gridPanel: {
@@ -1377,6 +1467,29 @@ const styles = StyleSheet.create({
     borderColor: tvColors.line,
     borderRadius: radius.sm,
   },
+  pageCharmRail: {
+    position: "absolute",
+    top: "50%",
+    zIndex: 8,
+    gap: 7,
+    transform: [{ translateX: -18 }, { translateY: -42 }],
+  },
+  pageCharm: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: "rgba(245,243,255,0.92)",
+    backgroundColor: tvColors.purple,
+    shadowColor: "#000",
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+  pageCharmPressed: { opacity: 0.72, transform: [{ scale: 0.96 }] },
+  pageCharmText: { color: "#fff", fontFamily: fonts.bold, fontSize: 5.5, letterSpacing: 0.6 },
   watchButton: {
     flex: 1,
     minWidth: 0,

@@ -96,7 +96,7 @@ test("guide tabs reclaim the left edge and top-row Up restores the active tab", 
   assert.match(guide, /trapFocusLeft=\{false\}/);
   assert.match(guide, /expandRunwayKeepSet/);
   assert.match(guide, /retainGuideSlidingCache/);
-  assert.match(guide, /active=\{!activeProgram && !drawerOpen\}/);
+  assert.match(guide, /active=\{isFocused && !activeProgram && !drawerOpen\}/);
   assert.match(guide, /lockLeftEdge=\{false\}/);
   assert.match(focusLock, /nextFocusLeft: locked \? handle : previewHandle \|\| -1/);
   assert.doesNotMatch(guide, /openDrawer\(\)/);

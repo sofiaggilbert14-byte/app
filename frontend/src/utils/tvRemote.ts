@@ -14,6 +14,9 @@ export const tvRemoteAvailable = !!TvRemote;
 export type TvKey = "UP" | "DOWN" | "LEFT" | "RIGHT" | "SELECT" | "BACK";
 
 const emitter = TvRemote ? new NativeEventEmitter(TvRemote) : null;
+let focusAckGeneration = 0;
+let focusAckTimer: ReturnType<typeof setTimeout> | null = null;
+let guideFocusSyncEnabled = false;
 
 // Subscribe to D-pad key presses forwarded from the native Activity.
 export function addTvKeyListener(cb: (key: TvKey) => void): () => void {
@@ -50,6 +53,47 @@ export function setGuideNavigationActive(active: boolean) {
   try {
     TvRemote?.setGuideNavigationActive?.(active);
   } catch {}
+}
+
+/** Enable the one-move-at-a-time native gate only while a Guide cell owns focus. */
+export function setGuideFocusSyncActive(active: boolean) {
+  if (guideFocusSyncEnabled === active) return;
+  guideFocusSyncEnabled = active;
+  focusAckGeneration += 1;
+  if (focusAckTimer) clearTimeout(focusAckTimer);
+  focusAckTimer = null;
+  try {
+    TvRemote?.setGuideFocusSyncActive?.(active);
+  } catch {}
+}
+
+/** Configure the fastest accepted held-key cadence; native focus readiness can slow it further. */
+export function setGuideRepeatInterval(milliseconds: number) {
+  try {
+    TvRemote?.setGuideRepeatInterval?.(Math.max(60, Math.min(120, milliseconds)));
+  } catch {}
+}
+
+/**
+ * Release the next held-key movement only after the focused native cell and its
+ * scroll offset have had a frame to paint. Loading EPG shells get one extra
+ * frame so the Guide runway can advance without ever queueing invisible moves.
+ */
+export function acknowledgeGuideFocusAfterPaint(epgReady = true) {
+  const generation = ++focusAckGeneration;
+  if (focusAckTimer) clearTimeout(focusAckTimer);
+  const acknowledge = () => {
+    if (generation !== focusAckGeneration) return;
+    focusAckTimer = null;
+    requestAnimationFrame(() => {
+      if (generation !== focusAckGeneration) return;
+      try {
+        TvRemote?.acknowledgeGuideFocusMove?.();
+      } catch {}
+    });
+  };
+  if (epgReady) acknowledge();
+  else focusAckTimer = setTimeout(acknowledge, 48);
 }
 
 // Inject a real tap at screen coordinates (dp) so the element under the virtual

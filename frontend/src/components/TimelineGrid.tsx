@@ -41,7 +41,11 @@ import {
 } from "@/src/core/guideRunwayPolicy";
 import { buildVisibleGuideCellSlice } from "@/src/core/guideCellCulling";
 import { noteGuideRowSlice, noteProgramCellMounted } from "@/src/utils/guidePerfMetrics";
-import { addGuidePageKeyListener } from "@/src/utils/tvRemote";
+import {
+  acknowledgeGuideFocusAfterPaint,
+  addGuidePageKeyListener,
+  setGuideFocusSyncActive,
+} from "@/src/utils/tvRemote";
 
 const HEADER_H = 30;
 const ACCENT = "#8B5CF6";
@@ -222,10 +226,12 @@ const ProgramCell = memo(function ProgramCell({
   }, [lockFocusDown]);
 
   const handleProgramFocus = useCallback(() => {
+    setGuideFocusSyncActive(true);
     noteGuideProgramFocus(channel.id, cellRef.current);
     wireFocusCandidate(rowIndex, prepared.key, cellRef.current);
     onFocusNode?.(cellRef.current);
     onProgramFocus(prepared, channel);
+    acknowledgeGuideFocusAfterPaint(true);
   }, [channel, onFocusNode, onProgramFocus, prepared, rowIndex, wireFocusCandidate]);
   const handleProgramPress = useCallback(
     () => onProgramPress(prepared.program, channel),
@@ -438,13 +444,15 @@ const TimelineRow = memo(function TimelineRow({
 
   const handleChannelPress = useCallback(() => onChannelPress(item), [onChannelPress, item]);
   const handleChannelFocus = useCallback(() => {
+    setGuideFocusSyncActive(true);
     noteGuideChannelFocus(item.id, logoPressableRef.current);
     wireFocusCandidate(index, "channel", logoPressableRef.current);
     // Re-wire Left → preview after recycle; Play may have mounted after this row.
     if (!lockFocusLeft) applyLeftFocusLock(logoPressableRef.current, false);
     onFocusNode?.(logoPressableRef.current);
     onRowChannelFocus(item, index, logoPressableRef.current);
-  }, [index, item, lockFocusLeft, onFocusNode, onRowChannelFocus, wireFocusCandidate]);
+    acknowledgeGuideFocusAfterPaint(programRowState !== "loading");
+  }, [index, item, lockFocusLeft, onFocusNode, onRowChannelFocus, programRowState, wireFocusCandidate]);
   const handleChannelLongPress = useCallback(() => onChannelLongPress?.(item), [onChannelLongPress, item]);
   const handleProgramFocus = useCallback(
     (prepared: PreparedProgram, channel: Channel) => onProgramFocus(prepared, channel, index),
@@ -476,6 +484,7 @@ const TimelineRow = memo(function TimelineRow({
     [index, lockFocusDown, panBucket, programViewportW, registerFocusCandidate],
   );
   const handlePendingFocus = useCallback(() => {
+    setGuideFocusSyncActive(true);
     if (preparedPrograms.length === 0) setPreservePendingFocus(true);
     noteGuideProgramFocus(item.id, pendingPressableRef.current);
     wireFocusCandidate(index, "pending", pendingPressableRef.current);
@@ -484,6 +493,7 @@ const TimelineRow = memo(function TimelineRow({
     // request is pending. Android can then continue vertical movement instead
     // of losing focus because the destination has no programme Pressable.
     onRowPendingFocus(item, index, pendingPressableRef.current);
+    acknowledgeGuideFocusAfterPaint(false);
   }, [index, item, onFocusNode, onRowPendingFocus, preparedPrograms.length, wireFocusCandidate]);
   const handlePendingBlur = useCallback(() => {
     if (preparedPrograms.length > 0) setPreservePendingFocus(false);
@@ -602,6 +612,7 @@ export const TimelineGrid = memo(function TimelineGrid({
   focusClaimNonce = 0,
   cacheProfile = "normal",
   reduceMotion = false,
+  pageRequest,
 }: {
   channels: Channel[];
   windowStart: string;
@@ -641,6 +652,8 @@ export const TimelineGrid = memo(function TimelineGrid({
   cacheProfile?: "normal" | "weak" | "max_preview";
   /** Snap expensive Guide motion while keeping focus/metadata immediate. */
   reduceMotion?: boolean;
+  /** Touch/mouse charm request. Hardware Channel/Page keys use the native event. */
+  pageRequest?: { nonce: number; direction: -1 | 1 } | null;
 }) {
   const { width } = useWindowDimensions();
   const big = width >= 900;
@@ -983,9 +996,21 @@ export const TimelineGrid = memo(function TimelineGrid({
       panAnimRef.current?.stop();
       focusCandidatesByRowRef.current.clear();
       focusedCandidateRef.current = null;
+      setGuideFocusSyncActive(false);
     },
     [],
   );
+
+  useEffect(() => {
+    if (active) return;
+    gridOwnsFocusRef.current = false;
+    pendingViewportRef.current = null;
+    if (viewportDispatchRef.current) {
+      clearTimeout(viewportDispatchRef.current);
+      viewportDispatchRef.current = null;
+    }
+    setGuideFocusSyncActive(false);
+  }, [active]);
 
   const pageGuide = useCallback((direction: -1 | 1) => {
     if (!active) return;
@@ -1004,10 +1029,14 @@ export const TimelineGrid = memo(function TimelineGrid({
     focusGuideSurfaceWhenMounted(rows[targetIndex]?.id, [0, 16, 40, 80, 140, 240]);
   }, [ROW_H, active]);
 
-  useEffect(
-    () => addGuidePageKeyListener((key) => pageGuide(key === "UP" ? -1 : 1)),
-    [pageGuide],
-  );
+  useEffect(() => {
+    if (!active) return;
+    return addGuidePageKeyListener((key) => pageGuide(key === "UP" ? -1 : 1));
+  }, [active, pageGuide]);
+
+  useEffect(() => {
+    if (pageRequest) pageGuide(pageRequest.direction);
+  }, [pageGuide, pageRequest]);
 
   useTVEventHandler(
     useCallback(
