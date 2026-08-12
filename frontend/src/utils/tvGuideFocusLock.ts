@@ -8,6 +8,7 @@ import { requestNativeFocus } from "@/src/utils/tvFocus";
 let armedUntil = 0;
 let armedNode: unknown = null;
 let focusedGuideChannelId: string | null = null;
+let activeGuideFocusNode: unknown = null;
 
 type GuideChannelEntry = {
   node: unknown;
@@ -19,6 +20,9 @@ const guideChannelNodes = new Map<string, GuideChannelEntry>();
 const guideProgramNodes = new Map<string, unknown>();
 /** Stable auxiliary-panel target used when leaving the guide to the left. */
 let guidePreviewEntryNode: unknown = null;
+let guidePreviewPreferredNode: unknown = null;
+const guidePreviewNodes = new Map<string, unknown>();
+let guideTopEntryNode: unknown = null;
 let cancelGuideRestoreTimers: (() => void) | null = null;
 let previewFocusAttempt = 0;
 let previewFocusTimers: ReturnType<typeof setTimeout>[] = [];
@@ -39,7 +43,34 @@ function cancelPreviewFocusAttempts(): void {
 }
 
 function previewFocusHandle(): number | null {
-  return findNodeHandle(guidePreviewEntryNode as any) || null;
+  return findNodeHandle((guidePreviewEntryNode || guidePreviewPreferredNode) as any) || null;
+}
+
+function activeGuideFocusHandle(): number | null {
+  const active = findNodeHandle(activeGuideFocusNode as any);
+  if (active) return active;
+  const focused = focusedGuideChannelId
+    ? findNodeHandle(guideChannelNodes.get(focusedGuideChannelId)?.node as any)
+    : null;
+  if (focused) return focused;
+  for (const entry of guideChannelNodes.values()) {
+    const handle = findNodeHandle(entry.node as any);
+    if (handle) return handle;
+  }
+  return null;
+}
+
+function wireAuxiliaryPanelsToGuide(): void {
+  const targetHandle = activeGuideFocusHandle();
+  if (!targetHandle) return;
+  for (const node of guidePreviewNodes.values()) {
+    try {
+      (node as any)?.setNativeProps?.({ nextFocusRight: targetHandle });
+    } catch {}
+  }
+  try {
+    (guideTopEntryNode as any)?.setNativeProps?.({ nextFocusDown: targetHandle });
+  } catch {}
 }
 
 function wireChannelLeftFocus(entry: GuideChannelEntry): void {
@@ -91,7 +122,8 @@ export function registerGuideChannelNode(
   guideChannelNodes.delete(channelId);
   // FlashList recycled the row that owned focus. Never retain its program/logo
   // host as a successful restoration target.
-  if (focusedGuideChannelId === channelId) {
+  if (activeGuideFocusNode === removed?.node) activeGuideFocusNode = null;
+  if (focusedGuideChannelId === channelId && !activeGuideFocusNode) {
     cancelGuideFocusRestore();
     focusedGuideChannelId = null;
     armedNode = null;
@@ -107,6 +139,7 @@ export function noteGuideChannelFocus(channelId: string, node: unknown): void {
   cancelGuideFocusRestore();
   cancelPreviewFocusAttempts();
   focusedGuideChannelId = channelId;
+  activeGuideFocusNode = node;
   const existing = guideChannelNodes.get(channelId);
   if (!existing) {
     guideChannelNodes.set(channelId, { node, handOffLeftToPreview: false });
@@ -117,6 +150,17 @@ export function noteGuideChannelFocus(channelId: string, node: unknown): void {
     // Re-assert Left → Play after recycle; preview may have mounted later.
     wireChannelLeftFocus(existing);
   }
+  wireAuxiliaryPanelsToGuide();
+}
+
+/** Record an exact programme/card focus without replacing its channel-rail ref. */
+export function noteGuideProgramFocus(channelId: string, node: unknown): void {
+  if (!channelId || !node) return;
+  cancelGuideFocusRestore();
+  cancelPreviewFocusAttempts();
+  focusedGuideChannelId = channelId;
+  activeGuideFocusNode = node;
+  wireAuxiliaryPanelsToGuide();
 }
 
 export function focusGuideSurface(channelId?: string | null): boolean {
@@ -147,7 +191,9 @@ export function focusGuideSurfaceWhenMounted(
     const entry =
       (preferredId ? guideChannelNodes.get(preferredId) : undefined) ||
       (guideChannelNodes.size ? guideChannelNodes.values().next().value : undefined);
-    const target = entry?.node;
+    const target =
+      (!channelId || channelId === focusedGuideChannelId ? activeGuideFocusNode : null) ||
+      entry?.node;
     if (!target) return;
     found = requestNativeFocus(target) || found;
   };
@@ -165,7 +211,24 @@ export function focusGuideSurfaceWhenMounted(
 
 /** Register the preview/actions panel's stable entry control. */
 export function registerGuidePreviewEntry(node: unknown): void {
-  guidePreviewEntryNode = node || null;
+  registerGuidePreviewNode("play", node, true);
+}
+
+/** Register every preview action so Right returns directly to the active Guide cell. */
+export function registerGuidePreviewNode(
+  key: string,
+  node: unknown,
+  preferred = false,
+): void {
+  if (!key) return;
+  const previous = guidePreviewNodes.get(key);
+  if (node) guidePreviewNodes.set(key, node);
+  else guidePreviewNodes.delete(key);
+  if (preferred) guidePreviewPreferredNode = node || null;
+  if (!node && guidePreviewEntryNode === previous) {
+    guidePreviewEntryNode = null;
+  }
+  wireAuxiliaryPanelsToGuide();
   const targetHandle = previewFocusHandle();
   if (!targetHandle) return;
   // Keep Android's native focus graph deterministic as FlashList recycles rows:
@@ -181,9 +244,25 @@ export function registerGuidePreviewEntry(node: unknown): void {
 }
 
 /** A real preview-button focus cancels any queued boundary retry. */
-export function noteGuidePreviewFocus(): void {
+export function noteGuidePreviewFocus(node?: unknown): void {
   cancelGuideFocusRestore();
   cancelPreviewFocusAttempts();
+  if (node) guidePreviewEntryNode = node;
+  wireAuxiliaryPanelsToGuide();
+}
+
+/** The selected group chip and Guide top row form a direct native Up/Down edge. */
+export function registerGuideTopEntry(node: unknown): void {
+  guideTopEntryNode = node || null;
+  wireAuxiliaryPanelsToGuide();
+}
+
+export function wireGuideTopBoundary(node: unknown): void {
+  if (!node) return;
+  const handle = findNodeHandle(guideTopEntryNode as any) || -1;
+  try {
+    (node as any)?.setNativeProps?.({ nextFocusUp: handle });
+  } catch {}
 }
 
 /** Move focus from the guide's left boundary into the preview/actions panel. */
@@ -232,6 +311,14 @@ export function armGuideLeftFocusLock(node: unknown, ms = 400) {
     }, ms);
     leftFocusLockTimers.set(key, timer);
   }
+}
+
+/** Remove a recycled explicit Left edge so Android can use the adjacent card. */
+export function clearGuideLeftFocusOverride(node: any): void {
+  if (!node) return;
+  try {
+    node.setNativeProps?.({ nextFocusLeft: -1 });
+  } catch {}
 }
 
 function guideProgramNodeKey(channelId: string, programStart: string): string {
