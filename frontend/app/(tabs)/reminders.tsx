@@ -8,6 +8,7 @@ import {
   View,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { useIsFocused } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { PurpleTvShell, usePurpleTvDrawer } from "@/src/components/PurpleTvShell";
@@ -36,11 +37,13 @@ function ReminderCard({
   item,
   cardWidth,
   nowMs,
+  logos,
   onCancel,
 }: {
   item: Reminder;
   cardWidth: number;
   nowMs: number;
+  logos: boolean;
   onCancel: (key: string) => void;
 }) {
   const startMs = Date.parse(item.start);
@@ -57,6 +60,7 @@ function ReminderCard({
           name={item.channelName || "Channel"}
           logo={item.channelLogo || undefined}
           size={42}
+          disabled={!logos}
         />
         <View style={styles.cardHeaderText}>
           <Text style={styles.channelName} numberOfLines={1}>
@@ -90,9 +94,10 @@ function ReminderCard({
 
 export default function RemindersScreen() {
   const router = useRouter();
+  const isFocused = useIsFocused();
   const { width } = useWindowDimensions();
   const { openDrawer } = usePurpleTvDrawer();
-  const { reminders, removeReminder, channelById } = useStore();
+  const { reminders, removeReminder, channelById, channelLogos } = useStore();
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   useTvBackHandler(
@@ -103,9 +108,11 @@ export default function RemindersScreen() {
   );
 
   useEffect(() => {
+    if (!isFocused) return;
+    setNowMs(Date.now());
     const timer = setInterval(() => setNowMs(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [isFocused]);
 
   const upcoming = useMemo(() => {
     return [...reminders]
@@ -203,6 +210,7 @@ export default function RemindersScreen() {
               item={item}
               cardWidth={cardWidth}
               nowMs={nowMs}
+              logos={isFocused && channelLogos}
               onCancel={cancelReminder}
             />
           )}

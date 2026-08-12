@@ -1,6 +1,7 @@
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
+import { useIsFocused } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { PurpleTvShell } from "@/src/components/PurpleTvShell";
@@ -64,6 +65,7 @@ const ChannelListRow = memo(function ChannelListRow({
 
 export default function ChannelsScreen() {
   const router = useRouter();
+  const isFocused = useIsFocused();
   const { channels, favorites, toggleFavorite, addRecent, channelLogos, hardRefresh, loading, refreshing, error, clock24h } = useStore();
   void clock24h;
   const sorted = useMemo(() => [...channels].sort(byName), [channels]);
@@ -71,9 +73,11 @@ export default function ChannelsScreen() {
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
+    if (!isFocused) return;
+    setNow(new Date());
     const timer = setInterval(() => setNow(new Date()), 60_000);
     return () => clearInterval(timer);
-  }, []);
+  }, [isFocused]);
 
   const play = useCallback((channel: Channel) => {
     void Haptics.selectionAsync().catch(() => undefined);
@@ -137,7 +141,7 @@ export default function ChannelsScreen() {
                 channel={item}
                 number={index + 1}
                 favorite={favoriteSet.has(item.id)}
-                logos={channelLogos}
+                logos={isFocused && channelLogos}
                 now={now}
                 onPlay={play}
                 onFavorite={favorite}

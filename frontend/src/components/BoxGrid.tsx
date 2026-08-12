@@ -34,7 +34,11 @@ import {
   buildGuideRunwayIds,
   type GuideScanDirection,
 } from "@/src/core/guideRunwayPolicy";
-import { addGuidePageKeyListener } from "@/src/utils/tvRemote";
+import {
+  acknowledgeGuideFocusAfterPaint,
+  addGuidePageKeyListener,
+  setGuideFocusSyncActive,
+} from "@/src/utils/tvRemote";
 
 const ACCENT = "#A855F7";
 const ACCENT_SOFT = "#E9D5FF";
@@ -130,12 +134,14 @@ const ChannelCard = memo(function ChannelCard({
   }, [item, next, onProgramPress]);
   const handleFavorite = useCallback(() => toggleFavorite(item.id), [item.id, toggleFavorite]);
   const handleFocus = useCallback(() => {
+    setGuideFocusSyncActive(true);
     noteGuideChannelFocus(item.id, cardRef.current);
     if (topBoundary) wireGuideTopBoundary(cardRef.current);
     onFocusNode?.(cardRef.current);
     onRowFocus?.(index);
     onChannelFocus?.(item);
-  }, [index, item, onChannelFocus, onFocusNode, onRowFocus, topBoundary]);
+    acknowledgeGuideFocusAfterPaint(programRowState !== "loading");
+  }, [index, item, onChannelFocus, onFocusNode, onRowFocus, programRowState, topBoundary]);
 
   return (
     <View style={styles.cell}>
@@ -223,6 +229,7 @@ export function BoxGrid({
   restoreChannelId,
   focusClaimNonce = 0,
   cacheProfile = "normal",
+  pageRequest,
 }: {
   channels: Channel[];
   now: string;
@@ -246,6 +253,7 @@ export function BoxGrid({
   restoreChannelId?: string | null;
   focusClaimNonce?: number;
   cacheProfile?: "normal" | "weak" | "max_preview";
+  pageRequest?: { nonce: number; direction: -1 | 1 } | null;
 }) {
   const { width, height } = useWindowDimensions();
   const numColumns = width >= 1400 ? 6 : width >= 1150 ? 5 : width >= 900 ? 4 : width >= 600 ? 3 : 2;
@@ -422,9 +430,21 @@ export function BoxGrid({
       if (escapeTimer.current) clearTimeout(escapeTimer.current);
       if (viewportDispatchRef.current) clearTimeout(viewportDispatchRef.current);
       pendingViewportRef.current = null;
+      setGuideFocusSyncActive(false);
     },
     [],
   );
+
+  useEffect(() => {
+    if (active) return;
+    gridOwnsFocusRef.current = false;
+    pendingViewportRef.current = null;
+    if (viewportDispatchRef.current) {
+      clearTimeout(viewportDispatchRef.current);
+      viewportDispatchRef.current = null;
+    }
+    setGuideFocusSyncActive(false);
+  }, [active]);
 
   const pageGuide = useCallback((direction: -1 | 1) => {
     if (!active) return;
@@ -443,10 +463,14 @@ export function BoxGrid({
     focusGuideSurfaceWhenMounted(rows[targetIndex]?.id, [0, 16, 40, 80, 140, 240]);
   }, [active, height, numColumns]);
 
-  useEffect(
-    () => addGuidePageKeyListener((key) => pageGuide(key === "UP" ? -1 : 1)),
-    [pageGuide],
-  );
+  useEffect(() => {
+    if (!active) return;
+    return addGuidePageKeyListener((key) => pageGuide(key === "UP" ? -1 : 1));
+  }, [active, pageGuide]);
+
+  useEffect(() => {
+    if (pageRequest) pageGuide(pageRequest.direction);
+  }, [pageGuide, pageRequest]);
 
   const lastRowIndex = Math.max(0, Math.floor((Math.max(channels.length, 1) - 1) / Math.max(1, numColumns)));
   lastRowIndexRef.current = lastRowIndex;

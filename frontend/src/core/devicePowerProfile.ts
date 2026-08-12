@@ -17,6 +17,8 @@ export type PowerProfileTuning = {
   logosOffWhileSurfingDefault: boolean;
   /** Bounded JS row pointers; SQLite remains authoritative at every profile. */
   programmeRowCacheLimit: number;
+  /** Fastest held-D-pad cadence; focus-paint acknowledgement may slow it further. */
+  guideRepeatIntervalMs: number;
 };
 
 const PROFILES: Record<PowerProfile, PowerProfileTuning> = {
@@ -29,6 +31,7 @@ const PROFILES: Record<PowerProfile, PowerProfileTuning> = {
     rapidSurfHoldMs: 600,
     logosOffWhileSurfingDefault: false,
     programmeRowCacheLimit: 720,
+    guideRepeatIntervalMs: 72,
   },
   weak: {
     id: "weak",
@@ -39,6 +42,7 @@ const PROFILES: Record<PowerProfile, PowerProfileTuning> = {
     rapidSurfHoldMs: 900,
     logosOffWhileSurfingDefault: true,
     programmeRowCacheLimit: 320,
+    guideRepeatIntervalMs: 92,
   },
   max_preview: {
     id: "max_preview",
@@ -49,6 +53,7 @@ const PROFILES: Record<PowerProfile, PowerProfileTuning> = {
     rapidSurfHoldMs: 400,
     logosOffWhileSurfingDefault: false,
     programmeRowCacheLimit: 960,
+    guideRepeatIntervalMs: 64,
   },
 };
 

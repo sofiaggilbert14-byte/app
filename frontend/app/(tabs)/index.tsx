@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
+import { useIsFocused } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -18,6 +19,7 @@ function channelSort(a: Channel, b: Channel) {
 
 export default function LiveTvHomeScreen() {
   const router = useRouter();
+  const isFocused = useIsFocused();
   const {
     channels,
     recent,
@@ -36,9 +38,11 @@ export default function LiveTvHomeScreen() {
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
+    if (!isFocused) return;
+    setNow(new Date());
     const timer = setInterval(() => setNow(new Date()), 60_000);
     return () => clearInterval(timer);
-  }, []);
+  }, [isFocused]);
 
   const channelNumberById = useMemo(() => {
     const result: Record<string, number> = {};
@@ -147,7 +151,7 @@ export default function LiveTvHomeScreen() {
           <View style={styles.heroArtwork}>
             <View style={styles.heroGlow} />
             {heroChannel ? (
-              <ChannelLogo name={heroChannel.name} logo={heroChannel.logo} disabled={!channelLogos} size={92} />
+              <ChannelLogo name={heroChannel.name} logo={heroChannel.logo} disabled={!isFocused || !channelLogos} size={92} />
             ) : (
               <Ionicons name="tv-outline" size={72} color={tvColors.purpleSoft} />
             )}
@@ -174,7 +178,7 @@ export default function LiveTvHomeScreen() {
                     colors={["rgba(124,58,237,0.40)", "rgba(16,16,30,0.96)"]}
                     style={StyleSheet.absoluteFill}
                   />
-                  <ChannelLogo name={channel.name} logo={channel.logo} disabled={!channelLogos} size={46} />
+                  <ChannelLogo name={channel.name} logo={channel.logo} disabled={!isFocused || !channelLogos} size={46} />
                 </View>
                 <Text numberOfLines={1} style={styles.channelName}>
                   {channelNumbers ? `${channelNumberById[channel.id] || ""}  ` : ""}{channel.name}

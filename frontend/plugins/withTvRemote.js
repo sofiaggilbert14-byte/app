@@ -35,6 +35,12 @@ class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBas
     var pointerActive: Boolean = false
     @JvmField
     var guideNavigationActive: Boolean = false
+    @JvmField
+    var guideFocusSyncActive: Boolean = false
+    @JvmField
+    var guideFocusMoveReady: Boolean = true
+    @JvmField
+    var guideRepeatIntervalMs: Long = 72L
     private const val MAX_SANE_CODEC_DIMENSION = 16_384
   }
 
@@ -46,6 +52,27 @@ class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBas
   @ReactMethod
   fun setGuideNavigationActive(active: Boolean) {
     guideNavigationActive = active
+    if (!active) {
+      guideFocusSyncActive = false
+      guideFocusMoveReady = true
+    }
+  }
+
+  @ReactMethod
+  fun setGuideFocusSyncActive(active: Boolean) {
+    if (guideFocusSyncActive == active) return
+    guideFocusSyncActive = active
+    guideFocusMoveReady = true
+  }
+
+  @ReactMethod
+  fun acknowledgeGuideFocusMove() {
+    guideFocusMoveReady = true
+  }
+
+  @ReactMethod
+  fun setGuideRepeatInterval(milliseconds: Double) {
+    guideRepeatIntervalMs = milliseconds.toLong().coerceIn(60L, 120L)
   }
 
   @ReactMethod
@@ -228,6 +255,7 @@ function withTvRemotePackageRegistered(config) {
 function hardenMainActivity(src) {
   src = src
     .replace(/private val minDpadRepeatMs = \d+L/, "private val minDpadRepeatMs = 48L")
+    .replace(/private val guideFocusAckTimeoutMs = \d+L/, "private val guideFocusAckTimeoutMs = 240L")
     .replace(/private const val MIN_DPAD_REPEAT_MS = \d+L/, "private const val MIN_DPAD_REPEAT_MS = 48L");
   const classMatch = src.match(/class\s+MainActivity[^{]*\{/);
   if (classMatch && !src.includes("lastAcceptedDirectionalRepeatAt")) {
@@ -237,6 +265,7 @@ function hardenMainActivity(src) {
   private var lastAcceptedDirectionalRepeatAt = 0L
   private var lastAcceptedDirectionalKeyCode = -1
   private val minDpadRepeatMs = 48L
+  private val guideFocusAckTimeoutMs = 240L
 `;
     src = src.slice(0, idx) + fields + src.slice(idx);
     src = src.replace(
@@ -248,18 +277,30 @@ function hardenMainActivity(src) {
         event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT ||
         event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT
     if (event.action == android.view.KeyEvent.ACTION_DOWN && directional) {
+      val guideSync =
+        TvRemoteModule.guideNavigationActive &&
+          TvRemoteModule.guideFocusSyncActive &&
+          !TvRemoteModule.pointerActive
       if (event.repeatCount == 0) {
         lastAcceptedDirectionalKeyCode = event.keyCode
         lastAcceptedDirectionalRepeatAt = event.eventTime
+        if (guideSync) TvRemoteModule.guideFocusMoveReady = false
       } else {
         val elapsed = event.eventTime - lastAcceptedDirectionalRepeatAt
-        if (event.keyCode == lastAcceptedDirectionalKeyCode && elapsed < minDpadRepeatMs) return true
+        val sameDirection = event.keyCode == lastAcceptedDirectionalKeyCode
+        if (sameDirection) {
+          val repeatFloor = if (guideSync) TvRemoteModule.guideRepeatIntervalMs else minDpadRepeatMs
+          val waitTimedOut = elapsed >= guideFocusAckTimeoutMs
+          if (elapsed < repeatFloor || (guideSync && !TvRemoteModule.guideFocusMoveReady && !waitTimedOut)) return true
+        }
         lastAcceptedDirectionalKeyCode = event.keyCode
         lastAcceptedDirectionalRepeatAt = event.eventTime
+        if (guideSync) TvRemoteModule.guideFocusMoveReady = false
       }
     } else if (event.action == android.view.KeyEvent.ACTION_UP && directional) {
       lastAcceptedDirectionalKeyCode = -1
       lastAcceptedDirectionalRepeatAt = 0L
+      TvRemoteModule.guideFocusMoveReady = true
     }
 `,
     );
@@ -313,6 +354,8 @@ function hardenMainActivity(src) {
     // Static remote flags must never survive an Activity/bridge teardown.
     TvRemoteModule.pointerActive = false
     TvRemoteModule.guideNavigationActive = false
+    TvRemoteModule.guideFocusSyncActive = false
+    TvRemoteModule.guideFocusMoveReady = true
     super.onDestroy()
   }
 

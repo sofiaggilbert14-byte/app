@@ -1,6 +1,7 @@
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { useRouter } from "expo-router";
+import { useIsFocused } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -54,6 +55,7 @@ export function PurpleChannelCollection({
   matcher: (channel: Channel) => boolean;
 }) {
   const router = useRouter();
+  const isFocused = useIsFocused();
   const { width } = useWindowDimensions();
   const { channels, addRecent, channelLogos, hardRefresh, loading, refreshing, error } = useStore();
   const columns = width >= 1500 ? 6 : width >= 1050 ? 5 : 4;
@@ -61,9 +63,11 @@ export function PurpleChannelCollection({
   const [preferEmptyFocus, setPreferEmptyFocus] = useState(true);
 
   useEffect(() => {
+    if (!isFocused) return;
+    setNow(new Date());
     const timer = setInterval(() => setNow(new Date()), 60_000);
     return () => clearInterval(timer);
-  }, []);
+  }, [isFocused]);
 
   useEffect(() => {
     if (!preferEmptyFocus) return;
@@ -105,7 +109,7 @@ export function PurpleChannelCollection({
               columnWrapperStyle={styles.row}
               contentContainerStyle={styles.grid}
               renderItem={({ item }) => (
-                <Card channel={item} logos={channelLogos} now={now} onPress={play} />
+                <Card channel={item} logos={isFocused && channelLogos} now={now} onPress={play} />
               )}
             />
           </>

@@ -1,6 +1,7 @@
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
+import { useIsFocused } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { PurpleTvShell } from "@/src/components/PurpleTvShell";
@@ -69,6 +70,7 @@ const FavoriteRow = memo(function FavoriteRow({
 
 export default function FavoritesScreen() {
   const router = useRouter();
+  const isFocused = useIsFocused();
   const {
     channels,
     favorites,
@@ -107,9 +109,11 @@ export default function FavoritesScreen() {
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
+    if (!isFocused) return;
+    setNow(new Date());
     const timer = setInterval(() => setNow(new Date()), 60_000);
     return () => clearInterval(timer);
-  }, []);
+  }, [isFocused]);
 
   const play = useCallback((channel: Channel) => {
     void Haptics.selectionAsync().catch(() => undefined);
@@ -204,7 +208,7 @@ export default function FavoritesScreen() {
               <FavoriteRow
                 channel={item}
                 number={index + 1}
-                logos={channelLogos}
+                logos={isFocused && channelLogos}
                 now={now}
                 folderMode={folderMode}
                 inFolder={!!folderMemberSet?.has(item.id)}

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
+import { useIsFocused } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { PurpleTvShell } from "@/src/components/PurpleTvShell";
@@ -13,13 +14,16 @@ import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 
 export default function CatchUpScreen() {
   const router = useRouter();
+  const isFocused = useIsFocused();
   const { recent, addRecent, channelLogos } = useStore();
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
+    if (!isFocused) return;
+    setNow(new Date());
     const timer = setInterval(() => setNow(new Date()), 60_000);
     return () => clearInterval(timer);
-  }, []);
+  }, [isFocused]);
 
   // Honest recent-live list only. This build has no timeshift/catch-up URLs yet,
   // so we never present live streams as replay content.
@@ -68,7 +72,7 @@ export default function CatchUpScreen() {
                   testID={`catchup-live-${channel.id}`}
                 >
                   <Text style={styles.number}>{rowIndex + 1}</Text>
-                  <ChannelLogo name={channel.name} logo={channel.logo} disabled={!channelLogos} size={28} />
+                  <ChannelLogo name={channel.name} logo={channel.logo} disabled={!isFocused || !channelLogos} size={28} />
                   <View style={styles.copy}>
                     <Text numberOfLines={1} style={styles.channelName}>{channel.name}</Text>
                     <Text numberOfLines={1} style={styles.programTitle}>{current?.title || "Watch live"}</Text>
