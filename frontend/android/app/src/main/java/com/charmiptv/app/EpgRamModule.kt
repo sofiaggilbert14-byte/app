@@ -18,6 +18,7 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
   private val engine = EpgRamEngine(database)
   private val worker = Executors.newSingleThreadExecutor()
   private val queryPool = Executors.newFixedThreadPool(2)
+  @Volatile private var warmGuideEpoch = -1L
 
   override fun getName(): String = "CharmEpgRam"
 
@@ -26,7 +27,9 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
     worker.execute {
       try {
         database.ensureHealthy()
-        promise.resolve(engine.rebuild(startMs.toLong(), endMs.toLong()))
+        val warmed = engine.rebuild(startMs.toLong(), endMs.toLong())
+        if (warmed) warmGuideEpoch = currentGuideEpoch()
+        promise.resolve(warmed)
       } catch (t: Throwable) {
         promise.reject("EPG_RAM_WARM_FAILED", t.message ?: "Could not warm EPG RAM index", t)
       }
@@ -65,6 +68,7 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
   fun queryGuideWindow(startMs: Double, endMs: Double, playlistChannelIds: ReadableArray, promise: Promise) {
     queryPool.execute {
       try {
+        ensureWarmForCurrentEpoch()
         val ids = readIds(playlistChannelIds)
         val programmes = engine.queryGuideWindow(startMs.toLong(), endMs.toLong(), ids)
         if (programmes == null) promise.resolve(null) else promise.resolve(groupPrograms(programmes))
@@ -78,6 +82,7 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
   fun getWindow(startMs: Double, endMs: Double, channelIds: ReadableArray, promise: Promise) {
     queryPool.execute {
       try {
+        ensureWarmForCurrentEpoch()
         val ids = readIds(channelIds)
         val programmes = engine.queryWindow(startMs.toLong(), endMs.toLong(), ids)
         if (programmes == null) promise.resolve(null) else promise.resolve(groupPrograms(programmes))
@@ -90,6 +95,7 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
   @ReactMethod
   fun clearMemory(promise: Promise) {
     engine.clear()
+    warmGuideEpoch = -1L
     promise.resolve(true)
   }
 
@@ -98,8 +104,21 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
     val result = Arguments.createMap()
     for ((key, value) in engine.stats()) result.putDouble(key, value.toDouble())
     result.putBoolean("warm", engine.isWarm())
+    result.putDouble("guideEpoch", warmGuideEpoch.toDouble())
     promise.resolve(result)
   }
+
+  private fun ensureWarmForCurrentEpoch() {
+    val epoch = currentGuideEpoch()
+    if (engine.isWarm() && warmGuideEpoch == epoch) return
+    database.ensureHealthy()
+    val now = System.currentTimeMillis()
+    if (engine.rebuild(now - GUIDE_HISTORY_MS, now + GUIDE_WINDOW_MS)) {
+      warmGuideEpoch = epoch
+    }
+  }
+
+  private fun currentGuideEpoch(): Long = database.getMeta("guide_epoch")?.toLongOrNull() ?: 0L
 
   private fun readIds(array: ReadableArray): List<String> {
     val ids = ArrayList<String>(array.size())
@@ -135,5 +154,10 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
     queryPool.shutdownNow()
     database.close()
     super.invalidate()
+  }
+
+  companion object {
+    private const val GUIDE_HISTORY_MS = 6L * 60L * 60L * 1000L
+    private const val GUIDE_WINDOW_MS = 24L * 60L * 60L * 1000L
   }
 }
