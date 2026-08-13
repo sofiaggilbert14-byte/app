@@ -63,7 +63,7 @@ const RAPID_VERTICAL_MS = 400;
 const PAN_BUCKET_PX = 360;
 const HORIZONTAL_PAN_MS = 110;
 
-/** Pin Down on the last guide row so Fire TV can't leap to sidebar Exit. */
+/** Pin Down on the last guide row so Android TV focus cannot escape the Guide. */
 function applyDownFocusLock(node: any, locked: boolean) {
   if (!node) return;
   const handle = findNodeHandle(node);
@@ -681,8 +681,9 @@ export const TimelineGrid = memo(function TimelineGrid({
   const LOGO_SIZE = railMetrics.logoSize;
   const scrollX = useRef(new Animated.Value(0)).current;
   const negScrollX = useMemo(() => Animated.multiply(scrollX, -1), [scrollX]);
-  // A lightweight ring stays visible while the virtualized destination mounts.
-  // Imperative values avoid re-rendering the FlashList on held repeats.
+  // Keep destination geometry internal. Phase A shows only real Android focus;
+  // the logical ring values remain as non-rendered bookkeeping for the existing
+  // focus convergence path without creating a second visible focus indicator.
   const logicalRingX = useRef(new Animated.Value(0)).current;
   const logicalRingY = useRef(new Animated.Value(0)).current;
   const logicalRingW = useRef(new Animated.Value(120)).current;
@@ -1052,7 +1053,9 @@ export const TimelineGrid = memo(function TimelineGrid({
     logicalRingX.setValue(ringLeft);
     logicalRingY.setValue(ringTop + 1);
     logicalRingW.setValue(ringWidth);
-    logicalRingOpacity.setValue(1);
+    // Phase A: pending logical destination is internal only. The ONN/Android
+    // native focused Pressable is the single visible focus indicator.
+    logicalRingOpacity.setValue(0);
   }, [LOGO_W, PX_PER_MIN, ROW_H, logicalRingOpacity, logicalRingW, logicalRingX, logicalRingY, programViewportW, windowStartMs]);
 
   const tryLogicalFocus = useCallback(() => {
