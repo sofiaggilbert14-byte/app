@@ -96,7 +96,20 @@ function windowToPrograms(window: NativeWindow, channelIds: string[]): Record<st
 
 export async function refreshNativeEpg(url: string, allowNotModified: boolean): Promise<NativeRefreshResult> {
   if (!nativeModule) throw new Error("Native EPG engine is unavailable");
-  return nativeModule.refresh(url, allowNotModified);
+  const result = await nativeModule.refresh(url, allowNotModified);
+  // The SQLite live-table swap is complete before refresh resolves. Warm the
+  // experimental RAM engine after that durable checkpoint, but do not await it:
+  // channel paint/matching can proceed while the dedicated RAM worker scans disk.
+  if (
+    ramModule &&
+    Number.isFinite(result.windowStartMs) &&
+    Number.isFinite(result.windowEndMs) &&
+    result.windowEndMs > result.windowStartMs &&
+    result.count > 0
+  ) {
+    void ramModule.warm(result.windowStartMs, result.windowEndMs).catch(() => undefined);
+  }
+  return result;
 }
 
 export async function warmNativeEpgRam(startMs: number, endMs: number): Promise<boolean> {
