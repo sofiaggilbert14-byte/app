@@ -14,9 +14,18 @@ internal class EpgRamEngine(private val database: EpgDatabase) {
   )
 
   @Volatile private var snapshot = EMPTY
+  @Volatile private var rebuildAllowedAtMs = 0L
   private val rebuilding = AtomicBoolean(false)
 
-  fun clear() { snapshot = EMPTY }
+  /**
+   * RAM is disposable. A short cooldown prevents a critical-memory trim from
+   * being followed by an immediate full-Epg rebuild on the next Guide read.
+   */
+  fun clear(cooldownMs: Long = CLEAR_REBUILD_COOLDOWN_MS) {
+    snapshot = EMPTY
+    rebuildAllowedAtMs = maxOf(rebuildAllowedAtMs, System.currentTimeMillis() + maxOf(0L, cooldownMs))
+  }
+
   fun isWarm(): Boolean = snapshot.programCount > 0
   fun hasMatches(): Boolean = snapshot.playlistToXmltv.isNotEmpty()
 
@@ -36,12 +45,18 @@ internal class EpgRamEngine(private val database: EpgDatabase) {
    * of cloning every title/description into a second object graph during warm-up.
    */
   fun rebuild(startMs: Long, endMs: Long): Boolean {
-    if (endMs <= startMs || !rebuilding.compareAndSet(false, true)) return false
+    val now = System.currentTimeMillis()
+    if (endMs <= startMs || now < rebuildAllowedAtMs || !rebuilding.compareAndSet(false, true)) return false
     try {
       val runtime = Runtime.getRuntime()
+      val usedBeforeBuild = heapUsed(runtime)
+      if (usedBeforeBuild >= (runtime.maxMemory() * PREBUILD_PRESSURE_FRACTION).toLong()) {
+        rebuildAllowedAtMs = now + FAILED_REBUILD_COOLDOWN_MS
+        return false
+      }
       val reserve = maxOf(48L * MIB, (runtime.maxMemory() * 0.22).toLong())
       val hardBudget = (runtime.maxMemory() * 0.52).toLong()
-      val budget = minOf(hardBudget, maxOf(16L * MIB, runtime.maxMemory() - heapUsed(runtime) - reserve))
+      val budget = minOf(hardBudget, maxOf(16L * MIB, runtime.maxMemory() - usedBeforeBuild - reserve))
       val persisted = database.queryWindow(startMs, endMs, null)
       val grouped = LinkedHashMap<String, MutableList<NativeEpgProgram>>()
       var estimated = 0L
@@ -63,8 +78,10 @@ internal class EpgRamEngine(private val database: EpgDatabase) {
         programCount = persisted.size,
         estimatedBytes = estimated,
       )
+      rebuildAllowedAtMs = 0L
       return persisted.isNotEmpty()
     } catch (_: RamBudgetExceeded) {
+      rebuildAllowedAtMs = System.currentTimeMillis() + FAILED_REBUILD_COOLDOWN_MS
       return false
     } finally {
       rebuilding.set(false)
@@ -106,6 +123,7 @@ internal class EpgRamEngine(private val database: EpgDatabase) {
       "estimatedBytes" to current.estimatedBytes,
       "heapUsedBytes" to heapUsed(runtime),
       "heapMaxBytes" to runtime.maxMemory(),
+      "rebuildAllowedAtMs" to rebuildAllowedAtMs,
     )
   }
 
@@ -148,6 +166,9 @@ internal class EpgRamEngine(private val database: EpgDatabase) {
 
   companion object {
     private const val MIB = 1024L * 1024L
+    private const val CLEAR_REBUILD_COOLDOWN_MS = 15_000L
+    private const val FAILED_REBUILD_COOLDOWN_MS = 60_000L
+    private const val PREBUILD_PRESSURE_FRACTION = 0.72
     private val EMPTY = Snapshot(emptyMap(), emptyMap(), 0L, 0L, 0, 0L)
   }
 }
