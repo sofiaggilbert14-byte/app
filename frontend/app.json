@@ -22,11 +22,7 @@
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.SYSTEM_ALERT_WINDOW"
       ],
-      "permissions": [
-        "INTERNET",
-        "ACCESS_NETWORK_STATE",
-        "POST_NOTIFICATIONS"
-      ]
+      "permissions": ["INTERNET", "ACCESS_NETWORK_STATE", "POST_NOTIFICATIONS"]
     },
     "web": {
       "bundler": "metro",
@@ -34,50 +30,19 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
-      [
-        "@react-native-tvos/config-tv",
-        {
-          "isTV": false
-        }
-      ],
+      ["@react-native-tvos/config-tv", {"isTV": false}],
       "expo-router",
-      [
-        "expo-splash-screen",
-        {
-          "image": "./assets/images/splash-image.png",
-          "imageWidth": 200,
-          "resizeMode": "contain",
-          "backgroundColor": "#000000"
-        }
-      ],
+      ["expo-splash-screen", {"image": "./assets/images/splash-image.png", "imageWidth": 200, "resizeMode": "contain", "backgroundColor": "#000000"}],
       "expo-video",
-      [
-        "expo-build-properties",
-        {
-          "android": {
-            "usesCleartextTraffic": false,
-            "minSdkVersion": 26
-          }
-        }
-      ],
-      [
-        "expo-notifications",
-        {
-          "color": "#8B5CF6"
-        }
-      ],
+      ["expo-build-properties", {"android": {"usesCleartextTraffic": false, "minSdkVersion": 26}}],
+      ["expo-notifications", {"color": "#8B5CF6"}],
       "react-native-vlc-media-player",
       "expo-screen-orientation",
       "./plugins/withAndroidTv",
-      "./plugins/withTvRemote",
+      "./plugins/withTvRemotePhaseAB",
       "./plugins/withLowMemoryAndroidBuild"
     ],
-    "experiments": {
-      "typedRoutes": true
-    },
-    "platforms": [
-      "android",
-      "web"
-    ]
+    "experiments": {"typedRoutes": true},
+    "platforms": ["android", "web"]
   }
 }
