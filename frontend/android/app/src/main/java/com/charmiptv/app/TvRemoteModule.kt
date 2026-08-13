@@ -8,7 +8,6 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
-import com.facebook.react.modules.core.DeviceEventManagerModule
 
 class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBaseJavaModule(ctx) {
   override fun getName(): String = "TvRemote"
@@ -22,14 +21,6 @@ class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBas
     @JvmField
     var guideNavigationActive: Boolean = false
     @JvmField
-    var guideLogicalNavigationActive: Boolean = false
-    @JvmField
-    var guideLogicalFocusPending: Boolean = false
-    @JvmField
-    var guideLogicalFocusPendingSinceMs: Long = 0L
-    @JvmField
-    var pendingLogicalGuideKey: String? = null
-    @JvmField
     var guideRepeatIntervalMs: Long = 72L
     private const val MAX_SANE_CODEC_DIMENSION = 16_384
   }
@@ -42,46 +33,6 @@ class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBas
   @ReactMethod
   fun setGuideNavigationActive(active: Boolean) {
     guideNavigationActive = active
-    if (!active) {
-      guideLogicalNavigationActive = false
-      guideLogicalFocusPending = false
-      guideLogicalFocusPendingSinceMs = 0L
-      pendingLogicalGuideKey = null
-    }
-  }
-
-  @ReactMethod
-  fun setGuideLogicalNavigationActive(active: Boolean) {
-    guideLogicalNavigationActive = active
-    if (!active) {
-      guideLogicalFocusPending = false
-      guideLogicalFocusPendingSinceMs = 0L
-      pendingLogicalGuideKey = null
-      return
-    }
-
-    // A true call after native onFocus is the acknowledgement for the previous
-    // logical focus transaction. Only then release one coalesced repeat. This
-    // keeps held ONN D-pad input fast without letting JS/FlashList run several
-    // focus generations ahead of the mounted Android view hierarchy.
-    if (guideLogicalFocusPending) {
-      guideLogicalFocusPending = false
-      guideLogicalFocusPendingSinceMs = 0L
-      val pending = pendingLogicalGuideKey
-      pendingLogicalGuideKey = null
-      if (!pending.isNullOrBlank()) {
-        guideLogicalFocusPending = true
-        guideLogicalFocusPendingSinceMs = SystemClock.uptimeMillis()
-        emitLogicalGuideKey(pending)
-      }
-    }
-  }
-
-  private fun emitLogicalGuideKey(key: String) {
-    try {
-      ctx.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-        ?.emit("TvGuideLogicalKey", key)
-    } catch (_: Throwable) {}
   }
 
   @ReactMethod

@@ -55,8 +55,8 @@ class MainActivity : ReactActivity() {
         event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT
 
     // Keep the first press and direction reversals instant. Held Guide repeats
-    // use a bounded native cadence. A separate focus-ack gate below prevents
-    // those accepted repeats from outrunning FlashList/native focus mounting.
+    // use a bounded native cadence and never wait for a JS/paint acknowledgement;
+    // that old cross-thread lock could release a repeat after a row was recycled.
     if (event.action == android.view.KeyEvent.ACTION_DOWN && directional) {
       val guideActive =
         TvRemoteModule.guideNavigationActive &&
@@ -79,8 +79,6 @@ class MainActivity : ReactActivity() {
     } else if (event.action == android.view.KeyEvent.ACTION_UP && directional) {
       lastAcceptedDirectionalKeyCode = -1
       lastAcceptedDirectionalRepeatAt = 0L
-      // Do not add an extra queued move after the user has released the D-pad.
-      TvRemoteModule.pendingLogicalGuideKey = null
     }
 
     val key: String? = if (event.action == android.view.KeyEvent.ACTION_DOWN) {
@@ -98,46 +96,11 @@ class MainActivity : ReactActivity() {
     } else null
     if (key != null && (!TvRemoteModule.guideNavigationActive || TvRemoteModule.pointerActive)) {
       emitRemoteEvent("TvRemoteKey", key)
-      // Pointer mode owns the D-pad entirely. Guide cells are handled below by
-      // the logical channel/time controller; auxiliary Guide panels still use
-      // Android's normal focus engine.
+      // Pointer mode owns the D-pad entirely. Guide Up/Down must NOT be consumed —
+      // Android's focus engine moves between guide cells; JS only handles boundaries
+      // (Up → group tabs, bottom lock). Consuming Up/Down freezes guide surfing.
       if (TvRemoteModule.pointerActive) return true
     }
-    if (
-      key != null &&
-        directional &&
-        TvRemoteModule.guideNavigationActive &&
-        TvRemoteModule.guideLogicalNavigationActive &&
-        !TvRemoteModule.pointerActive
-    ) {
-      // Exactly one logical focus transaction may be in flight. While its
-      // destination is still mounting, retain only the newest accepted repeat.
-      // If a recycled/unmounted cell never acknowledges focus, the watchdog
-      // below releases the stale transaction instead of freezing navigation.
-      if (TvRemoteModule.guideLogicalFocusPending) {
-        val pendingSince = TvRemoteModule.guideLogicalFocusPendingSinceMs
-        val pendingAge = if (pendingSince > 0L) event.eventTime - pendingSince else 0L
-        if (pendingSince > 0L && pendingAge >= LOGICAL_FOCUS_ACK_TIMEOUT_MS) {
-          TvRemoteModule.guideLogicalFocusPending = false
-          TvRemoteModule.guideLogicalFocusPendingSinceMs = 0L
-          TvRemoteModule.pendingLogicalGuideKey = null
-        } else {
-          TvRemoteModule.pendingLogicalGuideKey = key
-          return true
-        }
-      }
-      TvRemoteModule.guideLogicalFocusPending = true
-      TvRemoteModule.guideLogicalFocusPendingSinceMs = event.eventTime
-      emitRemoteEvent("TvGuideLogicalKey", key)
-      return true
-    }
-    if (
-      event.action == android.view.KeyEvent.ACTION_UP &&
-        directional &&
-        TvRemoteModule.guideNavigationActive &&
-        TvRemoteModule.guideLogicalNavigationActive &&
-        !TvRemoteModule.pointerActive
-    ) return true
     return super.dispatchKeyEvent(event)
   }
 
@@ -152,7 +115,7 @@ class MainActivity : ReactActivity() {
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
-    // Prevent Android TV devices from dimming, sleeping, or launching a
+    // Prevent Android TV / Fire TV from dimming, sleeping, or launching a
     // screensaver while CharmIPTV is active. Playback screens inherit this
     // window flag automatically, so a long-running channel remains awake.
     window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -174,10 +137,6 @@ class MainActivity : ReactActivity() {
     // A stale pointer flag consumes every D-pad key before Android focus sees it.
     TvRemoteModule.pointerActive = false
     TvRemoteModule.guideNavigationActive = false
-    TvRemoteModule.guideLogicalNavigationActive = false
-    TvRemoteModule.guideLogicalFocusPending = false
-    TvRemoteModule.guideLogicalFocusPendingSinceMs = 0L
-    TvRemoteModule.pendingLogicalGuideKey = null
     super.onDestroy()
   }
 
@@ -206,8 +165,5 @@ class MainActivity : ReactActivity() {
     // Non-Guide screens retain the existing cap. Guide repeats use the
     // configurable device-profile cadence (72 ms Normal by default).
     private const val MIN_DPAD_REPEAT_MS = 48L
-    // Longer than the JS retry burst (240 ms), short enough that a recycled
-    // destination cannot hold the remote gate indefinitely.
-    private const val LOGICAL_FOCUS_ACK_TIMEOUT_MS = 650L
   }
 }

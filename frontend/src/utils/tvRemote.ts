@@ -45,28 +45,6 @@ export function addGuidePageKeyListener(cb: (key: "UP" | "DOWN") => void): () =>
   return () => sub.remove();
 }
 
-/**
- * Directional events consumed by the Guide's channel/time controller. Native
- * focus search is disabled only while a Guide grid cell owns focus.
- */
-export function addGuideLogicalKeyListener(
-  cb: (key: "UP" | "DOWN" | "LEFT" | "RIGHT") => void,
-): () => void {
-  const eventName = "TvGuideLogicalKey";
-  if (emitter) {
-    const sub = emitter.addListener(eventName, cb);
-    return () => sub.remove();
-  }
-  const sub = DeviceEventEmitter.addListener(eventName, cb);
-  return () => sub.remove();
-}
-
-export function setGuideLogicalNavigationActive(active: boolean) {
-  try {
-    TvRemote?.setGuideLogicalNavigationActive?.(active);
-  } catch {}
-}
-
 /** Avoid duplicating every Guide D-pad repeat across the JS bridge. */
 export function setGuideNavigationActive(active: boolean) {
   try {

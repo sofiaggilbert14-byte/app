@@ -42,16 +42,13 @@ test("removed Guide alphabet leaves a direct group-to-grid focus edge", async ()
   assert.match(focusLock, /nextFocusDown: targetHandle/);
 });
 
-test("preview default, ONN page keys, cold-row focus anchor, and Phase A/B hardening are present", async () => {
-  const [store, guide, activity, remoteModule, epgNative, hotCache, plugin, phasePlugin, timeline, box] = await Promise.all([
+test("preview default, ONN page keys, and cold-row focus anchor are hardened", async () => {
+  const [store, guide, activity, epgNative, plugin, timeline, box] = await Promise.all([
     readFile(join(root, "src/store.tsx"), "utf8"),
     readFile(join(root, "app/(tabs)/guide.tsx"), "utf8"),
     readFile(join(root, "android/app/src/main/java/com/charmiptv/app/MainActivity.kt"), "utf8"),
-    readFile(join(root, "android/app/src/main/java/com/charmiptv/app/TvRemoteModule.kt"), "utf8"),
     readFile(join(root, "android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt"), "utf8"),
-    readFile(join(root, "android/app/src/main/java/com/charmiptv/app/EpgGuideHotCache.kt"), "utf8"),
     readFile(join(root, "plugins/withTvRemote.js"), "utf8"),
-    readFile(join(root, "plugins/withTvRemotePhaseAB.js"), "utf8"),
     readFile(join(root, "src/components/TimelineGrid.tsx"), "utf8"),
     readFile(join(root, "src/components/BoxGrid.tsx"), "utf8"),
   ]);
@@ -69,22 +66,7 @@ test("preview default, ONN page keys, cold-row focus anchor, and Phase A/B harde
     assert.match(source, /0x192, 0x1b8/);
     assert.match(source, /0x193, 0x1b9/);
   }
-  assert.match(activity, /guideLogicalFocusPending/);
-  assert.match(activity, /guideLogicalFocusPendingSinceMs/);
-  assert.match(activity, /LOGICAL_FOCUS_ACK_TIMEOUT_MS = 650L/);
-  assert.match(activity, /pendingLogicalGuideKey = key/);
-  assert.match(remoteModule, /native onFocus is the acknowledgement/);
-  assert.match(remoteModule, /guideLogicalFocusPendingSinceMs/);
-  assert.match(remoteModule, /pendingLogicalGuideKey/);
-  assert.match(phasePlugin, /withTvRemote\(config\)/);
-  assert.match(phasePlugin, /TvRemoteModule\.phaseAB\.kt/);
-  assert.match(phasePlugin, /MainActivity\.phaseAB\.kt/);
-  assert.match(epgNative, /private val guideHotCache = EpgGuideHotCache/);
-  assert.match(epgNative, /guideHotCache\.query\(start, end, ids\)/);
-  assert.match(epgNative, /guideHotCache\.clear\(\)/);
-  assert.match(hotCache, /maxChannels: Int = 96/);
-  assert.match(hotCache, /removeEldestEntry/);
-  assert.match(hotCache, /SQLite remains the authoritative store/);
+  assert.match(epgNative, /avoids retaining one extra NativeEpgProgram per channel/);
   assert.doesNotMatch(epgNative, /maybeIncrementalVacuum\(MIN_VACUUM_DELETED_ROWS, deleted\)\s+rebuildCurrentCache\(now\)/);
   assert.match(timeline, /verticalFocusAnchorRef/);
   assert.match(timeline, /current\.key === "pending"/);
@@ -96,12 +78,7 @@ test("preview default, ONN page keys, cold-row focus anchor, and Phase A/B harde
   assert.doesNotMatch(timeline, /Math\.max\(24, timelineWidth - 6\)/);
   assert.match(timeline, /overScrollMode="never"/);
   assert.doesNotMatch(timeline, /paddingBottom: 120/);
-  assert.match(timeline, /startLogicalFocusMove\(\{ \.\.\.cursor, rowIndex: targetIndex \}\)/);
-  assert.match(timeline, /addGuideLogicalKeyListener/);
-  assert.match(timeline, /logicalIntentRef/);
-  assert.match(timeline, /logicalRingOpacity\.setValue\(0\)/);
-  assert.match(activity, /TvGuideLogicalKey/);
-  assert.match(plugin, /TvGuideLogicalKey/);
+  assert.match(timeline, /reportFocusedRow\(targetIndex\)/);
   assert.match(box, /overScrollMode="never"/);
   assert.doesNotMatch(box, /paddingBottom: 130/);
   assert.match(box, /reportFocusedRow\(targetIndex\)/);

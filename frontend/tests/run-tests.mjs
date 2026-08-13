@@ -18,4 +18,3 @@ import "./guideCacheLifecycle.test.mjs";
 import "./guideSlidingCache.test.mjs";
 import "./playerSettingsHotApply.test.mjs";
 import "./navigationGuideFollowup.test.mjs";
-import "./guideLogicalFocus.test.mjs";
