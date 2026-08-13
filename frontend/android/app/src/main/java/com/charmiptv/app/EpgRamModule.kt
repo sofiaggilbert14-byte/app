@@ -10,6 +10,7 @@ import com.facebook.react.bridge.WritableArray
 import com.facebook.react.bridge.WritableMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /** Experimental RAM serving layer. SQLite stays authoritative and is never cleared here. */
 class EpgRamModule(private val reactContext: ReactApplicationContext) :
@@ -21,6 +22,9 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
   private val queryPool = Executors.newFixedThreadPool(2)
   @Volatile private var warmGuideEpoch = -1L
   private val warmQueued = AtomicBoolean(false)
+  private val sqliteFallbackCount = AtomicLong(0L)
+  private val guideQueryCount = AtomicLong(0L)
+  private val guideQueryDurationMs = AtomicLong(0L)
 
   override fun getName(): String = "CharmEpgRam"
 
@@ -69,18 +73,26 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
   @ReactMethod
   fun queryGuideWindow(startMs: Double, endMs: Double, playlistChannelIds: ReadableArray, promise: Promise) {
     queryPool.execute {
+      val startedAt = System.currentTimeMillis()
       try {
         if (!isWarmForCurrentEpoch()) {
           scheduleWarmForCurrentEpoch()
+          sqliteFallbackCount.incrementAndGet()
           promise.resolve(null)
           return@execute
         }
         val ids = readIds(playlistChannelIds)
         val programmes = engine.queryGuideWindow(startMs.toLong(), endMs.toLong(), ids)
-        if (programmes == null) promise.resolve(null) else promise.resolve(groupPrograms(programmes))
+        if (programmes == null) {
+          sqliteFallbackCount.incrementAndGet()
+          promise.resolve(null)
+        } else promise.resolve(groupProgramsByOutput(programmes))
       } catch (_: Throwable) {
         // null explicitly tells JS to use the existing SQLite Guide path.
         promise.resolve(null)
+      } finally {
+        guideQueryCount.incrementAndGet()
+        guideQueryDurationMs.addAndGet(System.currentTimeMillis() - startedAt)
       }
     }
   }
@@ -116,6 +128,9 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
     for ((key, value) in engine.stats()) result.putDouble(key, value.toDouble())
     result.putBoolean("warm", engine.isWarm())
     result.putDouble("guideEpoch", warmGuideEpoch.toDouble())
+    result.putDouble("sqliteFallbackCount", sqliteFallbackCount.get().toDouble())
+    result.putDouble("guideQueryCount", guideQueryCount.get().toDouble())
+    result.putDouble("guideQueryDurationMs", guideQueryDurationMs.get().toDouble())
     promise.resolve(result)
   }
 
@@ -167,6 +182,25 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
       arrays.getOrPut(program.channelId) { Arguments.createArray() }.pushMap(programToMap(program))
     }
     for ((channelId, array) in arrays) grouped.putArray(channelId, array)
+    return grouped
+  }
+
+  private fun groupProgramsByOutput(programmes: Map<String, List<NativeEpgProgram>>): WritableMap {
+    val grouped = Arguments.createMap()
+    for ((playlistId, rows) in programmes) {
+      val array = Arguments.createArray()
+      for (program in rows) {
+        array.pushMap(Arguments.createMap().apply {
+          putString("channelId", playlistId)
+          putString("title", program.title)
+          if (program.description != null) putString("description", program.description) else putNull("description")
+          if (!program.category.isNullOrBlank()) putString("category", program.category) else putNull("category")
+          putDouble("startMs", program.startMs.toDouble())
+          putDouble("endMs", program.endMs.toDouble())
+        })
+      }
+      grouped.putArray(playlistId, array)
+    }
     return grouped
   }
 
