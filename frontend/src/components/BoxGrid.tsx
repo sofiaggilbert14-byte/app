@@ -137,6 +137,10 @@ const ChannelCard = memo(function ChannelCard({
     noteGuideChannelFocus(item.id, cardRef.current);
     if (topBoundary) wireGuideTopBoundary(cardRef.current);
     onFocusNode?.(cardRef.current);
+    // Phase A acknowledgement: only a real Android onFocus commits the
+    // logical transaction. Desired-index/scroll updates must not release the
+    // next held D-pad repeat before the destination view actually owns focus.
+    setGuideLogicalNavigationActive(true);
     onRowFocus?.(index);
     onChannelFocus?.(item);
   }, [index, item, onChannelFocus, onFocusNode, onRowFocus, topBoundary]);
@@ -371,7 +375,6 @@ export function BoxGrid({
       focusedIndexRef.current = index;
       focusedRowRef.current = row;
       gridOwnsFocusRef.current = true;
-      setGuideLogicalNavigationActive(active);
       keepFocusedCardVisible(index);
       const deep = row > 0;
       if (lastReportedDeepRef.current !== deep) {
@@ -380,7 +383,7 @@ export function BoxGrid({
       }
       reportViewport(index);
     },
-    [active, keepFocusedCardVisible, numColumns, onFocusedRowChange, reportViewport],
+    [keepFocusedCardVisible, numColumns, onFocusedRowChange, reportViewport],
   );
 
   // Mount-once preferred focus — restore the last watched card after player.
