@@ -27,6 +27,7 @@ class MainApplication : Application(), ReactApplication {
             PackageList(this).packages.apply {
               add(TvRemotePackage())
               add(EpgNativePackage())
+              add(EpgRamPackage())
               // Packages that cannot be autolinked yet can be added manually here, for example:
               // add(MyReactNativePackage())
             }
