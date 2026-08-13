@@ -11,7 +11,6 @@ import {
   noteGuidePreviewFocus,
   registerGuidePreviewNode,
 } from "@/src/utils/tvGuideFocusLock";
-import { setGuideFocusSyncActive } from "@/src/utils/tvRemote";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { fmtTime, progressPct } from "@/src/utils/time";
 
@@ -47,7 +46,6 @@ function usePreviewFocusNode(key: string, preferred = false) {
     registerGuidePreviewNode(key, node, preferred);
   }, [key, preferred]);
   const onFocus = useCallback(() => {
-    setGuideFocusSyncActive(false);
     noteGuidePreviewFocus(nodeRef.current);
   }, []);
   return { setRef, onFocus };

@@ -21,10 +21,6 @@ class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBas
     @JvmField
     var guideNavigationActive: Boolean = false
     @JvmField
-    var guideFocusSyncActive: Boolean = false
-    @JvmField
-    var guideFocusMoveReady: Boolean = true
-    @JvmField
     var guideRepeatIntervalMs: Long = 72L
     private const val MAX_SANE_CODEC_DIMENSION = 16_384
   }
@@ -37,22 +33,6 @@ class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBas
   @ReactMethod
   fun setGuideNavigationActive(active: Boolean) {
     guideNavigationActive = active
-    if (!active) {
-      guideFocusSyncActive = false
-      guideFocusMoveReady = true
-    }
-  }
-
-  @ReactMethod
-  fun setGuideFocusSyncActive(active: Boolean) {
-    if (guideFocusSyncActive == active) return
-    guideFocusSyncActive = active
-    guideFocusMoveReady = true
-  }
-
-  @ReactMethod
-  fun acknowledgeGuideFocusMove() {
-    guideFocusMoveReady = true
   }
 
   @ReactMethod

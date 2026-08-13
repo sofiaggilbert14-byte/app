@@ -7,6 +7,18 @@ export type GuideNavigationDecision = {
   boundary: GuideNavigationBoundary;
 };
 
+/** Keep imperative TV-focus scrolling inside real rendered content. */
+export function clampGuideScrollOffset(
+  offset: number,
+  contentExtent: number,
+  viewportExtent: number,
+): number {
+  const safeOffset = Number.isFinite(offset) ? offset : 0;
+  const safeContent = Number.isFinite(contentExtent) ? Math.max(0, contentExtent) : 0;
+  const safeViewport = Number.isFinite(viewportExtent) ? Math.max(0, viewportExtent) : 0;
+  return Math.max(0, Math.min(Math.max(0, safeContent - safeViewport), safeOffset));
+}
+
 export function evaluateGuideNavigation(input: {
   active: boolean;
   key: GuideNavigationKey;

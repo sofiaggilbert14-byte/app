@@ -27,18 +27,14 @@ import {
   registerGuideChannelNode,
   wireGuideTopBoundary,
 } from "@/src/utils/tvGuideFocusLock";
-import { evaluateGuideNavigation } from "@/src/core/guideNavigationPolicy";
+import { clampGuideScrollOffset, evaluateGuideNavigation } from "@/src/core/guideNavigationPolicy";
 import { getGuideProgramRowState, useGuidePrograms } from "@/src/core/guideProgramsStore";
 import { channelHasEpgMatch } from "@/src/core/epgUserOverrides";
 import {
   buildGuideRunwayIds,
   type GuideScanDirection,
 } from "@/src/core/guideRunwayPolicy";
-import {
-  acknowledgeGuideFocusAfterPaint,
-  addGuidePageKeyListener,
-  setGuideFocusSyncActive,
-} from "@/src/utils/tvRemote";
+import { addGuidePageKeyListener } from "@/src/utils/tvRemote";
 
 const ACCENT = "#A855F7";
 const ACCENT_SOFT = "#E9D5FF";
@@ -134,14 +130,12 @@ const ChannelCard = memo(function ChannelCard({
   }, [item, next, onProgramPress]);
   const handleFavorite = useCallback(() => toggleFavorite(item.id), [item.id, toggleFavorite]);
   const handleFocus = useCallback(() => {
-    setGuideFocusSyncActive(true);
     noteGuideChannelFocus(item.id, cardRef.current);
     if (topBoundary) wireGuideTopBoundary(cardRef.current);
     onFocusNode?.(cardRef.current);
     onRowFocus?.(index);
     onChannelFocus?.(item);
-    acknowledgeGuideFocusAfterPaint(programRowState !== "loading");
-  }, [index, item, onChannelFocus, onFocusNode, onRowFocus, programRowState, topBoundary]);
+  }, [index, item, onChannelFocus, onFocusNode, onRowFocus, topBoundary]);
 
   return (
     <View style={styles.cell}>
@@ -265,6 +259,8 @@ export function BoxGrid({
   const focusedIndexRef = useRef(0);
   const focusedNodeRef = useRef<unknown>(null);
   const verticalOffsetRef = useRef(0);
+  const viewportHeightRef = useRef(0);
+  const contentHeightRef = useRef(0);
   const lastRowIndexRef = useRef(0);
   const lastReportedDeepRef = useRef(false);
   const lastViewportBucketRef = useRef("");
@@ -288,7 +284,7 @@ export function BoxGrid({
   const keepFocusedCardVisible = useCallback((index: number) => {
     const row = Math.floor(index / Math.max(1, numColumns));
     const rowHeight = 148;
-    const viewport = Math.max(rowHeight * 3, height - 110);
+    const viewport = viewportHeightRef.current || Math.max(rowHeight * 3, height - 110);
     const margin = rowHeight;
     const currentOffset = verticalOffsetRef.current;
     const rowTop = row * rowHeight;
@@ -298,6 +294,9 @@ export function BoxGrid({
     else if (rowBottom > currentOffset + viewport - margin) {
       target = Math.max(0, rowBottom - viewport + margin);
     }
+    const rowCount = Math.ceil(channelsRef.current.length / Math.max(1, numColumns));
+    const contentHeight = contentHeightRef.current || rowCount * rowHeight;
+    target = clampGuideScrollOffset(target, contentHeight, viewport);
     if (Math.abs(target - currentOffset) < 1) return;
     verticalOffsetRef.current = target;
     try {
@@ -305,8 +304,16 @@ export function BoxGrid({
     } catch {}
   }, [height, numColumns]);
   const onVerticalScroll = useCallback((event: any) => {
-    verticalOffsetRef.current = event.nativeEvent.contentOffset.y;
-  }, []);
+    const rowHeight = 148;
+    const rowCount = Math.ceil(channelsRef.current.length / Math.max(1, numColumns));
+    const viewport = viewportHeightRef.current || Math.max(rowHeight * 3, height - 110);
+    const contentHeight = contentHeightRef.current || rowCount * rowHeight;
+    verticalOffsetRef.current = clampGuideScrollOffset(
+      event.nativeEvent.contentOffset.y,
+      contentHeight,
+      viewport,
+    );
+  }, [height, numColumns]);
 
   const reportViewport = useCallback(
     (index: number) => {
@@ -428,7 +435,6 @@ export function BoxGrid({
       if (escapeTimer.current) clearTimeout(escapeTimer.current);
       if (viewportDispatchRef.current) clearTimeout(viewportDispatchRef.current);
       pendingViewportRef.current = null;
-      setGuideFocusSyncActive(false);
     },
     [],
   );
@@ -441,7 +447,6 @@ export function BoxGrid({
       clearTimeout(viewportDispatchRef.current);
       viewportDispatchRef.current = null;
     }
-    setGuideFocusSyncActive(false);
   }, [active]);
 
   const pageGuide = useCallback((direction: -1 | 1) => {
@@ -457,7 +462,12 @@ export function BoxGrid({
     reportFocusedRow(targetIndex);
     try {
       listRef.current?.scrollToIndex({ index: targetIndex, animated: false, viewPosition: 0.45 });
-      verticalOffsetRef.current = Math.max(0, Math.floor(targetIndex / numColumns) * 148 - height * 0.45);
+      const rowCount = Math.ceil(rows.length / Math.max(1, numColumns));
+      verticalOffsetRef.current = clampGuideScrollOffset(
+        Math.floor(targetIndex / numColumns) * 148 - height * 0.45,
+        contentHeightRef.current || rowCount * 148,
+        viewportHeightRef.current || Math.max(148 * 3, height - 110),
+      );
     } catch {}
     focusGuideSurfaceWhenMounted(rows[targetIndex]?.id, [0, 16, 40, 80, 140, 240, 420, 700]);
   }, [active, height, numColumns, reportFocusedRow]);
@@ -557,7 +567,12 @@ export function BoxGrid({
   );
 
   return (
-    <View style={styles.wrap}>
+    <View
+      style={styles.wrap}
+      onLayout={(event) => {
+        viewportHeightRef.current = event.nativeEvent.layout.height;
+      }}
+    >
       <FlashList
         testID="epg-box-grid"
         data={channels}
@@ -569,8 +584,12 @@ export function BoxGrid({
         drawDistance={renderDrawDistance}
         removeClippedSubviews={false}
         onScroll={onVerticalScroll}
+        onContentSizeChange={(_width, contentHeight) => {
+          contentHeightRef.current = contentHeight;
+        }}
         scrollEventThrottle={32}
-        contentContainerStyle={{ paddingBottom: 130, paddingHorizontal: spacing.xs, paddingTop: spacing.xs }}
+        overScrollMode="never"
+        contentContainerStyle={{ paddingHorizontal: spacing.xs, paddingTop: spacing.xs }}
         ListHeaderComponent={ListHeaderComponent}
         showsVerticalScrollIndicator={false}
         refreshControl={

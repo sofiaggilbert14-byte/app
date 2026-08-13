@@ -49,7 +49,6 @@ import {
   pinGroup,
   unpinGroup,
 } from "@/src/core/guideGroups";
-import { buildGuideAlphabetTargets, GUIDE_ALPHABET } from "@/src/core/guideAlphabet";
 import { useGuideUiPreferences } from "@/src/core/guideUiPreferences";
 import { resolveChannelNumber, useChannelCustomize } from "@/src/core/channelCustomize";
 import { useParentalPin } from "@/src/core/parentalPin";
@@ -65,22 +64,16 @@ import { nowNext } from "@/src/utils/time";
 import { requestNativeFocus } from "@/src/utils/tvFocus";
 import {
   cancelGuideFocusRestore,
-  focusGuideAlphabetSurface,
   focusGuideProgramCell,
   focusGuidePreviewSurface,
   focusGuideSurface,
-  registerGuideAlphabetEntry,
   registerGuideTopEntry,
 } from "@/src/utils/tvGuideFocusLock";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
 import type { StreamStatus } from "@/src/components/StreamPlayer";
 import { subscribeAndroidMemoryPressure } from "@/src/utils/androidMemoryPressure";
-import {
-  setGuideFocusSyncActive,
-  setGuideNavigationActive,
-  setGuideRepeatInterval,
-} from "@/src/utils/tvRemote";
+import { setGuideNavigationActive, setGuideRepeatInterval } from "@/src/utils/tvRemote";
 
 // Session-only guide position survives the root player route unmounting tabs.
 // Do not persist to disk: this is navigation state, not a user preference.
@@ -122,7 +115,6 @@ const GuideGroupChip = memo(function GuideGroupChip({
     if (active) registerGuideTopEntry(node);
   }, [active, item, onNode]);
   const handleFocus = useCallback(() => {
-    setGuideFocusSyncActive(false);
     registerGuideTopEntry(nodeRef.current);
   }, []);
   const handlePress = useCallback(() => onChoose(item), [item, onChoose]);
@@ -146,50 +138,6 @@ const GuideGroupChip = memo(function GuideGroupChip({
       <Text numberOfLines={1} style={[styles.groupText, active && styles.groupTextActive]}>
         {label}
       </Text>
-    </Pressable>
-  );
-});
-
-const GuideAlphabetButton = memo(function GuideAlphabetButton({
-  letter,
-  available,
-  selected,
-  defaultEntry,
-  onChoose,
-}: {
-  letter: string;
-  available: boolean;
-  selected: boolean;
-  defaultEntry: boolean;
-  onChoose: (letter: string) => void;
-}) {
-  const nodeRef = useRef<unknown>(null);
-  const setRef = useCallback((node: unknown) => {
-    nodeRef.current = node;
-    if (defaultEntry) registerGuideAlphabetEntry(node);
-  }, [defaultEntry]);
-  const handleFocus = useCallback(() => {
-    cancelGuideFocusRestore();
-    setGuideFocusSyncActive(false);
-    registerGuideAlphabetEntry(nodeRef.current);
-  }, []);
-  const handlePress = useCallback(() => onChoose(letter), [letter, onChoose]);
-
-  return (
-    <Pressable
-      ref={setRef}
-      accessibilityLabel={available ? `Jump to ${letter} channels` : `No ${letter} channels`}
-      onFocus={handleFocus}
-      onPress={handlePress}
-      style={({ focused }: any) => [
-        styles.alphabetChip,
-        !available && styles.alphabetChipEmpty,
-        selected && styles.alphabetChipSelected,
-        focused && styles.focused,
-      ]}
-      testID={`guide-alpha-${letter}`}
-    >
-      <Text style={[styles.alphabetText, !available && styles.alphabetTextEmpty]}>{letter}</Text>
     </Pressable>
   );
 });
@@ -311,9 +259,7 @@ export default function PurpleGuideScreen() {
   useFocusEffect(
     useCallback(() => {
       setGuideNavigationActive(true);
-      setGuideFocusSyncActive(false);
       return () => {
-        setGuideFocusSyncActive(false);
         setGuideNavigationActive(false);
       };
     }, []),
@@ -374,7 +320,6 @@ export default function PurpleGuideScreen() {
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewStatus, setPreviewStatus] = useState<StreamStatus>("loading");
   const [resetToken, setResetToken] = useState(0);
-  const [alphabetLetter, setAlphabetLetter] = useState<string | null>(null);
   const [moreGroupsOpen, setMoreGroupsOpen] = useState(false);
   const [pinPromptGroup, setPinPromptGroup] = useState<string | null>(null);
   const [pinDigits, setPinDigits] = useState("");
@@ -391,7 +336,6 @@ export default function PurpleGuideScreen() {
     moreGroupsChipRef.current = node;
   }, []);
   const focusMoreGroupsChip = useCallback(() => {
-    setGuideFocusSyncActive(false);
     registerGuideTopEntry(moreGroupsChipRef.current);
   }, []);
   const lastFocusAtRef = useRef(0);
@@ -451,12 +395,6 @@ export default function PurpleGuideScreen() {
   }, [activeProgram, reminderKeys]);
 
   useEffect(() => {
-    if (drawerOpen || activeProgram || moreGroupsOpen || pinPromptGroup) {
-      setGuideFocusSyncActive(false);
-    }
-  }, [activeProgram, drawerOpen, moreGroupsOpen, pinPromptGroup]);
-
-  useEffect(() => {
     if (previousDrawerOpenRef.current !== drawerOpen) {
       groupSlideX.setValue(drawerOpen ? -140 : 140);
       previousDrawerOpenRef.current = drawerOpen;
@@ -484,1167 +422,4 @@ export default function PurpleGuideScreen() {
   const [focusClaimNonce, setFocusClaimNonce] = useState(0);
   useEffect(() => {
     const wasOpen = drawerWasOpenForFocusRef.current;
-    drawerWasOpenForFocusRef.current = drawerOpen;
-    if (drawerOpen) {
-      cancelGuideFocusRestore();
-      return;
-    }
-    if (!wasOpen || drawerOpen || activeProgram) return;
-    // Sole post-drawer reclaim path: bump nonce so TimelineGrid/BoxGrid restore
-    // the session channel. Do not also call focusGuideSurface here â€” Shell and
-    // the shared cancelGuideRestoreTimers would race and yank focus.
-    setFocusClaimNonce((value) => value + 1);
-  }, [activeProgram, drawerOpen]);
-
-  const openDrawerFromPreview = useCallback(() => {
-    void Haptics.selectionAsync().catch(() => undefined);
-    openDrawer({ focusTop: true });
-  }, [openDrawer]);
-
-  // After Remind/Cancel sheet closes, return focus to the guide cell â€” never Live TV.
-  useEffect(() => {
-    if (activeProgram) return;
-    if (!hadProgramModalRef.current) return;
-    hadProgramModalRef.current = false;
-    const origin = modalOriginRef.current;
-    modalOriginRef.current = null;
-    if (guideLayout !== "compact" && origin) {
-      focusGuideProgramCell(origin.channelId, origin.programStart);
-    } else {
-      focusGuideSurface(origin?.channelId || guideSessionChannelId);
-    }
-    return cancelGuideFocusRestore;
-  }, [activeProgram, guideLayout]);
-
-  const guideFocusRegionRef = useRef<"channel" | "program">("program");
-  const channelLogoNodeRef = useRef<unknown>(null);
-  const onGuideBackTarget = useCallback((region: "channel" | "program", logoNode: unknown) => {
-    guideFocusRegionRef.current = region;
-    if (logoNode) channelLogoNodeRef.current = logoNode;
-  }, []);
-
-  // Back in the guide: step to the channel logo first. Only at the left edge does
-  // Back defer to the shell double-Back drawer arm â€” never opens on a single press.
-  useTvBackHandler(
-    useCallback(() => {
-      if (drawerOpen || activeProgram) return false;
-      if (guideFocusRegionRef.current === "program" && channelLogoNodeRef.current) {
-        requestNativeFocus(channelLogoNodeRef.current);
-        guideFocusRegionRef.current = "channel";
-        return true;
-      }
-      return false;
-    }, [activeProgram, drawerOpen]),
-  );
-
-  useEffect(() => {
-    if (loading || refreshing || channels.length > 0) return;
-    if (bootRetryRef.current >= 1) return;
-    bootRetryRef.current += 1;
-    const timer = setTimeout(() => void hardRefresh(), 5000);
-    return () => clearTimeout(timer);
-  }, [loading, refreshing, channels.length, hardRefresh]);
-
-  // Tick often enough for the timeline "now" indicator / progress fills without
-  // rebuilding guide geometry (TimelineGrid keeps layout independent of now).
-  useEffect(() => {
-    if (!isFocused) return;
-    setNow(new Date().toISOString());
-    const timer = setInterval(() => setNow(new Date().toISOString()), 30_000);
-    return () => clearInterval(timer);
-  }, [isFocused]);
-
-  useEffect(
-    () => () => {
-      if (previewTimer.current) clearTimeout(previewTimer.current);
-      if (previewRecoverTimer.current) clearTimeout(previewRecoverTimer.current);
-      if (surfReleaseTimer.current) clearTimeout(surfReleaseTimer.current);
-      if (memoryLogoRestoreTimer.current) clearTimeout(memoryLogoRestoreTimer.current);
-      previewTimer.current = null;
-      previewRecoverTimer.current = null;
-      surfReleaseTimer.current = null;
-      memoryLogoRestoreTimer.current = null;
-      setViewportGuideChannelIds(null);
-    },
-    [],
-  );
-
-  useFocusEffect(
-    useCallback(() => {
-      // Refocus after blur/player: rewarm the last runway so soft-trim on blur
-      // does not leave an empty FlashList waiting for the first D-pad event.
-      const last = lastRunwayRef.current;
-      if (last.ids.length) {
-        setViewportGuideChannelIds(last.ids);
-        setPriorityMatchChannelIds(
-          channels.length >= 400
-            ? Array.from(new Set([...last.priority, ...last.ids])).slice(0, 400)
-            : [],
-        );
-        retainGuideSlidingCache(
-          expandRunwayKeepSet(
-            orderedFilteredIdsRef.current,
-            last.ids,
-            last.pageSize,
-            1,
-            filteredIdIndexRef.current,
-          ),
-        );
-        void patchProgramsForChannelIds(last.ids, last.priority);
-      }
-      return () => {
-        if (previewTimer.current) {
-          clearTimeout(previewTimer.current);
-          previewTimer.current = null;
-        }
-        if (previewRecoverTimer.current) {
-          clearTimeout(previewRecoverTimer.current);
-          previewRecoverTimer.current = null;
-        }
-        if (surfReleaseTimer.current) {
-          clearTimeout(surfReleaseTimer.current);
-          surfReleaseTimer.current = null;
-        }
-        // A real route blur must unmount preview playback before cache release.
-        // The overlay drawer does not blur this route, so its runway stays warm.
-        setPreviewId(null);
-        setViewportGuideChannelIds(null);
-        setPriorityMatchChannelIds([]);
-        releaseGuideSlidingCache();
-      };
-    }, [channels.length, patchProgramsForChannelIds, releaseGuideSlidingCache, retainGuideSlidingCache]),
-  );
-
-  const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
-  const recentIdSet = useMemo(() => new Set(recentIds), [recentIds]);
-  const failedCount = failedStreamCount();
-
-  const groupCounts = useMemo(
-    () =>
-      buildGroupCounts(channels, {
-        favoriteSet,
-        recentIds: recentIdSet,
-        hasEpgMatch: channelHasEpgMatch,
-        isFailed: isFailedChannel,
-        hiddenIds: hiddenIdSet,
-      }),
-    // failedCount invalidates when the in-memory failure registry grows/shrinks.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [channels, favoriteSet, recentIdSet, hiddenIdSet, failedCount, epgGuideFilter],
-  );
-
-  const playlistGroups = useMemo(
-    () => listPlaylistGroupNames(channels, hiddenIdSet),
-    [channels, hiddenIdSet],
-  );
-
-  const { tabs: groups, overflow: overflowGroups } = useMemo(
-    () =>
-      buildVisibleGroups({
-        counts: groupCounts,
-        pinned: pinnedGroups,
-        playlistGroups,
-        maxPlaylistTabs: 10,
-      }),
-    [groupCounts, pinnedGroups, playlistGroups],
-  );
-
-  const filteredMeta = useMemo(() => {
-    let list = filterChannelsByGroup(channels, group, {
-      favoriteSet,
-      recent,
-      recentIds: recentIdSet,
-      hasEpgMatch: channelHasEpgMatch,
-      isFailed: isFailedChannel,
-      hiddenIds: hiddenIdSet,
-      customOrder,
-    });
-    if (epgGuideFilter === "all") return list;
-    if (epgGuideFilter === "matched") {
-      return list.filter(channelHasEpgMatch);
-    }
-    return list.filter((c) => !channelHasEpgMatch(c));
-  }, [channels, customOrder, epgGuideFilter, favoriteSet, group, hiddenIdSet, recent, recentIdSet]);
-
-  // Keep the complete group identity stable; A-Z performs a targeted row jump.
-  const filtered = filteredMeta;
-
-  const orderedFilteredIds = useMemo(
-    () => filtered.map((channel) => channel.id).filter(Boolean),
-    [filtered],
-  );
-  const filteredIdIndex = useMemo(
-    () => buildChannelIndexMap(orderedFilteredIds),
-    [orderedFilteredIds],
-  );
-  orderedFilteredIdsRef.current = orderedFilteredIds;
-  filteredIdIndexRef.current = filteredIdIndex;
-
-  const alphabetTargets = useMemo(
-    () => buildGuideAlphabetTargets(filtered),
-    [filtered],
-  );
-  const alphabetDefaultLetter = useMemo(
-    () => GUIDE_ALPHABET.find((letter) => !!alphabetTargets[letter]) || "A",
-    [alphabetTargets],
-  );
-
-  const onViewportChannelIds = useCallback((ids: string[], priorityIds: string[] = [], pageSize = 8) => {
-    lastRunwayRef.current = { ids, priority: priorityIds, pageSize };
-    setViewportGuideChannelIds(ids);
-    if (channels.length >= 400) {
-      // Match the focused/next rows first. A symmetric runway starts at its
-      // oldest retained row, which must not delay the visible edge.
-      setPriorityMatchChannelIds(
-        Array.from(new Set([...priorityIds, ...ids])).slice(0, 400),
-      );
-    } else {
-      setPriorityMatchChannelIds([]);
-    }
-    // Conveyor belt: fetch the runway, retain fetch Â± 1 page so reverse surfing
-    // does not blank rows the user just left, and drop everything else.
-    retainGuideSlidingCache(
-      expandRunwayKeepSet(orderedFilteredIds, ids, pageSize, 1, filteredIdIndex),
-    );
-    void patchProgramsForChannelIds(ids, priorityIds);
-  }, [
-    channels.length,
-    filteredIdIndex,
-    orderedFilteredIds,
-    patchProgramsForChannelIds,
-    retainGuideSlidingCache,
-  ]);
-
-  const jumpToAlphabetLetter = useCallback((letter: string) => {
-    setAlphabetLetter(letter);
-    void Haptics.selectionAsync().catch(() => undefined);
-    const targetId = alphabetTargets[letter];
-    if (!targetId) return;
-    const targetIndex = filteredIdIndex.get(targetId);
-    if (targetIndex == null) return;
-
-    const previousIndex = guideSessionChannelId
-      ? filteredIdIndex.get(guideSessionChannelId)
-      : undefined;
-    cancelGuideFocusRestore();
-    guideSessionChannelId = targetId;
-    resetGuideSelection(targetId);
-
-    // Warm the destination runway before native focus reaches a recycled row.
-    // This is one bounded fetch/retain pass, not another cache.
-    const rowHeight = getGuideRailMetrics(
-      screenWidth,
-      guideDensity,
-      channelNumbers,
-      channelLogos,
-    ).rowHeight;
-    const visibleRows = Math.max(6, Math.min(24, Math.ceil(screenHeight / rowHeight)));
-    const direction = previousIndex != null && targetIndex < previousIndex ? -1 : 1;
-    const runway = buildGuideRunwayIds(filtered, targetIndex, visibleRows, direction, powerProfile);
-    const priority = [
-      targetId,
-      filtered[targetIndex + direction]?.id,
-      filtered[targetIndex + direction * 2]?.id,
-      ...runway.slice(0, visibleRows),
-    ].filter((id): id is string => !!id);
-    onViewportChannelIds(runway, priority, visibleRows);
-
-    // Reuse the grid's single nonce-based scroll/focus path; never create a
-    // competing direct focus timer in the screen.
-    setFocusClaimNonce((value) => value + 1);
-  }, [
-    alphabetTargets,
-    channelLogos,
-    channelNumbers,
-    filtered,
-    filteredIdIndex,
-    guideDensity,
-    onViewportChannelIds,
-    powerProfile,
-    screenHeight,
-    screenWidth,
-  ]);
-
-  const viewportSeedKeyRef = useRef("");
-  // Seed only on cold load/group/reset. A silent refresh must not yank a deeply
-  // scrolled guide's EPG query scope back to the first channels.
-  useEffect(() => {
-    if (!isFocused || !filtered.length) return;
-    const key = `${group}:${resetToken}:${powerProfile}`;
-    if (viewportSeedKeyRef.current === key) return;
-    viewportSeedKeyRef.current = key;
-    const rowHeight = getGuideRailMetrics(
-      screenWidth,
-      guideDensity,
-      channelNumbers,
-      channelLogos,
-    ).rowHeight;
-    const visibleRows = Math.max(6, Math.min(24, Math.ceil(screenHeight / rowHeight)));
-    // Warm the complete initial direction-aware runway before the first focus
-    // event instead of waiting on row 1. Compatibility shortens ahead pages.
-    const ids = buildGuideRunwayIds(filtered, 0, visibleRows, 1, powerProfile);
-    lastRunwayRef.current = {
-      ids,
-      priority: [ids[0], ids[1], ids[2], ...ids.slice(0, visibleRows)].filter(
-        (id): id is string => !!id,
-      ),
-      pageSize: visibleRows,
-    };
-    setViewportGuideChannelIds(ids);
-    setPriorityMatchChannelIds(
-      channels.length >= 400
-        ? Array.from(new Set([...lastRunwayRef.current.priority, ...ids])).slice(0, 400)
-        : [],
-    );
-    retainGuideSlidingCache(
-      expandRunwayKeepSet(orderedFilteredIds, ids, visibleRows, 1, filteredIdIndex),
-    );
-    // Prewarm immediately on Guide/group entry, before the first native focus
-    // event. SQLite and the bridge can populate the first visible runway early.
-    void patchProgramsForChannelIds(
-      ids,
-      lastRunwayRef.current.priority,
-    );
-  }, [
-    channelLogos,
-    channelNumbers,
-    channels.length,
-    filtered,
-    filteredIdIndex,
-    group,
-    guideDensity,
-    isFocused,
-    orderedFilteredIds,
-    patchProgramsForChannelIds,
-    powerProfile,
-    retainGuideSlidingCache,
-    resetToken,
-    screenHeight,
-    screenWidth,
-  ]);
-
-  const onChannelLongPress = useCallback(
-    (channel: Channel) => {
-      toggleFavorite(channel.id);
-    },
-    [toggleFavorite],
-  );
-
-  // If Favorites/Recent (or a vanished category) becomes empty, fall back to All
-  // so the guide never leaves an unfocusable empty FlashList.
-  useEffect(() => {
-    if (!groups.includes(group) && !overflowGroups.includes(group)) {
-      guideSessionGroup = "All";
-      guideSessionChannelId = null;
-      setGroup("All");
-      setResetToken((value) => value + 1);
-    }
-  }, [group, groups, overflowGroups]);
-
-  const channelNumberById = useMemo(() => {
-    const result: Record<string, number> = {};
-    [...channels].sort(byName).forEach((channel, index) => {
-      result[channel.id] = resolveChannelNumber(channel.id, index + 1, customNumbers);
-    });
-    return result;
-  }, [channels, customNumbers]);
-
-  // Repeated focus uses this O(1) lookup through the external selection store;
-  // it never scans the complete filtered channel array.
-  const filteredChannelById = useMemo(
-    () => new Map(filtered.map((channel) => [channel.id, channel] as const)),
-    [filtered],
-  );
-  const previewFallbackChannel = useMemo(
-    () => (lastChannelId ? filteredChannelById.get(lastChannelId) : null) || filtered[0] || null,
-    [filtered, filteredChannelById, lastChannelId],
-  );
-
-  // Decoder preview stays deliberately delayed during held navigation. Guide
-  // metadata does not: title/description must track the actual focused row now.
-  const previewDelay =
-    safePreviewMode === "delayed" || safePreviewMode === "surf"
-      ? powerTuning.previewArmDelayedMs
-      : powerTuning.previewArmOnMs;
-  const surfSettleExtraMs =
-    safePreviewMode === "surf"
-      ? powerTuning.surfSettleExtraMs + 100
-      : powerTuning.surfSettleExtraMs;
-
-  const schedulePreview = useCallback((requestedId: string, delay: number, hasUrl: boolean) => {
-    if (previewTimer.current) {
-      clearTimeout(previewTimer.current);
-      previewTimer.current = null;
-    }
-    if (safePreviewMode === "off" || !hasUrl) {
-      setPreviewId(null);
-      return;
-    }
-    previewTimer.current = setTimeout(() => {
-      previewTimer.current = null;
-      // Break the sticky error latch â€” always remount the decoder for this tune.
-      setPreviewStatus("loading");
-      setPreviewEpoch((value) => value + 1);
-      setPreviewId(requestedId);
-      setSurfLogosSuppressed(false);
-    }, delay);
-  }, [safePreviewMode]);
-
-  const detailsRailWidth = useMemo(() => {
-    // Fixed left details panel sized for readable descriptions/actions on modern
-    // Android TV hardware. The guide owns all remaining width to the right.
-    // Twenty-five percent smaller than the original 260-360px / 24% rail.
-    return Math.round(Math.min(270, Math.max(195, screenWidth * 0.18)));
-  }, [screenWidth]);
-  const armPreviewForChannel = useCallback(
-    (channel: Channel) => {
-      if (previewTimer.current) clearTimeout(previewTimer.current);
-      const requestedId = channel.id;
-      guideSessionChannelId = requestedId;
-
-      // Moving left/right across programmes on the same channel updates details
-      // immediately but must not tear down and re-arm an unchanged decoder.
-      if (previewId === requestedId && previewStatus !== "error") return;
-
-      const nowTs = Date.now();
-      const rapid = nowTs - lastFocusAtRef.current < 240;
-      lastFocusAtRef.current = nowTs;
-      if (rapid) rapidSurfUntilRef.current = nowTs + powerTuning.rapidSurfHoldMs;
-      if (rapid || nowTs < rapidSurfUntilRef.current) {
-        markGuideSurfing(powerTuning.rapidSurfHoldMs);
-      }
-      if (surfReleaseTimer.current) {
-        clearTimeout(surfReleaseTimer.current);
-        surfReleaseTimer.current = null;
-      }
-
-      if (nowTs < rapidSurfUntilRef.current || rapid) {
-        // Keep decoder/GPU work out of the repeated-focus path. Only the last
-        // focused channel after the hold settles is allowed to tune preview.
-        // Defer the one-time decoder/logo release until after native focus has
-        // painted; doing this synchronously makes the highlight visibly stall.
-        if (!surfReleaseTimer.current) {
-          surfReleaseTimer.current = setTimeout(() => {
-            surfReleaseTimer.current = null;
-            setPreviewId(null);
-            if (logosOffWhileSurfing) setSurfLogosSuppressed(true);
-          }, 48);
-        }
-        schedulePreview(
-          requestedId,
-          Math.max(powerTuning.rapidSurfHoldMs + 80, previewDelay + surfSettleExtraMs),
-          !!channel.url,
-        );
-        return;
-      }
-
-      const recentlyChangedGroup = nowTs - groupChangedAt.current < 1800;
-      const delay = recentlyChangedGroup
-        ? Math.max(previewDelay + surfSettleExtraMs, powerTuning.previewArmDelayedMs)
-        : previewDelay;
-      schedulePreview(requestedId, delay, !!channel.url);
-    },
-    [logosOffWhileSurfing, powerTuning, previewDelay, previewId, previewStatus, schedulePreview, surfSettleExtraMs],
-  );
-
-  const onFocusChannel = useCallback((channel: Channel) => {
-    // Logo/card focus represents the live row rather than a previously selected
-    // programme. Only the preview subtree subscribes to this external update.
-    resetGuideSelection(channel.id);
-    armPreviewForChannel(channel);
-  }, [armPreviewForChannel]);
-
-  const onFocusProgram = useCallback((program: Program, channel: Channel) => {
-    guideSessionChannelId = channel.id;
-    setGuideFocusedProgram(channel.id, program);
-    armPreviewForChannel(channel);
-  }, [armPreviewForChannel]);
-
-  const openGuideProgram = useCallback((program: Program, channel: Channel) => {
-    modalOriginRef.current = { channelId: channel.id, programStart: program.start };
-    openProgram(program, channel);
-  }, [openProgram]);
-
-  const play = useCallback(
-    (channel: Channel) => {
-      void Haptics.selectionAsync().catch(() => undefined);
-      // Drop guide preview before fullscreen allocates a decoder.
-      if (previewTimer.current) clearTimeout(previewTimer.current);
-      setPreviewId(null);
-      addRecent(channel);
-      openFullscreenPlayer(router, channel.id);
-    },
-    [addRecent, router],
-  );
-
-  const applyGroup = useCallback((next: string) => {
-    void Haptics.selectionAsync().catch(() => undefined);
-    if (previewTimer.current) clearTimeout(previewTimer.current);
-    groupChangedAt.current = Date.now();
-    guideSessionGroup = next;
-    guideSessionChannelId = null;
-    setGroup(next);
-    resetGuideSelection(null);
-    setPreviewId(null);
-    setAlphabetLetter(null);
-    setMoreGroupsOpen(false);
-    // Scroll/filter reset only â€” never reclaim grid preferred focus (keeps chip focused).
-    setResetToken((value) => value + 1);
-    // Re-assert focus on the chip the user pressed after the list swaps.
-    requestAnimationFrame(() => {
-      const chip = groupChipRefs.current.get(next);
-      if (chip) requestNativeFocus(chip);
-    });
-  }, []);
-
-  const chooseGroup = useCallback(
-    (next: string) => {
-      if (hasPin && isGroupLocked(next)) {
-        setPinPromptGroup(next);
-        setPinDigits("");
-        setPinError(false);
-        return;
-      }
-      applyGroup(next);
-    },
-    [applyGroup, hasPin, isGroupLocked],
-  );
-
-  const submitPin = useCallback(() => {
-    if (!pinPromptGroup) return;
-    if (!verifyPin(pinDigits)) {
-      setPinError(true);
-      setPinDigits("");
-      return;
-    }
-    unlockGroup(pinPromptGroup);
-    const next = pinPromptGroup;
-    setPinPromptGroup(null);
-    setPinDigits("");
-    setPinError(false);
-    applyGroup(next);
-  }, [applyGroup, pinDigits, pinPromptGroup, unlockGroup, verifyPin]);
-
-  const togglePinGroup = useCallback(
-    (name: string) => {
-      void Haptics.selectionAsync().catch(() => undefined);
-      if (pinnedGroups.includes(name)) {
-        setPinnedGroups(unpinGroup(pinnedGroups, name));
-      } else {
-        setPinnedGroups(pinGroup(pinnedGroups, name));
-      }
-    },
-    [pinnedGroups, setPinnedGroups],
-  );
-
-  const onFocusedGuideRow = useCallback((_index: number) => {
-    // Intentionally no-op for trapFocus toggling â€” flipping traps mid-surf freezes TV focus.
-  }, []);
-
-  const onGuideUpBoundary = useCallback(() => {
-    cancelGuideFocusRestore();
-    if (focusGuideAlphabetSurface()) return;
-    const chip = groupChipRefs.current.get(group);
-    // Group chips are permanently mounted. One synchronous request avoids a
-    // delayed retry pulling focus back after the user moves across the tabs.
-    if (chip) {
-      registerGuideTopEntry(chip);
-      requestNativeFocus(chip);
-    }
-  }, [group]);
-
-  const onGuideLeftBoundary = useCallback(() => {
-    // The preview/details/actions panel is the Guide's only left neighbor.
-    focusGuidePreviewSurface();
-  }, []);
-
-  // One-shot Search/Health jump â€” apply on focus/mount only.
-  useFocusEffect(
-    useCallback(() => {
-      const jump = consumeGuideJump();
-      if (!jump) return;
-      const nextGroup = jump.group || "All";
-      if (hasPin && isGroupLocked(nextGroup)) {
-        setPinPromptGroup(nextGroup);
-        setPinDigits("");
-        setPinError(false);
-        guideSessionChannelId = jump.channelId;
-        return;
-      }
-      guideSessionGroup = nextGroup;
-      guideSessionChannelId = jump.channelId;
-      setGroup(nextGroup);
-      resetGuideSelection(jump.channelId);
-      setAlphabetLetter(null);
-      setResetToken((value) => value + 1);
-      const ch = channelById(jump.channelId);
-      if (ch) {
-        schedulePreview(jump.channelId, previewDelay + surfSettleExtraMs, !!ch.url);
-      }
-    }, [channelById, hasPin, isGroupLocked, previewDelay, schedulePreview, surfSettleExtraMs]),
-  );
-
-  const onPreviewStatus = useCallback((status: StreamStatus) => {
-    setPreviewStatus(status);
-  }, []);
-
-  const onPreviewErrorRemount = useCallback(() => {
-    if (previewRecoverTimer.current) clearTimeout(previewRecoverTimer.current);
-    previewRecoverTimer.current = setTimeout(() => {
-      previewRecoverTimer.current = null;
-      setPreviewStatus("loading");
-      setPreviewEpoch((value) => value + 1);
-    }, 700);
-  }, []);
-
-  const rememberGroupChipNode = useCallback((item: string, node: unknown) => {
-    if (node) groupChipRefs.current.set(item, node);
-    else groupChipRefs.current.delete(item);
-  }, []);
-  const renderGroupChip = useCallback(
-    (item: string) => (
-      <GuideGroupChip
-        key={item}
-        item={item}
-        count={groupCounts[item] || 0}
-        active={group === item}
-        pinned={pinnedGroups.includes(item)}
-        vertical={groupLayout === "vertical"}
-        onChoose={chooseGroup}
-        onTogglePin={togglePinGroup}
-        onNode={rememberGroupChipNode}
-      />
-    ),
-    [chooseGroup, group, groupCounts, groupLayout, pinnedGroups, rememberGroupChipNode, togglePinGroup],
-  );
-
-  return (
-    <PurpleTvShell
-      active="/guide"
-      watchingChannelId={lastChannelId}
-    >
-      <View style={styles.page}>
-        <View style={styles.header}>
-          <Animated.View
-            // Title is decorative â€” never steal hits/focus beside an open drawer.
-            pointerEvents="none"
-            style={[styles.guideTitleBlock, { opacity: headerTitleProgress }]}
-          >
-            <Text style={styles.kicker}>TV GUIDE</Text>
-            <Text style={styles.title}>{group === "All" ? "All Channels" : group}</Text>
-          </Animated.View>
-          {groupLayout === "horizontal" ? (
-            <Animated.View
-              style={[
-                styles.groupScroller,
-                {
-                  // Keep group chips full-bleed until the full drawer is open.
-                  marginLeft: drawerOpen ? 140 : 0,
-                  transform: [{ translateX: groupSlideX }],
-                },
-              ]}
-            >
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.groupRow}>
-                {groups.map(renderGroupChip)}
-                {overflowGroups.length > 0 ? (
-                  <Pressable
-                    ref={setMoreGroupsChipRef}
-                    onFocus={focusMoreGroupsChip}
-                    onPress={() => setMoreGroupsOpen(true)}
-                    style={({ focused }: any) => [styles.groupChip, focused && styles.focused]}
-                    testID="guide-more-groups"
-                  >
-                    <Text style={styles.groupText}>More groups</Text>
-                  </Pressable>
-                ) : null}
-              </ScrollView>
-            </Animated.View>
-          ) : (
-            <View style={[styles.groupScroller, { marginLeft: drawerOpen ? 140 : 0 }]}>
-              <Text style={styles.verticalHeaderHint}>{chipLabel(group)}</Text>
-            </View>
-          )}
-        </View>
-
-        <View
-          style={[
-            styles.alphabetRow,
-            { marginLeft: (groupLayout === "vertical" ? 126 : 0) + detailsRailWidth + 8 },
-          ]}
-          testID="guide-alphabet-bar"
-        >
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.alphabetContent}
-          >
-            {GUIDE_ALPHABET.map((letter) => (
-              <GuideAlphabetButton
-                key={letter}
-                letter={letter}
-                available={!!alphabetTargets[letter]}
-                selected={alphabetLetter === letter}
-                defaultEntry={letter === alphabetDefaultLetter}
-                onChoose={jumpToAlphabetLetter}
-              />
-            ))}
-          </ScrollView>
-        </View>
-
-        <EpgProgressBar />
-        {loading && channels.length === 0 ? (
-          <View style={styles.center}>
-            <ActivityIndicator color={tvColors.purpleBright} size="large" />
-            <Text style={styles.centerText}>Loading channels and guideâ€¦</Text>
-            <Pressable
-              focusable
-              disabled={refreshing}
-              onPress={() => void hardRefresh()}
-              style={({ focused }: any) => [styles.retryButton, focused && styles.focused]}
-              testID="purple-guide-retry-loading"
-            >
-              <Ionicons name="refresh-outline" size={14} color="#fff" />
-              <Text style={styles.retryText}>{refreshing ? "Loadingâ€¦" : "Retry now"}</Text>
-            </Pressable>
-          </View>
-        ) : error && channels.length === 0 ? (
-          <View style={styles.center}>
-            <Ionicons name="cloud-offline-outline" size={32} color={tvColors.purpleSoft} />
-            <Text style={styles.centerText}>{error}</Text>
-            <Pressable
-              focusable
-              disabled={refreshing}
-              onPress={() => void hardRefresh()}
-              style={({ focused }: any) => [styles.retryButton, focused && styles.focused]}
-              testID="purple-guide-retry-error"
-            >
-              <Ionicons name="refresh-outline" size={14} color="#fff" />
-              <Text style={styles.retryText}>{refreshing ? "Reloadingâ€¦" : "Reload guide"}</Text>
-            </Pressable>
-          </View>
-        ) : channels.length === 0 ? (
-          <View style={styles.center}>
-            <Ionicons name="tv-outline" size={32} color={tvColors.purpleSoft} />
-            <Text style={styles.centerText}>No channels in the current playlist yet.</Text>
-            <Pressable
-              focusable
-              disabled={refreshing}
-              onPress={() => void hardRefresh()}
-              style={({ focused }: any) => [styles.retryButton, focused && styles.focused]}
-              testID="purple-guide-retry-empty"
-            >
-              <Ionicons name="refresh-outline" size={14} color="#fff" />
-              <Text style={styles.retryText}>{refreshing ? "Loadingâ€¦" : "Reload guide"}</Text>
-            </Pressable>
-          </View>
-        ) : (
-          <View style={styles.body}>
-            {groupLayout === "vertical" ? (
-              <ScrollView
-                style={styles.verticalGroups}
-                contentContainerStyle={styles.verticalGroupList}
-                showsVerticalScrollIndicator={false}
-              >
-                {groups.map(renderGroupChip)}
-                {overflowGroups.length > 0 ? (
-                  <Pressable
-                    ref={setMoreGroupsChipRef}
-                    onFocus={focusMoreGroupsChip}
-                    onPress={() => setMoreGroupsOpen(true)}
-                    style={({ focused }: any) => [
-                      styles.groupChip,
-                      styles.groupChipVertical,
-                      focused && styles.focused,
-                    ]}
-                    testID="guide-more-groups"
-                  >
-                    <Text style={styles.groupText}>More groups</Text>
-                  </Pressable>
-                ) : null}
-              </ScrollView>
-            ) : null}
-
-            <GuideSelectionPreview
-              width={detailsRailWidth}
-              channelById={filteredChannelById}
-              fallbackChannel={previewFallbackChannel}
-              now={now}
-              channelNumberById={channelNumberById}
-              showChannelNumbers={channelNumbers}
-              showLogos={isFocused && channelLogos && !surfLogosSuppressed}
-              favoriteSet={favoriteSet}
-              hidePreview={hidePreview}
-              muted={mutePreview}
-              onToggleMute={() => setMutePreview(!mutePreview)}
-              previewId={safePreviewMode === "off" ? null : previewId}
-              previewStatus={previewStatus}
-              previewEpoch={previewEpoch}
-              onPreviewStatus={onPreviewStatus}
-              onPreviewErrorRemount={onPreviewErrorRemount}
-              onPlay={play}
-              onFavorite={toggleFavorite}
-              onOpenReminders={() => {
-                if (previewTimer.current) clearTimeout(previewTimer.current);
-                setPreviewId(null);
-                router.replace("/reminders" as any);
-              }}
-              onHideToggle={() => setHidePreview(!hidePreview)}
-              onOpenDrawer={openDrawerFromPreview}
-            />
-
-            {/* The preview/details/actions rail is a fixed left sibling. The Guide
-                owns the remaining width on the right; neither panel overlaps the other. */}
-            <FocusGuide
-              style={styles.gridPanel}
-              trapFocusDown
-              // Row-level Left handling owns the exact preview-button handoff.
-              trapFocusLeft={false}
-              trapFocusRight
-            >
-              {guideLayout === "compact" ? (
-                <BoxGrid
-                  channels={filtered}
-                  now={now}
-                  onChannelPress={play}
-                  onProgramPress={openGuideProgram}
-                  onChannelFocus={onFocusChannel}
-                  refreshing={refreshing}
-                  onRefresh={hardRefresh}
-                  showChannelNumbers={channelNumbers}
-                  channelNumberById={channelNumberById}
-                  showChannelLogos={isFocused && channelLogos && !surfLogosSuppressed}
-                  reminderKeys={gridReminderKeys}
-                  resetToken={resetToken}
-                  active={isFocused && !activeProgram && !drawerOpen}
-                  // Preview is the native Left neighbor; the closed drawer has
-                  // no mounted focus tree and therefore needs no self-lock.
-                  lockLeftEdge={false}
-                  restoreChannelId={guideSessionChannelId}
-                  focusClaimNonce={focusClaimNonce}
-                  cacheProfile={powerProfile}
-                  onUpBoundary={onGuideUpBoundary}
-                  onLeftBoundary={onGuideLeftBoundary}
-                  onFocusedRowChange={onFocusedGuideRow}
-                  onViewportChannelIds={onViewportChannelIds}
-                />
-              ) : (
-                <TimelineGrid
-                  channels={filtered}
-                  windowStart={windowStart}
-                  windowEnd={windowEnd}
-                  now={now}
-                  onChannelPress={play}
-                  onProgramPress={openGuideProgram}
-                  onProgramFocus={onFocusProgram}
-                  onChannelFocus={onFocusChannel}
-                  onChannelLongPress={onChannelLongPress}
-                  refreshing={refreshing}
-                  onRefresh={hardRefresh}
-                  density={guideDensity}
-                  showChannelNumbers={channelNumbers}
-                  channelNumberById={channelNumberById}
-                  showChannelLogos={isFocused && channelLogos && !surfLogosSuppressed}
-                  reminderKeys={gridReminderKeys}
-                  resetToken={resetToken}
-                  active={isFocused && !activeProgram && !drawerOpen}
-                  // Preview is the native Left neighbor; the closed drawer has
-                  // no mounted focus tree and therefore needs no self-lock.
-                  lockLeftEdge={false}
-                  restoreChannelId={guideSessionChannelId}
-                  focusClaimNonce={focusClaimNonce}
-                  cacheProfile={powerProfile}
-                  onUpBoundary={onGuideUpBoundary}
-                  onLeftBoundary={onGuideLeftBoundary}
-                  onFocusedRowChange={onFocusedGuideRow}
-                  onViewportChannelIds={onViewportChannelIds}
-                  onBackTargetChange={onGuideBackTarget}
-                  reduceMotion={instantGuide}
-                />
-              )}
-            </FocusGuide>
-          </View>
-        )}
-
-        {moreGroupsOpen ? (
-          <View style={styles.overlay} testID="guide-more-groups-overlay">
-            {/* Trap D-pad inside the sheet so focus cannot fall onto the guide grid. */}
-            <FocusGuide autoFocus trapFocusUp trapFocusDown trapFocusLeft trapFocusRight>
-              <View style={styles.overlayCard}>
-                <View style={styles.overlayHeader}>
-                  <Text style={styles.overlayTitle}>More groups</Text>
-                  <Pressable
-                    onPress={() => setMoreGroupsOpen(false)}
-                    style={({ focused }: any) => [styles.overlayClose, focused && styles.focused]}
-                  >
-                    <Text style={styles.secondaryText}>Close</Text>
-                  </Pressable>
-                </View>
-                <ScrollView style={styles.overlayList} showsVerticalScrollIndicator={false}>
-                  {(() => {
-                    let lastLetter = "";
-                    return overflowGroups.map((item) => {
-                      const letter = (item.trim().charAt(0) || "#").toUpperCase();
-                      const showLetter = letter !== lastLetter;
-                      if (showLetter) lastLetter = letter;
-                      return (
-                        <View key={item}>
-                          {showLetter ? <Text style={styles.overlayLetter}>{letter}</Text> : null}
-                          <Pressable
-                            onPress={() => chooseGroup(item)}
-                            onLongPress={() => togglePinGroup(item)}
-                            delayLongPress={420}
-                            style={({ focused }: any) => [styles.overlayRow, focused && styles.focused]}
-                          >
-                            <Text style={styles.overlayRowText} numberOfLines={1}>
-                              {item}
-                              {groupCounts[item] ? `  ${groupCounts[item]}` : ""}
-                            </Text>
-                          </Pressable>
-                        </View>
-                      );
-                    });
-                  })()}
-                </ScrollView>
-              </View>
-            </FocusGuide>
-          </View>
-        ) : null}
-
-        {pinPromptGroup ? (
-          <View style={styles.overlay} testID="guide-pin-overlay">
-            <FocusGuide autoFocus trapFocusUp trapFocusDown trapFocusLeft trapFocusRight>
-              <View style={styles.pinCard}>
-                <Text style={styles.overlayTitle}>Enter PIN</Text>
-                <Text style={styles.pinHint}>Unlock â€œ{pinPromptGroup}â€</Text>
-                <Text style={styles.pinDigits}>{pinDigits.padEnd(4, "â€¢").slice(0, 4)}</Text>
-                {pinError ? <Text style={styles.pinError}>Incorrect PIN</Text> : null}
-                <View style={styles.pinPad}>
-                  {["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"].map((digit) => (
-                    <Pressable
-                      key={digit}
-                      onPress={() => {
-                        setPinError(false);
-                        setPinDigits((prev) => {
-                          const next = (prev + digit).slice(0, 8);
-                          return next;
-                        });
-                      }}
-                      style={({ focused }: any) => [styles.pinKey, focused && styles.focused]}
-                    >
-                      <Text style={styles.pinKeyText}>{digit}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-                <View style={styles.pinActions}>
-                  <Pressable
-                    onPress={() => {
-                      setPinPromptGroup(null);
-                      setPinDigits("");
-                      setPinError(false);
-                    }}
-                    style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
-                  >
-                    <Text style={styles.secondaryText}>Cancel</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={submitPin}
-                    style={({ focused }: any) => [styles.watchButton, focused && styles.focused]}
-                  >
-                    <Text style={styles.watchText}>Unlock</Text>
-                  </Pressable>
-                </View>
-              </View>
-            </FocusGuide>
-          </View>
-        ) : null}
-      </View>
-    </PurpleTvShell>
-  );
-}
-
-const styles = StyleSheet.create({
-  page: { flex: 1, padding: 12, gap: 5 },
-  header: { minHeight: 48, flexDirection: "row", alignItems: "center", position: "relative" },
-  guideTitleBlock: { position: "absolute", left: 0, width: 130 },
-  groupScroller: { flex: 1, minWidth: 0 },
-  kicker: { color: tvColors.purpleSoft, fontFamily: fonts.semibold, fontSize: 7.5, letterSpacing: 1 },
-  title: { color: "#fff", fontFamily: fonts.bold, fontSize: 17, marginTop: 1, minWidth: 120 },
-  groupRow: { gap: 5, alignItems: "center", paddingHorizontal: 4 },
-  groupChip: {
-    minHeight: 28,
-    paddingHorizontal: 10,
-    justifyContent: "center",
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: "transparent",
-    backgroundColor: tvColors.panel,
-  },
-  groupChipVertical: { width: "100%", paddingHorizontal: 8, marginBottom: 4 },
-  groupChipActive: { backgroundColor: tvColors.purple },
-  groupChipPinned: { borderColor: "rgba(168,85,247,0.45)" },
-  groupText: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 8.5 },
-  groupTextActive: { color: "#fff", fontFamily: fonts.semibold },
-  verticalHeaderHint: { color: "#fff", fontFamily: fonts.bold, fontSize: 14 },
-  alphabetRow: { minHeight: 28, overflow: "hidden" },
-  alphabetContent: {
-    flexGrow: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 2,
-    paddingHorizontal: 3,
-    paddingVertical: 1,
-  },
-  alphabetChip: {
-    width: 22,
-    height: 24,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 4,
-    borderWidth: 2,
-    borderColor: "transparent",
-    backgroundColor: tvColors.panel,
-  },
-  alphabetChipEmpty: { opacity: 0.48 },
-  alphabetChipSelected: { backgroundColor: tvColors.purple },
-  alphabetText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 7.5 },
-  alphabetTextEmpty: { color: tvColors.textMuted },
-  body: { flex: 1, flexDirection: "row", gap: 8, minHeight: 0, position: "relative" },
-  verticalGroups: { width: 118, flexShrink: 0, maxHeight: "100%" },
-  verticalGroupList: { paddingVertical: 2, paddingRight: 2 },
-  gridPanel: {
-    flex: 1,
-    minWidth: 0,
-    overflow: "hidden",
-    backgroundColor: tvColors.canvasRaised,
-    borderWidth: 1,
-    borderColor: tvColors.line,
-    borderRadius: radius.sm,
-  },
-  watchButton: {
-    flex: 1,
-    minWidth: 0,
-    minHeight: 27,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-    backgroundColor: tvColors.purple,
-    borderRadius: 5,
-    borderWidth: 2,
-    borderColor: "transparent",
-    paddingHorizontal: 3,
-  },
-  watchText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 7.5 },
-  secondaryButton: {
-    flex: 1,
-    minWidth: 0,
-    minHeight: 27,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-    backgroundColor: tvColors.panelRaised,
-    borderRadius: 5,
-    borderWidth: 2,
-    borderColor: "transparent",
-    paddingHorizontal: 3,
-  },
-  secondaryText: { color: "#fff", fontFamily: fonts.medium, fontSize: 7.2 },
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.55)",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 20,
-    padding: 24,
-  },
-  overlayCard: {
-    width: "72%",
-    maxWidth: 420,
-    maxHeight: "70%",
-    backgroundColor: tvColors.panel,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: tvColors.line,
-    padding: 12,
-  },
-  overlayHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
-  overlayTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 14 },
-  overlayClose: {
-    minHeight: 28,
-    paddingHorizontal: 10,
-    justifyContent: "center",
-    borderRadius: 5,
-    borderWidth: 2,
-    borderColor: "transparent",
-    backgroundColor: tvColors.panelRaised,
-  },
-  overlayList: { maxHeight: 280 },
-  overlayLetter: {
-    color: tvColors.purpleSoft,
-    fontFamily: fonts.bold,
-    fontSize: 10,
-    marginTop: 6,
-    marginBottom: 2,
-    paddingHorizontal: 4,
-  },
-  overlayRow: {
-    minHeight: 32,
-    justifyContent: "center",
-    paddingHorizontal: 8,
-    borderRadius: 5,
-    borderWidth: 2,
-    borderColor: "transparent",
-    backgroundColor: tvColors.panelRaised,
-    marginBottom: 4,
-  },
-  overlayRowText: { color: "#fff", fontFamily: fonts.medium, fontSize: 11 },
-  pinCard: {
-    width: 280,
-    backgroundColor: tvColors.panel,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: tvColors.line,
-    padding: 14,
-    gap: 8,
-  },
-  pinHint: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 10 },
-  pinDigits: {
-    color: "#fff",
-    fontFamily: fonts.bold,
-    fontSize: 22,
-    letterSpacing: 8,
-    textAlign: "center",
-    marginVertical: 4,
-  },
-  pinError: { color: "#f87171", fontFamily: fonts.medium, fontSize: 10, textAlign: "center" },
-  pinPad: { flexDirection: "row", flexWrap: "wrap", gap: 6, justifyContent: "center" },
-  pinKey: {
-    width: 44,
-    minHeight: 36,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 5,
-    borderWidth: 2,
-    borderColor: "transparent",
-    backgroundColor: tvColors.panelRaised,
-  },
-  pinKeyText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 14 },
-  pinActions: { flexDirection: "row", gap: 8, marginTop: 4 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.md },
-  centerText: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 11, textAlign: "center", maxWidth: 320 },
-  retryButton: {
-    minHeight: 32,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 14,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: "transparent",
-    backgroundColor: tvColors.purple,
-    marginTop: 4,
-  },
-  retryText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 9 },
-  focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
-});
+    drawerWasOpenó5¶‰žËkºwµçeÁI•™ô(€€€€€€€€€€€€€€€€€€€½¹½ÕÌõí™½ÕÍ5½É•É½ÕÁÍ¡¥Áô(€€€€€€€€€€€€€€€€€€€½¹AÉ•ÍÌõì ¤€ôøÍ•Ñ5½É•É½ÕÁÍ=Á•¸¡ÑÉÕ”¥ô(€€€€€€€€€€€€€€€€€€€ÍÑå±”õì¡ì™½ÕÍ•ôè…¹ä¤€ôøl(€€€€€€€€€€€€€€€€€€€€€ÍÑå±•Ì¹É½ÕÁ¡¥À°(€€€€€€€€€€€€€€€€€€€€€ÍÑå±•Ì¹É½ÕÁ¡¥ÁY•ÉÑ¥…°°(€€€€€€€€€€€€€€€€€€€€€™½ÕÍ•€˜˜ÍÑå±•Ì¹™½ÕÍ•°(€€€€€€€€€€€€€€€€€€€uô(€€€€€€€€€€€€€€€€€€€Ñ•ÍÑ%ô‰Õ¥‘”µµ½É”µÉ½ÕÁÌˆ(€€€€€€€€€€€€€€€€€€ø(€€€€€€€€€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹É½ÕÁQ•áÑôù5½É”É½ÕÁÌð½Q•áÐø(€€€€€€€€€€€€€€€€€€ð½AÉ•ÍÍ…‰±”ø(€€€€€€€€€€€€€€€€¤€è¹Õ±±ô(€€€€€€€€€€€€€€ð½MÉ½±±Y¥•Üø(€€€€€€€€€€€€¤€è¹Õ±±ô((€€€€€€€€€€€€ñÕ¥‘•M•±•Ñ¥½¹AÉ•Ù¥•Ü(€€€€€€€€€€€€€Ý¥‘Ñ õí‘•Ñ…¥±ÍI…¥±]¥‘Ñ¡ô(€€€€€€€€€€€€€¡…¹¹•±	å%õí™¥±Ñ•É•‘¡…¹¹•±	å%‘ô(€€€€€€€€€€€€€™…±±‰…­¡…¹¹•°õíÁÉ•Ù¥•Ý…±±‰…­¡…¹¹•±ô(€€€€€€€€€€€€€¹½Üõí¹½Ýô(€€€€€€€€€€€€€¡…¹¹•±9Õµ‰•É	å%õí¡…¹¹•±9Õµ‰•É	å%‘ô(€€€€€€€€€€€€€Í¡½Ý¡…¹¹•±9Õµ‰•ÉÌõí¡…¹¹•±9Õµ‰•ÉÍô(€€€€€€€€€€€€€Í¡½Ý1½½Ìõí¥Í½ÕÍ•€˜˜¡…¹¹•±1½½Ì€˜˜€…ÍÕÉ™1½½ÍMÕÁÁÉ•ÍÍ•‘ô(€€€€€€€€€€€€€™…Ù½É¥Ñ•M•Ðõí™…Ù½É¥Ñ•M•Ñô(€€€€€€€€€€€€€¡¥‘•AÉ•Ù¥•Üõí¡¥‘•AÉ•Ù¥•Ýô(€€€€€€€€€€€€€µÕÑ•õíµÕÑ•AÉ•Ù¥•Ýô(€€€€€€€€€€€€€½¹Q½±•5ÕÑ”õì ¤€ôøÍ•Ñ5ÕÑ•AÉ•Ù¥•Ü …µÕÑ•AÉ•Ù¥•Ü¥ô(€€€€€€€€€€€€€ÁÉ•Ù¥•Ý%õíÍ…™•AÉ•Ù¥•Ý5½‘”€ôôô€‰½™˜ˆ€ü¹Õ±°€èÁÉ•Ù¥•Ý%‘ô(€€€€€€€€€€€€€ÁÉ•Ù¥•ÝMÑ…ÑÕÌõíÁÉ•Ù¥•ÝMÑ…ÑÕÍô(€€€€€€€€€€€€€ÁÉ•Ù¥•ÝÁ½ õíÁÉ•Ù¥•ÝÁ½¡ô(€€€€€€€€€€€€€½¹AÉ•Ù¥•ÝMÑ…ÑÕÌõí½¹AÉ•Ù¥•ÝMÑ…ÑÕÍô(€€€€€€€€€€€€€½¹AÉ•Ù¥•ÝÉÉ½ÉI•µ½Õ¹Ðõí½¹AÉ•Ù¥•ÝÉÉ½ÉI•µ½Õ¹Ñô(€€€€€€€€€€€€€½¹A±…äõíÁ±…åô(€€€€€€€€€€€€€½¹…Ù½É¥Ñ”õíÑ½±•…Ù½É¥Ñ•ô(€€€€€€€€€€€€€½¹=Á•¹I•µ¥¹‘•ÉÌõì ¤€ôøì(€€€€€€€€€€€€€€€¥˜€¡ÁÉ•Ù¥•ÝQ¥µ•È¹ÕÉÉ•¹Ð¤±•…ÉQ¥µ•½ÕÐ¡ÁÉ•Ù¥•ÝQ¥µ•È¹ÕÉÉ•¹Ð¤ì(€€€€€€€€€€€€€€€Í•ÑAÉ•Ù¥•Ý%¡¹Õ±°¤ì(€€€€€€€€€€€€€€€É½ÕÑ•È¹É•Á±…” ˆ½É•µ¥¹‘•ÉÌˆ…Ì…¹ä¤ì(€€€€€€€€€€€€€õô(€€€€€€€€€€€€€½¹!¥‘•Q½±”õì ¤€ôøÍ•Ñ!¥‘•AÉ•Ù¥•Ü …¡¥‘•AÉ•Ù¥•Ü¥ô(€€€€€€€€€€€€€½¹=Á•¹É…Ý•Èõí½Á•¹É…Ý•ÉÉ½µAÉ•Ù¥•Ýô(€€€€€€€€€€€€¼ø((€€€€€€€€€€€ì¼¨Q¡”ÁÉ•Ù¥•Ü½‘•Ñ…¥±Ì½…Ñ¥½¹ÌÉ…¥°¥Ì„™¥á•±•™ÐÍ¥‰±¥¹œ¸Q¡”Õ¥‘”(€€€€€€€€€€€€€€€½Ý¹ÌÑ¡”É•µ…¥¹¥¹œÝ¥‘Ñ ½¸Ñ¡”É¥¡Ðì¹•¥Ñ¡•ÈÁ…¹•°½Ù•É±…ÁÌÑ¡”½Ñ¡•È¸€¨½ô(€€€€€€€€€€€€ñ½ÕÍÕ¥‘”(€€€€€€€€€€€€€ÍÑå±”õíÍÑå±•Ì¹É¥‘A…¹•±ô(€€€€€€€€€€€€€ÑÉ…Á½ÕÍ½Ý¸(€€€€€€€€€€€€€€¼¼I½Üµ±•Ù•°1•™Ð¡…¹‘±¥¹œ½Ý¹ÌÑ¡”•á…ÐÁÉ•Ù¥•Üµ‰ÕÑÑ½¸¡…¹‘½™˜¸(€€€€€€€€€€€€€ÑÉ…Á½ÕÍ1•™Ðõí™…±Í•ô(€€€€€€€€€€€€€ÑÉ…Á½ÕÍI¥¡Ð(€€€€€€€€€€€€ø(€€€€€€€€€€€€€íÕ¥‘•1…å½ÕÐ€ôôô€‰½µÁ…Ðˆ€ü€ (€€€€€€€€€€€€€€€€ñ	½áÉ¥(€€€€€€€€€€€€€€€€€¡…¹¹•±Ìõí™¥±Ñ•É•‘ô(€€€€€€€€€€€€€€€€€¹½Üõí¹½Ýô(€€€€€€€€€€€€€€€€€½¹¡…¹¹•±AÉ•ÍÌõíÁ±…åô(€€€€€€€€€€€€€€€€€½¹AÉ½É…µAÉ•ÍÌõí½Á•¹Õ¥‘•AÉ½É…µô(€€€€€€€€€€€€€€€€€½¹¡…¹¹•±½ÕÌõí½¹½ÕÍ¡…¹¹•±ô(€€€€€€€€€€€€€€€€€É•™É•Í¡¥¹œõíÉ•™É•Í¡¥¹ô(€€€€€€€€€€€€€€€€€½¹I•™É•Í õí¡…É‘I•™É•Í¡ô(€€€€€€€€€€€€€€€€€Í¡½Ý¡…¹¹•±9Õµ‰•ÉÌõí¡…¹¹•±9Õµ‰•ÉÍô(€€€€€€€€€€€€€€€€€¡…¹¹•±9Õµ‰•É	å%õí¡…¹¹•±9Õµ‰•É	å%‘ô(€€€€€€€€€€€€€€€€€Í¡½Ý¡…¹¹•±1½½Ìõí¥Í½ÕÍ•€˜˜¡…¹¹•±1½½Ì€˜˜€…ÍÕÉ™1½½ÍMÕÁÁÉ•ÍÍ•‘ô(€€€€€€€€€€€€€€€€€É•µ¥¹‘•É-•åÌõíÉ¥‘I•µ¥¹‘•É-•åÍô(€€€€€€€€€€€€€€€€€É•Í•ÑQ½­•¸õíÉ•Í•ÑQ½­•¹ô(€€€€€€€€€€€€€€€€€…Ñ¥Ù”õí¥Í½ÕÍ•€˜˜€……Ñ¥Ù•AÉ½É…´€˜˜€…‘É…Ý•É=Á•¹ô(€€€€€€€€€€€€€€€€€€¼¼AÉ•Ù¥•Ü¥ÌÑ¡”¹…Ñ¥Ù”1•™Ð¹•¥¡‰½ÈìÑ¡”±½Í•‘É…Ý•È¡…Ì(€€€€€€€€€€€€€€€€€€¼¼¹¼µ½Õ¹Ñ•™½ÕÌÑÉ•”…¹Ñ¡•É•™½É”¹••‘Ì¹¼Í•±˜µ±½¬¸(€€€€€€€€€€€€€€€€€±½­1•™Ñ‘”õí™…±Í•ô(€€€€€€€€€€€€€€€€€É•ÍÑ½É•¡…¹¹•±%õíÕ¥‘•M•ÍÍ¥½¹¡…¹¹•±%‘ô(€€€€€€€€€€€€€€€€€™½ÕÍ±…¥µ9½¹”õí™½ÕÍ±…¥µ9½¹•ô(€€€€€€€€€€€€€€€€€…¡•AÉ½™¥±”õíÁ½Ý•ÉAÉ½™¥±•ô(€€€€€€€€€€€€€€€€€½¹UÁ	½Õ¹‘…Éäõí½¹Õ¥‘•UÁ	½Õ¹‘…Éåô(€€€€€€€€€€€€€€€€€½¹1•™Ñ	½Õ¹‘…Éäõí½¹Õ¥‘•1•™Ñ	½Õ¹‘…Éåô(€€€€€€€€€€€€€€€€€½¹½ÕÍ•‘I½Ý¡…¹”õí½¹½ÕÍ•‘Õ¥‘•I½Ýô(€€€€€€€€€€€€€€€€€½¹Y¥•ÝÁ½ÉÑ¡…¹¹•±%‘Ìõí½¹Y¥•ÝÁ½ÉÑ¡…¹¹•±%‘Íô(€€€€€€€€€€€€€€€€¼ø(€€€€€€€€€€€€€€¤€è€ (€€€€€€€€€€€€€€€€ñQ¥µ•±¥¹•É¥(€€€€€€€€€€€€€€€€€¡…¹¹•±Ìõí™¥±Ñ•É•‘ô(€€€€€€€€€€€€€€€€€Ý¥¹‘½ÝMÑ…ÉÐõíÝ¥¹‘½ÝMÑ…ÉÑô(€€€€€€€€€€€€€€€€€Ý¥¹‘½Ý¹õíÝ¥¹‘½Ý¹‘ô(€€€€€€€€€€€€€€€€€¹½Üõí¹½Ýô(€€€€€€€€€€€€€€€€€½¹¡…¹¹•±AÉ•ÍÌõíÁ±…åô(€€€€€€€€€€€€€€€€€½¹AÉ½É…µAÉ•ÍÌõí½Á•¹Õ¥‘•AÉ½É…µô(€€€€€€€€€€€€€€€€€½¹AÉ½É…µ½ÕÌõí½¹½ÕÍAÉ½É…µô(€€€€€€€€€€€€€€€€€½¹¡…¹¹•±½ÕÌõí½¹½ÕÍ¡…¹¹•±ô(€€€€€€€€€€€€€€€€€½¹¡…¹¹•±1½¹AÉ•ÍÌõí½¹¡…¹¹•±1½¹AÉ•ÍÍô(€€€€€€€€€€€€€€€€€É•™É•Í¡¥¹œõíÉ•™É•Í¡¥¹ô(€€€€€€€€€€€€€€€€€½¹I•™É•Í õí¡…É‘I•™É•Í¡ô(€€€€€€€€€€€€€€€€€‘•¹Í¥ÑäõíÕ¥‘••¹Í¥Ñåô(€€€€€€€€€€€€€€€€€Í¡½Ý¡…¹¹•±9Õµ‰•ÉÌõí¡…¹¹•±9Õµ‰•ÉÍô(€€€€€€€€€€€€€€€€€¡…¹¹•±9Õµ‰•É	å%õí¡…¹¹•±9Õµ‰•É	å%‘ô(€€€€€€€€€€€€€€€€€Í¡½Ý¡…¹¹•±1½½Ìõí¥Í½ÕÍ•€˜˜¡…¹¹•±1½½Ì€˜˜€…ÍÕÉ™1½½ÍMÕÁÁÉ•ÍÍ•‘ô(€€€€€€€€€€€€€€€€€É•µ¥¹‘•É-•åÌõíÉ¥‘I•µ¥¹‘•É-•åÍô(€€€€€€€€€€€€€€€€€É•Í•ÑQ½­•¸õíÉ•Í•ÑQ½­•¹ô(€€€€€€€€€€€€€€€€€…Ñ¥Ù”õí¥Í½ÕÍ•€˜˜€……Ñ¥Ù•AÉ½É…´€˜˜€…‘É…Ý•É=Á•¹ô(€€€€€€€€€€€€€€€€€€¼¼AÉ•Ù¥•Ü¥ÌÑ¡”¹…Ñ¥Ù”1•™Ð¹•¥¡‰½ÈìÑ¡”±½Í•‘É…Ý•È¡…Ì(€€€€€€€€€€€€€€€€€€¼¼¹¼µ½Õ¹Ñ•™½ÕÌÑÉ•”…¹Ñ¡•É•™½É”¹••‘Ì¹¼Í•±˜µ±½¬¸(€€€€€€€€€€€€€€€€€±½­1•™Ñ‘”õí™…±Í•ô(€€€€€€€€€€€€€€€€€É•ÍÑ½É•¡…¹¹•±%õíÕ¥‘•M•ÍÍ¥½¹¡…¹¹•±%‘ô(€€€€€€€€€€€€€€€€€™½ÕÍ±…¥µ9½¹”õí™½ÕÍ±…¥µ9½¹•ô(€€€€€€€€€€€€€€€€€…¡•AÉ½™¥±”õíÁ½Ý•ÉAÉ½™¥±•ô(€€€€€€€€€€€€€€€€€½¹UÁ	½Õ¹‘…Éäõí½¹Õ¥‘•UÁ	½Õ¹‘…Éåô(€€€€€€€€€€€€€€€€€½¹1•™Ñ	½Õ¹‘…Éäõí½¹Õ¥‘•1•™Ñ	½Õ¹‘…Éåô(€€€€€€€€€€€€€€€€€½¹½ÕÍ•‘I½Ý¡…¹”õí½¹½ÕÍ•‘Õ¥‘•I½Ýô(€€€€€€€€€€€€€€€€€½¹Y¥•ÝÁ½ÉÑ¡…¹¹•±%‘Ìõí½¹Y¥•ÝÁ½ÉÑ¡…¹¹•±%‘Íô(€€€€€€€€€€€€€€€€€½¹	…­Q…É•Ñ¡…¹”õí½¹Õ¥‘•	…­Q…É•Ñô(€€€€€€€€€€€€€€€€€É•‘Õ•5½Ñ¥½¸õí¥¹ÍÑ…¹ÑÕ¥‘•ô(€€€€€€€€€€€€€€€€¼ø(€€€€€€€€€€€€€€¥ô(€€€€€€€€€€€€ð½½ÕÍÕ¥‘”ø(€€€€€€€€€€ð½Y¥•Üø(€€€€€€€€¥ô((€€€€€€€íµ½É•É½ÕÁÍ=Á•¸€ü€ (€€€€€€€€€€ñY¥•ÜÍÑå±”õíÍÑå±•Ì¹½Ù•É±…åôÑ•ÍÑ%ô‰Õ¥‘”µµ½É”µÉ½ÕÁÌµ½Ù•É±…äˆø(€€€€€€€€€€€ì¼¨QÉ…ÀµÁ…¥¹Í¥‘”Ñ¡”Í¡••ÐÍ¼™½ÕÌ…¹¹½Ð™…±°½¹Ñ¼Ñ¡”Õ¥‘”É¥¸€¨½ô(€€€€€€€€€€€€ñ½ÕÍÕ¥‘”…ÕÑ½½ÕÌÑÉ…Á½ÕÍUÀÑÉ…Á½ÕÍ½Ý¸ÑÉ…Á½ÕÍ1•™ÐÑÉ…Á½ÕÍI¥¡Ðø(€€€€€€€€€€€€€€ñY¥•ÜÍÑå±”õíÍÑå±•Ì¹½Ù•É±…å…É‘ôø(€€€€€€€€€€€€€€€€ñY¥•ÜÍÑå±”õíÍÑå±•Ì¹½Ù•É±…å!•…‘•Éôø(€€€€€€€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹½Ù•É±…åQ¥Ñ±•ôù5½É”É½ÕÁÌð½Q•áÐø(€€€€€€€€€€€€€€€€€€ñAÉ•ÍÍ…‰±”(€€€€€€€€€€€€€€€€€€€½¹AÉ•ÍÌõì ¤€ôøÍ•Ñ5½É•É½ÕÁÍ=Á•¸¡™…±Í”¥ô(€€€€€€€€€€€€€€€€€€€ÍÑå±”õì¡ì™½ÕÍ•ôè…¹ä¤€ôømÍÑå±•Ì¹½Ù•É±…å±½Í”°™½ÕÍ•€˜˜ÍÑå±•Ì¹™½ÕÍ•‘uô(€€€€€€€€€€€€€€€€€€ø(€€€€€€€€€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹Í•½¹‘…ÉåQ•áÑôù±½Í”ð½Q•áÐø(€€€€€€€€€€€€€€€€€€ð½AÉ•ÍÍ…‰±”ø(€€€€€€€€€€€€€€€€ð½Y¥•Üø(€€€€€€€€€€€€€€€€ñMÉ½±±Y¥•ÜÍÑå±”õíÍÑå±•Ì¹½Ù•É±…å1¥ÍÑôÍ¡½ÝÍY•ÉÑ¥…±MÉ½±±%¹‘¥…Ñ½Èõí™…±Í•ôø(€€€€€€€€€€€€€€€€€ì  ¤€ôøì(€€€€€€€€€€€€€€€€€€€±•Ð±…ÍÑ1•ÑÑ•È€ô€ˆˆì(€€€€€€€€€€€€€€€€€€€É•ÑÕÉ¸½Ù•É™±½ÝÉ½ÕÁÌ¹µ…À ¡¥Ñ•´¤€ôøì(€€€€€€€€€€€€€€€€€€€€€½¹ÍÐ±•ÑÑ•È€ô€¡¥Ñ•´¹ÑÉ¥´ ¤¹¡…ÉÐ À¤ñð€ˆŒˆ¤¹Ñ½UÁÁ•É…Í” ¤ì(€€€€€€€€€€€€€€€€€€€€€½¹ÍÐÍ¡½Ý1•ÑÑ•È€ô±•ÑÑ•È€„ôô±…ÍÑ1•ÑÑ•Èì(€€€€€€€€€€€€€€€€€€€€€¥˜€¡Í¡½Ý1•ÑÑ•È¤±…ÍÑ1•ÑÑ•È€ô±•ÑÑ•Èì(€€€€€€€€€€€€€€€€€€€€€É•ÑÕÉ¸€ (€€€€€€€€€€€€€€€€€€€€€€€€ñY¥•Ü­•äõí¥Ñ•µôø(€€€€€€€€€€€€€€€€€€€€€€€€€íÍ¡½Ý1•ÑÑ•È€ü€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹½Ù•É±…å1•ÑÑ•Éôùí±•ÑÑ•Éôð½Q•áÐø€è¹Õ±±ô(€€€€€€€€€€€€€€€€€€€€€€€€€€ñAÉ•ÍÍ…‰±”(€€€€€€€€€€€€€€€€€€€€€€€€€€€½¹AÉ•ÍÌõì ¤€ôø¡½½Í•É½ÕÀ¡¥Ñ•´¥ô(€€€€€€€€€€€€€€€€€€€€€€€€€€€½¹1½¹AÉ•ÍÌõì ¤€ôøÑ½±•A¥¹É½ÕÀ¡¥Ñ•´¥ô(€€€€€€€€€€€€€€€€€€€€€€€€€€€‘•±…å1½¹AÉ•ÍÌõìÐÈÁô(€€€€€€€€€€€€€€€€€€€€€€€€€€€ÍÑå±”õì¡ì™½ÕÍ•ôè…¹ä¤€ôømÍÑå±•Ì¹½Ù•É±…åI½Ü°™½ÕÍ•€˜˜ÍÑå±•Ì¹™½ÕÍ•‘uô(€€€€€€€€€€€€€€€€€€€€€€€€€€ø(€€€€€€€€€€€€€€€€€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹½Ù•É±…åI½ÝQ•áÑô¹Õµ‰•É=™1¥¹•ÌõìÅôø(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€í¥Ñ•µô(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€íÉ½ÕÁ½Õ¹ÑÍm¥Ñ•µt€ü€€€‘íÉ½ÕÁ½Õ¹ÑÍm¥Ñ•µuõ€€è€ˆ‰ô(€€€€€€€€€€€€€€€€€€€€€€€€€€€€ð½Q•áÐø(€€€€€€€€€€€€€€€€€€€€€€€€€€ð½AÉ•ÍÍ…‰±”ø(€€€€€€€€€€€€€€€€€€€€€€€€ð½Y¥•Üø(€€€€€€€€€€€€€€€€€€€€€€¤ì(€€€€€€€€€€€€€€€€€€€ô¤ì(€€€€€€€€€€€€€€€€€ô¤ ¥ô(€€€€€€€€€€€€€€€€ð½MÉ½±±Y¥•Üø(€€€€€€€€€€€€€€ð½Y¥•Üø(€€€€€€€€€€€€ð½½ÕÍÕ¥‘”ø(€€€€€€€€€€ð½Y¥•Üø(€€€€€€€€¤€è¹Õ±±ô((€€€€€€€íÁ¥¹AÉ½µÁÑÉ½ÕÀ€ü€ (€€€€€€€€€€ñY¥•ÜÍÑå±”õíÍÑå±•Ì¹½Ù•É±…åôÑ•ÍÑ%ô‰Õ¥‘”µÁ¥¸µ½Ù•É±…äˆø(€€€€€€€€€€€€ñ½ÕÍÕ¥‘”…ÕÑ½½ÕÌÑÉ…Á½ÕÍUÀÑÉ…Á½ÕÍ½Ý¸ÑÉ…Á½ÕÍ1•™ÐÑÉ…Á½ÕÍI¥¡Ðø(€€€€€€€€€€€€€€ñY¥•ÜÍÑå±”õíÍÑå±•Ì¹Á¥¹…É‘ôø(€€€€€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹½Ù•É±…åQ¥Ñ±•ôù¹Ñ•ÈA%8ð½Q•áÐø(€€€€€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹Á¥¹!¥¹ÑôùU¹±½¬ƒŠqíÁ¥¹AÉ½µÁÑÉ½ÕÁ÷Štð½Q•áÐø(€€€€€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹Á¥¹¥¥ÑÍôùíÁ¥¹¥¥ÑÌ¹Á…‘¹ Ð°€‹Šˆˆ¤¹Í±¥” À°€Ð¥ôð½Q•áÐø(€€€€€€€€€€€€€€€íÁ¥¹ÉÉ½È€ü€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹Á¥¹ÉÉ½Éôù%¹½ÉÉ•ÐA%8ð½Q•áÐø€è¹Õ±±ô(€€€€€€€€€€€€€€€€ñY¥•ÜÍÑå±”õíÍÑå±•Ì¹Á¥¹A…‘ôø(€€€€€€€€€€€€€€€€€ílˆÄˆ°€ˆÈˆ°€ˆÌˆ°€ˆÐˆ°€ˆÔˆ°€ˆØˆ°€ˆÜˆ°€ˆàˆ°€ˆäˆ°€ˆÀ‰t¹µ…À ¡‘¥¥Ð¤€ôø€ (€€€€€€€€€€€€€€€€€€€€ñAÉ•ÍÍ…‰±”(€€€€€€€€€€€€€€€€€€€€€­•äõí‘¥¥Ñô(€€€€€€€€€€€€€€€€€€€€€½¹AÉ•ÍÌõì ¤€ôøì(€€€€€€€€€€€€€€€€€€€€€€€Í•ÑA¥¹ÉÉ½È¡™…±Í”¤ì(€€€€€€€€€€€€€€€€€€€€€€€Í•ÑA¥¹¥¥ÑÌ ¡ÁÉ•Ø¤€ôøì(€€€€€€€€€€€€€€€€€€€€€€€€€½¹ÍÐ¹•áÐ€ô€¡ÁÉ•Ø€¬‘¥¥Ð¤¹Í±¥” À°€à¤ì(€€€€€€€€€€€€€€€€€€€€€€€€€É•ÑÕÉ¸¹•áÐì(€€€€€€€€€€€€€€€€€€€€€€€ô¤ì(€€€€€€€€€€€€€€€€€€€€€õô(€€€€€€€€€€€€€€€€€€€€€ÍÑå±”õì¡ì™½ÕÍ•ôè…¹ä¤€ôømÍÑå±•Ì¹Á¥¹-•ä°™½ÕÍ•€˜˜ÍÑå±•Ì¹™½ÕÍ•‘uô(€€€€€€€€€€€€€€€€€€€€ø(€€€€€€€€€€€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹Á¥¹-•åQ•áÑôùí‘¥¥Ñôð½Q•áÐø(€€€€€€€€€€€€€€€€€€€€ð½AÉ•ÍÍ…‰±”ø(€€€€€€€€€€€€€€€€€€¤¥ô(€€€€€€€€€€€€€€€€ð½Y¥•Üø(€€€€€€€€€€€€€€€€ñY¥•ÜÍÑå±”õíÍÑå±•Ì¹Á¥¹Ñ¥½¹Íôø(€€€€€€€€€€€€€€€€€€ñAÉ•ÍÍ…‰±”(€€€€€€€€€€€€€€€€€€€½¹AÉ•ÍÌõì ¤€ôøì(€€€€€€€€€€€€€€€€€€€€€Í•ÑA¥¹AÉ½µÁÑÉ½ÕÀ¡¹Õ±°¤ì(€€€€€€€€€€€€€€€€€€€€€Í•ÑA¥¹¥¥ÑÌ ˆˆ¤ì(€€€€€€€€€€€€€€€€€€€€€Í•ÑA¥¹ÉÉ½È¡™…±Í”¤ì(€€€€€€€€€€€€€€€€€€€õô(€€€€€€€€€€€€€€€€€€€ÍÑå±”õì¡ì™½ÕÍ•ôè…¹ä¤€ôømÍÑå±•Ì¹Í•½¹‘…Éå	ÕÑÑ½¸°™½ÕÍ•€˜˜ÍÑå±•Ì¹™½ÕÍ•‘uô(€€€€€€€€€€€€€€€€€€ø(€€€€€€€€€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹Í•½¹‘…ÉåQ•áÑôù…¹•°ð½Q•áÐø(€€€€€€€€€€€€€€€€€€ð½AÉ•ÍÍ…‰±”ø(€€€€€€€€€€€€€€€€€€ñAÉ•ÍÍ…‰±”(€€€€€€€€€€€€€€€€€€€½¹AÉ•ÍÌõíÍÕ‰µ¥ÑA¥¹ô(€€€€€€€€€€€€€€€€€€€ÍÑå±”õì¡ì™½ÕÍ•ôè…¹ä¤€ôømÍÑå±•Ì¹Ý…Ñ¡	ÕÑÑ½¸°™½ÕÍ•€˜˜ÍÑå±•Ì¹™½ÕÍ•‘uô(€€€€€€€€€€€€€€€€€€ø(€€€€€€€€€€€€€€€€€€€€ñQ•áÐÍÑå±”õíÍÑå±•Ì¹Ý…Ñ¡Q•áÑôùU¹±½¬ð½Q•áÐø(€€€€€€€€€€€€€€€€€€ð½AÉ•ÍÍ…‰±”ø(€€€€€€€€€€€€€€€€ð½Y¥•Üø(€€€€€€€€€€€€€€ð½Y¥•Üø(€€€€€€€€€€€€ð½½ÕÍÕ¥‘”ø(€€€€€€€€€€ð½Y¥•Üø(€€€€€€€€¤€è¹Õ±±ô(€€€€€€ð½Y¥•Üø(€€€€ð½AÕÉÁ±•QÙM¡•±°ø(€€¤ì)ô()½¹ÍÐÍÑå±•Ì€ôMÑå±•M¡••Ð¹É•…Ñ”¡ì(€Á…”èì™±•àè€Ä°Á…‘‘¥¹œè€ÄÈ°…Àè€Ôô°(€¡•…‘•Èèìµ¥¹!•¥¡Ðè€Ðà°™±•á¥É•Ñ¥½¸è€‰É½Üˆ°…±¥¹%Ñ•µÌè€‰•¹Ñ•Èˆ°Á½Í¥Ñ¥½¸è€‰É•±…Ñ¥Ù”ˆô°(€Õ¥‘•Q¥Ñ±•	±½¬èìÁ½Í¥Ñ¥½¸è€‰…‰Í½±ÕÑ”ˆ°±•™Ðè€À°Ý¥‘Ñ è€ÄÌÀô°(€É½ÕÁMÉ½±±•Èèì™±•àè€Ä°µ¥¹]¥‘Ñ è€Àô°(€­¥­•Èèì½±½ÈèÑÙ½±½ÉÌ¹ÁÕÉÁ±•M½™Ð°™½¹Ñ…µ¥±äè™½¹ÑÌ¹Í•µ¥‰½±°™½¹ÑM¥é”è€Ü¸Ô°±•ÑÑ•ÉMÁ…¥¹œè€Äô°(€Ñ¥Ñ±”èì½±½Èè€ˆ™™˜ˆ°™½¹Ñ…µ¥±äè™½¹ÑÌ¹‰½±°™½¹ÑM¥é”è€ÄÜ°µ…É¥¹Q½Àè€Ä°µ¥¹]¥‘Ñ è€ÄÈÀô°(€É½ÕÁI½Üèì…Àè€Ô°…±¥¹%Ñ•µÌè€‰•¹Ñ•Èˆ°Á…‘‘¥¹!½É¥é½¹Ñ…°è€Ðô°(€É½ÕÁ¡¥Àèì(€€€µ¥¹!•¥¡Ðè€Èà°(€€€Á…‘‘¥¹!½É¥é½¹Ñ…°è€ÄÀ°(€€€©ÕÍÑ¥™å½¹Ñ•¹Ðè€‰•¹Ñ•Èˆ°(€€€‰½É‘•ÉI…‘¥ÕÌè€Ø°(€€€‰½É‘•É]¥‘Ñ è€È°(€€€‰½É‘•É½±½Èè€‰ÑÉ…¹ÍÁ…É•¹Ðˆ°(€€€‰…­É½Õ¹‘½±½ÈèÑÙ½±½ÉÌ¹Á…¹•°°(€ô°(€É½ÕÁ¡¥ÁY•ÉÑ¥…°èìÝ¥‘Ñ è€ˆÄÀÀ”ˆ°Á…‘‘¥¹!½É¥é½¹Ñ…°è€à°µ…É¥¹	½ÑÑ½´è€Ðô°(€É½ÕÁ¡¥ÁÑ¥Ù”èì‰…­É½Õ¹‘½±½ÈèÑÙ½±½ÉÌ¹ÁÕÉÁ±”ô°(€É½ÕÁ¡¥ÁA¥¹¹•èì‰½É‘•É½±½Èè€‰É‰„ ÄØà°àÔ°ÈÐÜ°À¸ÐÔ¤ˆô°(€É½ÕÁQ•áÐèì½±½ÈèÑÙ½±½ÉÌ¹Ñ•áÑ5ÕÑ•°™½¹Ñ…µ¥±äè™½¹ÑÌ¹µ•‘¥Õ´°™½¹ÑM¥é”è€à¸Ôô°(€É½ÕÁQ•áÑÑ¥Ù”èì½±½Èè€ˆ™™˜ˆ°™½¹Ñ…µ¥±äè™½¹ÑÌ¹Í•µ¥‰½±ô°(€Ù•ÉÑ¥…±!•…‘•É!¥¹Ðèì½±½Èè€ˆ™™˜ˆ°™½¹Ñ…µ¥±äè™½¹ÑÌ¹‰½±°™½¹ÑM¥é”è€ÄÐô°(€‰½‘äèì™±•àè€Ä°™±•á¥É•Ñ¥½¸è€‰É½Üˆ°…Àè€à°µ¥¹!•¥¡Ðè€À°Á½Í¥Ñ¥½¸è€‰É•±…Ñ¥Ù”ˆô°(€Ù•ÉÑ¥…±É½ÕÁÌèìÝ¥‘Ñ è€ÄÄà°™±•áM¡É¥¹¬è€À°µ…á!•¥¡Ðè€ˆÄÀÀ”ˆô°(€Ù•ÉÑ¥…±É½ÕÁ1¥ÍÐèìÁ…‘‘¥¹Y•ÉÑ¥…°è€È°Á…‘‘¥¹I¥¡Ðè€Èô°(€É¥‘A…¹•°èì(€€€™±•àè€Ä°(€€€µ¥¹]¥‘Ñ è€À°(€€€½Ù•É™±½Üè€‰¡¥‘‘•¸ˆ°(€€€‰…­É½Õ¹‘½±½ÈèÑÙ½±½ÉÌ¹…¹Ù…ÍI…¥Í•°(€€€‰½É‘•É]¥‘Ñ è€Ä°(€€€‰½É‘•É½±½ÈèÑÙ½±½ÉÌ¹±¥¹”°(€€€‰½É‘•ÉI…‘¥ÕÌèÉ…‘¥ÕÌ¹Í´°(€ô°(€Ý…Ñ¡	ÕÑÑ½¸èì(€€€™±•àè€Ä°(€€€µ¥¹]¥‘Ñ è€À°(€€€µ¥¹!•¥¡Ðè€ÈÜ°(€€€™±•á¥É•Ñ¥½¸è€‰É½Üˆ°(€€€…±¥¹%Ñ•µÌè€‰•¹Ñ•Èˆ°(€€€©ÕÍÑ¥™å½¹Ñ•¹Ðè€‰•¹Ñ•Èˆ°(€€€…Àè€Ð°(€€€‰…­É½Õ¹‘½±½ÈèÑÙ½±½ÉÌ¹ÁÕÉÁ±”°(€€€‰½É‘•ÉI…‘¥ÕÌè€Ô°(€€€‰½É‘•É]¥‘Ñ è€È°(€€€‰½É‘•É½±½Èè€‰ÑÉ…¹ÍÁ…É•¹Ðˆ°(€€€Á…‘‘¥¹!½É¥é½¹Ñ…°è€Ì°(€ô°(€Ý…Ñ¡Q•áÐèì½±½Èè€ˆ™™˜ˆ°™½¹Ñ…µ¥±äè™½¹ÑÌ¹Í•µ¥‰½±°™½¹ÑM¥é”è€Ü¸Ôô°(€Í•½¹‘…Éå	ÕÑÑ½¸èì(€€€™±•àè€Ä°(€€€µ¥¹]¥‘Ñ è€À°(€€€µ¥¹!•¥¡Ðè€ÈÜ°(€€€™±•á¥É•Ñ¥½¸è€‰É½Üˆ°(€€€…±¥¹%Ñ•µÌè€‰•¹Ñ•Èˆ°(€€€©ÕÍÑ¥™å½¹Ñ•¹Ðè€‰•¹Ñ•Èˆ°(€€€…Àè€Ð°(€€€‰…­É½Õ¹‘½±½ÈèÑÙ½±½ÉÌ¹Á…¹•±I…¥Í•°(€€€‰½É‘•ÉI…‘¥ÕÌè€Ô°(€€€‰½É‘•É]¥‘Ñ è€È°(€€€‰½É‘•É½±½Èè€‰ÑÉ…¹ÍÁ…É•¹Ðˆ°(€€€Á…‘‘¥¹!½É¥é½¹Ñ…°è€Ì°(€ô°(€Í•½¹‘…ÉåQ•áÐèì½±½Èè€ˆ™™˜ˆ°™½¹Ñ…µ¥±äè™½¹ÑÌ¹µ•‘¥Õ´°™½¹ÑM¥é”è€Ü¸Èô°(€½Ù•É±…äèì(€€€€¸¸¹MÑå±•M¡••Ð¹…‰Í½±ÕÑ•¥±±=‰©•Ð°(€€€‰…­É½Õ¹‘½±½Èè€‰É‰„ À°À°À°À¸ÔÔ¤ˆ°(€€€…±¥¹%Ñ•µÌè€‰•¹Ñ•Èˆ°(€€€©ÕÍÑ¥™å½¹Ñ•¹Ðè€‰•¹Ñ•Èˆ°(€€€é%¹‘•àè€ÈÀ°(€€€Á…‘‘¥¹œè€ÈÐ°(€ô°(€½Ù•É±…å…Éèì(€€€Ý¥‘Ñ è€ˆÜÈ”ˆ°(€€€µ…á]¥‘Ñ è€ÐÈÀ°(€€€µ…á!•¥¡Ðè€ˆÜÀ”ˆ°(€€€‰…­É½Õ¹‘½±½ÈèÑÙ½±½ÉÌ¹Á…¹•°°(€€€‰½É‘•ÉI…‘¥ÕÌèÉ…‘¥ÕÌ¹Í´°(€€€‰½É‘•É]¥‘Ñ è€Ä°(€€€‰½É‘•É½±½ÈèÑÙ½±½ÉÌ¹±¥¹”°(€€€Á…‘‘¥¹œè€ÄÈ°(€ô°(€½Ù•É±…å!•…‘•Èèì™±•á¥É•Ñ¥½¸è€‰É½Üˆ°…±¥¹%Ñ•µÌè€‰•¹Ñ•Èˆ°©ÕÍÑ¥™å½¹Ñ•¹Ðè€‰ÍÁ…”µ‰•ÑÝ••¸ˆ°µ…É¥¹	½ÑÑ½´è€àô°(€½Ù•É±…åQ¥Ñ±”èì½±½Èè€ˆ™™˜ˆ°™½¹Ñ…µ¥±äè™½¹ÑÌ¹‰½±°™½¹ÑM¥é”è€ÄÐô°(€½Ù•É±…å±½Í”èì(€€€µ¥¹!•¥¡Ðè€Èà°(€€€Á…‘‘¥¹!½É¥é½¹Ñ…°è€ÄÀ°(€€€©ÕÍÑ¥™å½¹Ñ•¹Ðè€‰•¹Ñ•Èˆ°(€€€‰½É‘•ÉI…‘¥ÕÌè€Ô°(€€€‰½É‘•É]¥‘Ñ è€È°(€€€‰½É‘•É½±½Èè€‰ÑÉ…¹ÍÁ…É•¹Ðˆ°(€€€‰…­É½Õ¹‘½±½ÈèÑÙ½±½ÉÌ¹Á…¹•±I…¥Í•°(€ô°(€½Ù•É±…å1¥ÍÐèìµ…á!•¥¡Ðè€ÈàÀô°(€½Ù•É±…å1•ÑÑ•Èèì(€€€½±½ÈèÑÙ½±½ÉÌ¹ÁÕÉÁ±•M½™Ð°(€€€™½¹Ñ…µ¥±äè™½¹ÑÌ¹‰½±°(€€€™½¹ÑM¥é”è€ÄÀ°(€€€µ…É¥¹Q½Àè€Ø°(€€€µ…É¥¹	½ÑÑ½´è€È°(€€€Á…‘‘¥¹!½É¥é½¹Ñ…°è€Ð°(€ô°(€½Ù•É±…åI½Üèì(€€€µ¥¹!•¥¡Ðè€ÌÈ°(€€€©ÕÍÑ¥™å½¹Ñ•¹Ðè€‰•¹Ñ•Èˆ°(€€€Á…‘‘¥¹!½É¥é½¹Ñ…°è€à°(€€€‰½É‘•ÉI…‘¥ÕÌè€Ô°(€€€‰½É‘•É]¥‘Ñ è€È°(€€€‰½É‘•É½±½Èè€‰ÑÉ…¹ÍÁ…É•¹Ðˆ°(€€€‰…­É½Õ¹‘½±½ÈèÑÙ½±½ÉÌ¹Á…¹•±I…¥Í•°(€€€µ…É¥¹	½ÑÑ½´è€Ð°(€ô°(€½Ù•É±…åI½ÝQ•áÐèì½±½Èè€ˆ™™˜ˆ°™½¹Ñ…µ¥±äè™½¹ÑÌ¹µ•‘¥Õ´°™½¹ÑM¥é”è€ÄÄô°(€Á¥¹…Éèì(€€€Ý¥‘Ñ è€ÈàÀ°(€€€‰…­É½Õ¹‘½±½ÈèÑÙ½±½ÉÌ¹Á…¹•°°(€€€‰½É‘•ÉI…‘¥ÕÌèÉ…‘¥ÕÌ¹Í´°(€€€‰½É‘•É]¥‘Ñ è€Ä°(€€€‰½É‘•É½±½ÈèÑÙ½±½ÉÌ¹±¥¹”°(€€€Á…‘‘¥¹œè€ÄÐ°(€€€…Àè€à°(€ô°(€Á¥¹!¥¹Ðèì½±½ÈèÑÙ½±½ÉÌ¹Ñ•áÑ5ÕÑ•°™½¹Ñ…µ¥±äè™½¹ÑÌ¹µ•‘¥Õ´°™½¹ÑM¥é”è€ÄÀô°(€Á¥¹¥¥ÑÌèì(€€€½±½Èè€ˆ™™˜ˆ°(€€€™½¹Ñ…µ¥±äè™½¹ÑÌ¹‰½±°(€€€™½¹ÑM¥é”è€ÈÈ°(€€€±•ÑÑ•ÉMÁ…¥¹œè€à°(€€€Ñ•áÑ±¥¸è€‰•¹Ñ•Èˆ°(€€€µ…É¥¹Y•ÉÑ¥…°è€Ð°(€ô°(€Á¥¹ÉÉ½Èèì½±½Èè€ˆ˜àÜÄÜÄˆ°™½¹Ñ…µ¥±äè™½¹ÑÌ¹µ•‘¥Õ´°™½¹ÑM¥é”è€ÄÀ°Ñ•áÑ±¥¸è€‰•¹Ñ•Èˆô°(€Á¥¹A…èì™±•á¥É•Ñ¥½¸è€‰É½Üˆ°™±•á]É…Àè€‰ÝÉ…Àˆ°…Àè€Ø°©ÕÍÑ¥™å½¹Ñ•¹Ðè€‰•¹Ñ•Èˆô°(€Á¥¹-•äèì(€€€Ý¥‘Ñ è€ÐÐ°(€€€µ¥¹!•¥¡Ðè€ÌØ°(€€€…±¥¹%Ñ•µÌè€‰•¹Ñ•Èˆ°(€€€©ÕÍÑ¥™å½¹Ñ•¹Ðè€‰•¹Ñ•Èˆ°(€€€‰½É‘•ÉI…‘¥ÕÌè€Ô°(€€€‰½É‘•É]¥‘Ñ è€È°(€€€‰½É‘•É½±½Èè€‰ÑÉ…¹ÍÁ…É•¹Ðˆ°(€€€‰…­É½Õ¹‘½±½ÈèÑÙ½±½ÉÌ¹Á…¹•±I…¥Í•°(€ô°(€Á¥¹-•åQ•áÐèì½±½Èè€ˆ™™˜ˆ°™½¹Ñ…µ¥±äè™½¹ÑÌ¹Í•µ¥‰½±°™½¹ÑM¥é”è€ÄÐô°(€Á¥¹Ñ¥½¹Ìèì™±•á¥É•Ñ¥½¸è€‰É½Üˆ°…Àè€à°µ…É¥¹Q½Àè€Ðô°(€•¹Ñ•Èèì™±•àè€Ä°…±¥¹%Ñ•µÌè€‰•¹Ñ•Èˆ°©ÕÍÑ¥™å½¹Ñ•¹Ðè€‰•¹Ñ•Èˆ°…ÀèÍÁ…¥¹œ¹µô°(€•¹Ñ•ÉQ•áÐèì½±½ÈèÑÙ½±½ÉÌ¹Ñ•áÑ5ÕÑ•°™½¹Ñ…µ¥±äè™½¹ÑÌ¹µ•‘¥Õ´°™½¹ÑM¥é”è€ÄÄ°Ñ•áÑ±¥¸è€‰•¹Ñ•Èˆ°µ…á]¥‘Ñ è€ÌÈÀô°(€É•ÑÉå	ÕÑÑ½¸èì(€€€µ¥¹!•¥¡Ðè€ÌÈ°(€€€™±•á¥É•Ñ¥½¸è€‰É½Üˆ°(€€€…±¥¹%Ñ•µÌè€‰•¹Ñ•Èˆ°(€€€…Àè€Ø°(€€€Á…‘‘¥¹!½É¥é½¹Ñ…°è€ÄÐ°(€€€‰½É‘•ÉI…‘¥ÕÌè€Ø°(€€€‰½É‘•É]¥‘Ñ è€È°(€€€‰½É‘•É½±½Èè€‰ÑÉ…¹ÍÁ…É•¹Ðˆ°(€€€‰…­É½Õ¹‘½±½ÈèÑÙ½±½ÉÌ¹ÁÕÉÁ±”°(€€€µ…É¥¹Q½Àè€Ð°(€ô°(€É•ÑÉåQ•áÐèì½±½Èè€ˆ™™˜ˆ°™½¹Ñ…µ¥±äè™½¹ÑÌ¹Í•µ¥‰½±°™½¹ÑM¥é”è€äô°(€™½ÕÍ•èì‰½É‘•É½±½Èè€ˆ™™˜ˆ°‰…­É½Õ¹‘½±½ÈèÑÙ½±½ÉÌ¹ÁÕÉÁ±•••Àô°)ô¤ì(

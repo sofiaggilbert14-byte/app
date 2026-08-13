@@ -163,7 +163,7 @@ test("Guide page skip uses only dedicated Channel/Page remote keys", async () =>
   assert.doesNotMatch(timeline, /subscribeVerticalDpadTaps|pageJumpDetectorRef/);
 });
 
-test("held Guide navigation admits one painted focus move at a time", async () => {
+test("held Guide navigation uses bounded native cadence without a cross-thread paint gate", async () => {
   const [activity, module, remote, timeline, box, guide] = await Promise.all([
     readFile(join(root, "android/app/src/main/java/com/charmiptv/app/MainActivity.kt"), "utf8"),
     readFile(join(root, "android/app/src/main/java/com/charmiptv/app/TvRemoteModule.kt"), "utf8"),
@@ -172,19 +172,17 @@ test("held Guide navigation admits one painted focus move at a time", async () =
     readFile(join(root, "src/components/BoxGrid.tsx"), "utf8"),
     readFile(join(root, "app/(tabs)/guide.tsx"), "utf8"),
   ]);
-  assert.match(activity, /guideFocusSyncActive/);
-  assert.match(activity, /guideFocusMoveReady/);
-  assert.match(activity, /GUIDE_FOCUS_ACK_TIMEOUT_MS = 240L/);
+  assert.match(activity, /guideActive/);
+  assert.match(activity, /repeatFloor = if \(guideActive\) TvRemoteModule\.guideRepeatIntervalMs/);
+  assert.doesNotMatch(activity, /guideFocusSyncActive|guideFocusMoveReady|GUIDE_FOCUS_ACK_TIMEOUT_MS/);
   assert.match(activity, /event\.keyCode == lastAcceptedDirectionalKeyCode/);
-  assert.match(module, /if \(guideFocusSyncActive == active\) return/);
+  assert.doesNotMatch(module, /guideFocusSyncActive|guideFocusMoveReady|acknowledgeGuideFocusMove/);
   assert.match(module, /coerceIn\(60L, 120L\)/);
-  assert.match(remote, /guideFocusSyncEnabled === active/);
-  assert.match(remote, /acknowledgeGuideFocusAfterPaint/);
-  assert.match(remote, /requestAnimationFrame\(\(\) => \{[\s\S]*requestAnimationFrame/);
-  assert.match(timeline, /acknowledgeGuideFocusAfterPaint\(programRowState !== "loading"\)/);
+  assert.doesNotMatch(remote, /guideFocusSyncEnabled|acknowledgeGuideFocusAfterPaint/);
+  assert.doesNotMatch(timeline, /acknowledgeGuideFocusAfterPaint|setGuideFocusSyncActive/);
   assert.match(timeline, /verticalTargetOrSelf/);
   assert.match(timeline, /scheduleFocusedCandidateRewire/);
-  assert.match(box, /acknowledgeGuideFocusAfterPaint\(programRowState !== "loading"\)/);
+  assert.doesNotMatch(box, /acknowledgeGuideFocusAfterPaint|setGuideFocusSyncActive/);
   assert.match(guide, /setGuideRepeatInterval\(powerTuning\.guideRepeatIntervalMs\)/);
 });
 

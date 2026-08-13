@@ -237,8 +237,6 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const lastPatchRunwayIdsRef = useRef<string[]>([]);
   /** Expanded conveyor keep set (Â± hysteresis). Prefer this over raw runway on retain. */
   const lastKeepIdsRef = useRef<string[]>([]);
-  const runwayGenerationRef = useRef(0);
-  const pendingPatchGenerationRef = useRef(0);
   const windowStartRef = useRef("");
   const windowEndRef = useRef("");
   const guideEpochRef = useRef(0);
@@ -292,10 +290,11 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
         : powerProfile === "weak" ? 16 : powerProfile === "max_preview" ? 48 : 32;
       const keep = pickKeepIdsAroundFocus(source, keepLimit, lastChannelIdRef.current);
       if (critical) {
-        // Invalidate and cancel pending patch work before strict eviction so an
-        // old async result cannot immediately repopulate off-screen rows.
-        runwayGenerationRef.current += 1;
-        pendingPatchGenerationRef.current = runwayGenerationRef.current;
+        // Replace both source runways before strict eviction. An in-flight SQL
+        // result is filtered against these refs when it returns, so it cannot
+        // repopulate the larger pre-pressure window.
+        lastPatchRunwayIdsRef.current = keep;
+        lastKeepIdsRef.current = keep;
         pendingPatchIdsRef.current.clear();
         pendingPatchPriorityIdsRef.current = [];
         if (patchTimerRef.current) {
@@ -331,970 +330,4 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
 
   const favoritesSet = useMemo(() => new Set(favorites), [favorites]);
 
-  // Resolve recent IDs against the live channel list â€” never keep fat Channel+programs in KV.
-  const recent = useMemo(() => {
-    const out: Channel[] = [];
-    for (const id of recentIds) {
-      const channel = channelByIdMap.get(id);
-      if (channel) out.push(channel);
-    }
-    return out;
-  }, [channelByIdMap, recentIds]);
-
-  const setPointerMode = useCallback((v: boolean) => {
-    setPointerModeState(v);
-    storage.setItem(PMODE_KEY, v);
-  }, []);
-
-  const setGuideLayout = useCallback((v: GuideLayout) => {
-    setGuideLayoutState(v);
-    storage.setItem(GUIDE_LAYOUT_KEY, v);
-  }, []);
-
-  const setGuideDensity = useCallback((v: GuideDensity) => {
-    setGuideDensityState(v);
-    storage.setItem(GUIDE_DENSITY_KEY, v);
-  }, []);
-
-  const setSafePreviewMode = useCallback((v: SafePreviewMode) => {
-    setSafePreviewModeState(v);
-    storage.setItem(SAFE_PREVIEW_MODE_KEY, v);
-  }, []);
-
-  const setChannelNumbers = useCallback((v: boolean) => {
-    setChannelNumbersState(v);
-    storage.setItem(CHANNEL_NUMBERS_KEY, v);
-  }, []);
-
-  const setChannelLogos = useCallback((v: boolean) => {
-    setChannelLogosState(v);
-    storage.setItem(CHANNEL_LOGOS_KEY, v);
-  }, []);
-
-  const setDeviceLayoutMode = useCallback((v: DeviceLayoutMode) => {
-    setDeviceLayoutModeState(v);
-    storage.setItem(DEVICE_LAYOUT_MODE_KEY, v);
-  }, []);
-
-  const setPlayerControlsTimeoutMs = useCallback((v: PlayerControlsTimeoutMs) => {
-    setPlayerControlsTimeoutMsState(v);
-    storage.setItem(PLAYER_TIMEOUT_KEY, v);
-  }, []);
-
-  const setAutoRetryStreams = useCallback((v: boolean) => {
-    setAutoRetryStreamsState(v);
-    storage.setItem(AUTO_RETRY_KEY, v);
-  }, []);
-
-  const setPreferTvgIdOnly = useCallback((v: boolean) => {
-    setPreferTvgIdOnlyState(v);
-    setPreferTvgIdOnlyMatching(v);
-    storage.setItem(PREFER_TVG_ID_ONLY_KEY, v);
-    void (async () => {
-      try {
-        await refreshEpgOnly();
-        await refreshSilentRef.current(true);
-      } catch (error) {
-        console.warn("preferTvgIdOnly rematch failed", error);
-      }
-    })();
-  }, []);
-
-  const setPowerProfile = useCallback((v: PowerProfile) => {
-    const next = resolvePowerProfile(v);
-    setPowerProfileState(next);
-    storage.setItem(POWER_PROFILE_KEY, next);
-    const tuning = getPowerProfileTuning(next);
-    setLogosOffWhileSurfingState(tuning.logosOffWhileSurfingDefault);
-    storage.setItem(LOGOS_OFF_SURF_KEY, tuning.logosOffWhileSurfingDefault);
-  }, []);
-
-  const setLogosOffWhileSurfing = useCallback((v: boolean) => {
-    setLogosOffWhileSurfingState(v);
-    storage.setItem(LOGOS_OFF_SURF_KEY, v);
-  }, []);
-
-  const setInstantGuide = useCallback((v: boolean) => {
-    setInstantGuideState(v);
-    storage.setItem(INSTANT_GUIDE_KEY, v);
-  }, []);
-
-  const setEpgGuideFilter = useCallback((v: EpgGuideFilter) => {
-    const next = resolveEpgGuideFilter(v);
-    setEpgGuideFilterState(next);
-    storage.setItem(EPG_GUIDE_FILTER_KEY, next);
-  }, []);
-
-  const setEpgManualRemaps = useCallback((v: Record<string, string>) => {
-    const next = sanitizeEpgManualRemap(v);
-    setEpgManualRemapsState(next);
-    setManualEpgRemaps(next);
-    storage.setItem(EPG_MANUAL_REMAPS_KEY, next);
-    // Reload from auto-matched MEM + remaps at read time (handles clear correctly).
-    void refreshSilentRef.current(true);
-  }, []);
-
-  const setFavoriteFolders = useCallback((folders: FavoriteFolder[]) => {
-    const next = sanitizeFavoriteFolders(folders);
-    setFavoriteFoldersState(next);
-    storage.setItem(FAVORITE_FOLDERS_KEY, next);
-  }, []);
-
-  const addFavoriteFolder = useCallback((name: string) => {
-    const folder = createFavoriteFolder(name, favoriteFolders);
-    if (!folder) return null;
-    const next = sanitizeFavoriteFolders([...favoriteFolders, folder]);
-    setFavoriteFoldersState(next);
-    storage.setItem(FAVORITE_FOLDERS_KEY, next);
-    return folder;
-  }, [favoriteFolders]);
-
-  const toggleFavoriteFolderChannel = useCallback((folderId: string, channelId: string) => {
-    if (!folderId || !channelId) return;
-    setFavoriteFoldersState((prev) => {
-      const next = sanitizeFavoriteFolders(toggleChannelInFolder(prev, folderId, channelId));
-      storage.setItem(FAVORITE_FOLDERS_KEY, next);
-      return next;
-    });
-  }, []);
-
-  const renameFavoriteFolderById = useCallback((folderId: string, name: string) => {
-    if (!folderId) return;
-    setFavoriteFoldersState((prev) => {
-      const next = sanitizeFavoriteFolders(renameFavoriteFolder(prev, folderId, name));
-      storage.setItem(FAVORITE_FOLDERS_KEY, next);
-      return next;
-    });
-  }, []);
-
-  const removeFavoriteFolder = useCallback((id: string) => {
-    if (!id) return;
-    setFavoriteFoldersState((prev) => {
-      const next = prev.filter((folder) => folder.id !== id);
-      storage.setItem(FAVORITE_FOLDERS_KEY, next);
-      return next;
-    });
-  }, []);
-
-  const setGuideWindowHours = useCallback((v: GuideWindowHours) => {
-    const next = readGuideWindowHours(v, DEFAULT_GUIDE_WINDOW_HOURS);
-    guideWindowHoursRef.current = next;
-    setGuideWindowHoursState(next);
-    storage.setItem(GUIDE_WINDOW_HOURS_KEY, next);
-    void refreshSilentRef.current(true);
-  }, []);
-
-  const setClock24h = useCallback((v: boolean) => {
-    setClock24hState(v);
-    setTimeFormat24h(v);
-    storage.setItem(CLOCK_24H_KEY, v);
-  }, []);
-
-  const setStartScreen = useCallback((v: StartScreen) => {
-    const next = resolveStartScreen(v);
-    setStartScreenState(next);
-    storage.setItem(START_SCREEN_KEY, next);
-  }, []);
-
-  const setSleepTimerMinutes = useCallback((v: SleepTimerMinutes) => {
-    const next = resolveSleepTimerMinutes(v);
-    setSleepTimerMinutesState(next);
-    storage.setItem(SLEEP_TIMER_MINUTES_KEY, next);
-  }, []);
-
-  const channelById = useCallback(
-    (id: string) => {
-      const channel = channelByIdMap.get(id);
-      if (!channel) return undefined;
-      const programs = getGuidePrograms(id);
-      if (!programs?.length) return channel;
-      if (channel.programs === programs) return channel;
-      return { ...channel, programs: [...programs] };
-    },
-    [channelByIdMap],
-  );
-
-  const isFavorite = useCallback((id: string) => favoritesSet.has(id), [favoritesSet]);
-
-  // Debounce AsyncStorage writes â€” rapid long-press favorites were hitching Fire TV I/O.
-  const favoritesPersistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const favoritesPendingRef = useRef<string[] | null>(null);
-  const persistFavorites = useCallback((next: string[]) => {
-    favoritesPendingRef.current = next;
-    if (favoritesPersistTimer.current) clearTimeout(favoritesPersistTimer.current);
-    favoritesPersistTimer.current = setTimeout(() => {
-      const payload = favoritesPendingRef.current;
-      favoritesPendingRef.current = null;
-      if (payload) void storage.setItem(FAV_KEY, payload);
-    }, 450);
-  }, []);
-
-  const toggleFavorite = useCallback((id: string) => {
-    startTransition(() => {
-      setFavorites((prev) => {
-        const next = toggleFavoriteId(prev, id);
-        if (next === prev) return prev;
-        persistFavorites(next);
-        return next;
-      });
-    });
-  }, [persistFavorites]);
-
-  const replaceFavorites = useCallback((ids: string[]) => {
-    const next = sanitizeFavoriteIds(ids);
-    startTransition(() => setFavorites(next));
-    persistFavorites(next);
-  }, [persistFavorites]);
-
-  const recentPersistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const recentPendingRef = useRef<string[] | null>(null);
-  const persistRecent = useCallback((next: string[]) => {
-    recentPendingRef.current = next;
-    if (recentPersistTimer.current) clearTimeout(recentPersistTimer.current);
-    recentPersistTimer.current = setTimeout(() => {
-      const payload = recentPendingRef.current;
-      recentPendingRef.current = null;
-      if (!payload) return;
-      void storage.setItem(RECENT_KEY, payload);
-      if (payload[0]) void storage.setItem(LAST_CHANNEL_KEY, payload[0]);
-    }, 450);
-  }, []);
-
-  const addRecent = useCallback((c: Channel) => {
-    if (!c?.id) return;
-    setLastChannelId(c.id);
-    setRecentIds((prev) => {
-      const next = pushRecentId(prev, c.id);
-      if (next.length === prev.length && next.every((id, i) => id === prev[i])) {
-        return prev;
-      }
-      persistRecent(next);
-      return next;
-    });
-  }, [persistRecent]);
-
-  // Intentionally do NOT prune favorite/recent IDs when the playlist loads.
-  // A partial or temporary channel list must never wipe user favorites from KV.
-  // UI filters already hide IDs that are not in the current playlist.
-
-  const hasReminder = useCallback((key: string) => remindersSet.has(key), [remindersSet]);
-
-  const addReminder = useCallback(async (program: Program, channel: Channel) => {
-    try {
-      if (!program?.start || !channel?.id) return false;
-      const key = reminderKey(channel.id, program.start);
-      if (remindersRef.current.some((r) => r.key === key)) return true;
-      const granted = await requestNotificationPermission();
-      if (!granted) return false;
-      const id = await scheduleProgramReminder({
-        title: `${program.title || "Program"} is starting`,
-        body: `On ${channel.name || "channel"}. Tap to switch channel.`,
-        date: new Date(program.start),
-        data: { channelId: channel.id },
-      });
-      if (!id) return false;
-      const rem: Reminder = {
-        key,
-        notificationId: id,
-        channelId: channel.id,
-        channelName: channel.name,
-        channelLogo: channel.logo || null,
-        programTitle: program.title,
-        programDesc: program.desc || "",
-        start: program.start,
-        stop: program.stop,
-      };
-      // Update ref synchronously so immediate hasReminder / toggle reads are correct.
-      remindersRef.current = sanitizeReminders([
-        ...remindersRef.current.filter((r) => r.key !== key),
-        rem,
-      ]) as Reminder[];
-      setReminders((prev) => {
-        const next = sanitizeReminders([...prev.filter((r) => r.key !== key), rem]) as Reminder[];
-        try {
-          storage.setItem(REM_KEY, next);
-        } catch {}
-        return next;
-      });
-      return true;
-    } catch {
-      return false;
-    }
-  }, []);
-
-  const removeReminder = useCallback(async (key: string) => {
-    try {
-      if (!key) return;
-      const rem = remindersRef.current.find((r) => r.key === key);
-      // Flip UI / store immediately; cancel the OS notification after paint.
-      remindersRef.current = remindersRef.current.filter((r) => r.key !== key);
-      setReminders((prev) => {
-        const next = prev.filter((r) => r.key !== key);
-        try {
-          storage.setItem(REM_KEY, next);
-        } catch {}
-        return next;
-      });
-      if (rem?.notificationId) {
-        const notificationId = rem.notificationId;
-        setTimeout(() => {
-          void cancelReminder(notificationId).catch(() => {});
-        }, 0);
-      }
-    } catch {
-      // Never let reminder cleanup take down the guide.
-    }
-  }, []);
-
-  const toggleReminder = useCallback(
-    (program: Program, channel: Channel): Promise<ReminderToggleResult> => {
-      if (!program?.start || !channel?.id) return Promise.resolve("failed");
-      const key = reminderKey(channel.id, program.start);
-      const actual = remindersRef.current.some((reminder) => reminder.key === key);
-      const desired = reminderDesiredStateRef.current.has(key)
-        ? !!reminderDesiredStateRef.current.get(key)
-        : actual;
-      reminderDesiredStateRef.current.set(key, !desired);
-
-      const inFlight = reminderMutationRef.current.get(key);
-      if (inFlight) return inFlight;
-
-      const mutation = (async (): Promise<ReminderToggleResult> => {
-        while (true) {
-          const current = remindersRef.current.some((reminder) => reminder.key === key);
-          const target = reminderDesiredStateRef.current.get(key) ?? current;
-          if (current === target) {
-            reminderDesiredStateRef.current.delete(key);
-            return current ? "added" : "removed";
-          }
-          if (target) {
-            const added = await addReminder(program, channel);
-            if (!added) {
-              reminderDesiredStateRef.current.delete(key);
-              return "failed";
-            }
-          } else {
-            await removeReminder(key);
-          }
-          // Re-read the desired state: a second press may have reversed intent
-          // while notification permission/scheduling was still in flight.
-        }
-      })().finally(() => {
-        reminderMutationRef.current.delete(key);
-      });
-      reminderMutationRef.current.set(key, mutation);
-      return mutation;
-    },
-    [addReminder, removeReminder],
-  );
-
-  const refresh = useCallback(async (silent = false) => {
-    if (silent && isGuideSurfing()) {
-      pendingSilentRefreshRef.current = true;
-      return;
-    }
-    const requestId = ++refreshRequestRef.current;
-    if (!silent) setLoading(true);
-    setError(null);
-    try {
-      const day = dayjs(dateRef.current);
-      const isToday = day.isSame(dayjs(), "day");
-      const start = isToday ? undefined : day.startOf("day").toISOString();
-      const data = await loadGuide(start, guideWindowHoursRef.current);
-      if (requestId !== refreshRequestRef.current) return;
-      // A refresh that began just before held D-pad input must never land a
-      // whole-guide update under native focus. Keep its data out of React and
-      // request one fresh, scoped refresh after surf settles.
-      if (silent && isGuideSurfing()) {
-        pendingSilentRefreshRef.current = true;
-        return;
-      }
-      // Keep channel meta stable when identity/order unchanged; always merge programmes.
-      const nextChannels = applyManualEpgRemaps(data.channels, epgManualRemapsRef.current);
-      const nextPrograms =
-        data.programsByChannelId && Object.keys(data.programsByChannelId).length
-          ? data.programsByChannelId
-          : Object.fromEntries(
-              nextChannels
-                .filter((channel) => Array.isArray(channel.programs) && channel.programs.length)
-                .map((channel) => [channel.id, channel.programs as Program[]]),
-            );
-      windowStartRef.current = data.start;
-      windowEndRef.current = data.end;
-      guideEpochRef.current = data.guideEpoch || 0;
-      applyGuidePrograms(makeGuideProgramWindowKey(data.start, data.end, guideEpochRef.current), nextPrograms);
-      setChannels((prev) => {
-        if (
-          prev.length === nextChannels.length &&
-          prev.length > 0 &&
-          prev.every((channel, index) => {
-            const next = nextChannels[index];
-            return (
-              channel.id === next.id &&
-              channel.tvg_id === next.tvg_id &&
-              channel.name === next.name &&
-              channel.logo === next.logo &&
-              channel.group === next.group &&
-              channel.url === next.url
-            );
-          })
-        ) {
-          return prev;
-        }
-        // Strip all nested programs from meta rows. Rendered guide rows subscribe
-        // to their own external programme pointer, so one viewport delta cannot
-        // replace the FlashList data for every channel.
-        return nextChannels.map((channel) => ({
-          id: channel.id,
-          tvg_id: channel.tvg_id,
-          name: channel.name,
-          logo: channel.logo,
-          group: channel.group,
-          url: channel.url,
-          stream_type: channel.stream_type,
-        }));
-      });
-      setWindowStart(data.start);
-      setWindowEnd(data.end);
-      // Soft-remap Phase-4 / collision IDs onto the live playlist without wiping orphans.
-      setFavorites((prev) => {
-        const { ids } = remapStoredChannelIds(prev, nextChannels);
-        if (ids.length === prev.length && ids.every((id, i) => id === prev[i])) return prev;
-        void storage.setItem(FAV_KEY, ids);
-        return ids;
-      });
-      setRecentIds((prev) => {
-        const { ids } = remapStoredChannelIds(prev, nextChannels);
-        if (ids.length === prev.length && ids.every((id, i) => id === prev[i])) return prev;
-        persistRecent(ids);
-        return ids;
-      });
-      setLastChannelId((prev) => {
-        if (!prev) return prev;
-        const { ids } = remapStoredChannelIds([prev], nextChannels);
-        const next = ids[0] || prev;
-        if (next !== prev) void storage.setItem(LAST_CHANNEL_KEY, next);
-        return next;
-      });
-    } catch (e: any) {
-      if (requestId !== refreshRequestRef.current) return;
-      setError(e?.message || "Failed to load guide");
-    } finally {
-      if (!silent && requestId === refreshRequestRef.current) setLoading(false);
-    }
-  }, [persistRecent]);
-
-  refreshSilentRef.current = refresh;
-
-  const flushProgramPatchQueue = useCallback(async () => {
-    if (patchInFlightRef.current || pendingPatchIdsRef.current.size === 0) return;
-    if (!windowStartRef.current || !windowEndRef.current) return;
-
-    patchInFlightRef.current = true;
-    const ids = Array.from(pendingPatchIdsRef.current);
-    const priorityOrder = pendingPatchPriorityIdsRef.current;
-    pendingPatchIdsRef.current.clear();
-    pendingPatchPriorityIdsRef.current = [];
-    const start = windowStartRef.current;
-    const end = windowEndRef.current;
-    const guideEpoch = guideEpochRef.current;
-    try {
-      const applyTier = async (tierIds: string[]) => {
-        if (!tierIds.length) return true;
-        const delta = await loadGuideProgramsForChannelIds(tierIds, start, guideWindowHoursRef.current);
-        // Date/window changed while SQLite was reading. Do not paint an old day.
-        if (start !== windowStartRef.current || end !== windowEndRef.current) return false;
-        // A background guide refresh replaced the native cache while this tier
-        // was reading. Keep last-good rows and enqueue the newest runway again.
-        if (guideEpoch !== guideEpochRef.current) {
-          pendingPatchIdsRef.current.clear();
-          for (const id of lastPatchRunwayIdsRef.current) {
-            if (id) pendingPatchIdsRef.current.add(id);
-          }
-          pendingPatchPriorityIdsRef.current = lastPatchRunwayIdsRef.current.slice(0, 3);
-          pendingPatchGenerationRef.current = runwayGenerationRef.current;
-          return false;
-        }
-        // Focus may advance while SQLite is reading. Keep results that still
-        // belong to the newest hysteresis band instead of discarding the whole
-        // query and repeatedly starting over until the remote is released.
-        const keep = lastKeepIdsRef.current.length
-          ? lastKeepIdsRef.current
-          : lastPatchRunwayIdsRef.current;
-        const usefulDelta = keepUsefulGuidePatch(delta || {}, keep);
-        // Native returns explicit empty arrays too, clearing stale rows without
-        // waiting for the complete runway.
-        if (Object.keys(usefulDelta).length) {
-          applyGuidePrograms(makeGuideProgramWindowKey(start, end, guideEpochRef.current), usefulDelta);
-        }
-        retainGuidePrograms(keep);
-        retainProgrammeWindowCache(keep);
-        return true;
-      };
-      // One leading batch avoids paying a native bridge round-trip for only one
-      // row while still getting the focused page on glass first. Tail chunks
-      // are bounded so a long runway never creates one giant JS allocation.
-      const tiers = buildGuidePatchTiers(ids, priorityOrder, 12, 24);
-      for (const tier of tiers) {
-        if (!(await applyTier(tier))) return;
-        // A newer runway supersedes the old tail. Finish its focused tier next
-        // instead of making held-D-pad input wait behind obsolete bridge work.
-        if (pendingPatchIdsRef.current.size > 0) return;
-      }
-    } catch {
-      /* keep last-good programmes on the glass */
-    } finally {
-      patchInFlightRef.current = false;
-      if (pendingPatchIdsRef.current.size > 0) {
-        if (patchTimerRef.current) clearTimeout(patchTimerRef.current);
-        patchTimerRef.current = setTimeout(() => {
-          patchTimerRef.current = null;
-          void flushProgramPatchQueue();
-        }, isGuideSurfing() ? 24 : 0);
-      }
-    }
-  }, []);
-
-  const patchProgramsForChannelIds = useCallback(async (channelIds: string[], priorityIds: string[] = []) => {
-    // Each call is a complete eight-page runway. Keep only the newest pending
-    // window while SQLite is busy; the previous completed/in-flight pages remain
-    // cached inside the conveyor hysteresis band until retain drops them.
-    pendingPatchIdsRef.current.clear();
-    pendingPatchPriorityIdsRef.current = [];
-    const runwayGeneration = runwayGenerationRef.current + 1;
-    runwayGenerationRef.current = runwayGeneration;
-    pendingPatchGenerationRef.current = runwayGeneration;
-    lastPatchRunwayIdsRef.current = channelIds.filter(Boolean);
-    for (const id of channelIds) {
-      if (id) pendingPatchIdsRef.current.add(id);
-    }
-    for (const id of priorityIds) {
-      if (
-        id &&
-        pendingPatchIdsRef.current.has(id) &&
-        !pendingPatchPriorityIdsRef.current.includes(id)
-      ) {
-        pendingPatchPriorityIdsRef.current.push(id);
-      }
-    }
-    if (!pendingPatchIdsRef.current.size || patchInFlightRef.current || patchTimerRef.current) return;
-    // Leading-edge work keeps the next rows populated while the key is held.
-    patchTimerRef.current = setTimeout(() => {
-      patchTimerRef.current = null;
-      void flushProgramPatchQueue();
-    }, isGuideSurfing() ? 16 : 32);
-  }, [flushProgramPatchQueue]);
-
-  /**
-   * Advance the conveyor-belt keep set: drop JS + native programme rows that
-   * left the hysteresis band so held surfing cannot accumulate the playlist.
-   */
-  const retainGuideSlidingCache = useCallback((keepIds: Iterable<string>) => {
-    const keep = Array.from(keepIds).filter(Boolean);
-    if (!keep.length) return;
-    lastKeepIdsRef.current = keep;
-    retainGuidePrograms(keep);
-    retainProgrammeWindowCache(keep);
-  }, []);
-
-  const releaseGuideSlidingCache = useCallback(() => {
-    // Preserve a small warm runway for a fast return to Guide while releasing
-    // the bulk of programme arrays before fullscreen video decoders start.
-    // Cap around lastChannelId â€” slicing the ascending keep head drops focus.
-    const keepLimit = powerProfile === "weak" ? 24 : powerProfile === "max_preview" ? 72 : 48;
-    const source = lastKeepIdsRef.current.length
-      ? lastKeepIdsRef.current
-      : lastPatchRunwayIdsRef.current;
-    const keep = pickKeepIdsAroundFocus(source, keepLimit, lastChannelId);
-    lastPatchRunwayIdsRef.current = keep;
-    lastKeepIdsRef.current = keep;
-    runwayGenerationRef.current += 1;
-    pendingPatchGenerationRef.current = runwayGenerationRef.current;
-    pendingPatchIdsRef.current.clear();
-    pendingPatchPriorityIdsRef.current = [];
-    if (patchTimerRef.current) {
-      clearTimeout(patchTimerRef.current);
-      patchTimerRef.current = null;
-    }
-    // Strict retain first so blur cannot leave hundreds of off-runway rows warm.
-    // Force empties subscribed off-keep rows â€” FlashList may still be mounted.
-    retainGuidePrograms(keep, { force: true });
-    retainProgrammeWindowCache(keep);
-    trimGuideProgramRows(keep, true);
-    trimProgrammeWindowCacheForMemoryPressure(keep, true);
-    clearChannelLogoMemory();
-  }, [lastChannelId, powerProfile]);
-
-  const setSelectedDate = useCallback(
-    (d: string) => {
-      dateRef.current = d;
-      setSelectedDateState(d);
-      refresh();
-    },
-    [refresh],
-  );
-
-  const hardRefresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      await refreshSource(true);
-      await refresh(true);
-    } catch (e) {
-      console.warn("hardRefresh error:", e);
-    }
-    setRefreshing(false);
-  }, [refresh]);
-
-  useEffect(() => {
-    let disposed = false;
-    let healthTimer: ReturnType<typeof setTimeout> | null = null;
-    void (async () => {
-      const rawFavorites = await storage.getItem<unknown>(FAV_KEY, []);
-      const cleanedFavorites = sanitizeFavoriteIds(rawFavorites);
-      setFavorites(cleanedFavorites);
-      // Rewrite compacted ID-only list if older/fatter data was stored.
-      if (JSON.stringify(rawFavorites) !== JSON.stringify(cleanedFavorites)) {
-        void storage.setItem(FAV_KEY, cleanedFavorites);
-      }
-      const rawRecent = await storage.getItem<unknown>(RECENT_KEY, []);
-      const cleanedRecent = sanitizeRecentIds(rawRecent);
-      setRecentIds(cleanedRecent);
-      if (JSON.stringify(rawRecent) !== JSON.stringify(cleanedRecent)) {
-        void storage.setItem(RECENT_KEY, cleanedRecent);
-      }
-      setLastChannelId(await storage.getItem<string | null>(LAST_CHANNEL_KEY, null));
-      setReminders(sanitizeReminders((await storage.getItem<Reminder[]>(REM_KEY, [])) || []) as Reminder[]);
-      setPointerModeState((await storage.getItem<boolean>(PMODE_KEY, false)) || false);
-      const storedGuideLayout = await storage.getItem<string | null>(GUIDE_LAYOUT_KEY, null);
-      setGuideLayoutState(resolveStoredGuideLayout(storedGuideLayout, Platform.isTV, Platform.OS));
-      const extraCompactDefaultApplied = await storage.getItem<boolean>(EXTRA_COMPACT_DEFAULT_MIGRATION_KEY, false);
-      const storedDensity = extraCompactDefaultApplied
-        ? await storage.getItem<GuideDensity>(GUIDE_DENSITY_KEY, "extra_compact")
-        : "extra_compact";
-      setGuideDensityState(
-        storedDensity === "large" || storedDensity === "normal" || storedDensity === "compact"
-          ? storedDensity
-          : "extra_compact",
-      );
-      if (!extraCompactDefaultApplied) {
-        void storage.setItem(GUIDE_DENSITY_KEY, "extra_compact");
-        void storage.setItem(EXTRA_COMPACT_DEFAULT_MIGRATION_KEY, true);
-      }
-      setSafePreviewModeState((await storage.getItem<SafePreviewMode>(SAFE_PREVIEW_MODE_KEY, "surf")) || "surf");
-      setChannelNumbersState((await storage.getItem<boolean>(CHANNEL_NUMBERS_KEY, false)) || false);
-      setChannelLogosState((await storage.getItem<boolean>(CHANNEL_LOGOS_KEY, true)) ?? true);
-      setDeviceLayoutModeState((await storage.getItem<DeviceLayoutMode>(DEVICE_LAYOUT_MODE_KEY, "auto")) || "auto");
-      setPlayerControlsTimeoutMsState((await storage.getItem<PlayerControlsTimeoutMs>(PLAYER_TIMEOUT_KEY, 8000)) || 8000);
-      setAutoRetryStreamsState((await storage.getItem<boolean>(AUTO_RETRY_KEY, true)) ?? true);
-      const tvgOnly = (await storage.getItem<boolean>(PREFER_TVG_ID_ONLY_KEY, false)) || false;
-      setPreferTvgIdOnlyState(tvgOnly);
-      setPreferTvgIdOnlyMatching(tvgOnly);
-      const profile = resolvePowerProfile(await storage.getItem<string>(POWER_PROFILE_KEY, "normal"));
-      setPowerProfileState(profile);
-      const rawLogosOffWhileSurfing = await storage.getItem<boolean | null>(LOGOS_OFF_SURF_KEY, null);
-      setLogosOffWhileSurfingState(
-        typeof rawLogosOffWhileSurfing === "boolean"
-          ? rawLogosOffWhileSurfing
-          : getPowerProfileTuning(profile).logosOffWhileSurfingDefault,
-      );
-      setInstantGuideState((await storage.getItem<boolean>(INSTANT_GUIDE_KEY, true)) ?? true);
-      setEpgGuideFilterState(resolveEpgGuideFilter(await storage.getItem<string>(EPG_GUIDE_FILTER_KEY, "all")));
-      const manualRemaps = sanitizeEpgManualRemap(await storage.getItem<Record<string, string>>(EPG_MANUAL_REMAPS_KEY, {}));
-      setEpgManualRemapsState(manualRemaps);
-      setManualEpgRemaps(manualRemaps);
-      // Seed useful TV folder presets once (even if the user later deletes all folders).
-      const foldersSeeded = (await storage.getItem<boolean>(FAVORITE_FOLDERS_SEEDED_KEY, false)) || false;
-      const storedFolders = sanitizeFavoriteFolders(await storage.getItem<FavoriteFolder[]>(FAVORITE_FOLDERS_KEY, []));
-      if (!foldersSeeded && !storedFolders.length) {
-        const seeded: FavoriteFolder[] = [];
-        for (const name of DEFAULT_FOLDER_PRESETS) {
-          const folder = createFavoriteFolder(name, seeded);
-          if (folder) seeded.push(folder);
-        }
-        const next = sanitizeFavoriteFolders(seeded);
-        setFavoriteFoldersState(next);
-        void storage.setItem(FAVORITE_FOLDERS_KEY, next);
-        void storage.setItem(FAVORITE_FOLDERS_SEEDED_KEY, true);
-      } else {
-        setFavoriteFoldersState(storedFolders);
-        if (!foldersSeeded) void storage.setItem(FAVORITE_FOLDERS_SEEDED_KEY, true);
-      }
-      const storedGuideWindowHours = readGuideWindowHours(
-        await storage.getItem<number>(GUIDE_WINDOW_HOURS_KEY, DEFAULT_GUIDE_WINDOW_HOURS),
-        DEFAULT_GUIDE_WINDOW_HOURS,
-      );
-      guideWindowHoursRef.current = storedGuideWindowHours;
-      setGuideWindowHoursState(storedGuideWindowHours);
-      const storedClock24h = (await storage.getItem<boolean>(CLOCK_24H_KEY, false)) || false;
-      setClock24hState(storedClock24h);
-      setTimeFormat24h(storedClock24h);
-      setStartScreenState(resolveStartScreen(await storage.getItem<string>(START_SCREEN_KEY, "home")));
-      setSleepTimerMinutesState(resolveSleepTimerMinutes(await storage.getItem<number>(SLEEP_TIMER_MINUTES_KEY, 0)));
-
-      // Fast paint from cache only â€” never block first focus with permission dialogs
-      // or stacked source rebuilds (those freeze Fire TV focus on open).
-      await refresh();
-      if (disposed) return;
-
-      // Health check after the UI can accept D-pad input.
-      healthTimer = setTimeout(() => {
-        if (disposed) return;
-        void (async () => {
-          try {
-            const status = await refreshSource(false);
-            if (status.channel_count === 0 || status.error) {
-              await refreshSource(true);
-              await refresh(true);
-            }
-          } catch {
-            // Leave the cached guide up; user can Retry from the guide screen.
-          }
-        })();
-      }, 4500);
-    })();
-    return () => {
-      disposed = true;
-      if (healthTimer) clearTimeout(healthTimer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-    let disposed = false;
-    // Native EPG emits partial + final phases. Coalesce them so one refresh does
-    // not rebuild every channel/TimelineGrid row multiple times on weak sticks.
-    const unsubscribe = subscribeSource(() => {
-      if (refreshTimer) clearTimeout(refreshTimer);
-      refreshTimer = setTimeout(() => {
-        refreshTimer = null;
-        if (disposed) return;
-        if (isGuideSurfing()) {
-          pendingSilentRefreshRef.current = true;
-          return;
-        }
-        void refresh(true);
-      }, 500);
-    });
-    const unsubSettle = onGuideSurfSettled(() => {
-      if (disposed || !pendingSilentRefreshRef.current) return;
-      pendingSilentRefreshRef.current = false;
-      void refresh(true);
-    });
-    return () => {
-      disposed = true;
-      if (refreshTimer) clearTimeout(refreshTimer);
-      unsubscribe();
-      unsubSettle();
-    };
-  }, [refresh]);
-
-  useEffect(
-    () => () => {
-      if (patchTimerRef.current) clearTimeout(patchTimerRef.current);
-      runwayGenerationRef.current += 1;
-      pendingPatchIdsRef.current.clear();
-      pendingPatchPriorityIdsRef.current = [];
-      lastPatchRunwayIdsRef.current = [];
-      lastKeepIdsRef.current = [];
-      if (favoritesPersistTimer.current) clearTimeout(favoritesPersistTimer.current);
-      if (favoritesPendingRef.current) void storage.setItem(FAV_KEY, favoritesPendingRef.current);
-      if (recentPersistTimer.current) clearTimeout(recentPersistTimer.current);
-      if (recentPendingRef.current) {
-        const payload = recentPendingRef.current;
-        void storage.setItem(RECENT_KEY, payload);
-        if (payload[0]) void storage.setItem(LAST_CHANNEL_KEY, payload[0]);
-      }
-    },
-    [],
-  );
-
-  // Keep the guide window rolling while the app stays open (silent, low frequency).
-  // Skip while a refresh is already running so weak Fire TVs don't hitch mid-surf.
-  const busyRef = useRef(false);
-  useEffect(() => {
-    busyRef.current = loading || refreshing;
-  }, [loading, refreshing]);
-  useEffect(() => {
-    const timer = setInterval(() => {
-      if (busyRef.current || isGuideSurfing()) return;
-      void refresh(true);
-    }, 60 * 60 * 1000);
-    return () => clearInterval(timer);
-  }, [refresh]);
-
-  const openProgram = useCallback((program: Program, channel: Channel) => {
-    if (!program || !channel || !channel.id || !program.start || Number.isNaN(Date.parse(program.start))) {
-      return;
-    }
-    setActiveProgram({
-      program: {
-        title: program.title || "No Title",
-        desc: program.desc || "",
-        category: program.category || "",
-        start: program.start,
-        stop: program.stop && !Number.isNaN(Date.parse(program.stop)) ? program.stop : null,
-      },
-      channel,
-    });
-  }, []);
-
-  const closeProgram = useCallback(() => setActiveProgram(null), []);
-
-  const value: Store = useMemo(
-    () => ({
-      channels,
-      windowStart,
-      windowEnd,
-      loading,
-      refreshing,
-      error,
-      refresh,
-      hardRefresh,
-      patchProgramsForChannelIds,
-      retainGuideSlidingCache,
-      releaseGuideSlidingCache,
-      selectedDate,
-      setSelectedDate,
-      channelById,
-      favorites,
-      isFavorite,
-      toggleFavorite,
-      replaceFavorites,
-      recent,
-      recentIds,
-      lastChannelId,
-      addRecent,
-      reminders,
-      hasReminder,
-      addReminder,
-      removeReminder,
-      toggleReminder,
-      activeProgram,
-      openProgram,
-      closeProgram,
-      pointerMode,
-      setPointerMode,
-      guideLayout,
-      setGuideLayout,
-      guideDensity,
-      setGuideDensity,
-      safePreviewMode,
-      setSafePreviewMode,
-      channelNumbers,
-      setChannelNumbers,
-      channelLogos,
-      setChannelLogos,
-      deviceLayoutMode,
-      setDeviceLayoutMode,
-      playerControlsTimeoutMs,
-      setPlayerControlsTimeoutMs,
-      autoRetryStreams,
-      setAutoRetryStreams,
-      preferTvgIdOnly,
-      setPreferTvgIdOnly,
-      powerProfile,
-      setPowerProfile,
-      logosOffWhileSurfing,
-      setLogosOffWhileSurfing,
-      instantGuide,
-      setInstantGuide,
-      epgGuideFilter,
-      setEpgGuideFilter,
-      epgManualRemaps,
-      setEpgManualRemaps,
-      favoriteFolders,
-      setFavoriteFolders,
-      addFavoriteFolder,
-      toggleFavoriteFolderChannel,
-      renameFavoriteFolder: renameFavoriteFolderById,
-      removeFavoriteFolder,
-      guideWindowHours,
-      setGuideWindowHours,
-      clock24h,
-      setClock24h,
-      startScreen,
-      setStartScreen,
-      sleepTimerMinutes,
-      setSleepTimerMinutes,
-    }),
-    [
-      channels,
-      windowStart,
-      windowEnd,
-      loading,
-      refreshing,
-      error,
-      refresh,
-      hardRefresh,
-      patchProgramsForChannelIds,
-      retainGuideSlidingCache,
-      releaseGuideSlidingCache,
-      selectedDate,
-      setSelectedDate,
-      channelById,
-      favorites,
-      isFavorite,
-      toggleFavorite,
-      replaceFavorites,
-      recent,
-      recentIds,
-      lastChannelId,
-      addRecent,
-      reminders,
-      hasReminder,
-      addReminder,
-      removeReminder,
-      toggleReminder,
-      activeProgram,
-      openProgram,
-      closeProgram,
-      pointerMode,
-      setPointerMode,
-      guideLayout,
-      setGuideLayout,
-      guideDensity,
-      setGuideDensity,
-      safePreviewMode,
-      setSafePreviewMode,
-      channelNumbers,
-      setChannelNumbers,
-      channelLogos,
-      setChannelLogos,
-      deviceLayoutMode,
-      setDeviceLayoutMode,
-      playerControlsTimeoutMs,
-      setPlayerControlsTimeoutMs,
-      autoRetryStreams,
-      setAutoRetryStreams,
-      preferTvgIdOnly,
-      setPreferTvgIdOnly,
-      powerProfile,
-      setPowerProfile,
-      logosOffWhileSurfing,
-      setLogosOffWhileSurfing,
-      instantGuide,
-      setInstantGuide,
-      epgGuideFilter,
-      setEpgGuideFilter,
-      epgManualRemaps,
-      setEpgManualRemaps,
-      favoriteFolders,
-      setFavoriteFolders,
-      addFavoriteFolder,
-      toggleFavoriteFolderChannel,
-      renameFavoriteFolderById,
-      removeFavoriteFolder,
-      guideWindowHours,
-      setGuideWindowHours,
-      clock24h,
-      setClock24h,
-      startScreen,
-      setStartScreen,
-      sleepTimerMinutes,
-      setSleepTimerMinutes,
-    ],
-  );
-
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
-}
+  // Resolve recent IDs against the live channel list â€” never keïM<¶‰žËkºwµçAÑ¡”¹•áÐÉ½ÝÌÁ½ÁÕ±…Ñ•Ý¡¥±”Ñ¡”­•ä¥Ì¡•±¸(€€€Á…Ñ¡Q¥µ•ÉI•˜¹ÕÉÉ•¹Ð€ôÍ•ÑQ¥µ•½ÕÐ  ¤€ôøì(€€€€€Á…Ñ¡Q¥µ•ÉI•˜¹ÕÉÉ•¹Ð€ô¹Õ±°ì(€€€€€Ù½¥™±ÕÍ¡AÉ½É…µA…Ñ¡EÕ•Õ” ¤ì(€€€ô°¥ÍÕ¥‘•MÕÉ™¥¹œ ¤€ü€ÄØ€è€ÌÈ¤ì(€ô°m™±ÕÍ¡AÉ½É…µA…Ñ¡EÕ•Õ•t¤ì((€€¼¨¨(€€€¨‘Ù…¹”Ñ¡”½¹Ù•å½Èµ‰•±Ð­••ÀÍ•Ðè‘É½À)L€¬¹…Ñ¥Ù”ÁÉ½É…µµ”É½ÝÌÑ¡…Ð(€€€¨±•™ÐÑ¡”¡åÍÑ•É•Í¥Ì‰…¹Í¼¡•±ÍÕÉ™¥¹œ…¹¹½Ð…ÕµÕ±…Ñ”Ñ¡”Á±…å±¥ÍÐ¸(€€€¨¼(€½¹ÍÐÉ•Ñ…¥¹Õ¥‘•M±¥‘¥¹…¡”€ôÕÍ•…±±‰…¬ ¡­••Á%‘Ìè%Ñ•É…‰±”ñÍÑÉ¥¹œø¤€ôøì(€€€½¹ÍÐ­••À€ôÉÉ…ä¹™É½´¡­••Á%‘Ì¤¹™¥±Ñ•È¡	½½±•…¸¤ì(€€€¥˜€ …­••À¹±•¹Ñ ¤É•ÑÕÉ¸ì(€€€±…ÍÑ-••Á%‘ÍI•˜¹ÕÉÉ•¹Ð€ô­••Àì(€€€É•Ñ…¥¹Õ¥‘•AÉ½É…µÌ¡­••À¤ì(€€€É•Ñ…¥¹AÉ½É…µµ•]¥¹‘½Ý…¡”¡­••À¤ì(€ô°mt¤ì((€½¹ÍÐÉ•±•…Í•Õ¥‘•M±¥‘¥¹…¡”€ôÕÍ•…±±‰…¬  ¤€ôøì(€€€€¼¼AÉ•Í•ÉÙ”„Íµ…±°Ý…É´ÉÕ¹Ý…ä™½È„™…ÍÐÉ•ÑÕÉ¸Ñ¼Õ¥‘”Ý¡¥±”É•±•…Í¥¹œ(€€€€¼¼Ñ¡”‰Õ±¬½˜ÁÉ½É…µµ”…ÉÉ…åÌ‰•™½É”™Õ±±ÍÉ••¸Ù¥‘•¼‘•½‘•ÉÌÍÑ…ÉÐ¸(€€€€¼¼…À…É½Õ¹±…ÍÑ¡…¹¹•±%ƒŠPÍ±¥¥¹œÑ¡”…Í•¹‘¥¹œ­••À¡•…‘É½ÁÌ™½ÕÌ¸(€€€½¹ÍÐ­••Á1¥µ¥Ð€ôÁ½Ý•ÉAÉ½™¥±”€ôôô€‰Ý•…¬ˆ€ü€ÈÐ€èÁ½Ý•ÉAÉ½™¥±”€ôôô€‰µ…á}ÁÉ•Ù¥•Üˆ€ü€ÜÈ€è€Ðàì(€€€½¹ÍÐÍ½ÕÉ”€ô±…ÍÑ-••Á%‘ÍI•˜¹ÕÉÉ•¹Ð¹±•¹Ñ (€€€€€€ü±…ÍÑ-••Á%‘ÍI•˜¹ÕÉÉ•¹Ð(€€€€€€è±…ÍÑA…Ñ¡IÕ¹Ý…å%‘ÍI•˜¹ÕÉÉ•¹Ðì(€€€½¹ÍÐ­••À€ôÁ¥­-••Á%‘ÍÉ½Õ¹‘½ÕÌ¡Í½ÕÉ”°­••Á1¥µ¥Ð°±…ÍÑ¡…¹¹•±%¤ì(€€€±…ÍÑA…Ñ¡IÕ¹Ý…å%‘ÍI•˜¹ÕÉÉ•¹Ð€ô­••Àì(€€€±…ÍÑ-••Á%‘ÍI•˜¹ÕÉÉ•¹Ð€ô­••Àì(€€€Á•¹‘¥¹A…Ñ¡%‘ÍI•˜¹ÕÉÉ•¹Ð¹±•…È ¤ì(€€€Á•¹‘¥¹A…Ñ¡AÉ¥½É¥Ñå%‘ÍI•˜¹ÕÉÉ•¹Ð€ômtì(€€€¥˜€¡Á…Ñ¡Q¥µ•ÉI•˜¹ÕÉÉ•¹Ð¤ì(€€€€€±•…ÉQ¥µ•½ÕÐ¡Á…Ñ¡Q¥µ•ÉI•˜¹ÕÉÉ•¹Ð¤ì(€€€€€Á…Ñ¡Q¥µ•ÉI•˜¹ÕÉÉ•¹Ð€ô¹Õ±°ì(€€€ô(€€€€¼¼MÑÉ¥ÐÉ•Ñ…¥¸™¥ÉÍÐÍ¼‰±ÕÈ…¹¹½Ð±•…Ù”¡Õ¹‘É•‘Ì½˜½™˜µÉÕ¹Ý…äÉ½ÝÌÝ…É´¸(€€€€¼¼½É”•µÁÑ¥•ÌÍÕ‰ÍÉ¥‰•½™˜µ­••ÀÉ½ÝÌƒŠP±…Í¡1¥ÍÐµ…äÍÑ¥±°‰”µ½Õ¹Ñ•¸(€€€É•Ñ…¥¹Õ¥‘•AÉ½É…µÌ¡­••À°ì™½É”èÑÉÕ”ô¤ì(€€€É•Ñ…¥¹AÉ½É…µµ•]¥¹‘½Ý…¡”¡­••À¤ì(€€€ÑÉ¥µÕ¥‘•AÉ½É…µI½ÝÌ¡­••À°ÑÉÕ”¤ì(€€€ÑÉ¥µAÉ½É…µµ•]¥¹‘½Ý…¡•½É5•µ½ÉåAÉ•ÍÍÕÉ”¡­••À°ÑÉÕ”¤ì(€€€±•…É¡…¹¹•±1½½5•µ½Éä ¤ì(€ô°m±…ÍÑ¡…¹¹•±%°Á½Ý•ÉAÉ½™¥±•t¤ì((€½¹ÍÐÍ•ÑM•±•Ñ•‘…Ñ”€ôÕÍ•…±±‰…¬ (€€€€¡èÍÑÉ¥¹œ¤€ôøì(€€€€€‘…Ñ•I•˜¹ÕÉÉ•¹Ð€ôì(€€€€€Í•ÑM•±•Ñ•‘…Ñ•MÑ…Ñ”¡¤ì(€€€€€É•™É•Í  ¤ì(€€€ô°(€€€mÉ•™É•Í¡t°(€€¤ì((€½¹ÍÐ¡…É‘I•™É•Í €ôÕÍ•…±±‰…¬¡…Íå¹Œ€ ¤€ôøì(€€€Í•ÑI•™É•Í¡¥¹œ¡ÑÉÕ”¤ì(€€€ÑÉäì(€€€€€…Ý…¥ÐÉ•™É•Í¡M½ÕÉ”¡ÑÉÕ”¤ì(€€€€€…Ý…¥ÐÉ•™É•Í ¡ÑÉÕ”¤ì(€€€ô…Ñ €¡”¤ì(€€€€€½¹Í½±”¹Ý…É¸ ‰¡…É‘I•™É•Í •ÉÉ½Èèˆ°”¤ì(€€€ô(€€€Í•ÑI•™É•Í¡¥¹œ¡™…±Í”¤ì(€ô°mÉ•™É•Í¡t¤ì((€ÕÍ•™™•Ð  ¤€ôøì(€€€±•Ð‘¥ÍÁ½Í•€ô™…±Í”ì(€€€±•Ð¡•…±Ñ¡Q¥µ•ÈèI•ÑÕÉ¹QåÁ”ñÑåÁ•½˜Í•ÑQ¥µ•½ÕÐøð¹Õ±°€ô¹Õ±°ì(€€€Ù½¥€¡…Íå¹Œ€ ¤€ôøì(€€€€€½¹ÍÐÉ…Ý…Ù½É¥Ñ•Ì€ô…Ý…¥ÐÍÑ½É…”¹•Ñ%Ñ•´ñÕ¹­¹½Ý¸ø¡Y}-d°mt¤ì(€€€€€½¹ÍÐ±•…¹•‘…Ù½É¥Ñ•Ì€ôÍ…¹¥Ñ¥é•…Ù½É¥Ñ•%‘Ì¡É…Ý…Ù½É¥Ñ•Ì¤ì(€€€€€Í•Ñ…Ù½É¥Ñ•Ì¡±•…¹•‘…Ù½É¥Ñ•Ì¤ì(€€€€€€¼¼I•ÝÉ¥Ñ”½µÁ…Ñ•%µ½¹±ä±¥ÍÐ¥˜½±‘•È½™…ÑÑ•È‘…Ñ„Ý…ÌÍÑ½É•¸(€€€€€¥˜€¡)M=8¹ÍÑÉ¥¹¥™ä¡É…Ý…Ù½É¥Ñ•Ì¤€„ôô)M=8¹ÍÑÉ¥¹¥™ä¡±•…¹•‘…Ù½É¥Ñ•Ì¤¤ì(€€€€€€€Ù½¥ÍÑ½É…”¹Í•Ñ%Ñ•´¡Y}-d°±•…¹•‘…Ù½É¥Ñ•Ì¤ì(€€€€€ô(€€€€€½¹ÍÐÉ…ÝI••¹Ð€ô…Ý…¥ÐÍÑ½É…”¹•Ñ%Ñ•´ñÕ¹­¹½Ý¸ø¡I9Q}-d°mt¤ì(€€€€€½¹ÍÐ±•…¹•‘I••¹Ð€ôÍ…¹¥Ñ¥é•I••¹Ñ%‘Ì¡É…ÝI••¹Ð¤ì(€€€€€Í•ÑI••¹Ñ%‘Ì¡±•…¹•‘I••¹Ð¤ì(€€€€€¥˜€¡)M=8¹ÍÑÉ¥¹¥™ä¡É…ÝI••¹Ð¤€„ôô)M=8¹ÍÑÉ¥¹¥™ä¡±•…¹•‘I••¹Ð¤¤ì(€€€€€€€Ù½¥ÍÑ½É…”¹Í•Ñ%Ñ•´¡I9Q}-d°±•…¹•‘I••¹Ð¤ì(€€€€€ô(€€€€€Í•Ñ1…ÍÑ¡…¹¹•±%¡…Ý…¥ÐÍÑ½É…”¹•Ñ%Ñ•´ñÍÑÉ¥¹œð¹Õ±°ø¡1MQ}!991}-d°¹Õ±°¤¤ì(€€€€€Í•ÑI•µ¥¹‘•ÉÌ¡Í…¹¥Ñ¥é•I•µ¥¹‘•ÉÌ ¡…Ý…¥ÐÍÑ½É…”¹•Ñ%Ñ•´ñI•µ¥¹‘•Émtø¡I5}-d°mt¤¤ñðmt¤…ÌI•µ¥¹‘•Émt¤ì(€€€€€Í•ÑA½¥¹Ñ•É5½‘•MÑ…Ñ” ¡…Ý…¥ÐÍÑ½É…”¹•Ñ%Ñ•´ñ‰½½±•…¸ø¡A5=}-d°™…±Í”¤¤ñð™…±Í”¤ì(€€€€€½¹ÍÐÍÑ½É•‘Õ¥‘•1…å½ÕÐ€ô…Ý…¥ÐÍÑ½É…”¹•Ñ%Ñ•´ñÍÑÉ¥¹œð¹Õ±°ø¡U%}1e=UQ}-d°¹Õ±°¤ì(€€€€€Í•ÑÕ¥‘•1…å½ÕÑMÑ…Ñ”¡É•Í½±Ù•MÑ½É•‘Õ¥‘•1…å½ÕÐ¡ÍÑ½É•‘Õ¥‘•1…å½ÕÐ°A±…Ñ™½É´¹¥ÍQX°A±…Ñ™½É´¹=L¤¤ì(€€€€€½¹ÍÐ•áÑÉ…½µÁ…Ñ•™…Õ±ÑÁÁ±¥•€ô…Ý…¥ÐÍÑ½É…”¹•Ñ%Ñ•´ñ‰½½±•…¸ø¡aQI}=5AQ}U1Q}5%IQ%=9}-d°™…±Í”¤ì(€€€€€½¹ÍÐÍÑ½É•‘•¹Í¥Ñä€ô•áÑÉ…½µÁ…Ñ•™…Õ±ÑÁÁ±¥•(€€€€€€€€ü…Ý…¥ÐÍÑ½É…”¹•Ñ%Ñ•´ñÕ¥‘••¹Í¥Ñäø¡U%}9M%Qe}-d°€‰•áÑÉ…}½µÁ…Ðˆ¤(€€€€€€€€è€‰•áÑÉ…}½µÁ…Ðˆì(€€€€€Í•ÑÕ¥‘••¹Í¥ÑåMÑ…Ñ” (€€€€€€€ÍÑ½É•‘•¹Í¥Ñä€ôôô€‰±…É”ˆñðÍÑ½É•‘•¹Í¥Ñä€ôôô€‰¹½Éµ…°ˆñðÍÑ½É•‘•¹Í¥Ñä€ôôô€‰½µÁ…Ðˆ(€€€€€€€€€€üÍÑ½É•‘•¹Í¥Ñä(€€€€€€€€€€è€‰•áÑÉ…}½µÁ…Ðˆ°(€€€€€€¤ì(€€€€€¥˜€ …•áÑÉ…½µÁ…Ñ•™…Õ±ÑÁÁ±¥•¤ì(€€€€€€€Ù½¥ÍÑ½É…”¹Í•Ñ%Ñ•´¡U%}9M%Qe}-d°€‰•áÑÉ…}½µÁ…Ðˆ¤ì(€€€€€€€Ù½¥ÍÑ½É…”¹Í•Ñ%Ñ•´¡aQI}=5AQ}U1Q}5%IQ%=9}-d°ÑÉÕ”¤ì(€€€€€ô(€€€€€Í•ÑM…™•AÉ•Ù¥•Ý5½‘•MÑ…Ñ” ¡…Ý…¥ÐÍÑ½É…”¹•Ñ%Ñ•´ñM…™•AÉ•Ù¥•Ý5½‘”ø¡M}AIY%]}5=}-d°€‰ÍÕÉ˜ˆ¤¤ñð€‰ÍÕÉ˜ˆ¤ì(€€€€€Í•Ñ¡…¹¹•±9Õµ‰•ÉÍMÑ…Ñ” ¡…Ý…¥ÐÍÑ½É…”¹•Ñ%Ñ•´ñ‰½½±•…¸ø¡!991}9U5	IM}-d°™…±Í”¤¤ñð™…±Í”¤ì(€€€€€Í•Ñ¡…¹¹•±1½½ÍMÑ…Ñ” ¡…Ý…¥ÐÍÑ½É…”¹•Ñ%Ñ•´ñ‰½½±•…¸ø¡!991}1==M}-d°ÑÉÕ”¤¤€üüÑÉÕ”¤ì(€€€€€Í•Ñ•Ù¥•1…å½ÕÑ5½‘•MÑ…Ñ” ¡…Ý…¥ÐÍÑ½É…”¹•Ñ%Ñ•´ñ•Ù¥•1…å½ÕÑ5½‘”ø¡Y%}1e=UQ}5=}-d°€‰…ÕÑ¼ˆ¤¤ñð€‰…ÕÑ¼ˆ¤ì(€€€€€Í•ÑA±…å•É½¹ÑÉ½±ÍQ¥µ•½ÕÑ5ÍMÑ…Ñ” ¡…Ý…¥ÐÍÑ½É…”¹•Ñ%Ñ•´ñA±…å•É½¹ÑÉ½±ÍQ¥µ•½ÕÑ5Ìø¡A1eI}Q%5=UQ}-d°€àÀÀÀ¤¤ñð€àÀÀÀ¤ì(€€€€€Í•ÑÕÑ½I•ÑÉåMÑÉ•…µÍMÑ…Ñ” ¡…Ý…¥ÐÍÑ½É…”¹•Ñ%Ñ•´ñ‰½½±•…¸ø¡UQ=}IQIe}-d°ÑÉÕ”¤¤€üüÑÉÕ”¤ì(€€€€€½¹ÍÐÑÙ=¹±ä€ô€¡…Ý…¥ÐÍÑ½É…”¹•Ñ%Ñ•´ñ‰½½±•…¸ø¡AII}QY}%}=91e}-d°™…±Í”¤¤ñð™…±Í”ì(€€€€€Í•ÑAÉ•™•ÉQÙ%‘=¹±åMÑ…Ñ”¡ÑÙ=¹±ä¤ì(€€€€€Í•ÑAÉ•™•ÉQÙ%‘=¹±å5…Ñ¡¥¹œ¡ÑÙ=¹±ä¤ì(€€€€€½¹ÍÐÁÉ½™¥±”€ôÉ•Í½±Ù•A½Ý•ÉAÉ½™¥±”¡…Ý…¥ÐÍÑ½É…”¹•Ñ%Ñ•´ñÍÑÉ¥¹œø¡A=]I}AI=%1}-d°€‰¹½Éµ…°ˆ¤¤ì(€€€€€Í•ÑA½Ý•ÉAÉ½™¥±•MÑ…Ñ”¡ÁÉ½™¥±”¤ì(€€€€€½¹ÍÐÉ…Ý1½½Í=™™]¡¥±•MÕÉ™¥¹œ€ô…Ý…¥ÐÍÑ½É…”¹•Ñ%Ñ•´ñ‰½½±•…¸ð¹Õ±°ø¡1==M}=}MUI}-d°¹Õ±°¤ì(€€€€€Í•Ñ1½½Í=™™]¡¥±•MÕÉ™¥¹MÑ…Ñ” (€€€€€€€ÑåÁ•½˜É…Ý1½½Í=™™]¡¥±•MÕÉ™¥¹œ€ôôô€‰‰½½±•…¸ˆ(€€€€€€€€€€üÉ…Ý1½½Í=™™]¡¥±•MÕÉ™¥¹œ(€€€€€€€€€€è•ÑA½Ý•ÉAÉ½™¥±•QÕ¹¥¹œ¡ÁÉ½™¥±”¤¹±½½Í=™™]¡¥±•MÕÉ™¥¹•™…Õ±Ð°(€€€€€€¤ì(€€€€€Í•Ñ%¹ÍÑ…¹ÑÕ¥‘•MÑ…Ñ” ¡…Ý…¥ÐÍÑ½É…”¹•Ñ%Ñ•´ñ‰½½±•…¸ø¡%9MQ9Q}U%}-d°ÑÉÕ”¤¤€üüÑÉÕ”¤ì(€€€€€Í•ÑÁÕ¥‘•¥±Ñ•ÉMÑ…Ñ”¡É•Í½±Ù•ÁÕ¥‘•¥±Ñ•È¡…Ý…¥ÐÍÑ½É…”¹•Ñ%Ñ•´ñÍÑÉ¥¹œø¡A}U%}%1QI}-d°€‰…±°ˆ¤¤¤ì(€€€€€½¹ÍÐµ…¹Õ…±I•µ…ÁÌ€ôÍ…¹¥Ñ¥é•Á5…¹Õ…±I•µ…À¡…Ý…¥ÐÍÑ½É…”¹•Ñ%Ñ•´ñI•½ÉñÍÑÉ¥¹œ°ÍÑÉ¥¹œøø¡A}59U1}I5AM}-d°íô¤¤ì(€€€€€Í•ÑÁ5…¹Õ…±I•µ…ÁÍMÑ…Ñ”¡µ…¹Õ…±I•µ…ÁÌ¤ì(€€€€€Í•Ñ5…¹Õ…±ÁI•µ…ÁÌ¡µ…¹Õ…±I•µ…ÁÌ¤ì(€€€€€€¼¼M••ÕÍ•™Õ°QX™½±‘•ÈÁÉ•Í•ÑÌ½¹”€¡•Ù•¸¥˜Ñ¡”ÕÍ•È±…Ñ•È‘•±•Ñ•Ì…±°™½±‘•ÉÌ¤¸(€€€€€½¹ÍÐ™½±‘•ÉÍM••‘•€ô€¡…Ý…¥ÐÍÑ½É…”¹•Ñ%Ñ•´ñ‰½½±•…¸ø¡Y=I%Q}=1IM}M}-d°™…±Í”¤¤ñð™…±Í”ì(€€€€€½¹ÍÐÍÑ½É•‘½±‘•ÉÌ€ôÍ…¹¥Ñ¥é•…Ù½É¥Ñ•½±‘•ÉÌ¡…Ý…¥ÐÍÑ½É…”¹•Ñ%Ñ•´ñ…Ù½É¥Ñ•½±‘•Émtø¡Y=I%Q}=1IM}-d°mt¤¤ì(€€€€€¥˜€ …™½±‘•ÉÍM••‘•€˜˜€…ÍÑ½É•‘½±‘•ÉÌ¹±•¹Ñ ¤ì(€€€€€€€½¹ÍÐÍ••‘•è…Ù½É¥Ñ•½±‘•Émt€ômtì(€€€€€€€™½È€¡½¹ÍÐ¹…µ”½˜U1Q}=1I}AIMQL¤ì(€€€€€€€€€½¹ÍÐ™½±‘•È€ôÉ•…Ñ•…Ù½É¥Ñ•½±‘•È¡¹…µ”°Í••‘•¤ì(€€€€€€€€€¥˜€¡™½±‘•È¤Í••‘•¹ÁÕÍ ¡™½±‘•È¤ì(€€€€€€€ô(€€€€€€€½¹ÍÐ¹•áÐ€ôÍ…¹¥Ñ¥é•…Ù½É¥Ñ•½±‘•ÉÌ¡Í••‘•¤ì(€€€€€€€Í•Ñ…Ù½É¥Ñ•½±‘•ÉÍMÑ…Ñ”¡¹•áÐ¤ì(€€€€€€€Ù½¥ÍÑ½É…”¹Í•Ñ%Ñ•´¡Y=I%Q}=1IM}-d°¹•áÐ¤ì(€€€€€€€Ù½¥ÍÑ½É…”¹Í•Ñ%Ñ•´¡Y=I%Q}=1IM}M}-d°ÑÉÕ”¤ì(€€€€€ô•±Í”ì(€€€€€€€Í•Ñ…Ù½É¥Ñ•½±‘•ÉÍMÑ…Ñ”¡ÍÑ½É•‘½±‘•ÉÌ¤ì(€€€€€€€¥˜€ …™½±‘•ÉÍM••‘•¤Ù½¥ÍÑ½É…”¹Í•Ñ%Ñ•´¡Y=I%Q}=1IM}M}-d°ÑÉÕ”¤ì(€€€€€ô(€€€€€½¹ÍÐÍÑ½É•‘Õ¥‘•]¥¹‘½Ý!½ÕÉÌ€ôÉ•…‘Õ¥‘•]¥¹‘½Ý!½ÕÉÌ (€€€€€€€…Ý…¥ÐÍÑ½É…”¹•Ñ%Ñ•´ñ¹Õµ‰•Èø¡U%}]%9=]}!=UIM}-d°U1Q}U%}]%9=]}!=UIL¤°(€€€€€€€U1Q}U%}]%9=]}!=UIL°(€€€€€€¤ì(€€€€€Õ¥‘•]¥¹‘½Ý!½ÕÉÍI•˜¹ÕÉÉ•¹Ð€ôÍÑ½É•‘Õ¥‘•]¥¹‘½Ý!½ÕÉÌì(€€€€€Í•ÑÕ¥‘•]¥¹‘½Ý!½ÕÉÍMÑ…Ñ”¡ÍÑ½É•‘Õ¥‘•]¥¹‘½Ý!½ÕÉÌ¤ì(€€€€€½¹ÍÐÍÑ½É•‘±½¬ÈÑ €ô€¡…Ý…¥ÐÍÑ½É…”¹•Ñ%Ñ•´ñ‰½½±•…¸ø¡1=-|ÈÑ!}-d°™…±Í”¤¤ñð™…±Í”ì(€€€€€Í•Ñ±½¬ÈÑ¡MÑ…Ñ”¡ÍÑ½É•‘±½¬ÈÑ ¤ì(€€€€€Í•ÑQ¥µ•½Éµ…ÐÈÑ ¡ÍÑ½É•‘±½¬ÈÑ ¤ì(€€€€€Í•ÑMÑ…ÉÑMÉ••¹MÑ…Ñ”¡É•Í½±Ù•MÑ…ÉÑMÉ••¸¡…Ý…¥ÐÍÑ½É…”¹•Ñ%Ñ•´ñÍÑÉ¥¹œø¡MQIQ}MI9}-d°€‰¡½µ”ˆ¤¤¤ì(€€€€€Í•ÑM±••ÁQ¥µ•É5¥¹ÕÑ•ÍMÑ…Ñ”¡É•Í½±Ù•M±••ÁQ¥µ•É5¥¹ÕÑ•Ì¡…Ý…¥ÐÍÑ½É…”¹•Ñ%Ñ•´ñ¹Õµ‰•Èø¡M1A}Q%5I}5%9UQM}-d°€À¤¤¤ì((€€€€€€¼¼…ÍÐÁ…¥¹Ð™É½´…¡”½¹±äƒŠP¹•Ù•È‰±½¬™¥ÉÍÐ™½ÕÌÝ¥Ñ Á•Éµ¥ÍÍ¥½¸‘¥…±½Ì(€€€€€€¼¼½ÈÍÑ…­•Í½ÕÉ”É•‰Õ¥±‘Ì€¡Ñ¡½Í”™É••é”¥É”QX™½ÕÌ½¸½Á•¸¤¸(€€€€€…Ý…¥ÐÉ•™É•Í  ¤ì(€€€€€¥˜€¡‘¥ÍÁ½Í•¤É•ÑÕÉ¸ì((€€€€€€¼¼!•…±Ñ ¡•¬…™Ñ•ÈÑ¡”U$…¸…•ÁÐµÁ…¥¹ÁÕÐ¸(€€€€€¡•…±Ñ¡Q¥µ•È€ôÍ•ÑQ¥µ•½ÕÐ  ¤€ôøì(€€€€€€€¥˜€¡‘¥ÍÁ½Í•¤É•ÑÕÉ¸ì(€€€€€€€Ù½¥€¡…Íå¹Œ€ ¤€ôøì(€€€€€€€€€ÑÉäì(€€€€€€€€€€€½¹ÍÐÍÑ…ÑÕÌ€ô…Ý…¥ÐÉ•™É•Í¡M½ÕÉ”¡™…±Í”¤ì(€€€€€€€€€€€¥˜€¡ÍÑ…ÑÕÌ¹¡…¹¹•±}½Õ¹Ð€ôôô€ÀñðÍÑ…ÑÕÌ¹•ÉÉ½È¤ì(€€€€€€€€€€€€€…Ý…¥ÐÉ•™É•Í¡M½ÕÉ”¡ÑÉÕ”¤ì(€€€€€€€€€€€€€…Ý…¥ÐÉ•™É•Í ¡ÑÉÕ”¤ì(€€€€€€€€€€€ô(€€€€€€€€€ô…Ñ ì(€€€€€€€€€€€€¼¼1•…Ù”Ñ¡”…¡•Õ¥‘”ÕÀìÕÍ•È…¸I•ÑÉä™É½´Ñ¡”Õ¥‘”ÍÉ••¸¸(€€€€€€€€€ô(€€€€€€€ô¤ ¤ì(€€€€€ô°€ÐÔÀÀ¤ì(€€€ô¤ ¤ì(€€€É•ÑÕÉ¸€ ¤€ôøì(€€€€€‘¥ÍÁ½Í•€ôÑÉÕ”ì(€€€€€¥˜€¡¡•…±Ñ¡Q¥µ•È¤±•…ÉQ¥µ•½ÕÐ¡¡•…±Ñ¡Q¥µ•È¤ì(€€€ôì(€€€€¼¼•Í±¥¹Ðµ‘¥Í…‰±”µ¹•áÐµ±¥¹”É•…Ðµ¡½½­Ì½•á¡…ÕÍÑ¥Ù”µ‘•ÁÌ(€ô°mt¤ì((€ÕÍ•™™•Ð  ¤€ôøì(€€€±•ÐÉ•™É•Í¡Q¥µ•ÈèI•ÑÕÉ¹QåÁ”ñÑåÁ•½˜Í•ÑQ¥µ•½ÕÐøð¹Õ±°€ô¹Õ±°ì(€€€±•Ð‘¥ÍÁ½Í•€ô™…±Í”ì(€€€€¼¼9…Ñ¥Ù”A•µ¥ÑÌÁ…ÉÑ¥…°€¬™¥¹…°Á¡…Í•Ì¸½…±•Í”Ñ¡•´Í¼½¹”É•™É•Í ‘½•Ì(€€€€¼¼¹½ÐÉ•‰Õ¥±•Ù•Éä¡…¹¹•°½Q¥µ•±¥¹•É¥É½ÜµÕ±Ñ¥Á±”Ñ¥µ•Ì½¸Ý•…¬ÍÑ¥­Ì¸(€€€½¹ÍÐÕ¹ÍÕ‰ÍÉ¥‰”€ôÍÕ‰ÍÉ¥‰•M½ÕÉ”  ¤€ôøì(€€€€€¥˜€¡É•™É•Í¡Q¥µ•È¤±•…ÉQ¥µ•½ÕÐ¡É•™É•Í¡Q¥µ•È¤ì(€€€€€É•™É•Í¡Q¥µ•È€ôÍ•ÑQ¥µ•½ÕÐ  ¤€ôøì(€€€€€€€É•™É•Í¡Q¥µ•È€ô¹Õ±°ì(€€€€€€€¥˜€¡‘¥ÍÁ½Í•¤É•ÑÕÉ¸ì(€€€€€€€¥˜€¡¥ÍÕ¥‘•MÕÉ™¥¹œ ¤¤ì(€€€€€€€€€Á•¹‘¥¹M¥±•¹ÑI•™É•Í¡I•˜¹ÕÉÉ•¹Ð€ôÑÉÕ”ì(€€€€€€€€€É•ÑÕÉ¸ì(€€€€€€€ô(€€€€€€€Ù½¥É•™É•Í ¡ÑÉÕ”¤ì(€€€€€ô°€ÔÀÀ¤ì(€€€ô¤ì(€€€½¹ÍÐÕ¹ÍÕ‰M•ÑÑ±”€ô½¹Õ¥‘•MÕÉ™M•ÑÑ±•  ¤€ôøì(€€€€€¥˜€¡‘¥ÍÁ½Í•ñð€…Á•¹‘¥¹M¥±•¹ÑI•™É•Í¡I•˜¹ÕÉÉ•¹Ð¤É•ÑÕÉ¸ì(€€€€€Á•¹‘¥¹M¥±•¹ÑI•™É•Í¡I•˜¹ÕÉÉ•¹Ð€ô™…±Í”ì(€€€€€Ù½¥É•™É•Í ¡ÑÉÕ”¤ì(€€€ô¤ì(€€€É•ÑÕÉ¸€ ¤€ôøì(€€€€€‘¥ÍÁ½Í•€ôÑÉÕ”ì(€€€€€¥˜€¡É•™É•Í¡Q¥µ•È¤±•…ÉQ¥µ•½ÕÐ¡É•™É•Í¡Q¥µ•È¤ì(€€€€€Õ¹ÍÕ‰ÍÉ¥‰” ¤ì(€€€€€Õ¹ÍÕ‰M•ÑÑ±” ¤ì(€€€ôì(€ô°mÉ•™É•Í¡t¤ì((€ÕÍ•™™•Ð (€€€€ ¤€ôø€ ¤€ôøì(€€€€€¥˜€¡Á…Ñ¡Q¥µ•ÉI•˜¹ÕÉÉ•¹Ð¤±•…ÉQ¥µ•½ÕÐ¡Á…Ñ¡Q¥µ•ÉI•˜¹ÕÉÉ•¹Ð¤ì(€€€€€Á•¹‘¥¹A…Ñ¡%‘ÍI•˜¹ÕÉÉ•¹Ð¹±•…È ¤ì(€€€€€Á•¹‘¥¹A…Ñ¡AÉ¥½É¥Ñå%‘ÍI•˜¹ÕÉÉ•¹Ð€ômtì(€€€€€±…ÍÑA…Ñ¡IÕ¹Ý…å%‘ÍI•˜¹ÕÉÉ•¹Ð€ômtì(€€€€€±…ÍÑ-••Á%‘ÍI•˜¹ÕÉÉ•¹Ð€ômtì(€€€€€¥˜€¡™…Ù½É¥Ñ•ÍA•ÉÍ¥ÍÑQ¥µ•È¹ÕÉÉ•¹Ð¤±•…ÉQ¥µ•½ÕÐ¡™…Ù½É¥Ñ•ÍA•ÉÍ¥ÍÑQ¥µ•È¹ÕÉÉ•¹Ð¤ì(€€€€€¥˜€¡™…Ù½É¥Ñ•ÍA•¹‘¥¹I•˜¹ÕÉÉ•¹Ð¤Ù½¥ÍÑ½É…”¹Í•Ñ%Ñ•´¡Y}-d°™…Ù½É¥Ñ•ÍA•¹‘¥¹I•˜¹ÕÉÉ•¹Ð¤ì(€€€€€¥˜€¡É••¹ÑA•ÉÍ¥ÍÑQ¥µ•È¹ÕÉÉ•¹Ð¤±•…ÉQ¥µ•½ÕÐ¡É••¹ÑA•ÉÍ¥ÍÑQ¥µ•È¹ÕÉÉ•¹Ð¤ì(€€€€€¥˜€¡É••¹ÑA•¹‘¥¹I•˜¹ÕÉÉ•¹Ð¤ì(€€€€€€€½¹ÍÐÁ…å±½…€ôÉ••¹ÑA•¹‘¥¹I•˜¹ÕÉÉ•¹Ðì(€€€€€€€Ù½¥ÍÑ½É…”¹Í•Ñ%Ñ•´¡I9Q}-d°Á…å±½…¤ì(€€€€€€€¥˜€¡Á…å±½…‘lÁt¤Ù½¥ÍÑ½É…”¹Í•Ñ%Ñ•´¡1MQ}!991}-d°Á…å±½…‘lÁt¤ì(€€€€€ô(€€€ô°(€€€mt°(€€¤ì((€€¼¼-••ÀÑ¡”Õ¥‘”Ý¥¹‘½ÜÉ½±±¥¹œÝ¡¥±”Ñ¡”…ÁÀÍÑ…åÌ½Á•¸€¡Í¥±•¹Ð°±½Ü™É•ÅÕ•¹ä¤¸(€€¼¼M­¥ÀÝ¡¥±”„É•™É•Í ¥Ì…±É•…‘äÉÕ¹¹¥¹œÍ¼Ý•…¬¥É”QYÌ‘½¸Ð¡¥Ñ µ¥µÍÕÉ˜¸(€½¹ÍÐ‰ÕÍåI•˜€ôÕÍ•I•˜¡™…±Í”¤ì(€ÕÍ•™™•Ð  ¤€ôøì(€€€‰ÕÍåI•˜¹ÕÉÉ•¹Ð€ô±½…‘¥¹œñðÉ•™É•Í¡¥¹œì(€ô°m±½…‘¥¹œ°É•™É•Í¡¥¹t¤ì(€ÕÍ•™™•Ð  ¤€ôøì(€€€½¹ÍÐÑ¥µ•È€ôÍ•Ñ%¹Ñ•ÉÙ…°  ¤€ôøì(€€€€€¥˜€¡‰ÕÍåI•˜¹ÕÉÉ•¹Ðñð¥ÍÕ¥‘•MÕÉ™¥¹œ ¤¤É•ÑÕÉ¸ì(€€€€€Ù½¥É•™É•Í ¡ÑÉÕ”¤ì(€€€ô°€ØÀ€¨€ØÀ€¨€ÄÀÀÀ¤ì(€€€É•ÑÕÉ¸€ ¤€ôø±•…É%¹Ñ•ÉÙ…°¡Ñ¥µ•È¤ì(€ô°mÉ•™É•Í¡t¤ì((€½¹ÍÐ½Á•¹AÉ½É…´€ôÕÍ•…±±‰…¬ ¡ÁÉ½É…´èAÉ½É…´°¡…¹¹•°è¡…¹¹•°¤€ôøì(€€€¥˜€ …ÁÉ½É…´ñð€…¡…¹¹•°ñð€…¡…¹¹•°¹¥ñð€…ÁÉ½É…´¹ÍÑ…ÉÐñð9Õµ‰•È¹¥Í9…8¡…Ñ”¹Á…ÉÍ”¡ÁÉ½É…´¹ÍÑ…ÉÐ¤¤¤ì(€€€€€É•ÑÕÉ¸ì(€€€ô(€€€Í•ÑÑ¥Ù•AÉ½É…´¡ì(€€€€€ÁÉ½É…´èì(€€€€€€€Ñ¥Ñ±”èÁÉ½É…´¹Ñ¥Ñ±”ñð€‰9¼Q¥Ñ±”ˆ°(€€€€€€€‘•ÍŒèÁÉ½É…´¹‘•ÍŒñð€ˆˆ°(€€€€€€€…Ñ•½ÉäèÁÉ½É…´¹…Ñ•½Éäñð€ˆˆ°(€€€€€€€ÍÑ…ÉÐèÁÉ½É…´¹ÍÑ…ÉÐ°(€€€€€€€ÍÑ½ÀèÁÉ½É…´¹ÍÑ½À€˜˜€…9Õµ‰•È¹¥Í9…8¡…Ñ”¹Á…ÉÍ”¡ÁÉ½É…´¹ÍÑ½À¤¤€üÁÉ½É…´¹ÍÑ½À€è¹Õ±°°(€€€€€ô°(€€€€€¡…¹¹•°°(€€€ô¤ì(€ô°mt¤ì((€½¹ÍÐ±½Í•AÉ½É…´€ôÕÍ•…±±‰…¬  ¤€ôøÍ•ÑÑ¥Ù•AÉ½É…´¡¹Õ±°¤°mt¤ì((€½¹ÍÐÙ…±Õ”èMÑ½É”€ôÕÍ•5•µ¼ (€€€€ ¤€ôø€¡ì(€€€€€¡…¹¹•±Ì°(€€€€€Ý¥¹‘½ÝMÑ…ÉÐ°(€€€€€Ý¥¹‘½Ý¹°(€€€€€±½…‘¥¹œ°(€€€€€É•™É•Í¡¥¹œ°(€€€€€•ÉÉ½È°(€€€€€É•™É•Í °(€€€€€¡…É‘I•™É•Í °(€€€€€Á…Ñ¡AÉ½É…µÍ½É¡…¹¹•±%‘Ì°(€€€€€É•Ñ…¥¹Õ¥‘•M±¥‘¥¹…¡”°(€€€€€É•±•…Í•Õ¥‘•M±¥‘¥¹…¡”°(€€€€€Í•±•Ñ•‘…Ñ”°(€€€€€Í•ÑM•±•Ñ•‘…Ñ”°(€€€€€¡…¹¹•±	å%°(€€€€€™…Ù½É¥Ñ•Ì°(€€€€€¥Í…Ù½É¥Ñ”°(€€€€€Ñ½±•…Ù½É¥Ñ”°(€€€€€É•Á±…•…Ù½É¥Ñ•Ì°(€€€€€É••¹Ð°(€€€€€É••¹Ñ%‘Ì°(€€€€€±…ÍÑ¡…¹¹•±%°(€€€€€…‘‘I••¹Ð°(€€€€€É•µ¥¹‘•ÉÌ°(€€€€€¡…ÍI•µ¥¹‘•È°(€€€€€…‘‘I•µ¥¹‘•È°(€€€€€É•µ½Ù•I•µ¥¹‘•È°(€€€€€Ñ½±•I•µ¥¹‘•È°(€€€€€…Ñ¥Ù•AÉ½É…´°(€€€€€½Á•¹AÉ½É…´°(€€€€€±½Í•AÉ½É…´°(€€€€€Á½¥¹Ñ•É5½‘”°(€€€€€Í•ÑA½¥¹Ñ•É5½‘”°(€€€€€Õ¥‘•1…å½ÕÐ°(€€€€€Í•ÑÕ¥‘•1…å½ÕÐ°(€€€€€Õ¥‘••¹Í¥Ñä°(€€€€€Í•ÑÕ¥‘••¹Í¥Ñä°(€€€€€Í…™•AÉ•Ù¥•Ý5½‘”°(€€€€€Í•ÑM…™•AÉ•Ù¥•Ý5½‘”°(€€€€€¡…¹¹•±9Õµ‰•ÉÌ°(€€€€€Í•Ñ¡…¹¹•±9Õµ‰•ÉÌ°(€€€€€¡…¹¹•±1½½Ì°(€€€€€Í•Ñ¡…¹¹•±1½½Ì°(€€€€€‘•Ù¥•1…å½ÕÑ5½‘”°(€€€€€Í•Ñ•Ù¥•1…å½ÕÑ5½‘”°(€€€€€Á±…å•É½¹ÑÉ½±ÍQ¥µ•½ÕÑ5Ì°(€€€€€Í•ÑA±…å•É½¹ÑÉ½±ÍQ¥µ•½ÕÑ5Ì°(€€€€€…ÕÑ½I•ÑÉåMÑÉ•…µÌ°(€€€€€Í•ÑÕÑ½I•ÑÉåMÑÉ•…µÌ°(€€€€€ÁÉ•™•ÉQÙ%‘=¹±ä°(€€€€€Í•ÑAÉ•™•ÉQÙ%‘=¹±ä°(€€€€€Á½Ý•ÉAÉ½™¥±”°(€€€€€Í•ÑA½Ý•ÉAÉ½™¥±”°(€€€€€±½½Í=™™]¡¥±•MÕÉ™¥¹œ°(€€€€€Í•Ñ1½½Í=™™]¡¥±•MÕÉ™¥¹œ°(€€€€€¥¹ÍÑ…¹ÑÕ¥‘”°(€€€€€Í•Ñ%¹ÍÑ…¹ÑÕ¥‘”°(€€€€€•ÁÕ¥‘•¥±Ñ•È°(€€€€€Í•ÑÁÕ¥‘•¥±Ñ•È°(€€€€€•Á5…¹Õ…±I•µ…ÁÌ°(€€€€€Í•ÑÁ5…¹Õ…±I•µ…ÁÌ°(€€€€€™…Ù½É¥Ñ•½±‘•ÉÌ°(€€€€€Í•Ñ…Ù½É¥Ñ•½±‘•ÉÌ°(€€€€€…‘‘…Ù½É¥Ñ•½±‘•È°(€€€€€Ñ½±•…Ù½É¥Ñ•½±‘•É¡…¹¹•°°(€€€€€É•¹…µ•…Ù½É¥Ñ•½±‘•ÈèÉ•¹…µ•…Ù½É¥Ñ•½±‘•É	å%°(€€€€€É•µ½Ù•…Ù½É¥Ñ•½±‘•È°(€€€€€Õ¥‘•]¥¹‘½Ý!½ÕÉÌ°(€€€€€Í•ÑÕ¥‘•]¥¹‘½Ý!½ÕÉÌ°(€€€€€±½¬ÈÑ °(€€€€€Í•Ñ±½¬ÈÑ °(€€€€€ÍÑ…ÉÑMÉ••¸°(€€€€€Í•ÑMÑ…ÉÑMÉ••¸°(€€€€€Í±••ÁQ¥µ•É5¥¹ÕÑ•Ì°(€€€€€Í•ÑM±••ÁQ¥µ•É5¥¹ÕÑ•Ì°(€€€ô¤°(€€€l(€€€€€¡…¹¹•±Ì°(€€€€€Ý¥¹‘½ÝMÑ…ÉÐ°(€€€€€Ý¥¹‘½Ý¹°(€€€€€±½…‘¥¹œ°(€€€€€É•™É•Í¡¥¹œ°(€€€€€•ÉÉ½È°(€€€€€É•™É•Í °(€€€€€¡…É‘I•™É•Í °(€€€€€Á…Ñ¡AÉ½É…µÍ½É¡…¹¹•±%‘Ì°(€€€€€É•Ñ…¥¹Õ¥‘•M±¥‘¥¹…¡”°(€€€€€É•±•…Í•Õ¥‘•M±¥‘¥¹…¡”°(€€€€€Í•±•Ñ•‘…Ñ”°(€€€€€Í•ÑM•±•Ñ•‘…Ñ”°(€€€€€¡…¹¹•±	å%°(€€€€€™…Ù½É¥Ñ•Ì°(€€€€€¥Í…Ù½É¥Ñ”°(€€€€€Ñ½±•…Ù½É¥Ñ”°(€€€€€É•Á±…•…Ù½É¥Ñ•Ì°(€€€€€É••¹Ð°(€€€€€É••¹Ñ%‘Ì°(€€€€€±…ÍÑ¡…¹¹•±%°(€€€€€…‘‘I••¹Ð°(€€€€€É•µ¥¹‘•ÉÌ°(€€€€€¡…ÍI•µ¥¹‘•È°(€€€€€…‘‘I•µ¥¹‘•È°(€€€€€É•µ½Ù•I•µ¥¹‘•È°(€€€€€Ñ½±•I•µ¥¹‘•È°(€€€€€…Ñ¥Ù•AÉ½É…´°(€€€€€½Á•¹AÉ½É…´°(€€€€€±½Í•AÉ½É…´°(€€€€€Á½¥¹Ñ•É5½‘”°(€€€€€Í•ÑA½¥¹Ñ•É5½‘”°(€€€€€Õ¥‘•1…å½ÕÐ°(€€€€€Í•ÑÕ¥‘•1…å½ÕÐ°(€€€€€Õ¥‘••¹Í¥Ñä°(€€€€€Í•ÑÕ¥‘••¹Í¥Ñä°(€€€€€Í…™•AÉ•Ù¥•Ý5½‘”°(€€€€€Í•ÑM…™•AÉ•Ù¥•Ý5½‘”°(€€€€€¡…¹¹•±9Õµ‰•ÉÌ°(€€€€€Í•Ñ¡…¹¹•±9Õµ‰•ÉÌ°(€€€€€¡…¹¹•±1½½Ì°(€€€€€Í•Ñ¡…¹¹•±1½½Ì°(€€€€€‘•Ù¥•1…å½ÕÑ5½‘”°(€€€€€Í•Ñ•Ù¥•1…å½ÕÑ5½‘”°(€€€€€Á±…å•É½¹ÑÉ½±ÍQ¥µ•½ÕÑ5Ì°(€€€€€Í•ÑA±…å•É½¹ÑÉ½±ÍQ¥µ•½ÕÑ5Ì°(€€€€€…ÕÑ½I•ÑÉåMÑÉ•…µÌ°(€€€€€Í•ÑÕÑ½I•ÑÉåMÑÉ•…µÌ°(€€€€€ÁÉ•™•ÉQÙ%‘=¹±ä°(€€€€€Í•ÑAÉ•™•ÉQÙ%‘=¹±ä°(€€€€€Á½Ý•ÉAÉ½™¥±”°(€€€€€Í•ÑA½Ý•ÉAÉ½™¥±”°(€€€€€±½½Í=™™]¡¥±•MÕÉ™¥¹œ°(€€€€€Í•Ñ1½½Í=™™]¡¥±•MÕÉ™¥¹œ°(€€€€€¥¹ÍÑ…¹ÑÕ¥‘”°(€€€€€Í•Ñ%¹ÍÑ…¹ÑÕ¥‘”°(€€€€€•ÁÕ¥‘•¥±Ñ•È°(€€€€€Í•ÑÁÕ¥‘•¥±Ñ•È°(€€€€€•Á5…¹Õ…±I•µ…ÁÌ°(€€€€€Í•ÑÁ5…¹Õ…±I•µ…ÁÌ°(€€€€€™…Ù½É¥Ñ•½±‘•ÉÌ°(€€€€€Í•Ñ…Ù½É¥Ñ•½±‘•ÉÌ°(€€€€€…‘‘…Ù½É¥Ñ•½±‘•È°(€€€€€Ñ½±•…Ù½É¥Ñ•½±‘•É¡…¹¹•°°(€€€€€É•¹…µ•…Ù½É¥Ñ•½±‘•É	å%°(€€€€€É•µ½Ù•…Ù½É¥Ñ•½±‘•È°(€€€€€Õ¥‘•]¥¹‘½Ý!½ÕÉÌ°(€€€€€Í•ÑÕ¥‘•]¥¹‘½Ý!½ÕÉÌ°(€€€€€±½¬ÈÑ °(€€€€€Í•Ñ±½¬ÈÑ °(€€€€€ÍÑ…ÉÑMÉ••¸°(€€€€€Í•ÑMÑ…ÉÑMÉ••¸°(€€€€€Í±••ÁQ¥µ•É5¥¹ÕÑ•Ì°(€€€€€Í•ÑM±••ÁQ¥µ•É5¥¹ÕÑ•Ì°(€€€t°(€€¤ì((€É•ÑÕÉ¸€ñÑà¹AÉ½Ù¥‘•ÈÙ…±Õ”õíÙ…±Õ•ôùí¡¥±‘É•¹ôð½Ñà¹AÉ½Ù¥‘•Èøì)ô(
