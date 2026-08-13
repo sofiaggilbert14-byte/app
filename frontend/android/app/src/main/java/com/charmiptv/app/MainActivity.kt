@@ -3,7 +3,10 @@ import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build
 import android.os.Bundle
+import android.view.View
 import android.view.WindowManager
+import kotlin.math.abs
+import kotlin.math.max
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
@@ -16,6 +19,32 @@ class MainActivity : ReactActivity() {
 
   private var lastAcceptedDirectionalRepeatAt = 0L
   private var lastAcceptedDirectionalKeyCode = -1
+
+  private fun hasSafeGuideVerticalTarget(direction: Int): Boolean {
+    val source = currentFocus ?: return false
+    val target = try { source.focusSearch(direction) } catch (_: Throwable) { null } ?: return false
+    if (target === source || !target.isShown || !target.isFocusable || !target.isEnabled) return false
+    return try {
+      val sourceLoc = IntArray(2)
+      val targetLoc = IntArray(2)
+      source.getLocationOnScreen(sourceLoc)
+      target.getLocationOnScreen(targetLoc)
+      val sourceCenterX = sourceLoc[0] + source.width / 2f
+      val targetCenterX = targetLoc[0] + target.width / 2f
+      val sourceCenterY = sourceLoc[1] + source.height / 2f
+      val targetCenterY = targetLoc[1] + target.height / 2f
+      val horizontalJump = abs(targetCenterX - sourceCenterX)
+      val verticalJump = abs(targetCenterY - sourceCenterY)
+      val screenWidth = resources.displayMetrics.widthPixels.toFloat().coerceAtLeast(1f)
+      val movesRequestedDirection =
+        if (direction == View.FOCUS_UP) targetCenterY < sourceCenterY else targetCenterY > sourceCenterY
+      movesRequestedDirection &&
+        horizontalJump <= max(240f, screenWidth * 0.42f) &&
+        verticalJump <= max(180f, source.height * 3f)
+    } catch (_: Throwable) {
+      false
+    }
+  }
 
   override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
     // Dedicated Channel/Page buttons provide safe one-page Guide jumps. They
@@ -73,6 +102,18 @@ class MainActivity : ReactActivity() {
             return true
           }
         }
+        if (
+          guideActive &&
+            sameDirection &&
+            (event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP ||
+              event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN) &&
+            !hasSafeGuideVerticalTarget(
+              if (event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP) View.FOCUS_UP else View.FOCUS_DOWN,
+            )
+        ) {
+          lastAcceptedDirectionalRepeatAt = event.eventTime
+          return true
+        }
         lastAcceptedDirectionalKeyCode = event.keyCode
         lastAcceptedDirectionalRepeatAt = event.eventTime
       }
@@ -96,9 +137,9 @@ class MainActivity : ReactActivity() {
     } else null
     if (key != null && (!TvRemoteModule.guideNavigationActive || TvRemoteModule.pointerActive)) {
       emitRemoteEvent("TvRemoteKey", key)
-      // Pointer mode owns the D-pad entirely. Guide Up/Down must NOT be consumed —
+      // Pointer mode owns the D-pad entirely. Guide Up/Down must NOT be consumed â€”
       // Android's focus engine moves between guide cells; JS only handles boundaries
-      // (Up → group tabs, bottom lock). Consuming Up/Down freezes guide surfing.
+      // (Up â†’ group tabs, bottom lock). Consuming Up/Down freezes guide surfing.
       if (TvRemoteModule.pointerActive) return true
     }
     return super.dispatchKeyEvent(event)
