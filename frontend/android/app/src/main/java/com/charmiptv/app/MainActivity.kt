@@ -54,36 +54,31 @@ class MainActivity : ReactActivity() {
         event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT ||
         event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT
 
-    // Keep the first press instant. While the Guide grid owns focus, allow only
-    // one native focus move until JS confirms that focus + scroll painted. Drop
-    // repeats instead of queueing them; direction reversals always pass at once.
+    // Keep the first press and direction reversals instant. Held Guide repeats
+    // use a bounded native cadence and never wait for a JS/paint acknowledgement;
+    // that old cross-thread lock could release a repeat after a row was recycled.
     if (event.action == android.view.KeyEvent.ACTION_DOWN && directional) {
-      val guideSync =
+      val guideActive =
         TvRemoteModule.guideNavigationActive &&
-          TvRemoteModule.guideFocusSyncActive &&
           !TvRemoteModule.pointerActive
       if (event.repeatCount == 0) {
         lastAcceptedDirectionalKeyCode = event.keyCode
         lastAcceptedDirectionalRepeatAt = event.eventTime
-        if (guideSync) TvRemoteModule.guideFocusMoveReady = false
       } else {
         val elapsed = event.eventTime - lastAcceptedDirectionalRepeatAt
         val sameDirection = event.keyCode == lastAcceptedDirectionalKeyCode
         if (sameDirection) {
-          val repeatFloor = if (guideSync) TvRemoteModule.guideRepeatIntervalMs else MIN_DPAD_REPEAT_MS
-          val waitTimedOut = elapsed >= GUIDE_FOCUS_ACK_TIMEOUT_MS
-          if (elapsed < repeatFloor || (guideSync && !TvRemoteModule.guideFocusMoveReady && !waitTimedOut)) {
+          val repeatFloor = if (guideActive) TvRemoteModule.guideRepeatIntervalMs else MIN_DPAD_REPEAT_MS
+          if (elapsed < repeatFloor) {
             return true
           }
         }
         lastAcceptedDirectionalKeyCode = event.keyCode
         lastAcceptedDirectionalRepeatAt = event.eventTime
-        if (guideSync) TvRemoteModule.guideFocusMoveReady = false
       }
     } else if (event.action == android.view.KeyEvent.ACTION_UP && directional) {
       lastAcceptedDirectionalKeyCode = -1
       lastAcceptedDirectionalRepeatAt = 0L
-      TvRemoteModule.guideFocusMoveReady = true
     }
 
     val key: String? = if (event.action == android.view.KeyEvent.ACTION_DOWN) {
@@ -142,8 +137,6 @@ class MainActivity : ReactActivity() {
     // A stale pointer flag consumes every D-pad key before Android focus sees it.
     TvRemoteModule.pointerActive = false
     TvRemoteModule.guideNavigationActive = false
-    TvRemoteModule.guideFocusSyncActive = false
-    TvRemoteModule.guideFocusMoveReady = true
     super.onDestroy()
   }
 
@@ -169,11 +162,8 @@ class MainActivity : ReactActivity() {
   }
 
   companion object {
-    // Non-Guide screens retain the existing repeat cap. Guide repeats use the
-    // configurable acknowledgement gate above (72 ms Normal by default).
+    // Non-Guide screens retain the existing cap. Guide repeats use the
+    // configurable device-profile cadence (72 ms Normal by default).
     private const val MIN_DPAD_REPEAT_MS = 48L
-    // Fail open if a recycled native target never reports focus. This prevents
-    // a vendor-specific focus failure from locking the remote until key-up.
-    private const val GUIDE_FOCUS_ACK_TIMEOUT_MS = 240L
   }
 }

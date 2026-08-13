@@ -32,6 +32,7 @@ test("sliding cache retains expanded keep set and strict-releases on blur", asyn
   assert.match(store, /retainProgrammeWindowCache\(keep\)/);
   assert.match(store, /pickKeepIdsAroundFocus\(source, keepLimit, lastChannelId\)/);
   assert.match(store, /pickKeepIdsAroundFocus\(source, keepLimit, lastChannelIdRef\.current\)/);
+  assert.match(store, /lastPatchRunwayIdsRef\.current = keep;[\s\S]*lastKeepIdsRef\.current = keep;/);
   assert.match(store, /pendingPatchIdsRef\.current\.clear\(\)/);
 });
 

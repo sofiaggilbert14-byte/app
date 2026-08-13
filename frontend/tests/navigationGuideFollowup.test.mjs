@@ -3,25 +3,15 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  buildGuideAlphabetTargets,
-  GUIDE_ALPHABET,
-  guideChannelLetter,
-} from "../src/core/guideAlphabet.ts";
+import { clampGuideScrollOffset } from "../src/core/guideNavigationPolicy.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-test("Guide alphabet exposes all letters and builds bounded first-channel targets", () => {
-  const targets = buildGuideAlphabetTargets([
-    { id: "a1", name: "123 Álpha" },
-    { id: "a2", name: "Another" },
-    { id: "z1", name: "Zulu" },
-  ]);
-  assert.deepEqual(Object.keys(targets), [...GUIDE_ALPHABET]);
-  assert.equal(targets.A, "a1");
-  assert.equal(targets.Z, "z1");
-  assert.equal(targets.Q, null);
-  assert.equal(guideChannelLetter("  42 Éclair"), "E");
+test("Guide scroll offsets cannot enter blank space beyond real content", () => {
+  assert.equal(clampGuideScrollOffset(-50, 1_000, 400), 0);
+  assert.equal(clampGuideScrollOffset(250, 1_000, 400), 250);
+  assert.equal(clampGuideScrollOffset(900, 1_000, 400), 600);
+  assert.equal(clampGuideScrollOffset(200, 300, 400), 0);
 });
 
 test("requested full-bleed pages expose the shared Drawer button", async () => {
@@ -40,20 +30,15 @@ test("requested full-bleed pages expose the shared Drawer button", async () => {
   assert.match(collection, /active\.slice\(1\)/);
 });
 
-test("Guide A-Z jumps without filtering/remounting the group list", async () => {
+test("removed Guide alphabet leaves a direct group-to-grid focus edge", async () => {
   const [guide, focusLock] = await Promise.all([
     readFile(join(root, "app/(tabs)/guide.tsx"), "utf8"),
     readFile(join(root, "src/utils/tvGuideFocusLock.ts"), "utf8"),
   ]);
-  assert.match(guide, /guide-alphabet-bar/);
-  assert.match(guide, /GUIDE_ALPHABET\.map/);
-  assert.match(guide, /buildGuideAlphabetTargets/);
-  assert.match(guide, /onViewportChannelIds\(runway, priority, visibleRows\)/);
-  assert.match(guide, /setFocusClaimNonce\(\(value\) => value \+ 1\)/);
+  assert.doesNotMatch(guide, /guide-alphabet-bar|GUIDE_ALPHABET|buildGuideAlphabetTargets/);
   assert.doesNotMatch(guide, /Filter in group|guide-group-search|searchChannelsInList/);
-  assert.match(focusLock, /registerGuideAlphabetEntry/);
-  assert.match(focusLock, /focusGuideAlphabetSurface/);
-  assert.match(focusLock, /nextFocusUp: topHandle/);
+  assert.doesNotMatch(focusLock, /registerGuideAlphabetEntry|focusGuideAlphabetSurface|guideAlphabetEntryNode/);
+  assert.match(focusLock, /guideTopEntryNode/);
   assert.match(focusLock, /nextFocusDown: targetHandle/);
 });
 
@@ -86,6 +71,15 @@ test("preview default, ONN page keys, and cold-row focus anchor are hardened", a
   assert.match(timeline, /verticalFocusAnchorRef/);
   assert.match(timeline, /current\.key === "pending"/);
   assert.match(timeline, /prepared\.left \+ prepared\.width \/ 2/);
+  assert.match(timeline, /const movedVertically = gridOwnsFocusRef\.current && rowIndex !== focusedRowRef\.current/);
+  assert.match(timeline, /if \(!movedVertically\) keepProgramVisible/);
+  assert.match(timeline, /const pendingLeft = Math\.max\(0, Math\.min\(panBucket/);
+  assert.match(timeline, /left: pendingLeft,[\s\S]*width: pendingWidth/);
+  assert.doesNotMatch(timeline, /Math\.max\(24, timelineWidth - 6\)/);
+  assert.match(timeline, /overScrollMode="never"/);
+  assert.doesNotMatch(timeline, /paddingBottom: 120/);
   assert.match(timeline, /reportFocusedRow\(targetIndex\)/);
+  assert.match(box, /overScrollMode="never"/);
+  assert.doesNotMatch(box, /paddingBottom: 130/);
   assert.match(box, /reportFocusedRow\(targetIndex\)/);
 });

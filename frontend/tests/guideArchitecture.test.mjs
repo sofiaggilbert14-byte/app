@@ -102,7 +102,7 @@ test("EPG screen delivery uses a symmetric eight-page conveyor runway with retai
   assert.match(native, /for \(const id of unique\)/);
   assert.match(native, /queriedPlaylistIds\.has\(channel\.id\)/);
   assert.match(store, /pendingPatchIdsRef\.current\.clear\(\)/);
-  assert.match(store, /runwayGenerationRef/);
+  assert.doesNotMatch(store, /runwayGenerationRef|pendingPatchGenerationRef/);
   assert.match(native, /programmeWindowCacheKey !== cacheKey\) return \{\}/);
   assert.match(store, /guideEpoch !== guideEpochRef\.current/);
   assert.match(store, /releaseGuideSlidingCache/);
@@ -148,7 +148,7 @@ test("release hardening rejects stale epochs, trims on Guide blur, and derives A
   ]);
   assert.match(native, /programmeWindowCacheKey !== cacheKey\) return \{\}/);
   assert.match(store, /guideEpoch !== guideEpochRef\.current/);
-  assert.match(store, /runwayGenerationRef\.current \+= 1/);
+  assert.match(store, /lastPatchRunwayIdsRef\.current = keep;[\s\S]*lastKeepIdsRef\.current = keep;/);
   assert.match(store, /trimGuideProgramRows\(keep, true\)/);
   assert.match(guide, /releaseGuideSlidingCache\(\)/);
   assert.match(workflow, /require\("\.\/app\.json"\)\.expo\.version/);

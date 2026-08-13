@@ -237,8 +237,6 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const lastPatchRunwayIdsRef = useRef<string[]>([]);
   /** Expanded conveyor keep set (± hysteresis). Prefer this over raw runway on retain. */
   const lastKeepIdsRef = useRef<string[]>([]);
-  const runwayGenerationRef = useRef(0);
-  const pendingPatchGenerationRef = useRef(0);
   const windowStartRef = useRef("");
   const windowEndRef = useRef("");
   const guideEpochRef = useRef(0);
@@ -292,10 +290,11 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
         : powerProfile === "weak" ? 16 : powerProfile === "max_preview" ? 48 : 32;
       const keep = pickKeepIdsAroundFocus(source, keepLimit, lastChannelIdRef.current);
       if (critical) {
-        // Invalidate and cancel pending patch work before strict eviction so an
-        // old async result cannot immediately repopulate off-screen rows.
-        runwayGenerationRef.current += 1;
-        pendingPatchGenerationRef.current = runwayGenerationRef.current;
+        // Replace both source runways before strict eviction. An in-flight SQL
+        // result is filtered against these refs when it returns, so it cannot
+        // repopulate the larger pre-pressure window.
+        lastPatchRunwayIdsRef.current = keep;
+        lastKeepIdsRef.current = keep;
         pendingPatchIdsRef.current.clear();
         pendingPatchPriorityIdsRef.current = [];
         if (patchTimerRef.current) {
@@ -812,7 +811,6 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
             if (id) pendingPatchIdsRef.current.add(id);
           }
           pendingPatchPriorityIdsRef.current = lastPatchRunwayIdsRef.current.slice(0, 3);
-          pendingPatchGenerationRef.current = runwayGenerationRef.current;
           return false;
         }
         // Focus may advance while SQLite is reading. Keep results that still
@@ -861,9 +859,6 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     // cached inside the conveyor hysteresis band until retain drops them.
     pendingPatchIdsRef.current.clear();
     pendingPatchPriorityIdsRef.current = [];
-    const runwayGeneration = runwayGenerationRef.current + 1;
-    runwayGenerationRef.current = runwayGeneration;
-    pendingPatchGenerationRef.current = runwayGeneration;
     lastPatchRunwayIdsRef.current = channelIds.filter(Boolean);
     for (const id of channelIds) {
       if (id) pendingPatchIdsRef.current.add(id);
@@ -908,8 +903,6 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     const keep = pickKeepIdsAroundFocus(source, keepLimit, lastChannelId);
     lastPatchRunwayIdsRef.current = keep;
     lastKeepIdsRef.current = keep;
-    runwayGenerationRef.current += 1;
-    pendingPatchGenerationRef.current = runwayGenerationRef.current;
     pendingPatchIdsRef.current.clear();
     pendingPatchPriorityIdsRef.current = [];
     if (patchTimerRef.current) {
@@ -1092,7 +1085,6 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   useEffect(
     () => () => {
       if (patchTimerRef.current) clearTimeout(patchTimerRef.current);
-      runwayGenerationRef.current += 1;
       pendingPatchIdsRef.current.clear();
       pendingPatchPriorityIdsRef.current = [];
       lastPatchRunwayIdsRef.current = [];

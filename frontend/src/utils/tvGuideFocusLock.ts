@@ -23,7 +23,6 @@ let guidePreviewEntryNode: unknown = null;
 let guidePreviewPreferredNode: unknown = null;
 const guidePreviewNodes = new Map<string, unknown>();
 let guideTopEntryNode: unknown = null;
-let guideAlphabetEntryNode: unknown = null;
 let cancelGuideRestoreTimers: (() => void) | null = null;
 let previewFocusAttempt = 0;
 let previewFocusTimers: ReturnType<typeof setTimeout>[] = [];
@@ -69,16 +68,8 @@ function wireAuxiliaryPanelsToGuide(): void {
       (node as any)?.setNativeProps?.({ nextFocusRight: targetHandle });
     } catch {}
   }
-  const topHandle = findNodeHandle(guideTopEntryNode as any) || -1;
-  const alphabetHandle = findNodeHandle(guideAlphabetEntryNode as any) || -1;
   try {
     (guideTopEntryNode as any)?.setNativeProps?.({
-      nextFocusDown: alphabetHandle > 0 ? alphabetHandle : targetHandle,
-    });
-  } catch {}
-  try {
-    (guideAlphabetEntryNode as any)?.setNativeProps?.({
-      nextFocusUp: topHandle,
       nextFocusDown: targetHandle,
     });
   } catch {}
@@ -268,26 +259,9 @@ export function registerGuideTopEntry(node: unknown): void {
   wireAuxiliaryPanelsToGuide();
 }
 
-/** Register the last-focused A-Z chip between the group tabs and Guide grid. */
-export function registerGuideAlphabetEntry(node: unknown): void {
-  guideAlphabetEntryNode = node || null;
-  wireAuxiliaryPanelsToGuide();
-}
-
-/** Top-row Up enters A-Z first; its own Up edge returns to the active group tab. */
-export function focusGuideAlphabetSurface(): boolean {
-  if (!guideAlphabetEntryNode) return false;
-  cancelGuideFocusRestore();
-  cancelPreviewFocusAttempts();
-  return requestNativeFocus(guideAlphabetEntryNode);
-}
-
 export function wireGuideTopBoundary(node: unknown): void {
   if (!node) return;
-  const handle =
-    findNodeHandle(guideAlphabetEntryNode as any) ||
-    findNodeHandle(guideTopEntryNode as any) ||
-    -1;
+  const handle = findNodeHandle(guideTopEntryNode as any) || -1;
   try {
     (node as any)?.setNativeProps?.({ nextFocusUp: handle });
   } catch {}

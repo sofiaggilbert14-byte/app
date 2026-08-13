@@ -49,7 +49,6 @@ import {
   pinGroup,
   unpinGroup,
 } from "@/src/core/guideGroups";
-import { buildGuideAlphabetTargets, GUIDE_ALPHABET } from "@/src/core/guideAlphabet";
 import { useGuideUiPreferences } from "@/src/core/guideUiPreferences";
 import { resolveChannelNumber, useChannelCustomize } from "@/src/core/channelCustomize";
 import { useParentalPin } from "@/src/core/parentalPin";
@@ -65,22 +64,16 @@ import { nowNext } from "@/src/utils/time";
 import { requestNativeFocus } from "@/src/utils/tvFocus";
 import {
   cancelGuideFocusRestore,
-  focusGuideAlphabetSurface,
   focusGuideProgramCell,
   focusGuidePreviewSurface,
   focusGuideSurface,
-  registerGuideAlphabetEntry,
   registerGuideTopEntry,
 } from "@/src/utils/tvGuideFocusLock";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
 import type { StreamStatus } from "@/src/components/StreamPlayer";
 import { subscribeAndroidMemoryPressure } from "@/src/utils/androidMemoryPressure";
-import {
-  setGuideFocusSyncActive,
-  setGuideNavigationActive,
-  setGuideRepeatInterval,
-} from "@/src/utils/tvRemote";
+import { setGuideNavigationActive, setGuideRepeatInterval } from "@/src/utils/tvRemote";
 
 // Session-only guide position survives the root player route unmounting tabs.
 // Do not persist to disk: this is navigation state, not a user preference.
@@ -122,7 +115,6 @@ const GuideGroupChip = memo(function GuideGroupChip({
     if (active) registerGuideTopEntry(node);
   }, [active, item, onNode]);
   const handleFocus = useCallback(() => {
-    setGuideFocusSyncActive(false);
     registerGuideTopEntry(nodeRef.current);
   }, []);
   const handlePress = useCallback(() => onChoose(item), [item, onChoose]);
@@ -146,50 +138,6 @@ const GuideGroupChip = memo(function GuideGroupChip({
       <Text numberOfLines={1} style={[styles.groupText, active && styles.groupTextActive]}>
         {label}
       </Text>
-    </Pressable>
-  );
-});
-
-const GuideAlphabetButton = memo(function GuideAlphabetButton({
-  letter,
-  available,
-  selected,
-  defaultEntry,
-  onChoose,
-}: {
-  letter: string;
-  available: boolean;
-  selected: boolean;
-  defaultEntry: boolean;
-  onChoose: (letter: string) => void;
-}) {
-  const nodeRef = useRef<unknown>(null);
-  const setRef = useCallback((node: unknown) => {
-    nodeRef.current = node;
-    if (defaultEntry) registerGuideAlphabetEntry(node);
-  }, [defaultEntry]);
-  const handleFocus = useCallback(() => {
-    cancelGuideFocusRestore();
-    setGuideFocusSyncActive(false);
-    registerGuideAlphabetEntry(nodeRef.current);
-  }, []);
-  const handlePress = useCallback(() => onChoose(letter), [letter, onChoose]);
-
-  return (
-    <Pressable
-      ref={setRef}
-      accessibilityLabel={available ? `Jump to ${letter} channels` : `No ${letter} channels`}
-      onFocus={handleFocus}
-      onPress={handlePress}
-      style={({ focused }: any) => [
-        styles.alphabetChip,
-        !available && styles.alphabetChipEmpty,
-        selected && styles.alphabetChipSelected,
-        focused && styles.focused,
-      ]}
-      testID={`guide-alpha-${letter}`}
-    >
-      <Text style={[styles.alphabetText, !available && styles.alphabetTextEmpty]}>{letter}</Text>
     </Pressable>
   );
 });
@@ -311,9 +259,7 @@ export default function PurpleGuideScreen() {
   useFocusEffect(
     useCallback(() => {
       setGuideNavigationActive(true);
-      setGuideFocusSyncActive(false);
       return () => {
-        setGuideFocusSyncActive(false);
         setGuideNavigationActive(false);
       };
     }, []),
@@ -374,7 +320,6 @@ export default function PurpleGuideScreen() {
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewStatus, setPreviewStatus] = useState<StreamStatus>("loading");
   const [resetToken, setResetToken] = useState(0);
-  const [alphabetLetter, setAlphabetLetter] = useState<string | null>(null);
   const [moreGroupsOpen, setMoreGroupsOpen] = useState(false);
   const [pinPromptGroup, setPinPromptGroup] = useState<string | null>(null);
   const [pinDigits, setPinDigits] = useState("");
@@ -391,7 +336,6 @@ export default function PurpleGuideScreen() {
     moreGroupsChipRef.current = node;
   }, []);
   const focusMoreGroupsChip = useCallback(() => {
-    setGuideFocusSyncActive(false);
     registerGuideTopEntry(moreGroupsChipRef.current);
   }, []);
   const lastFocusAtRef = useRef(0);
@@ -449,12 +393,6 @@ export default function PurpleGuideScreen() {
     const syncTimer = setTimeout(() => setGridReminderKeys(reminderKeys), 220);
     return () => clearTimeout(syncTimer);
   }, [activeProgram, reminderKeys]);
-
-  useEffect(() => {
-    if (drawerOpen || activeProgram || moreGroupsOpen || pinPromptGroup) {
-      setGuideFocusSyncActive(false);
-    }
-  }, [activeProgram, drawerOpen, moreGroupsOpen, pinPromptGroup]);
 
   useEffect(() => {
     if (previousDrawerOpenRef.current !== drawerOpen) {
@@ -666,7 +604,7 @@ export default function PurpleGuideScreen() {
     return list.filter((c) => !channelHasEpgMatch(c));
   }, [channels, customOrder, epgGuideFilter, favoriteSet, group, hiddenIdSet, recent, recentIdSet]);
 
-  // Keep the complete group identity stable; A-Z performs a targeted row jump.
+  // Keep the complete selected group identity stable.
   const filtered = filteredMeta;
 
   const orderedFilteredIds = useMemo(
@@ -679,15 +617,6 @@ export default function PurpleGuideScreen() {
   );
   orderedFilteredIdsRef.current = orderedFilteredIds;
   filteredIdIndexRef.current = filteredIdIndex;
-
-  const alphabetTargets = useMemo(
-    () => buildGuideAlphabetTargets(filtered),
-    [filtered],
-  );
-  const alphabetDefaultLetter = useMemo(
-    () => GUIDE_ALPHABET.find((letter) => !!alphabetTargets[letter]) || "A",
-    [alphabetTargets],
-  );
 
   const onViewportChannelIds = useCallback((ids: string[], priorityIds: string[] = [], pageSize = 8) => {
     lastRunwayRef.current = { ids, priority: priorityIds, pageSize };
@@ -713,56 +642,6 @@ export default function PurpleGuideScreen() {
     orderedFilteredIds,
     patchProgramsForChannelIds,
     retainGuideSlidingCache,
-  ]);
-
-  const jumpToAlphabetLetter = useCallback((letter: string) => {
-    setAlphabetLetter(letter);
-    void Haptics.selectionAsync().catch(() => undefined);
-    const targetId = alphabetTargets[letter];
-    if (!targetId) return;
-    const targetIndex = filteredIdIndex.get(targetId);
-    if (targetIndex == null) return;
-
-    const previousIndex = guideSessionChannelId
-      ? filteredIdIndex.get(guideSessionChannelId)
-      : undefined;
-    cancelGuideFocusRestore();
-    guideSessionChannelId = targetId;
-    resetGuideSelection(targetId);
-
-    // Warm the destination runway before native focus reaches a recycled row.
-    // This is one bounded fetch/retain pass, not another cache.
-    const rowHeight = getGuideRailMetrics(
-      screenWidth,
-      guideDensity,
-      channelNumbers,
-      channelLogos,
-    ).rowHeight;
-    const visibleRows = Math.max(6, Math.min(24, Math.ceil(screenHeight / rowHeight)));
-    const direction = previousIndex != null && targetIndex < previousIndex ? -1 : 1;
-    const runway = buildGuideRunwayIds(filtered, targetIndex, visibleRows, direction, powerProfile);
-    const priority = [
-      targetId,
-      filtered[targetIndex + direction]?.id,
-      filtered[targetIndex + direction * 2]?.id,
-      ...runway.slice(0, visibleRows),
-    ].filter((id): id is string => !!id);
-    onViewportChannelIds(runway, priority, visibleRows);
-
-    // Reuse the grid's single nonce-based scroll/focus path; never create a
-    // competing direct focus timer in the screen.
-    setFocusClaimNonce((value) => value + 1);
-  }, [
-    alphabetTargets,
-    channelLogos,
-    channelNumbers,
-    filtered,
-    filteredIdIndex,
-    guideDensity,
-    onViewportChannelIds,
-    powerProfile,
-    screenHeight,
-    screenWidth,
   ]);
 
   const viewportSeedKeyRef = useRef("");
@@ -986,7 +865,6 @@ export default function PurpleGuideScreen() {
     setGroup(next);
     resetGuideSelection(null);
     setPreviewId(null);
-    setAlphabetLetter(null);
     setMoreGroupsOpen(false);
     // Scroll/filter reset only — never reclaim grid preferred focus (keeps chip focused).
     setResetToken((value) => value + 1);
@@ -1043,7 +921,6 @@ export default function PurpleGuideScreen() {
 
   const onGuideUpBoundary = useCallback(() => {
     cancelGuideFocusRestore();
-    if (focusGuideAlphabetSurface()) return;
     const chip = groupChipRefs.current.get(group);
     // Group chips are permanently mounted. One synchronous request avoids a
     // delayed retry pulling focus back after the user moves across the tabs.
@@ -1075,7 +952,6 @@ export default function PurpleGuideScreen() {
       guideSessionChannelId = jump.channelId;
       setGroup(nextGroup);
       resetGuideSelection(jump.channelId);
-      setAlphabetLetter(null);
       setResetToken((value) => value + 1);
       const ch = channelById(jump.channelId);
       if (ch) {
@@ -1164,31 +1040,6 @@ export default function PurpleGuideScreen() {
               <Text style={styles.verticalHeaderHint}>{chipLabel(group)}</Text>
             </View>
           )}
-        </View>
-
-        <View
-          style={[
-            styles.alphabetRow,
-            { marginLeft: (groupLayout === "vertical" ? 126 : 0) + detailsRailWidth + 8 },
-          ]}
-          testID="guide-alphabet-bar"
-        >
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.alphabetContent}
-          >
-            {GUIDE_ALPHABET.map((letter) => (
-              <GuideAlphabetButton
-                key={letter}
-                letter={letter}
-                available={!!alphabetTargets[letter]}
-                selected={alphabetLetter === letter}
-                defaultEntry={letter === alphabetDefaultLetter}
-                onChoose={jumpToAlphabetLetter}
-              />
-            ))}
-          </ScrollView>
         </View>
 
         <EpgProgressBar />
@@ -1485,29 +1336,6 @@ const styles = StyleSheet.create({
   groupText: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 8.5 },
   groupTextActive: { color: "#fff", fontFamily: fonts.semibold },
   verticalHeaderHint: { color: "#fff", fontFamily: fonts.bold, fontSize: 14 },
-  alphabetRow: { minHeight: 28, overflow: "hidden" },
-  alphabetContent: {
-    flexGrow: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 2,
-    paddingHorizontal: 3,
-    paddingVertical: 1,
-  },
-  alphabetChip: {
-    width: 22,
-    height: 24,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 4,
-    borderWidth: 2,
-    borderColor: "transparent",
-    backgroundColor: tvColors.panel,
-  },
-  alphabetChipEmpty: { opacity: 0.48 },
-  alphabetChipSelected: { backgroundColor: tvColors.purple },
-  alphabetText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 7.5 },
-  alphabetTextEmpty: { color: tvColors.textMuted },
   body: { flex: 1, flexDirection: "row", gap: 8, minHeight: 0, position: "relative" },
   verticalGroups: { width: 118, flexShrink: 0, maxHeight: "100%" },
   verticalGroupList: { paddingVertical: 2, paddingRight: 2 },
