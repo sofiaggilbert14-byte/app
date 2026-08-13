@@ -23,9 +23,9 @@ class MainActivity : ReactActivity() {
   /**
    * FlashList can recycle the next Guide row between held D-pad repeats. Android
    * focusSearch may then resolve a stale native neighbor to a programme far away
-   * on the horizontal timeline. Do not let a held vertical repeat commit that
-   * bad target: keep the current focus until a nearby mounted vertical target is
-   * available. First taps remain untouched and therefore stay fully responsive.
+   * on the horizontal timeline or several channel rows away. Do not let a held
+   * vertical repeat commit that bad target: keep the current focus until a nearby
+   * mounted target exists in the requested direction. First taps remain instant.
    */
   private fun hasSafeGuideVerticalTarget(direction: Int): Boolean {
     val source = currentFocus ?: return false
@@ -40,11 +40,19 @@ class MainActivity : ReactActivity() {
       target.getLocationOnScreen(targetLoc)
       val sourceCenterX = sourceLoc[0] + source.width / 2f
       val targetCenterX = targetLoc[0] + target.width / 2f
+      val sourceCenterY = sourceLoc[1] + source.height / 2f
+      val targetCenterY = targetLoc[1] + target.height / 2f
       val horizontalJump = abs(targetCenterX - sourceCenterX)
+      val verticalJump = abs(targetCenterY - sourceCenterY)
       val screenWidth = resources.displayMetrics.widthPixels.toFloat().coerceAtLeast(1f)
-      // Programme widths vary, so allow a generous shift. A recycled-row failure
-      // is typically hundreds of pixels farther right (often another time page).
-      horizontalJump <= max(240f, screenWidth * 0.42f)
+      val movesRequestedDirection =
+        if (direction == View.FOCUS_UP) targetCenterY < sourceCenterY else targetCenterY > sourceCenterY
+      // Programme widths vary, so allow a generous horizontal shift. Correct
+      // vertical neighbours are still only about one row away; stale recycled
+      // handles often resolve several rows away or onto a later time page.
+      movesRequestedDirection &&
+        horizontalJump <= max(240f, screenWidth * 0.42f) &&
+        verticalJump <= max(180f, source.height * 3f)
     } catch (_: Throwable) {
       false
     }
@@ -109,7 +117,7 @@ class MainActivity : ReactActivity() {
 
         // Held Guide vertical movement must never outrun FlashList mounting. If
         // focusSearch has no destination yet, or recycling makes it point far
-        // sideways on the timeline, hold the current cell for this repeat only.
+        // sideways / several rows away, hold the current cell for this repeat.
         if (
           guideActive &&
             sameDirection &&
