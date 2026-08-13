@@ -23,6 +23,8 @@ type NativeRefreshResult = {
   channelLogos?: Record<string, string>;
   channelNames?: Record<string, string>;
   channelIdsWithPrograms?: string[];
+  ingestMode?: "downloaded-local-file";
+  downloadedBytes?: number;
 };
 
 export type NativePlaylistChannelRow = {
