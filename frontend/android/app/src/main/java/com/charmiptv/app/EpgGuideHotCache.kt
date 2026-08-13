@@ -8,7 +8,7 @@ package com.charmiptv.app
  * without repeating the same JOIN/bridge work. Entries are bounded and invalidated
  * whenever the guide or playlist-to-EPG matches change.
  */
-class EpgGuideHotCache(
+internal class EpgGuideHotCache(
   private val loader: (Long, Long, List<String>) -> List<NativeEpgProgram>,
   private val maxChannels: Int = 96,
 ) {
