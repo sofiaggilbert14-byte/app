@@ -26,7 +26,7 @@ import { EpgProgressBar } from "@/src/components/EpgProgressBar";
 import { Channel, Program } from "@/src/api";
 import { useStore } from "@/src/store";
 import { setPriorityMatchChannelIds, setViewportGuideChannelIds } from "@/src/source";
-import { markGuideSurfing } from "@/src/utils/guideSurfGate";
+import { isGuideSurfing, markGuideSurfing } from "@/src/utils/guideSurfGate";
 import { useGuidePrograms } from "@/src/core/guideProgramsStore";
 import { getGuideRailMetrics } from "@/src/core/guideLayoutPolicy";
 import { buildGuideRunwayIds } from "@/src/core/guideRunwayPolicy";
@@ -429,7 +429,7 @@ export default function PurpleGuideScreen() {
     }
     if (!wasOpen || drawerOpen || activeProgram) return;
     // Sole post-drawer reclaim path: bump nonce so TimelineGrid/BoxGrid restore
-    // the session channel. Do not also call focusGuideSurface here — Shell and
+    // the session channel. Do not also call focusGuideSurface here â€” Shell and
     // the shared cancelGuideRestoreTimers would race and yank focus.
     setFocusClaimNonce((value) => value + 1);
   }, [activeProgram, drawerOpen]);
@@ -439,7 +439,7 @@ export default function PurpleGuideScreen() {
     openDrawer({ focusTop: true });
   }, [openDrawer]);
 
-  // After Remind/Cancel sheet closes, return focus to the guide cell — never Live TV.
+  // After Remind/Cancel sheet closes, return focus to the guide cell â€” never Live TV.
   useEffect(() => {
     if (activeProgram) return;
     if (!hadProgramModalRef.current) return;
@@ -462,7 +462,7 @@ export default function PurpleGuideScreen() {
   }, []);
 
   // Back in the guide: step to the channel logo first. Only at the left edge does
-  // Back defer to the shell double-Back drawer arm — never opens on a single press.
+  // Back defer to the shell double-Back drawer arm â€” never opens on a single press.
   useTvBackHandler(
     useCallback(() => {
       if (drawerOpen || activeProgram) return false;
@@ -537,472 +537,8 @@ export default function PurpleGuideScreen() {
         }
         if (previewRecoverTimer.current) {
           clearTimeout(previewRecoverTimer.current);
-          previewRecoverTimer.current = null;
-        }
-        if (surfReleaseTimer.current) {
-          clearTimeout(surfReleaseTimer.current);
-          surfReleaseTimer.current = null;
-        }
-        // A real route blur must unmount preview playback before cache release.
-        // The overlay drawer does not blur this route, so its runway stays warm.
-        setPreviewId(null);
-        setViewportGuideChannelIds(null);
-        setPriorityMatchChannelIds([]);
-        releaseGuideSlidingCache();
-      };
-    }, [channels.length, patchProgramsForChannelIds, releaseGuideSlidingCache, retainGuideSlidingCache]),
-  );
-
-  const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
-  const recentIdSet = useMemo(() => new Set(recentIds), [recentIds]);
-  const failedCount = failedStreamCount();
-
-  const groupCounts = useMemo(
-    () =>
-      buildGroupCounts(channels, {
-        favoriteSet,
-        recentIds: recentIdSet,
-        hasEpgMatch: channelHasEpgMatch,
-        isFailed: isFailedChannel,
-        hiddenIds: hiddenIdSet,
-      }),
-    // failedCount invalidates when the in-memory failure registry grows/shrinks.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [channels, favoriteSet, recentIdSet, hiddenIdSet, failedCount, epgGuideFilter],
-  );
-
-  const playlistGroups = useMemo(
-    () => listPlaylistGroupNames(channels, hiddenIdSet),
-    [channels, hiddenIdSet],
-  );
-
-  const { tabs: groups, overflow: overflowGroups } = useMemo(
-    () =>
-      buildVisibleGroups({
-        counts: groupCounts,
-        pinned: pinnedGroups,
-        playlistGroups,
-        maxPlaylistTabs: 10,
-      }),
-    [groupCounts, pinnedGroups, playlistGroups],
-  );
-
-  const filteredMeta = useMemo(() => {
-    let list = filterChannelsByGroup(channels, group, {
-      favoriteSet,
-      recent,
-      recentIds: recentIdSet,
-      hasEpgMatch: channelHasEpgMatch,
-      isFailed: isFailedChannel,
-      hiddenIds: hiddenIdSet,
-      customOrder,
-    });
-    if (epgGuideFilter === "all") return list;
-    if (epgGuideFilter === "matched") {
-      return list.filter(channelHasEpgMatch);
-    }
-    return list.filter((c) => !channelHasEpgMatch(c));
-  }, [channels, customOrder, epgGuideFilter, favoriteSet, group, hiddenIdSet, recent, recentIdSet]);
-
-  // Keep the complete selected group identity stable.
-  const filtered = filteredMeta;
-
-  const orderedFilteredIds = useMemo(
-    () => filtered.map((channel) => channel.id).filter(Boolean),
-    [filtered],
-  );
-  const filteredIdIndex = useMemo(
-    () => buildChannelIndexMap(orderedFilteredIds),
-    [orderedFilteredIds],
-  );
-  orderedFilteredIdsRef.current = orderedFilteredIds;
-  filteredIdIndexRef.current = filteredIdIndex;
-
-  const onViewportChannelIds = useCallback((ids: string[], priorityIds: string[] = [], pageSize = 8) => {
-    lastRunwayRef.current = { ids, priority: priorityIds, pageSize };
-    setViewportGuideChannelIds(ids);
-    if (channels.length >= 400) {
-      // Match the focused/next rows first. A symmetric runway starts at its
-      // oldest retained row, which must not delay the visible edge.
-      setPriorityMatchChannelIds(
-        Array.from(new Set([...priorityIds, ...ids])).slice(0, 400),
-      );
-    } else {
-      setPriorityMatchChannelIds([]);
-    }
-    // Conveyor belt: fetch the runway, retain fetch ± 1 page so reverse surfing
-    // does not blank rows the user just left, and drop everything else.
-    retainGuideSlidingCache(
-      expandRunwayKeepSet(orderedFilteredIds, ids, pageSize, 1, filteredIdIndex),
-    );
-    void patchProgramsForChannelIds(ids, priorityIds);
-  }, [
-    channels.length,
-    filteredIdIndex,
-    orderedFilteredIds,
-    patchProgramsForChannelIds,
-    retainGuideSlidingCache,
-  ]);
-
-  const viewportSeedKeyRef = useRef("");
-  // Seed only on cold load/group/reset. A silent refresh must not yank a deeply
-  // scrolled guide's EPG query scope back to the first channels.
-  useEffect(() => {
-    if (!isFocused || !filtered.length) return;
-    const key = `${group}:${resetToken}:${powerProfile}`;
-    if (viewportSeedKeyRef.current === key) return;
-    viewportSeedKeyRef.current = key;
-    const rowHeight = getGuideRailMetrics(
-      screenWidth,
-      guideDensity,
-      channelNumbers,
-      channelLogos,
-    ).rowHeight;
-    const visibleRows = Math.max(6, Math.min(24, Math.ceil(screenHeight / rowHeight)));
-    // Warm the complete initial direction-aware runway before the first focus
-    // event instead of waiting on row 1. Compatibility shortens ahead pages.
-    const ids = buildGuideRunwayIds(filtered, 0, visibleRows, 1, powerProfile);
-    lastRunwayRef.current = {
-      ids,
-      priority: [ids[0], ids[1], ids[2], ...ids.slice(0, visibleRows)].filter(
-        (id): id is string => !!id,
-      ),
-      pageSize: visibleRows,
-    };
-    setViewportGuideChannelIds(ids);
-    setPriorityMatchChannelIds(
-      channels.length >= 400
-        ? Array.from(new Set([...lastRunwayRef.current.priority, ...ids])).slice(0, 400)
-        : [],
-    );
-    retainGuideSlidingCache(
-      expandRunwayKeepSet(orderedFilteredIds, ids, visibleRows, 1, filteredIdIndex),
-    );
-    // Prewarm immediately on Guide/group entry, before the first native focus
-    // event. SQLite and the bridge can populate the first visible runway early.
-    void patchProgramsForChannelIds(
-      ids,
-      lastRunwayRef.current.priority,
-    );
-  }, [
-    channelLogos,
-    channelNumbers,
-    channels.length,
-    filtered,
-    filteredIdIndex,
-    group,
-    guideDensity,
-    isFocused,
-    orderedFilteredIds,
-    patchProgramsForChannelIds,
-    powerProfile,
-    retainGuideSlidingCache,
-    resetToken,
-    screenHeight,
-    screenWidth,
-  ]);
-
-  const onChannelLongPress = useCallback(
-    (channel: Channel) => {
-      toggleFavorite(channel.id);
-    },
-    [toggleFavorite],
-  );
-
-  // If Favorites/Recent (or a vanished category) becomes empty, fall back to All
-  // so the guide never leaves an unfocusable empty FlashList.
-  useEffect(() => {
-    if (!groups.includes(group) && !overflowGroups.includes(group)) {
-      guideSessionGroup = "All";
-      guideSessionChannelId = null;
-      setGroup("All");
-      setResetToken((value) => value + 1);
-    }
-  }, [group, groups, overflowGroups]);
-
-  const channelNumberById = useMemo(() => {
-    const result: Record<string, number> = {};
-    [...channels].sort(byName).forEach((channel, index) => {
-      result[channel.id] = resolveChannelNumber(channel.id, index + 1, customNumbers);
-    });
-    return result;
-  }, [channels, customNumbers]);
-
-  // Repeated focus uses this O(1) lookup through the external selection store;
-  // it never scans the complete filtered channel array.
-  const filteredChannelById = useMemo(
-    () => new Map(filtered.map((channel) => [channel.id, channel] as const)),
-    [filtered],
-  );
-  const previewFallbackChannel = useMemo(
-    () => (lastChannelId ? filteredChannelById.get(lastChannelId) : null) || filtered[0] || null,
-    [filtered, filteredChannelById, lastChannelId],
-  );
-
-  // Decoder preview stays deliberately delayed during held navigation. Guide
-  // metadata does not: title/description must track the actual focused row now.
-  const previewDelay =
-    safePreviewMode === "delayed" || safePreviewMode === "surf"
-      ? powerTuning.previewArmDelayedMs
-      : powerTuning.previewArmOnMs;
-  const surfSettleExtraMs =
-    safePreviewMode === "surf"
-      ? powerTuning.surfSettleExtraMs + 100
-      : powerTuning.surfSettleExtraMs;
-
-  const schedulePreview = useCallback((requestedId: string, delay: number, hasUrl: boolean) => {
-    if (previewTimer.current) {
-      clearTimeout(previewTimer.current);
-      previewTimer.current = null;
-    }
-    if (safePreviewMode === "off" || !hasUrl) {
-      setPreviewId(null);
-      return;
-    }
-    previewTimer.current = setTimeout(() => {
-      previewTimer.current = null;
-      // Break the sticky error latch — always remount the decoder for this tune.
-      setPreviewStatus("loading");
-      setPreviewEpoch((value) => value + 1);
-      setPreviewId(requestedId);
-      setSurfLogosSuppressed(false);
-    }, delay);
-  }, [safePreviewMode]);
-
-  const detailsRailWidth = useMemo(() => {
-    // Fixed left details panel sized for readable descriptions/actions on modern
-    // Android TV hardware. The guide owns all remaining width to the right.
-    // Twenty-five percent smaller than the original 260-360px / 24% rail.
-    return Math.round(Math.min(270, Math.max(195, screenWidth * 0.18)));
-  }, [screenWidth]);
-  const armPreviewForChannel = useCallback(
-    (channel: Channel) => {
-      if (previewTimer.current) clearTimeout(previewTimer.current);
-      const requestedId = channel.id;
-      guideSessionChannelId = requestedId;
-
-      // Moving left/right across programmes on the same channel updates details
-      // immediately but must not tear down and re-arm an unchanged decoder.
-      if (previewId === requestedId && previewStatus !== "error") return;
-
-      const nowTs = Date.now();
-      const rapid = nowTs - lastFocusAtRef.current < 240;
-      lastFocusAtRef.current = nowTs;
-      if (rapid) rapidSurfUntilRef.current = nowTs + powerTuning.rapidSurfHoldMs;
-      if (rapid || nowTs < rapidSurfUntilRef.current) {
-        markGuideSurfing(powerTuning.rapidSurfHoldMs);
-      }
-      if (surfReleaseTimer.current) {
-        clearTimeout(surfReleaseTimer.current);
-        surfReleaseTimer.current = null;
-      }
-
-      if (nowTs < rapidSurfUntilRef.current || rapid) {
-        // Keep decoder/GPU work out of the repeated-focus path. Only the last
-        // focused channel after the hold settles is allowed to tune preview.
-        // Defer the one-time decoder/logo release until after native focus has
-        // painted; doing this synchronously makes the highlight visibly stall.
-        if (!surfReleaseTimer.current) {
-          surfReleaseTimer.current = setTimeout(() => {
-            surfReleaseTimer.current = null;
-            setPreviewId(null);
-            if (logosOffWhileSurfing) setSurfLogosSuppressed(true);
-          }, 48);
-        }
-        schedulePreview(
-          requestedId,
-          Math.max(powerTuning.rapidSurfHoldMs + 80, previewDelay + surfSettleExtraMs),
-          !!channel.url,
-        );
-        return;
-      }
-
-      const recentlyChangedGroup = nowTs - groupChangedAt.current < 1800;
-      const delay = recentlyChangedGroup
-        ? Math.max(previewDelay + surfSettleExtraMs, powerTuning.previewArmDelayedMs)
-        : previewDelay;
-      schedulePreview(requestedId, delay, !!channel.url);
-    },
-    [logosOffWhileSurfing, powerTuning, previewDelay, previewId, previewStatus, schedulePreview, surfSettleExtraMs],
-  );
-
-  const onFocusChannel = useCallback((channel: Channel) => {
-    // Logo/card focus represents the live row rather than a previously selected
-    // programme. Only the preview subtree subscribes to this external update.
-    resetGuideSelection(channel.id);
-    armPreviewForChannel(channel);
-  }, [armPreviewForChannel]);
-
-  const onFocusProgram = useCallback((program: Program, channel: Channel) => {
-    guideSessionChannelId = channel.id;
-    setGuideFocusedProgram(channel.id, program);
-    armPreviewForChannel(channel);
-  }, [armPreviewForChannel]);
-
-  const openGuideProgram = useCallback((program: Program, channel: Channel) => {
-    modalOriginRef.current = { channelId: channel.id, programStart: program.start };
-    openProgram(program, channel);
-  }, [openProgram]);
-
-  const play = useCallback(
-    (channel: Channel) => {
-      void Haptics.selectionAsync().catch(() => undefined);
-      // Drop guide preview before fullscreen allocates a decoder.
-      if (previewTimer.current) clearTimeout(previewTimer.current);
-      setPreviewId(null);
-      addRecent(channel);
-      openFullscreenPlayer(router, channel.id);
-    },
-    [addRecent, router],
-  );
-
-  const applyGroup = useCallback((next: string) => {
-    void Haptics.selectionAsync().catch(() => undefined);
-    if (previewTimer.current) clearTimeout(previewTimer.current);
-    groupChangedAt.current = Date.now();
-    guideSessionGroup = next;
-    guideSessionChannelId = null;
-    setGroup(next);
-    resetGuideSelection(null);
-    setPreviewId(null);
-    setMoreGroupsOpen(false);
-    // Scroll/filter reset only — never reclaim grid preferred focus (keeps chip focused).
-    setResetToken((value) => value + 1);
-    // Re-assert focus on the chip the user pressed after the list swaps.
-    requestAnimationFrame(() => {
-      const chip = groupChipRefs.current.get(next);
-      if (chip) requestNativeFocus(chip);
-    });
-  }, []);
-
-  const chooseGroup = useCallback(
-    (next: string) => {
-      if (hasPin && isGroupLocked(next)) {
-        setPinPromptGroup(next);
-        setPinDigits("");
-        setPinError(false);
-        return;
-      }
-      applyGroup(next);
-    },
-    [applyGroup, hasPin, isGroupLocked],
-  );
-
-  const submitPin = useCallback(() => {
-    if (!pinPromptGroup) return;
-    if (!verifyPin(pinDigits)) {
-      setPinError(true);
-      setPinDigits("");
-      return;
-    }
-    unlockGroup(pinPromptGroup);
-    const next = pinPromptGroup;
-    setPinPromptGroup(null);
-    setPinDigits("");
-    setPinError(false);
-    applyGroup(next);
-  }, [applyGroup, pinDigits, pinPromptGroup, unlockGroup, verifyPin]);
-
-  const togglePinGroup = useCallback(
-    (name: string) => {
-      void Haptics.selectionAsync().catch(() => undefined);
-      if (pinnedGroups.includes(name)) {
-        setPinnedGroups(unpinGroup(pinnedGroups, name));
-      } else {
-        setPinnedGroups(pinGroup(pinnedGroups, name));
-      }
-    },
-    [pinnedGroups, setPinnedGroups],
-  );
-
-  const onFocusedGuideRow = useCallback((_index: number) => {
-    // Intentionally no-op for trapFocus toggling — flipping traps mid-surf freezes TV focus.
-  }, []);
-
-  const onGuideUpBoundary = useCallback(() => {
-    cancelGuideFocusRestore();
-    const chip = groupChipRefs.current.get(group);
-    // Group chips are permanently mounted. One synchronous request avoids a
-    // delayed retry pulling focus back after the user moves across the tabs.
-    if (chip) {
-      registerGuideTopEntry(chip);
-      requestNativeFocus(chip);
-    }
-  }, [group]);
-
-  const onGuideLeftBoundary = useCallback(() => {
-    // The preview/details/actions panel is the Guide's only left neighbor.
-    focusGuidePreviewSurface();
-  }, []);
-
-  // One-shot Search/Health jump — apply on focus/mount only.
-  useFocusEffect(
-    useCallback(() => {
-      const jump = consumeGuideJump();
-      if (!jump) return;
-      const nextGroup = jump.group || "All";
-      if (hasPin && isGroupLocked(nextGroup)) {
-        setPinPromptGroup(nextGroup);
-        setPinDigits("");
-        setPinError(false);
-        guideSessionChannelId = jump.channelId;
-        return;
-      }
-      guideSessionGroup = nextGroup;
-      guideSessionChannelId = jump.channelId;
-      setGroup(nextGroup);
-      resetGuideSelection(jump.channelId);
-      setResetToken((value) => value + 1);
-      const ch = channelById(jump.channelId);
-      if (ch) {
-        schedulePreview(jump.channelId, previewDelay + surfSettleExtraMs, !!ch.url);
-      }
-    }, [channelById, hasPin, isGroupLocked, previewDelay, schedulePreview, surfSettleExtraMs]),
-  );
-
-  const onPreviewStatus = useCallback((status: StreamStatus) => {
-    setPreviewStatus(status);
-  }, []);
-
-  const onPreviewErrorRemount = useCallback(() => {
-    if (previewRecoverTimer.current) clearTimeout(previewRecoverTimer.current);
-    previewRecoverTimer.current = setTimeout(() => {
-      previewRecoverTimer.current = null;
-      setPreviewStatus("loading");
-      setPreviewEpoch((value) => value + 1);
-    }, 700);
-  }, []);
-
-  const rememberGroupChipNode = useCallback((item: string, node: unknown) => {
-    if (node) groupChipRefs.current.set(item, node);
-    else groupChipRefs.current.delete(item);
-  }, []);
-  const renderGroupChip = useCallback(
-    (item: string) => (
-      <GuideGroupChip
-        key={item}
-        item={item}
-        count={groupCounts[item] || 0}
-        active={group === item}
-        pinned={pinnedGroups.includes(item)}
-        vertical={groupLayout === "vertical"}
-        onChoose={chooseGroup}
-        onTogglePin={togglePinGroup}
-        onNode={rememberGroupChipNode}
-      />
-    ),
-    [chooseGroup, group, groupCounts, groupLayout, pinnedGroups, rememberGroupChipNode, togglePinGroup],
-  );
-
-  return (
-    <PurpleTvShell
-      active="/guide"
-      watchingChannelId={lastChannelId}
-    >
-      <View style={styles.page}>
-        <View style={styles.header}>
-          <Animated.View
-            // Title is decorative — never steal hits/focus beside an open drawer.
+     …4373 tokens truncated…         <Animated.View
+            // Title is decorative â€” never steal hits/focus beside an open drawer.
             pointerEvents="none"
             style={[styles.guideTitleBlock, { opacity: headerTitleProgress }]}
           >
@@ -1046,7 +582,7 @@ export default function PurpleGuideScreen() {
         {loading && channels.length === 0 ? (
           <View style={styles.center}>
             <ActivityIndicator color={tvColors.purpleBright} size="large" />
-            <Text style={styles.centerText}>Loading channels and guide…</Text>
+            <Text style={styles.centerText}>Loading channels and guideâ€¦</Text>
             <Pressable
               focusable
               disabled={refreshing}
@@ -1055,7 +591,7 @@ export default function PurpleGuideScreen() {
               testID="purple-guide-retry-loading"
             >
               <Ionicons name="refresh-outline" size={14} color="#fff" />
-              <Text style={styles.retryText}>{refreshing ? "Loading…" : "Retry now"}</Text>
+              <Text style={styles.retryText}>{refreshing ? "Loadingâ€¦" : "Retry now"}</Text>
             </Pressable>
           </View>
         ) : error && channels.length === 0 ? (
@@ -1070,7 +606,7 @@ export default function PurpleGuideScreen() {
               testID="purple-guide-retry-error"
             >
               <Ionicons name="refresh-outline" size={14} color="#fff" />
-              <Text style={styles.retryText}>{refreshing ? "Reloading…" : "Reload guide"}</Text>
+              <Text style={styles.retryText}>{refreshing ? "Reloadingâ€¦" : "Reload guide"}</Text>
             </Pressable>
           </View>
         ) : channels.length === 0 ? (
@@ -1085,7 +621,7 @@ export default function PurpleGuideScreen() {
               testID="purple-guide-retry-empty"
             >
               <Ionicons name="refresh-outline" size={14} color="#fff" />
-              <Text style={styles.retryText}>{refreshing ? "Loading…" : "Reload guide"}</Text>
+              <Text style={styles.retryText}>{refreshing ? "Loadingâ€¦" : "Reload guide"}</Text>
             </Pressable>
           </View>
         ) : (
@@ -1266,8 +802,8 @@ export default function PurpleGuideScreen() {
             <FocusGuide autoFocus trapFocusUp trapFocusDown trapFocusLeft trapFocusRight>
               <View style={styles.pinCard}>
                 <Text style={styles.overlayTitle}>Enter PIN</Text>
-                <Text style={styles.pinHint}>Unlock “{pinPromptGroup}”</Text>
-                <Text style={styles.pinDigits}>{pinDigits.padEnd(4, "•").slice(0, 4)}</Text>
+                <Text style={styles.pinHint}>Unlock â€œ{pinPromptGroup}â€</Text>
+                <Text style={styles.pinDigits}>{pinDigits.padEnd(4, "â€¢").slice(0, 4)}</Text>
                 {pinError ? <Text style={styles.pinError}>Incorrect PIN</Text> : null}
                 <View style={styles.pinPad}>
                   {["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"].map((digit) => (
