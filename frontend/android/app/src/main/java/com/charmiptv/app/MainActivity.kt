@@ -55,8 +55,8 @@ class MainActivity : ReactActivity() {
         event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT
 
     // Keep the first press and direction reversals instant. Held Guide repeats
-    // use a bounded native cadence and never wait for a JS/paint acknowledgement;
-    // that old cross-thread lock could release a repeat after a row was recycled.
+    // use a bounded native cadence. A separate focus-ack gate below prevents
+    // those accepted repeats from outrunning FlashList/native focus mounting.
     if (event.action == android.view.KeyEvent.ACTION_DOWN && directional) {
       val guideActive =
         TvRemoteModule.guideNavigationActive &&
@@ -79,6 +79,8 @@ class MainActivity : ReactActivity() {
     } else if (event.action == android.view.KeyEvent.ACTION_UP && directional) {
       lastAcceptedDirectionalKeyCode = -1
       lastAcceptedDirectionalRepeatAt = 0L
+      // Do not add an extra queued move after the user has released the D-pad.
+      TvRemoteModule.pendingLogicalGuideKey = null
     }
 
     val key: String? = if (event.action == android.view.KeyEvent.ACTION_DOWN) {
@@ -108,8 +110,15 @@ class MainActivity : ReactActivity() {
         TvRemoteModule.guideLogicalNavigationActive &&
         !TvRemoteModule.pointerActive
     ) {
-      // The Guide controller owns channel/time movement. Consume the event so
-      // Android geometry cannot select a stale recycled cell in parallel.
+      // Exactly one logical focus transaction may be in flight. While its
+      // destination is still mounting, retain only the newest accepted repeat.
+      // Native onFocus acknowledgement releases that queued key from
+      // TvRemoteModule.setGuideLogicalNavigationActive(true).
+      if (TvRemoteModule.guideLogicalFocusPending) {
+        TvRemoteModule.pendingLogicalGuideKey = key
+        return true
+      }
+      TvRemoteModule.guideLogicalFocusPending = true
       emitRemoteEvent("TvGuideLogicalKey", key)
       return true
     }
@@ -134,7 +143,7 @@ class MainActivity : ReactActivity() {
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
-    // Prevent Android TV / Fire TV from dimming, sleeping, or launching a
+    // Prevent Android TV devices from dimming, sleeping, or launching a
     // screensaver while CharmIPTV is active. Playback screens inherit this
     // window flag automatically, so a long-running channel remains awake.
     window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -157,6 +166,8 @@ class MainActivity : ReactActivity() {
     TvRemoteModule.pointerActive = false
     TvRemoteModule.guideNavigationActive = false
     TvRemoteModule.guideLogicalNavigationActive = false
+    TvRemoteModule.guideLogicalFocusPending = false
+    TvRemoteModule.pendingLogicalGuideKey = null
     super.onDestroy()
   }
 
