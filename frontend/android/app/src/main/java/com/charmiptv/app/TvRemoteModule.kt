@@ -26,6 +26,8 @@ class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBas
     @JvmField
     var guideLogicalFocusPending: Boolean = false
     @JvmField
+    var guideLogicalFocusPendingSinceMs: Long = 0L
+    @JvmField
     var pendingLogicalGuideKey: String? = null
     @JvmField
     var guideRepeatIntervalMs: Long = 72L
@@ -43,6 +45,7 @@ class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBas
     if (!active) {
       guideLogicalNavigationActive = false
       guideLogicalFocusPending = false
+      guideLogicalFocusPendingSinceMs = 0L
       pendingLogicalGuideKey = null
     }
   }
@@ -52,6 +55,7 @@ class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBas
     guideLogicalNavigationActive = active
     if (!active) {
       guideLogicalFocusPending = false
+      guideLogicalFocusPendingSinceMs = 0L
       pendingLogicalGuideKey = null
       return
     }
@@ -62,10 +66,12 @@ class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBas
     // focus generations ahead of the mounted Android view hierarchy.
     if (guideLogicalFocusPending) {
       guideLogicalFocusPending = false
+      guideLogicalFocusPendingSinceMs = 0L
       val pending = pendingLogicalGuideKey
       pendingLogicalGuideKey = null
       if (!pending.isNullOrBlank()) {
         guideLogicalFocusPending = true
+        guideLogicalFocusPendingSinceMs = SystemClock.uptimeMillis()
         emitLogicalGuideKey(pending)
       }
     }
