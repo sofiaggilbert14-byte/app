@@ -1,6 +1,7 @@
 package com.charmiptv.app
 
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /** Full retained EPG window in native RAM; SQLite remains durable fallback. */
 internal class EpgRamEngine(private val database: EpgDatabase) {
@@ -16,6 +17,9 @@ internal class EpgRamEngine(private val database: EpgDatabase) {
   @Volatile private var snapshot = EMPTY
   @Volatile private var rebuildAllowedAtMs = 0L
   private val rebuilding = AtomicBoolean(false)
+  private val hitCount = AtomicLong(0L)
+  private val missCount = AtomicLong(0L)
+  @Volatile private var lastWarmDurationMs = 0L
 
   /**
    * RAM is disposable. A short cooldown prevents a critical-memory trim from
@@ -49,6 +53,7 @@ internal class EpgRamEngine(private val database: EpgDatabase) {
     val now = System.currentTimeMillis()
     if (endMs <= startMs || now < rebuildAllowedAtMs || !rebuilding.compareAndSet(false, true)) return false
     try {
+      val warmStartedAt = System.currentTimeMillis()
       val runtime = Runtime.getRuntime()
       val usedBeforeBuild = heapUsed(runtime)
       if (usedBeforeBuild >= (runtime.maxMemory() * PREBUILD_PRESSURE_FRACTION).toLong()) {
@@ -86,6 +91,7 @@ internal class EpgRamEngine(private val database: EpgDatabase) {
         estimatedBytes = estimated,
       )
       rebuildAllowedAtMs = 0L
+      lastWarmDurationMs = System.currentTimeMillis() - warmStartedAt
       return programCount > 0
     } catch (_: RamBudgetExceeded) {
       rebuildAllowedAtMs = System.currentTimeMillis() + FAILED_REBUILD_COOLDOWN_MS
@@ -95,16 +101,24 @@ internal class EpgRamEngine(private val database: EpgDatabase) {
     }
   }
 
-  fun queryGuideWindow(startMs: Long, endMs: Long, playlistIds: Collection<String>): List<NativeEpgProgram>? {
+  fun queryGuideWindow(startMs: Long, endMs: Long, playlistIds: Collection<String>): Map<String, List<NativeEpgProgram>>? {
     val current = snapshot
-    if (current.programCount <= 0 || current.playlistToXmltv.isEmpty() || startMs < current.startMs || endMs > current.endMs) return null
-    if (heapPressureCritical()) { clear(); return null }
-    val result = ArrayList<NativeEpgProgram>()
+    if (current.programCount <= 0 || current.playlistToXmltv.isEmpty() || startMs < current.startMs || endMs > current.endMs) {
+      missCount.incrementAndGet()
+      return null
+    }
+    if (heapPressureCritical()) { clear(); missCount.incrementAndGet(); return null }
+    val result = LinkedHashMap<String, List<NativeEpgProgram>>()
     for (playlistId in playlistIds) {
       val xmltvId = current.playlistToXmltv[playlistId] ?: continue
       val rows = current.byXmltvChannel[xmltvId] ?: continue
-      appendWindow(rows, playlistId, startMs, endMs, result)
+      val from = firstOverlap(rows, startMs)
+      if (from < 0) continue
+      var to = from
+      while (to < rows.size && rows[to].startMs < endMs) to += 1
+      if (to > from) result[playlistId] = rows.asList().subList(from, to)
     }
+    hitCount.incrementAndGet()
     return result
   }
 
@@ -131,6 +145,9 @@ internal class EpgRamEngine(private val database: EpgDatabase) {
       "heapUsedBytes" to heapUsed(runtime),
       "heapMaxBytes" to runtime.maxMemory(),
       "rebuildAllowedAtMs" to rebuildAllowedAtMs,
+      "hitCount" to hitCount.get(),
+      "missCount" to missCount.get(),
+      "lastWarmDurationMs" to lastWarmDurationMs,
     )
   }
 
