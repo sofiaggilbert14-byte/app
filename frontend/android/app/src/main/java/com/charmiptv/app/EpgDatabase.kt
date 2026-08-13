@@ -39,7 +39,7 @@ internal data class PlaylistEpgMatchRow(
  * Design constraints (do not regress):
  * - Independent last-good LIVE table (never couple playlist wipe to EPG wipe)
  * - Additive schema migrations (never DROP on upgrade)
- * - Staging → atomic LIVE swap; refuse empty replace
+ * - Staging â†’ atomic LIVE swap; refuse empty replace
  * - Rare idle vacuum only (never on every refresh / surf)
  */
 internal class EpgDatabase(context: Context) :
@@ -78,7 +78,7 @@ internal class EpgDatabase(context: Context) :
     db.rawQuery("PRAGMA journal_mode=WAL", null).close()
     db.execSQL("PRAGMA synchronous=NORMAL")
     db.execSQL("PRAGMA temp_store=MEMORY")
-    // Incremental vacuum frees pages later via rare PRAGMA incremental_vacuum — not every refresh.
+    // Incremental vacuum frees pages later via rare PRAGMA incremental_vacuum â€” not every refresh.
     try {
       db.execSQL("PRAGMA auto_vacuum=INCREMENTAL")
     } catch (_: Throwable) {
@@ -186,7 +186,7 @@ internal class EpgDatabase(context: Context) :
   }
 
   override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-    // Additive only — never DROP live guide on upgrade (would fight last-good / Phase 4).
+    // Additive only â€” never DROP live guide on upgrade (would fight last-good / Phase 4).
     if (oldVersion < 3) {
       ensureColumn(db, LIVE_TABLE, "category", "TEXT")
       ensureColumn(db, STAGING_TABLE, "category", "TEXT")
@@ -311,7 +311,7 @@ internal class EpgDatabase(context: Context) :
   /**
    * After staging is filled: if a row used the default +30m stop (or overlaps the
    * next show), set end_time to the next programme start on the same channel.
-   * Runs once at ingest — never during guide cell paint.
+   * Runs once at ingest â€” never during guide cell paint.
    */
   fun inferMissingStopsFromNextProgram(
     defaultDurationMs: Long,
@@ -490,7 +490,7 @@ internal class EpgDatabase(context: Context) :
     return digest.digest().joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
   }
 
-  /** Replace resolved playlist→XMLTV matches used by queryGuideWindow joins. */
+  /** Replace resolved playlistâ†’XMLTV matches used by queryGuideWindow joins. */
   fun replacePlaylistEpgMatches(rows: List<PlaylistEpgMatchRow>, guideEpoch: Long): Boolean {
     val fingerprint = fingerprintPlaylistEpgMatches(rows)
     if (getMeta(MATCH_CONTENT_FINGERPRINT_KEY) == fingerprint) return false
@@ -582,6 +582,32 @@ internal class EpgDatabase(context: Context) :
         """.trimIndent(),
         args.toTypedArray(),
       ).use { cursor -> appendPrograms(cursor, result) }
+    }
+    return result
+  }
+
+  fun readPlaylistEpgMatches(): List<PlaylistEpgMatchRow> {
+    val result = ArrayList<PlaylistEpgMatchRow>()
+    readableDatabase.rawQuery(
+      """
+      SELECT playlist_id, xmltv_id, logo_xmltv_id, ambiguous, match_policy, manual
+      FROM $MATCH_TABLE
+      WHERE playlist_id != '' AND xmltv_id != ''
+      """.trimIndent(),
+      null,
+    ).use { cursor ->
+      while (cursor.moveToNext()) {
+        result.add(
+          PlaylistEpgMatchRow(
+            playlistId = cursor.getString(0),
+            xmltvId = cursor.getString(1),
+            logoXmltvId = cursor.getString(2),
+            ambiguous = cursor.getInt(3) != 0,
+            matchPolicy = cursor.getString(4),
+            manual = cursor.getInt(5) != 0,
+          )
+        )
+      }
     }
     return result
   }
@@ -720,16 +746,41 @@ internal class EpgDatabase(context: Context) :
     val startColumn = cursor.getColumnIndexOrThrow("start_time")
     val endColumn = cursor.getColumnIndexOrThrow("end_time")
     while (cursor.moveToNext()) {
-      result.add(
-        NativeEpgProgram(
-          channelId = cursor.getString(channelColumn),
-          title = cursor.getString(titleColumn),
-          description = if (cursor.isNull(descriptionColumn)) null else cursor.getString(descriptionColumn),
-          category = if (categoryColumn >= 0 && !cursor.isNull(categoryColumn)) cursor.getString(categoryColumn) else null,
-          startMs = cursor.getLong(startColumn),
-          endMs = cursor.getLong(endColumn),
-        )
-      )
+      result.add(programFromCursor(cursor, channelColumn, titleColumn, descriptionColumn, categoryColumn, startColumn, endColumn))
+    }
+  }
+
+  private fun programFromCursor(
+    cursor: android.database.Cursor,
+    channelColumn: Int = 0,
+    titleColumn: Int = 1,
+    descriptionColumn: Int = 2,
+    categoryColumn: Int = 3,
+    startColumn: Int = 4,
+    endColumn: Int = 5,
+  ) = NativeEpgProgram(
+    channelId = cursor.getString(channelColumn),
+    title = cursor.getString(titleColumn),
+    description = if (cursor.isNull(descriptionColumn)) null else cursor.getString(descriptionColumn),
+    category = if (categoryColumn >= 0 && !cursor.isNull(categoryColumn)) cursor.getString(categoryColumn) else null,
+    startMs = cursor.getLong(startColumn),
+    endMs = cursor.getLong(endColumn),
+  )
+
+  /** Cursor-based full-window scan used by the RAM engine without a giant temporary List. */
+  fun forEachProgramInWindow(startMs: Long, endMs: Long, action: (NativeEpgProgram) -> Unit) {
+    readableDatabase.rawQuery(
+      """
+      SELECT channel_id, title, description, category, start_time, end_time
+      FROM $LIVE_TABLE
+      WHERE end_time > ? AND start_time < ?
+      ORDER BY channel_id ASC, start_time ASC
+      """.trimIndent(),
+      arrayOf(startMs.toString(), endMs.toString()),
+    ).use { cursor ->
+      while (cursor.moveToNext()) {
+        action(programFromCursor(cursor))
+      }
     }
   }
 
@@ -774,7 +825,7 @@ internal class EpgDatabase(context: Context) :
   }
 
   /**
-   * Rare idle reclaim — call after a large expiry delete or on an idle path only.
+   * Rare idle reclaim â€” call after a large expiry delete or on an idle path only.
    * Never from guide paint / D-pad handlers.
    */
   fun maybeIncrementalVacuum(minDeletedRows: Int, deletedRows: Int) {
