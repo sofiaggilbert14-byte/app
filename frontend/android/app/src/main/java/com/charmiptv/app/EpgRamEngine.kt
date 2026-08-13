@@ -4,16 +4,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /** Full retained EPG window in native RAM; SQLite remains durable fallback. */
 internal class EpgRamEngine(private val database: EpgDatabase) {
-  private data class RamProgram(
-    val title: String,
-    val description: String?,
-    val category: String?,
-    val startMs: Long,
-    val endMs: Long,
-  )
-
   private data class Snapshot(
-    val byXmltvChannel: Map<String, Array<RamProgram>>,
+    val byXmltvChannel: Map<String, Array<NativeEpgProgram>>,
     val playlistToXmltv: Map<String, String>,
     val startMs: Long,
     val endMs: Long,
@@ -26,6 +18,7 @@ internal class EpgRamEngine(private val database: EpgDatabase) {
 
   fun clear() { snapshot = EMPTY }
   fun isWarm(): Boolean = snapshot.programCount > 0
+  fun hasMatches(): Boolean = snapshot.playlistToXmltv.isNotEmpty()
 
   fun replaceMatches(rows: Collection<PlaylistEpgMatchRow>) {
     val matches = HashMap<String, String>(rows.size * 2)
@@ -38,8 +31,9 @@ internal class EpgRamEngine(private val database: EpgDatabase) {
   }
 
   /**
-   * Rebuild from the persisted last-good SQLite guide. This is a local disk→RAM
-   * operation and never downloads the EPG, so normal app restarts stay offline-fast.
+   * Rebuild from the persisted last-good SQLite guide. This is local disk→RAM only.
+   * The channel arrays retain the NativeEpgProgram objects returned by SQLite instead
+   * of cloning every title/description into a second object graph during warm-up.
    */
   fun rebuild(startMs: Long, endMs: Long): Boolean {
     if (endMs <= startMs || !rebuilding.compareAndSet(false, true)) return false
@@ -49,31 +43,26 @@ internal class EpgRamEngine(private val database: EpgDatabase) {
       val hardBudget = (runtime.maxMemory() * 0.52).toLong()
       val budget = minOf(hardBudget, maxOf(16L * MIB, runtime.maxMemory() - heapUsed(runtime) - reserve))
       val persisted = database.queryWindow(startMs, endMs, null)
-      val grouped = LinkedHashMap<String, MutableList<RamProgram>>()
-      val pool = HashMap<String, String>(4096)
+      val grouped = LinkedHashMap<String, MutableList<NativeEpgProgram>>()
       var estimated = 0L
 
-      fun pooled(value: String?): String? {
-        if (value.isNullOrEmpty()) return value
-        return pool[value] ?: value.also { pool[it] = it }
-      }
-
       for (program in persisted) {
-        val channelId = pooled(program.channelId) ?: continue
-        val title = pooled(program.title) ?: ""
-        val description = pooled(program.description)
-        val category = pooled(program.category)
-        estimated += 48L + estimateStringBytes(title) + estimateStringBytes(description) + estimateStringBytes(category)
-        if (!grouped.containsKey(channelId)) estimated += estimateStringBytes(channelId) + 48L
+        estimated += 56L + estimateStringBytes(program.channelId) + estimateStringBytes(program.title) +
+          estimateStringBytes(program.description) + estimateStringBytes(program.category)
         if (estimated > budget) throw RamBudgetExceeded()
-        grouped.getOrPut(channelId) { ArrayList() }
-          .add(RamProgram(title, description, category, program.startMs, program.endMs))
+        grouped.getOrPut(program.channelId) { ArrayList() }.add(program)
       }
 
-      val frozen = HashMap<String, Array<RamProgram>>(grouped.size * 2)
+      val frozen = HashMap<String, Array<NativeEpgProgram>>(grouped.size * 2)
       for ((channel, rows) in grouped) frozen[channel] = rows.toTypedArray()
-      val existingMatches = snapshot.playlistToXmltv
-      snapshot = Snapshot(frozen, existingMatches, startMs, endMs, persisted.size, estimated)
+      snapshot = Snapshot(
+        byXmltvChannel = frozen,
+        playlistToXmltv = snapshot.playlistToXmltv,
+        startMs = startMs,
+        endMs = endMs,
+        programCount = persisted.size,
+        estimatedBytes = estimated,
+      )
       return persisted.isNotEmpty()
     } catch (_: RamBudgetExceeded) {
       return false
@@ -84,7 +73,7 @@ internal class EpgRamEngine(private val database: EpgDatabase) {
 
   fun queryGuideWindow(startMs: Long, endMs: Long, playlistIds: Collection<String>): List<NativeEpgProgram>? {
     val current = snapshot
-    if (current.programCount <= 0 || startMs < current.startMs || endMs > current.endMs) return null
+    if (current.programCount <= 0 || current.playlistToXmltv.isEmpty() || startMs < current.startMs || endMs > current.endMs) return null
     if (heapPressureCritical()) { clear(); return null }
     val result = ArrayList<NativeEpgProgram>()
     for (playlistId in playlistIds) {
@@ -120,18 +109,21 @@ internal class EpgRamEngine(private val database: EpgDatabase) {
     )
   }
 
-  private fun appendWindow(rows: Array<RamProgram>, outputId: String, startMs: Long, endMs: Long, out: MutableList<NativeEpgProgram>) {
+  private fun appendWindow(rows: Array<NativeEpgProgram>, outputId: String, startMs: Long, endMs: Long, out: MutableList<NativeEpgProgram>) {
     var index = firstOverlap(rows, startMs)
     if (index < 0) return
     while (index < rows.size) {
       val row = rows[index]
       if (row.startMs >= endMs) break
-      if (row.endMs > startMs) out.add(NativeEpgProgram(outputId, row.title, row.description, row.category, row.startMs, row.endMs))
+      if (row.endMs > startMs) {
+        if (row.channelId == outputId) out.add(row)
+        else out.add(NativeEpgProgram(outputId, row.title, row.description, row.category, row.startMs, row.endMs))
+      }
       index += 1
     }
   }
 
-  private fun firstOverlap(rows: Array<RamProgram>, timeMs: Long): Int {
+  private fun firstOverlap(rows: Array<NativeEpgProgram>, timeMs: Long): Int {
     if (rows.isEmpty()) return -1
     var low = 0
     var high = rows.size
