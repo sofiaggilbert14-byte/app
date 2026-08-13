@@ -22,7 +22,8 @@ internal class EpgRamEngine(private val database: EpgDatabase) {
    * being followed by an immediate full-Epg rebuild on the next Guide read.
    */
   fun clear(cooldownMs: Long = CLEAR_REBUILD_COOLDOWN_MS) {
-    snapshot = EMPTY
+    val current = snapshot
+    snapshot = EMPTY.copy(playlistToXmltv = current.playlistToXmltv)
     rebuildAllowedAtMs = maxOf(rebuildAllowedAtMs, System.currentTimeMillis() + maxOf(0L, cooldownMs))
   }
 
@@ -40,7 +41,7 @@ internal class EpgRamEngine(private val database: EpgDatabase) {
   }
 
   /**
-   * Rebuild from the persisted last-good SQLite guide. This is local disk→RAM only.
+   * Rebuild from the persisted last-good SQLite guide. This is local diskâ†’RAM only.
    * The channel arrays retain the NativeEpgProgram objects returned by SQLite instead
    * of cloning every title/description into a second object graph during warm-up.
    */
@@ -57,29 +58,35 @@ internal class EpgRamEngine(private val database: EpgDatabase) {
       val reserve = maxOf(48L * MIB, (runtime.maxMemory() * 0.22).toLong())
       val hardBudget = (runtime.maxMemory() * 0.52).toLong()
       val budget = minOf(hardBudget, maxOf(16L * MIB, runtime.maxMemory() - usedBeforeBuild - reserve))
-      val persisted = database.queryWindow(startMs, endMs, null)
       val grouped = LinkedHashMap<String, MutableList<NativeEpgProgram>>()
       var estimated = 0L
+      var programCount = 0
 
-      for (program in persisted) {
+      database.forEachProgramInWindow(startMs, endMs) { program ->
         estimated += 56L + estimateStringBytes(program.channelId) + estimateStringBytes(program.title) +
           estimateStringBytes(program.description) + estimateStringBytes(program.category)
         if (estimated > budget) throw RamBudgetExceeded()
         grouped.getOrPut(program.channelId) { ArrayList() }.add(program)
+        programCount += 1
       }
 
       val frozen = HashMap<String, Array<NativeEpgProgram>>(grouped.size * 2)
       for ((channel, rows) in grouped) frozen[channel] = rows.toTypedArray()
+      val persistedMatches = database.readPlaylistEpgMatches()
+      val matches = HashMap<String, String>(persistedMatches.size * 2)
+      for (row in persistedMatches) {
+        if (row.playlistId.isNotBlank() && row.xmltvId.isNotBlank()) matches[row.playlistId] = row.xmltvId
+      }
       snapshot = Snapshot(
         byXmltvChannel = frozen,
-        playlistToXmltv = snapshot.playlistToXmltv,
+        playlistToXmltv = matches,
         startMs = startMs,
         endMs = endMs,
-        programCount = persisted.size,
+        programCount = programCount,
         estimatedBytes = estimated,
       )
       rebuildAllowedAtMs = 0L
-      return persisted.isNotEmpty()
+      return programCount > 0
     } catch (_: RamBudgetExceeded) {
       rebuildAllowedAtMs = System.currentTimeMillis() + FAILED_REBUILD_COOLDOWN_MS
       return false
