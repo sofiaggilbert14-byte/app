@@ -7,6 +7,8 @@ const read = (relativePath) => readFileSync(resolve(root, relativePath), 'utf8')
 const app = JSON.parse(read('app.json')).expo;
 const gradle = read('android/app/build.gradle');
 const manifest = read('android/app/src/main/AndroidManifest.xml');
+const mainActivity = read('android/app/src/main/java/com/charmiptv/app/MainActivity.kt');
+const tvRemotePlugin = read('plugins/withTvRemote.js');
 const failures = [];
 
 function requireMatch(condition, message) {
@@ -42,6 +44,11 @@ requireMatch(
 );
 requireMatch(app.plugins.includes('./plugins/withAndroidTv'), 'Android TV config plugin is missing');
 requireMatch(app.plugins.includes('./plugins/withTvRemote'), 'TV remote config plugin is missing');
+for (const source of [mainActivity, tvRemotePlugin]) {
+  requireMatch(source.includes('hasSafeGuideVerticalTarget'), 'Guide held-repeat target validation is missing');
+  requireMatch(source.includes('source.focusSearch(direction)'), 'Guide target validation must inspect Android focusSearch');
+  requireMatch(source.includes('horizontalJump <= max(240f, screenWidth * 0.42f)'), 'Guide target validation must bound stale sideways jumps');
+}
 requireMatch(app.plugins.includes('./plugins/withLowMemoryAndroidBuild'), 'Android memory config plugin is missing');
 
 if (failures.length > 0) {
