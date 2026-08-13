@@ -3,7 +3,10 @@ import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build
 import android.os.Bundle
+import android.view.View
 import android.view.WindowManager
+import kotlin.math.abs
+import kotlin.math.max
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
@@ -16,6 +19,36 @@ class MainActivity : ReactActivity() {
 
   private var lastAcceptedDirectionalRepeatAt = 0L
   private var lastAcceptedDirectionalKeyCode = -1
+
+  /**
+   * FlashList can recycle the next Guide row between held D-pad repeats. Android
+   * focusSearch may then resolve a stale native neighbor to a programme far away
+   * on the horizontal timeline. Do not let a held vertical repeat commit that
+   * bad target: keep the current focus until a nearby mounted vertical target is
+   * available. First taps remain untouched and therefore stay fully responsive.
+   */
+  private fun hasSafeGuideVerticalTarget(direction: Int): Boolean {
+    val source = currentFocus ?: return false
+    val target = try { source.focusSearch(direction) } catch (_: Throwable) { null } ?: return false
+    if (target === source) return false
+    if (!target.isShown || !target.isFocusable || !target.isEnabled) return false
+
+    return try {
+      val sourceLoc = IntArray(2)
+      val targetLoc = IntArray(2)
+      source.getLocationOnScreen(sourceLoc)
+      target.getLocationOnScreen(targetLoc)
+      val sourceCenterX = sourceLoc[0] + source.width / 2f
+      val targetCenterX = targetLoc[0] + target.width / 2f
+      val horizontalJump = abs(targetCenterX - sourceCenterX)
+      val screenWidth = resources.displayMetrics.widthPixels.toFloat().coerceAtLeast(1f)
+      // Programme widths vary, so allow a generous shift. A recycled-row failure
+      // is typically hundreds of pixels farther right (often another time page).
+      horizontalJump <= max(240f, screenWidth * 0.42f)
+    } catch (_: Throwable) {
+      false
+    }
+  }
 
   override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
     // Dedicated Channel/Page buttons provide safe one-page Guide jumps. They
@@ -73,6 +106,23 @@ class MainActivity : ReactActivity() {
             return true
           }
         }
+
+        // Held Guide vertical movement must never outrun FlashList mounting. If
+        // focusSearch has no destination yet, or recycling makes it point far
+        // sideways on the timeline, hold the current cell for this repeat only.
+        if (
+          guideActive &&
+            sameDirection &&
+            (event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP ||
+              event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN) &&
+            !hasSafeGuideVerticalTarget(
+              if (event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP) View.FOCUS_UP else View.FOCUS_DOWN,
+            )
+        ) {
+          lastAcceptedDirectionalRepeatAt = event.eventTime
+          return true
+        }
+
         lastAcceptedDirectionalKeyCode = event.keyCode
         lastAcceptedDirectionalRepeatAt = event.eventTime
       }
