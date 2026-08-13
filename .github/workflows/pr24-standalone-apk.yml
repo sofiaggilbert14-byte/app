@@ -1,6 +1,6 @@
 name: PR24 Standalone Test APK
 
-# Audited Phase A+B standalone tester; never use assembleDebug for sideload QA.
+# Final audited Phase A+B standalone tester; never use assembleDebug for sideload QA.
 on:
   push:
     branches:
