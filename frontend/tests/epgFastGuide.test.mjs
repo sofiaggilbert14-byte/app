@@ -74,7 +74,10 @@ test("store patches per-row programmes and defers silent refresh while surfing",
   assert.match(gate, /export function isGuideSurfing/);
   assert.match(guide, /markGuideSurfing/);
   assert.match(guide, /patchProgramsForChannelIds/);
-  assert.match(guide, /void patchProgramsForChannelIds\(ids, priorityIds\)/);
+  assert.match(guide, /void patchProgramsForChannelIds\(dataIds, priorityIds\)/);
+  assert.match(guide, /isGuideSurfing\(\)/);
+  assert.match(guide, /focusIndex - pageSize \* 2/);
+  assert.match(guide, /focusIndex \+ pageSize \* 4/);
   assert.match(timeline, /useGuidePrograms/);
   assert.match(timeline, /data=\{channels\}/);
   assert.doesNotMatch(timeline, /preparedRows/);
@@ -113,8 +116,8 @@ test("native EPG uses HTTP validators and skips all rematch work on 304", async 
   assert.match(mod, /HTTP_NOT_MODIFIED/);
   assert.match(mod, /putBoolean\("notModified", true\)/);
   assert.match(bridge, /notModified\?: boolean/);
-  assert.match(native, /refreshNativeEpg\(https\(SOURCE_EPG\), false\)/);
-  assert.match(native, /refreshNativeEpg\(https\(SOURCE_EPG\), true\)/);
+  assert.doesNotMatch(native, /refreshNativeEpg\(https\(SOURCE_EPG\), false\)/);
+  assert.equal(native.match(/refreshNativeEpg\(https\(SOURCE_EPG\), true\)/g)?.length, 2);
   assert.match(native, /if \(epg\.notModified\)/);
   assert.match(native, /return MEM;/);
 });
@@ -139,6 +142,9 @@ test("experimental EPG downloads first, parses locally, and warms RAM without bl
   assert.match(ram, /EMPTY\.copy\(playlistToXmltv = current\.playlistToXmltv\)/);
   assert.match(ramModule, /scheduleWarmForCurrentEpoch\(\)/);
   assert.match(ramModule, /promise\.resolve\(null\)\s*return@execute/);
+  assert.match(ramModule, /groupProgramsByOutput/);
+  assert.match(ramModule, /sqliteFallbackCount/);
+  assert.match(ramModule, /guideQueryDurationMs/);
 });
 
 test("Media3 silent audio soft-fails into VLC engine swap", async () => {
