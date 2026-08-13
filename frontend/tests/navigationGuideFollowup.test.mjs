@@ -98,7 +98,8 @@ test("Program modal takes real TV focus and Guide remote ownership pauses under 
   assert.match(modal, /requestNativeFocusWithRetry/);
   assert.match(modal, /watchButtonRef/);
   assert.match(modal, /ref=\{watchButtonRef\}/);
-  assert.match(modal, /program-modal-backdrop[^>]*focusable=\{false\}/);
+  assert.match(modal, /focusable=\{false\}/);
+  assert.match(modal, /testID="program-modal-backdrop"/);
   assert.match(modal, /program-watch-btn/);
   assert.match(modal, /program-reminder-btn/);
 
