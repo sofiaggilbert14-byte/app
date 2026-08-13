@@ -66,7 +66,8 @@ test("preview default, ONN page keys, and cold-row focus anchor are hardened", a
     assert.match(source, /0x192, 0x1b8/);
     assert.match(source, /0x193, 0x1b9/);
   }
-  assert.match(epgNative, /avoids retaining one extra NativeEpgProgram per channel/);
+  assert.match(epgNative, /currentCache\.clear\(\)/);
+  assert.match(epgNative, /currentCacheValidUntilMs = 0L/);
   assert.doesNotMatch(epgNative, /maybeIncrementalVacuum\(MIN_VACUUM_DELETED_ROWS, deleted\)\s+rebuildCurrentCache\(now\)/);
   assert.match(timeline, /verticalFocusAnchorRef/);
   assert.match(timeline, /current\.key === "pending"/);
