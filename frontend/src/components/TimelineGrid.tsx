@@ -407,4 +407,1128 @@ const TimelineRow = memo(function TimelineRow({
   const capturePreferred = useCallback((node: any) => {
     if (!node) return;
     const handle = findNodeHandle(node) || undefined;
-    if (!han×M7âÚ$z{-®éÜj×v–öã¢fö7W5&Vv–öå&Vbæ7W'&VçBÀ¢fö7W6VE&÷s¢fö7W6VE&÷u&Vbæ7W'&VçBÀ¢Æ7E&÷s¢Æ7E&÷t–æFW…&Vbæ7W'&VçBÀ¢Ò“°¢–b†FV6—6–öâæ†—2ÓÓÒ'fW'F–6Â"’°¢Æ7D†—5&Vbæ7W'&VçBÒ'b#°¢Æ7D†—4E&Vbæ7W'&VçBÒFFRææ÷r‚“°¢ÒVÇ6R–b†FV6—6–öâæ†—2ÓÓÒ&†÷&—¦öçFÂ"’°¢Æ7D†—5&Vbæ7W'&VçBÒ&‚#°¢Æ7D†—4E&Vbæ7W'&VçBÒFFRææ÷r‚“°¢Ð¢òòÆVgBVFvS¢†æBfö7W2FòF†Rf—†VB&Wf–Wrö7F–öç2æVÂà¢–b†FV6—6–öâæ&÷VæF'’ÓÓÒ&ÆVgBÖ&÷VæF'’"’°¢–b†öäÆVgD&÷VæF'’’°¢w&–D÷vç4fö7W5&Vbæ7W'&VçBÒfÇ6S°¢öäÆVgD&÷VæF'’‚“°¢&WGW&ã°¢Ð¢&ÔwV–FTÆVgDfö7W4Æö6²†fö7W6VDæöFU&Vbæ7W'&VçB“°¢&WGW&ã°¢Ð¢òò&÷GFöÒöbwV–FS¢¶VWfö7W2–âÖw&–Bâ†öÆF–ærF÷vâ×W7BæWfW"ÆæBöâW†—Bà¢–b€¢FV6—6–öâæ&÷VæF'’ÓÓÒ&&÷GFöÒÖÆö6² ¢’°¢&ÔwV–FT&÷GFöÔfö7W4Æö6²†fö7W6VDæöFU&Vbæ7W'&VçB“°¢&WVW7DæF—fTfö7W2†fö7W6VDæöFU&Vbæ7W'&VçB“°¢&WGW&ã°¢Ð¢òòöæÇ’W66Rv†VâF†Rw&–B7W'&VçFÇ’÷vç2fö7W2(	BæWfW"–æ²6†—2÷6–FV&"à¢–b†FV6—6–öâæ&÷VæF'’ÓÓÒ'F÷Ö&÷VæF'’"’°¢–b†wV–FTW66T–äfÆ–v‡Bæ7W'&VçB’&WGW&ã°¢wV–FTW66T–äfÆ–v‡Bæ7W'&VçBÒG'VS°¢w&–D÷vç4fö7W5&Vbæ7W'&VçBÒfÇ6S°¢öåW&÷VæF'“òâ‚“°¢–b†W66UF–ÖW"æ7W'&VçB’6ÆV%F–ÖV÷WB†W66UF–ÖW"æ7W'&VçB“°¢W66UF–ÖW"æ7W'&VçBÒ6WEF–ÖV÷WB‚‚’Óâ°¢wV–FTW66T–äfÆ–v‡Bæ7W'&VçBÒfÇ6S°¢ÒÂuT”DUôU44UôuT$EôÕ2“°¢Ð¢ÒÀ¢¶7F—fRÂöäÆVgD&÷VæF'’ÂöåW&÷VæF'•ÒÀ¢’À¢“° ¢6öç7B¶VW&öw&Õf—6–&ÆRÒW6T6ÆÆ&6²‚‡&W&VC¢&W&VE&öw&ÒÂ6†ææVÃ¢6†ææVÂ’Óâ°¢fö7W5&Vv–öå&Vbæ7W'&VçBÒ'&öw&Ò#°¢–b‚&öw&Õf–Ww÷'Er’&WGW&ã° ¢òòGW&–ær&–BfW'F–6Â7W&f–ærÂæWfW"6†6R†÷&—¦öçFÆÇ’(	BF†BG&–gG2fö7W2&–v‡Bà¢6öç7B&–EfW'F–6ÂÐ¢Æ7D†—5&Vbæ7W'&VçBÓÓÒ'b"bbFFRææ÷r‚’ÒÆ7D†—4E&Vbæ7W'&VçBÂ$”EõdU%D”4ÅôÕ3°¢–b‡&–EfW'F–6Â’&WGW&ã° ¢6öç7BÖ&v–âÒƒ°¢6öç7B7W'&VçE‚Ò67&öÆÅ…&Vbæ7W'&VçC°¢6öç7BÆVgDVFvRÒÄôtõõr²&W&VBæÆVgC°¢6öç7B&–v‡DVFvRÒÄôtõõr²&W&VBæÆVgB²&W&VBçv–GFƒ°¢ÆWBF&vWBÒ7W'&VçEƒ° ¢–b†ÆVgDVFvRÂ7W'&VçE‚²Ö&v–â’°¢F&vWBÒÖF‚æÖ‚ƒÂÆVgDVFvRÒÖ&v–â“°¢ÒVÇ6R–b‡&–v‡DVFvRâ7W'&VçE‚²&öw&Õf–Ww÷'ErÒÖ&v–â’°¢F&vWBÒÖF‚æÖ‚ƒÂ&–v‡DVFvRÒ&öw&Õf–Ww÷'Er²Ö&v–â“°¢Ð ¢6öç7BÖ…‚ÒÖF‚æÖ‚ƒÂÄôtõõr²F–ÖVÆ–æUv–GF‚Ò&öw&Õf–Ww÷'Er“°¢F&vWBÒÖF‚æÖ–â†Ö…‚ÂF&vWB“°¢–b„ÖF‚æ'2‡F&vWBÒ7W'&VçE‚’ÃÒ‚’&WGW&ã° ¢òòfö7W2ÖG&—fVâç2×W7B6öÖÖ—B&Vf÷&RF†RæW‡B&VÖ÷FR&WVBâ&W7F'F–ær¢òò×2æ–ÖF–öâWfW'’ãC‚×2ÆVfW2F†Rfö7W6VBæF—fR6VÆÂöfb×67&VVà¢òòVçF–ÂF†R¶W’—2&VÆV6VBÂv†–6‚Æöö·2Æ–¶RF—6V&–ærfö7W2à¢6WD†÷&—¦öçFÄöfg6WB‡F&vWBÂfÇ6R“°¢ÒÂ´ÄôtõõrÂ&öw&Õf–Ww÷'ErÂ6WD†÷&—¦öçFÄöfg6WBÂF–ÖVÆ–æUv–GF…Ò“° ¢6öç7Böå&÷t6†ææVÄfö7W2ÒW6T6ÆÆ&6²€¢†6†ææVÃ¢6†ææVÂÂ&÷t–æFWƒ¢çVÖ&W"ÂÆövôæöFSó¢Væ¶æ÷vâ’Óâ°¢fö7W5&Vv–öå&Vbæ7W'&VçBÒ&6†ææVÂ#°¢fö7W6VE&öw&Ô¶W•&Vbæ7W'&VçBÒçVÆÃ°¢fW'F–6Äfö7W4æ6†÷%&Vbæ7W'&VçBÒçVÆÃ°¢òò6†ææVÂæöFR×W7BæWfW"&WF–âfö7W2v†–ÆRG&ç6ÆFVBöfb×67&VVâà¢–b‡67&öÆÅ…&Vbæ7W'&VçBâB’6WD†÷&—¦öçFÄöfg6WBƒÂfÇ6R“°¢&W÷'Dfö7W6VE&÷r‡&÷t–æFW‚“°¢öä6†ææVÄfö7W3òâ†6†ææVÂ“°¢öä&6µF&vWD6†ævSòâ‚&6†ææVÂ"ÂÆövôæöFRÇÂfö7W6VDæöFU&Vbæ7W'&VçB“°¢ÒÀ¢¶öä&6µF&vWD6†ævRÂöä6†ææVÄfö7W2Â&W÷'Dfö7W6VE&÷rÂ6WD†÷&—¦öçFÄöfg6WEÒÀ¢“° ¢6öç7Böå&÷u&öw&Ôfö7W2ÒW6T6ÆÆ&6²€¢‡&W&VC¢&W&VE&öw&ÒÂ6†ææVÃ¢6†ææVÂÂ&÷t–æFWƒ¢çVÖ&W"’Óâ°¢fö7W5&Vv–öå&Vbæ7W'&VçBÒ'&öw&Ò#°¢fW'F–6Äfö7W4æ6†÷%&Vbæ7W'&VçBÒ&W&VBæÆVgB²&W&VBçv–GF‚ò#°¢6öç7BÖ÷fVEfW'F–6ÆÇ’Òw&–D÷vç4fö7W5&Vbæ7W'&VçBbb&÷t–æFW‚ÓÒfö7W6VE&÷u&Vbæ7W'&VçC°¢&W÷'Dfö7W6VE&÷r‡&÷t–æFW‚“°¢fö7W6VE&öw&Ô¶W•&Vbæ7W'&VçBÒ&W&VBæ¶W“°¢òòfW'F–6Âfö7W2Ö÷fR×W7B&W6W'fRF†R6†&VBF–ÖR6öÇVÖâW†7FÇ’à¢òòæWfW"ÆWBWfVçBÖ÷&FW"F–ffW&Væ6W2&WGvVVâæF—fRfö7W2æB¥2¶W¢òò†æFÆW'26öçfW'BWôF÷vâ–çFòâ66–FVçFÂ†÷&—¦öçFÂâà¢–b‚Ö÷fVEfW'F–6ÆÇ’’¶VW&öw&Õf—6–&ÆR‡&W&VBÂ6†ææVÂ“°¢öå&öw&Ôfö7W3òâ‡&W&VBç&öw&ÒÂ6†ææVÂ“°¢öä&6µF&vWD6†ævSòâ‚'&öw&Ò"ÂçVÆÂ“°¢ÒÀ¢¶¶VW&öw&Õf—6–&ÆRÂöä&6µF&vWD6†ævRÂöå&öw&Ôfö7W2Â&W÷'Dfö7W6VE&÷uÒÀ¢“° ¢6öç7Böå&÷uVæF–ætfö7W2ÒW6T6ÆÆ&6²€¢†6†ææVÃ¢6†ææVÂÂ&÷t–æFWƒ¢çVÖ&W"’Óâ°¢fö7W5&Vv–öå&Vbæ7W'&VçBÒ'&öw&Ò#°¢fö7W6VE&öw&Ô¶W•&Vbæ7W'&VçBÒçVÆÃ°¢&W÷'Dfö7W6VE&÷r‡&÷t–æFW‚“°¢öä6†ææVÄfö7W3òâ†6†ææVÂ“°¢öä&6µF&vWD6†ævSòâ‚'&öw&Ò"ÂçVÆÂ“°¢ÒÀ¢¶öä&6µF&vWD6†ævRÂöä6†ææVÄfö7W2Â&W÷'Dfö7W6VE&÷uÒÀ¢“° ¢6öç7B&VæFW$G&tF—7Fæ6RÒ66†U&öf–ÆRÓÓÒ'vV² ¢òÖF‚æÖ‚ƒ#CÂ$õuô‚¢B¢¢66†U&öf–ÆRÓÓÒ&Ö…÷&Wf–Wr ¢òÖF‚æÖ‚ƒCƒÂ$õuô‚¢‚¢¢ÖF‚æÖ‚ƒ3cÂ$õuô‚¢b“° ¢6öç7BÆ7E&÷t–æFW‚ÒÖF‚æÖ‚ƒÂ6†ææVÇ2æÆVæwF‚Ò“°¢Æ7E&÷t–æFW…&Vbæ7W'&VçBÒÆ7E&÷t–æFWƒ° ¢6öç7BvWDfö7W6VE&öw&Ô¶W’ÒW6T6ÆÆ&6²‚‚’Óâfö7W6VE&öw&Ô¶W•&Vbæ7W'&VçBÂµÒ“° ¢6öç7B&VæFW%&÷rÒW6T6ÆÆ&6²€¢‡²—FVÓ¢6†ææVÂÂ–æFW‚Ó¢²—FVÓ¢6†ææVÃ²–æFWƒ¢çVÖ&W"Ò’Óâ€¢ÅF–ÖVÆ–æU&÷p¢6†ææVÃ×¶6†ææVÇÐ¢–æFWƒ×¶–æFW‡Ð¢&÷t†V–v‡C×µ$õuô‡Ð¢Æövõv–GFƒ×´ÄôtõõwÐ¢Æövõ6—¦S×´Äôtõõ4•¤WÐ¢çVÖ&W%v–GFƒ×·&–ÄÖWG&–72æçVÖ&W%v–GF‡Ð¢æÖTföçE6—¦S×·&–ÄÖWG&–72ææÖTföçE6—¦WÐ¢æÖTÆ–æT†V–v‡C×·&–ÄÖWG&–72ææÖTÆ–æT†V–v‡GÐ¢æÖTÖ„Æ–æW3×·&–ÄÖWG&–72æ6†ææVÄæÖTÖ„Æ–æW7Ð¢†÷&—¦öçFÅFF–æs×·&–ÄÖWG&–72æ†÷&—¦öçFÅFF–æwÐ¢—FVÔv×·&–ÄÖWG&–72æ—FVÔvÐ¢F–ÖVÆ–æUv–GFƒ×·F–ÖVÆ–æUv–GF‡Ð¢v–æF÷u7F'D×3×·v–æF÷u7F'D×7Ð¢v–æF÷tVæD×3×·v–æF÷tVæD×7Ð¢7W'&VçEF–ÖT×3×¶æ÷t×7Ð¢…W$Ö–çWFS×µ…õU%ôÔ”çÐ¢æVu67&öÆÅƒ×¶æVu67&öÆÅ‡Ð¢ä'V6¶WC×·ä'V6¶WGÐ¢&öw&Õf–Ww÷'Es×·&öw&Õf–Ww÷'EwÐ¢6†÷t6†ææVÄçVÖ&W'3×·6†÷t6†ææVÄçVÖ&W'7Ð¢6†ææVÄçVÖ&W$'”–C×¶6†ææVÄçVÖ&W$'”–GÐ¢6†÷t6†ææVÄÆöv÷3×·6†÷t6†ææVÄÆöv÷2bb6†ææVÅ&–Åf—6–&ÆWÐ¢&VÖ–æFW$¶W—3×·&VÖ–æFW$¶W—7Ð¢öä6†ææVÅ&W73×¶öä6†ææVÅ&W77Ð¢öä6†ææVÄÆöæu&W73×¶öä6†ææVÄÆöæu&W77Ð¢öå&öw&Õ&W73×¶öå&öw&Õ&W77Ð¢öå&öw&Ôfö7W3×¶öå&÷u&öw&Ôfö7W7Ð¢öå&÷t6†ææVÄfö7W3×¶öå&÷t6†ææVÄfö7W7Ð¢öå&÷uVæF–ætfö7W3×¶öå&÷uVæF–ætfö7W7Ð¢öäfö7W4æöFS×·&VÖVÖ&W$fö7W4æöFWÐ¢&Vv—7FW$fö7W46æF–FFS×·&Vv—7FW$fö7W46æF–FFWÐ¢v—&Tfö7W46æF–FFS×·v—&Tfö7W46æF–FFWÐ¢&VfW$–æ—F–Äfö7W3×°¢&VfW$f—'7E&÷rb`¢‡&W7F÷&T6†ææVÄ–Bò6†ææVÂæ–BÓÓÒ&W7F÷&T6†ææVÄ–B¢–æFW‚ÓÓÒ¢Ð¢Æö6´fö7W4F÷vã×¶–æFW‚ãÒÆ7E&÷t–æFW‡Ð¢Æö6´fö7W4ÆVgC×¶Æö6´ÆVgDVFvWÐ¢vWDfö7W6VE&öw&Ô¶W“×¶vWDfö7W6VE&öw&Ô¶W—Ð¢óà¢’À¢µ$õuô‚ÂÄôtõõrÂÄôtõõ4•¤RÂ&–ÄÖWG&–72æçVÖ&W%v–GF‚Â&–ÄÖWG&–72ææÖTföçE6—¦RÂ&–ÄÖWG&–72ææÖTÆ–æT†V–v‡BÂ&–ÄÖWG&–72æ6†ææVÄæÖTÖ„Æ–æW2Â&–ÄÖWG&–72æ†÷&—¦öçFÅFF–ærÂ&–ÄÖWG&–72æ—FVÔvÂF–ÖVÆ–æUv–GF‚Âv–æF÷u7F'D×2Âv–æF÷tVæD×2Âæ÷t×2Â…õU%ôÔ”âÂæVu67&öÆÅ‚Âä'V6¶WBÂ&öw&Õf–Ww÷'ErÂ6†÷t6†ææVÄçVÖ&W'2Â6†ææVÄçVÖ&W$'”–BÂ6†÷t6†ææVÄÆöv÷2Â6†ææVÅ&–Åf—6–&ÆRÂ&VÖ–æFW$¶W—2Âöä6†ææVÅ&W72Âöä6†ææVÄÆöæu&W72Âöå&öw&Õ&W72Âöå&÷u&öw&Ôfö7W2Âöå&÷t6†ææVÄfö7W2Âöå&÷uVæF–ætfö7W2Â&VfW$f—'7E&÷rÂ&VÖVÖ&W$fö7W4æöFRÂ&Vv—7FW$fö7W46æF–FFRÂv—&Tfö7W46æF–FFRÂÆ7E&÷t–æFW‚ÂÆö6´ÆVgDVFvRÂvWDfö7W6VE&öw&Ô¶W’Â&W7F÷&T6†ææVÄ–EÒÀ¢“° ¢&WGW&â€¢Åf–Wr7G–ÆS×·7G–ÆW2çw&ÒFW7D”CÒ&Wr×F–ÖVÆ–æRÖw&–B#à¢Åf–Wr7G–ÆS×·7G–ÆW2æ†VFW%&÷wÓà¢Åf–Wr7G–ÆS×·7G–ÆW2æ†VFW%f–Ww÷'GÐ¢öäÆ–÷WC×²†WfVçB’Óâ6WE&öw&Õf–Ww÷'Er†WfVçBææF—fTWfVçBæÆ–÷WBçv–GF‚—Óà¢Äæ–ÖFVBåf–Wr7G–ÆS×µ·7G–ÆW2æ†VFW%åG&6²À¢²v–GFƒ¢Äôtõõr²F–ÖVÆ–æUv–GF‚ÂG&ç6f÷&Ó¢·²G&ç6ÆFUƒ¢æVu67&öÆÅ‚ÕÒÕ×Óà¢Åf–Wr7G–ÆS×µ·7G–ÆW2æ6÷&æW"Â²v–GFƒ¢ÄôtõõrÕ×Óà¢ÅFW‡B7G–ÆS×·7G–ÆW2æ6÷&æW%FW‡GÓç¶F–§2‡v–æF÷u7F'B’æf÷&ÖB‚$ÔÔÒB"—ÓÂõFW‡Cà¢Âõf–Wsà¢Åf–Wr7G–ÆS×µ·7G–ÆW2æ†VFW%G&6²Â²v–GFƒ¢F–ÖVÆ–æUv–GF‚Õ×Óà¢·F–6·2æÖ‚‡F–6²’Óâ€¢ÅFW‡B¶W“×·F–6²æ¶W—Ò7G–ÆS×µ·7G–ÆW2çF–6´Æ&VÂÂ²ÆVgC¢F–6²æÆVgBÕ×Óç·F–6²æÆ&VÇÓÂõFW‡Cà¢’—Ð¢·6†÷tæ÷rò€¢Åf–Wr7G–ÆS×µ·7G–ÆW2ææ÷t†VFW$Ö&²Â²ÆVgC¢ÖF‚æÖ‚ƒÂæ÷töfg6WBÒB’Õ×Òö–çFW$WfVçG3Ò&æöæR#à¢ÅFW‡B7G–ÆS×·7G–ÆW2ææ÷t†VFW%FW‡GÓääõsÂõFW‡Cà¢Åf–Wr7G–ÆS×·7G–ÆW2ææ÷t†VFW$6&WGÒóà¢Âõf–Wsà¢’¢çVÆÇÐ¢Âõf–Wsà¢Âôæ–ÖFVBåf–Wsà¢Âõf–Wsà¢Âõf–Wsà ¢²ò¢6†ææVÂ–FVçF—G’æB&öw&ÖÖR6VÆÇ26†&RöæR†÷&—¦öçFÂâG&6²â¢÷Ð¢Åf–Wp¢7G–ÆS×·7G–ÆW2æ&öG—Ð¢öäÆ–÷WC×²†S¢Æ–÷WD6†ævTWfVçB’Óâ°¢6öç7B‚ÒRææF—fTWfVçBæÆ–÷WBæ†V–v‡C°¢&öG”…&Vbæ7W'&VçBÒƒ°¢6WD&öG”‚†‚“°¢×Ð¢à¢¶&öG”‚âbb€¢ÄfÆ6„Æ—7@¢FF×¶6†ææVÇ7Ð¢&Vc×¶Æ—7E&VgÐ¢¶W”W‡G&7F÷#×²†6†ææVÂ’Óâ6†ææVÂæ–GÐ¢G&tF—7Fæ6S×·&VæFW$G&tF—7Fæ6WÐ¢&VÖ÷fT6Æ—VE7V'f–Ww3×¶fÇ6WÐ¢öå67&öÆÃ×¶öåfW'F–6Å67&öÆÇÐ¢67&öÆÄWfVçEF‡&÷GFÆS×³3'Ð¢6†÷w5fW'F–6Å67&öÆÄ–æF–6F÷#×¶fÇ6WÐ¢÷fW%67&öÆÄÖöFSÒ&æWfW" ¢&Vg&W6„6öçG&öÃ×°¢öå&Vg&W6‚ò€¢Å&Vg&W6„6öçG&öÂ&Vg&W6†–æs×²&Vg&W6†–æwÒöå&Vg&W6ƒ×¶öå&Vg&W6‡ÒF–çD6öÆ÷#×´44TåGÒ6öÆ÷'3×µ´44TåE×Òóà¢’¢VæFVf–æV@¢Ð¢&VæFW$—FVÓ×·&VæFW%&÷wÐ¢óà¢—Ð¢·6†÷tæ÷rbb&öG”‚âbb€¢Åf–Wp¢7G–ÆS×·7G–ÆW2ææ÷t÷fW&Æ—Ð¢ö–çFW$WfVçG3Ò&æöæR ¢FW7D”CÒ&Wr×F–ÖVÆ–æRÖæ÷rÖ–æF–6F÷" ¢66W76–&–Æ—G”Æ&VÃÒ$wV–FRF–ÖVÆ–æR&öw&W72–æF–6F÷" ¢à¢Äæ–ÖFVBåf–Wp¢7G–ÆS×·°¢v–GFƒ¢Äôtõõr²F–ÖVÆ–æUv–GF‚À¢†V–v‡C¢&öG”‚À¢G&ç6f÷&Ó¢·²G&ç6ÆFUƒ¢æVu67&öÆÅ‚ÕÒÀ¢×Ð¢à¢Åf–Wr7G–ÆS×µ·7G–ÆW2ææ÷tÆ–æUG&6²Â²ÆVgC¢ÖF‚æÖ‚ƒÂÄôtõõr²æ÷töfg6WBÒ’Õ×Óà¢Åf–Wr7G–ÆS×·7G–ÆW2ææ÷tÆ–æWÒóà¢Âõf–Wsà¢Âôæ–ÖFVBåf–Wsà¢Âõf–Wsà¢—Ð¢Âõf–Wsà¢Âõf–Wsà¢“°§Ò“° ¦6öç7B7G–ÆW2Ò7G–ÆU6†VWBæ7&VFR‡°¢w&¢²fÆWƒ¢Â÷fW&fÆ÷s¢&†–FFVâ"ÒÀ¢&öG“¢²fÆWƒ¢Â÷fW&fÆ÷s¢&†–FFVâ"ÒÀ¢†VFW%&÷s¢°¢fÆW„F—&V7F–öã¢'&÷r"À¢÷fW&fÆ÷s¢&†–FFVâ"À¢&÷&FW$&÷GFöÕv–GFƒ¢À¢&÷&FW$&÷GFöÔ6öÆ÷#¢Gd6öÆ÷'2æÆ–æRÀ¢&6¶w&÷VæD6öÆ÷#¢'&v&ƒ’Ã‚Ã#Ãã“‚’"À¢ÒÀ¢6÷&æW#¢°¢†V–v‡C¢„TDU%ô‚À¢Æ–vä—FV×3¢&6VçFW""À¢§W7F–g”6öçFVçC¢&6VçFW""À¢&÷&FW%&–v‡Ev–GFƒ¢À¢&÷&FW%&–v‡D6öÆ÷#¢Gd6öÆ÷'2æÆ–æRÀ¢&6¶w&÷VæD6öÆ÷#¢"3ss"À¢¤–æFWƒ¢#À¢VÆWfF–öã¢‚À¢÷fW&fÆ÷s¢&†–FFVâ"À¢ÒÀ¢6÷&æW%FW‡C¢²6öÆ÷#¢44TåEõ4ôeBÂföçDfÖ–Ç“¢föçG2æ&öÆBÂföçE6—¦S¢ÒÀ¢†VFW%f–Ww÷'C¢²fÆWƒ¢Â†V–v‡C¢„TDU%ô‚Â÷fW&fÆ÷s¢&†–FFVâ"ÒÀ¢†VFW%åG&6³¢²fÆW„F—&V7F–öã¢'&÷r"Â†V–v‡C¢„TDU%ô‚ÂfÆW…6‡&–æ³¢ÒÀ¢†VFW%G&6³¢²†V–v‡C¢„TDU%ô‚Â÷fW&fÆ÷s¢&†–FFVâ"ÂfÆW…6‡&–æ³¢ÒÀ¢F–6´Æ&VÃ¢°¢÷6—F–öã¢&'6öÇWFR"À¢F÷¢rÀ¢6öÆ÷#¢44TåEõ4ôeBÀ¢föçDfÖ–Ç“¢föçG2ç6VÖ–&öÆBÀ¢föçE6—¦S¢ãRÀ¢v–GFƒ¢À¢ÒÀ¢&÷s¢²fÆW„F—&V7F–öã¢'&÷r"Â&÷&FW$&÷GFöÕv–GFƒ¢Â&÷&FW$&÷GFöÔ6öÆ÷#¢'&v&ƒ#SRÃ#SRÃ#SRÃãSR’"Â÷fW&fÆ÷s¢&†–FFVâ"ÒÀ¢&÷uf–Ww÷'C¢²fÆWƒ¢Â†V–v‡C¢#R"Â÷fW&fÆ÷s¢&†–FFVâ"ÒÀ¢&÷uåG&6³¢²fÆW„F—&V7F–öã¢'&÷r"ÂfÆW…6‡&–æ³¢ÒÀ¢Æövô6öÃ¢°¢¤–æFWƒ¢#À¢VÆWfF–öã¢‚À¢fÆW…6‡&–æ³¢À¢÷fW&fÆ÷s¢&†–FFVâ"À¢&6¶w&÷VæD6öÆ÷#¢"3“b"À¢&÷&FW%&–v‡Ev–GFƒ¢À¢&÷&FW%&–v‡D6öÆ÷#¢Gd6öÆ÷'2æÆ–æRÀ¢ÒÀ¢Æövô6VÆÃ¢°¢fÆWƒ¢À¢v–GFƒ¢#R"À¢fÆW„F—&V7F–öã¢'&÷r"À¢Æ–vä—FV×3¢&6VçFW""À¢§W7F–g”6öçFVçC¢&fÆW‚×7F'B"À¢&÷&FW%v–GFƒ¢"À¢&÷&FW$6öÆ÷#¢'G&ç7&VçB"À¢&6¶w&÷VæD6öÆ÷#¢"3“b"À¢÷fW&fÆ÷s¢&†–FFVâ"À¢ÒÀ¢Æövô6VÆÄfö7W6VC¢°¢&÷&FW$6öÆ÷#¢"4dddddb"À¢&6¶w&÷VæD6öÆ÷#¢"3$ScR"À¢ÒÀ¢6†ææVÄçVÖ&W#¢°¢6öÆ÷#¢44TåEõ4ôeBÀ¢föçDfÖ–Ç“¢föçG2æ&öÆBÀ¢föçE6—¦S¢À¢FW‡DÆ–vã¢'&–v‡B"À¢ÒÀ¢ÆövôæÖS¢²6öÆ÷#¢"6ffb"ÂföçDfÖ–Ç“¢föçG2ç6VÖ–&öÆBÂFW‡DÆ–vã¢&ÆVgB"ÂfÆWƒ¢ÂÖ–åv–GFƒ¢ÒÀ¢F–ÖVÆ–æT6Æ—¢°¢fÆWƒ¢À¢÷fW&fÆ÷s¢&†–FFVâ"À¢†V–v‡C¢#R"À¢ÒÀ¢F–ÖVÆ–æUG&6³¢°¢÷6—F–öã¢'&VÆF—fR"À¢fÆW…6‡&–æ³¢À¢ÒÀ¢&öt6VÆÃ¢°¢÷6—F–öã¢&'6öÇWFR"À¢F÷¢2À¢&÷GFöÓ¢2À¢&6¶w&÷VæD6öÆ÷#¢'&v&ƒ#BÃ#2ÃC"Ããƒ‚’"À¢&÷&FW%&F—W3¢2À¢&÷&FW%v–GFƒ¢"À¢&÷&FW$6öÆ÷#¢'G&ç7&VçB"À¢FF–æt†÷&—¦öçFÃ¢bÀ¢§W7F–g”6öçFVçC¢&6VçFW""À¢÷fW&fÆ÷s¢&†–FFVâ"À¢ÒÀ¢VæF–æu&öw&Ô6VÆÃ¢°¢&÷&FW%7G–ÆS¢&F6†VB"À¢&÷&FW$6öÆ÷#¢'&v&ƒ“bÃƒÃ#S2Ãã#‚’"À¢&6¶w&÷VæD6öÆ÷#¢'&v&ƒ#BÃ#2ÃC"ÃãS’"À¢ÒÀ¢VæF–æu&öw&Ô6VÆÄ†–FFVã¢°¢ÆVgC¢À¢F÷¢À¢v–GFƒ¢À¢†V–v‡C¢À¢÷6—G“¢À¢&÷&FW%v–GFƒ¢À¢÷fW&fÆ÷s¢&†–FFVâ"À¢ÒÀ¢&ötÆ—fS¢²&÷&FW$6öÆ÷#¢'&v&ƒc‚ÃƒRÃ#CrÃãS’"Â&6¶w&÷VæD6öÆ÷#¢'&v&ƒS’Ã#2ÃBÃãc’"ÒÀ¢&öu&VÖ–æFVC¢²&÷&FW$6öÆ÷#¢'&v&ƒ#SÃ#BÃ#ÃãSR’"ÒÀ¢&VÖ–æFW$&FvS¢°¢÷6—F–öã¢&'6öÇWFR"À¢F÷¢"À¢&–v‡C¢2À¢¤–æFWƒ¢"À¢v–GFƒ¢BÀ¢†V–v‡C¢BÀ¢&÷&FW%&F—W3¢rÀ¢Æ–vä—FV×3¢&6VçFW""À¢§W7F–g”6öçFVçC¢&6VçFW""À¢&6¶w&÷VæD6öÆ÷#¢'&v&ƒÃÃÃãCR’"À¢ÒÀ¢&öw&Ô6VÆÄfö7W6VC¢°¢&÷&FW$6öÆ÷#¢"4dddddb"À¢&6¶w&÷VæD6öÆ÷#¢'&v&ƒ“Ã32Ãƒ"Ãã“"’"À¢ÒÀ¢&öuF—FÆS¢²6öÆ÷#¢6öÆ÷'2æöå7W&f6RÂföçDfÖ–Ç“¢föçG2ç6VÖ–&öÆBÂföçE6—¦S¢Â¤–æFWƒ¢ÒÀ¢&öuF—FÆTW‡G&6ö×7C¢²föçE6—¦S¢‚ã‚ÂÆ–æT†V–v‡C¢ãRÒÀ¢&öuF–ÖS¢²6öÆ÷#¢'&v&ƒ#SRÃ#SRÃ#SRÃãs"’"ÂföçDfÖ–Ç“¢föçG2ç&VwVÆ"ÂföçE6—¦S¢‚ÂÖ&v–åF÷¢Â¤–æFWƒ¢ÒÀ¢&öuF–ÖTW‡G&6ö×7C¢²föçE6—¦S¢bã‚ÂÆ–æT†V–v‡C¢‚ÒÀ¢&öu&öw&W74f–ÆÃ¢°¢÷6—F–öã¢&'6öÇWFR"À¢ÆVgC¢À¢F÷¢À¢&÷GFöÓ¢À¢&6¶w&÷VæD6öÆ÷#¢'&v&ƒc‚ÃƒRÃ#CrÃã3‚’"À¢¤–æFWƒ¢À¢ÒÀ¢æôFF¢²6öÆ÷#¢6öÆ÷'2æöå7W&f6UFW'F–'’ÂföçDfÖ–Ç“¢föçG2ç&VwVÆ"ÂföçE6—¦S¢’ÒÀ¢æ÷t÷fW&Æ“¢°¢ââå7G–ÆU6†VWBæ'6öÇWFTf–ÆÄö&¦V7BÀ¢÷fW&fÆ÷s¢&†–FFVâ"À¢¤–æFWƒ¢2À¢ÒÀ¢æ÷tÆ–æUG&6³¢°¢÷6—F–öã¢&'6öÇWFR"À¢F÷¢À¢&÷GFöÓ¢À¢v–GFƒ¢2À¢Æ–vä—FV×3¢&6VçFW""À¢¤–æFWƒ¢2À¢ÒÀ¢æ÷tÆ–æS¢°¢v–GFƒ¢"À¢fÆWƒ¢À¢&6¶w&÷VæD6öÆ÷#¢"4cCs$#b"À¢ÒÀ¢æ÷t†VFW$Ö&³¢°¢÷6—F–öã¢&'6öÇWFR"À¢F÷¢"À¢v–GFƒ¢#‚À¢Æ–vä—FV×3¢&6VçFW""À¢¤–æFWƒ¢BÀ¢ÒÀ¢æ÷t†VFW%FW‡C¢°¢6öÆ÷#¢"4c”„CB"À¢föçDfÖ–Ç“¢föçG2æ&öÆBÀ¢föçE6—¦S¢’À¢ÆWGFW%76–æs¢ãbÀ¢ÒÀ¢æ÷t†VFW$6&WC¢°¢Ö&v–åF÷¢À¢v–GFƒ¢À¢†V–v‡C¢À¢&÷&FW$ÆVgEv–GFƒ¢RÀ¢&÷&FW%&–v‡Ev–GFƒ¢RÀ¢&÷&FW%F÷v–GFƒ¢bÀ¢&÷&FW$ÆVgD6öÆ÷#¢'G&ç7&VçB"À¢&÷&FW%&–v‡D6öÆ÷#¢'G&ç7&VçB"À¢&÷&FW%F÷6öÆ÷#¢"4cCs$#b"À¢ÒÀ§Ò“° 
+    if (!handle || preferredHandleRef.current === handle) return;
+    preferredHandleRef.current = handle;
+    // Avoid React setState on every FlashList recycle â€” poke native props directly.
+    try {
+      logoPressableRef.current?.setNativeProps?.({ nextFocusRight: handle });
+    } catch {}
+  }, []);
+
+  const setLogoRef = useCallback(
+    (node: any) => {
+      const previous = logoPressableRef.current;
+      if (previous && previous !== node) registerFocusCandidate(index, null, "channel");
+      logoPressableRef.current = node;
+      // When unlocked, Left from the logo column must hand off to Play/actions.
+      registerGuideChannelNode(item.id, node, { handOffLeftToPreview: !lockFocusLeft });
+      // Proactive self-target means the very first Left cannot escape into the
+      // closed drawer before the JS boundary handler runs.
+      applyLeftFocusLock(node, lockFocusLeft);
+      applyDownFocusLock(node, lockFocusDown);
+      registerFocusCandidate(
+        index,
+        node ? { key: "channel", node, kind: "channel", left: -logoWidth, width: logoWidth } : null,
+        "channel",
+      );
+      if (preferredHandleRef.current) {
+        try {
+          node?.setNativeProps?.({ nextFocusRight: preferredHandleRef.current });
+        } catch {}
+      }
+    },
+    [index, item.id, lockFocusDown, lockFocusLeft, logoWidth, registerFocusCandidate],
+  );
+
+  useEffect(() => {
+    applyLeftFocusLock(logoPressableRef.current, lockFocusLeft);
+    applyDownFocusLock(logoPressableRef.current, lockFocusDown);
+    applyDownFocusLock(pendingPressableRef.current, lockFocusDown);
+  }, [lockFocusDown, lockFocusLeft]);
+
+  const handleChannelPress = useCallback(() => onChannelPress(item), [onChannelPress, item]);
+  const handleChannelFocus = useCallback(() => {
+    noteGuideChannelFocus(item.id, logoPressableRef.current);
+    // Re-wire Left â†’ preview after recycle; Play may have mounted after this row.
+    if (!lockFocusLeft) applyLeftFocusLock(logoPressableRef.current, false);
+    onFocusNode?.(logoPressableRef.current);
+    onRowChannelFocus(item, index, logoPressableRef.current);
+    wireFocusCandidate(index, "channel", logoPressableRef.current);
+  }, [index, item, lockFocusLeft, onFocusNode, onRowChannelFocus, wireFocusCandidate]);
+  const handleChannelLongPress = useCallback(() => onChannelLongPress?.(item), [onChannelLongPress, item]);
+  const handleProgramFocus = useCallback(
+    (prepared: PreparedProgram, channel: Channel) => onProgramFocus(prepared, channel, index),
+    [onProgramFocus, index],
+  );
+  const handleProgramBlur = useCallback((programKey: string) => {
+    if (programKey !== orphanedFocusedProgram?.key) return;
+    releasedOrphanKeyRef.current = programKey;
+    forceOrphanRelease((value) => value + 1);
+  }, [orphanedFocusedProgram?.key]);
+  const setPendingRef = useCallback(
+    (node: any) => {
+      const previous = pendingPressableRef.current;
+      if (previous && previous !== node) registerFocusCandidate(index, null, "pending");
+      pendingPressableRef.current = node;
+      applyDownFocusLock(node, lockFocusDown);
+      registerFocusCandidate(
+        index,
+        node ? { key: "pending", node, kind: "program", left: pendingLeft, width: pendingWidth } : null,
+        "pending",
+      );
+      const handle = findNodeHandle(node);
+      if (handle) {
+        try {
+          logoPressableRef.current?.setNativeProps?.({ nextFocusRight: handle });
+        } catch {}
+      }
+    },
+    [index, lockFocusDown, pendingLeft, pendingWidth, registerFocusCandidate],
+  );
+  const handlePendingFocus = useCallback(() => {
+    if (preparedPrograms.length === 0) setPreservePendingFocus(true);
+    noteGuideProgramFocus(item.id, pendingPressableRef.current);
+    onFocusNode?.(pendingPressableRef.current);
+    // Keep a stable focus target in the programme column while a row's EPG
+    // request is pending. Android can then continue vertical movement instead
+    // of losing focus because the destination has no programme Pressable.
+    onRowPendingFocus(item, index, pendingPressableRef.current);
+    wireFocusCandidate(index, "pending", pendingPressableRef.current);
+  }, [index, item, onFocusNode, onRowPendingFocus, preparedPrograms.length, wireFocusCandidate]);
+  const handlePendingBlur = useCallback(() => {
+    if (preparedPrograms.length > 0) setPreservePendingFocus(false);
+  }, [preparedPrograms.length]);
+
+  return (
+    <View style={[styles.row, { height: rowHeight }]}>
+      <View style={styles.rowViewport}>
+        <Animated.View
+          style={[
+            styles.rowPanTrack,
+            {
+              width: logoWidth + timelineWidth,
+              height: rowHeight,
+              transform: [{ translateX: negScrollX }],
+            },
+          ]}
+        >
+          <View style={[styles.logoCol, { width: logoWidth, height: rowHeight }]}>
+            <Pressable
+              ref={setLogoRef}
+              style={({ focused }: any) => [
+                styles.logoCell,
+                { paddingHorizontal: horizontalPadding, gap: itemGap },
+                focused && styles.logoCellFocused,
+              ]}
+              focusable
+              hasTVPreferredFocus={preferInitialFocus}
+              onFocus={handleChannelFocus}
+              onPress={handleChannelPress}
+              onLongPress={handleChannelLongPress}
+              delayLongPress={450}
+              testID={`epg-channel-${item.id}`}
+            >
+              {showChannelNumbers && (
+                <Text style={[styles.channelNumber, { width: numberWidth, minWidth: numberWidth }]}>
+                  {channelNumberById?.[item.id] || index + 1}
+                </Text>
+              )}
+              <ChannelLogo name={item.name} logo={item.logo} disabled={!showChannelLogos} size={logoSize} />
+              <Text numberOfLines={nameMaxLines} adjustsFontSizeToFit minimumFontScale={0.82}
+                style={[styles.logoName, { fontSize: nameFontSize, lineHeight: nameLineHeight }]}>
+                {item.name}
+              </Text>
+            </Pressable>
+          </View>
+
+          <View style={[styles.timelineTrack, { width: timelineWidth, height: rowHeight }]}>
+            {renderedPrograms.map(({ item: prepared, sourceIndex: programIndex }) => {
+              const near = programNearViewport(prepared, panBucket, programViewportW);
+              const isPreferred = prepared.key === preferred?.key;
+              const keepFocused = getFocusedProgramKey?.() === prepared.key;
+              return <ProgramCell key={prepared.key} prepared={prepared} rowIndex={index} programIndex={programIndex}
+                channel={item} isPreferred={isPreferred}
+                hasReminder={!!reminderKeys?.has(reminderKey(item.id, prepared.program.start))}
+                tvFocusable={near || keepFocused} extraCompact={nameMaxLines === 1}
+                lockFocusDown={lockFocusDown} capturePreferred={capturePreferred}
+                registerFocusCandidate={registerFocusCandidate} wireFocusCandidate={wireFocusCandidate}
+                onFocusNode={onFocusNode} onProgramFocus={handleProgramFocus}
+                onProgramBlur={handleProgramBlur} onProgramPress={onProgramPress}
+                onChannelLongPress={onChannelLongPress} />;
+            })}
+            {(preparedPrograms.length === 0 || preservePendingFocus) && (
+              <Pressable ref={setPendingRef} focusable onFocus={handlePendingFocus}
+                onBlur={handlePendingBlur} onPress={handleChannelPress}
+                onLongPress={handleChannelLongPress} delayLongPress={450}
+                style={({ focused }: any) => [styles.progCell, styles.pendingProgramCell,
+                  preparedPrograms.length > 0 && !focused ? styles.pendingProgramCellHidden
+                    : {
+                        // A cold row must expose only one viewport-sized native
+                        // focus target. A timeline-wide placeholder makes
+                        // Android's geometric search jump to a far-right point.
+                        left: pendingLeft,
+                        width: pendingWidth,
+                      },
+                  focused && styles.programCellFocused]}
+                testID={`epg-pending-${item.id}`}>
+                {preparedPrograms.length === 0 ? <Text style={styles.noData}>
+                  {programRowState === "loading" ? "Loading programme data"
+                    : !channelHasEpgMatch(item) ? "Channel not matched to XMLTV" : "No programme supplied"}
+                </Text> : null}
+              </Pressable>
+            )}
+          </View>
+        </Animated.View>
+      </View>
+    </View>
+  );
+});
+
+export const TimelineGrid = memo(function TimelineGrid({
+  channels,
+  windowStart,
+  windowEnd,
+  now,
+  onProgramPress,
+  onProgramFocus,
+  onChannelPress,
+  onChannelFocus,
+  onChannelLongPress,
+  refreshing,
+  onRefresh,
+  density = "extra_compact",
+  showChannelNumbers = false,
+  channelNumberById,
+  showChannelLogos = true,
+  reminderKeys,
+  resetToken = 0,
+  active = true,
+  lockLeftEdge = true,
+  onUpBoundary,
+  onLeftBoundary,
+  onFocusedRowChange,
+  onViewportChannelIds,
+  onBackTargetChange,
+  restoreChannelId,
+  focusClaimNonce = 0,
+  cacheProfile = "normal",
+  reduceMotion = false,
+}: {
+  channels: Channel[];
+  windowStart: string;
+  windowEnd: string;
+  now: string;
+  onProgramPress: (p: Program, c: Channel) => void;
+  /** Metadata focus is immediate; decoder preview remains parent-delayed. */
+  onProgramFocus?: (p: Program, c: Channel) => void;
+  onChannelPress: (c: Channel) => void;
+  onChannelFocus?: (c: Channel) => void;
+  onChannelLongPress?: (c: Channel) => void;
+  refreshing?: boolean;
+  onRefresh?: () => void;
+  density?: "large" | "normal" | "compact" | "extra_compact";
+  showChannelNumbers?: boolean;
+  channelNumberById?: Record<string, number>;
+  showChannelLogos?: boolean;
+  reminderKeys?: ReadonlySet<string>;
+  resetToken?: number;
+  active?: boolean;
+  lockLeftEdge?: boolean;
+  /** Fired when Up is pressed on the first guide row so focus can exit to group chips. */
+  onUpBoundary?: () => void;
+  /** Fired when Left is pressed on the channel rail so the preview/actions panel can take focus. */
+  onLeftBoundary?: () => void;
+  /** Reports the currently focused row index so the parent can relax trapFocusUp on row 0. */
+  onFocusedRowChange?: (index: number) => void;
+  /** Visible-ish channel ids around the focused row (viewport + overscan) for EPG query scoping. */
+  onViewportChannelIds?: (ids: string[], priorityIds?: string[], pageSize?: number) => void;
+  /** Tell parent whether focus is on channel logo vs programme (for Back step-left). */
+  onBackTargetChange?: (region: "channel" | "program", logoNode: unknown) => void;
+  /** Session-only row restore after returning from fullscreen player. */
+  restoreChannelId?: string | null;
+  /** Bumped after drawer close when restore may have missed â€” re-prefer guide row. */
+  focusClaimNonce?: number;
+  /** Device power profile â€” Compatibility shortens the SQLite runway. */
+  cacheProfile?: "normal" | "weak" | "max_preview";
+  /** Snap expensive Guide motion while keeping focus/metadata immediate. */
+  reduceMotion?: boolean;
+}) {
+  const { width } = useWindowDimensions();
+  const big = width >= 900;
+  const railMetrics = getGuideRailMetrics(width, density, showChannelNumbers, showChannelLogos);
+  const ROW_H = railMetrics.rowHeight;
+  const LOGO_W = railMetrics.railWidth;
+  const LOGO_SIZE = railMetrics.logoSize;
+  const scrollX = useRef(new Animated.Value(0)).current;
+  const negScrollX = useMemo(() => Animated.multiply(scrollX, -1), [scrollX]);
+  const panAnimRef = useRef<Animated.CompositeAnimation | null>(null);
+  const [bodyH, setBodyH] = useState(0);
+  const [programViewportW, setProgramViewportW] = useState(0);
+  const bodyHRef = useRef(0);
+  const verticalOffsetRef = useRef(0);
+  const channelsRef = useRef(channels);
+  channelsRef.current = channels;
+  // Coarse pan bucket only â€” avoids re-rendering every row on each pixel of horizontal pan.
+  const [panBucket, setPanBucket] = useState(0);
+  // Once the shared rail is fully off-screen, stop mounting decoded logos until
+  // navigation returns to the channel edge.
+  const [channelRailVisible, setChannelRailVisible] = useState(true);
+  // Preferred focus is mount-once only. Group changes must NOT reclaim it (steals chip focus).
+  const hasClaimedFocusRef = useRef(false);
+  const [preferFirstRow, setPreferFirstRow] = useState(() => !hasClaimedFocusRef.current);
+  const listRef = useRef<any>(null);
+  const focusRegionRef = useRef<"channel" | "program">("program");
+  const focusedRowRef = useRef(0);
+  const focusedNodeRef = useRef<unknown>(null);
+  const lastRowIndexRef = useRef(0);
+  const gridOwnsFocusRef = useRef(false);
+  const lastReportedDeepRef = useRef(false);
+  const lastViewportBucketRef = useRef("");
+  const lastPrefetchIndexRef = useRef(0);
+  const scanDirectionRef = useRef<GuideScanDirection>(1);
+  const guideEscapeInFlight = useRef(false);
+  const escapeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollXRef = useRef(0);
+  const lastAxisRef = useRef<"v" | "h" | null>(null);
+  const lastAxisAtRef = useRef(0);
+  // Ref-only: putting focused key in renderItem deps rebuilt every FlashList row on each cell focus.
+  const focusedProgramKeyRef = useRef<string | null>(null);
+  // Preserve the exact horizontal time anchor while vertical surfing crosses a
+  // cold/loading row. A full-width pending cell's visual center is not the
+  // user's time column and previously caused upward focus to jump far right.
+  const verticalFocusAnchorRef = useRef<number | null>(null);
+  const focusCandidatesByRowRef = useRef(new Map<number, Map<string, FocusCandidate>>());
+  const focusedCandidateRef = useRef<{ rowIndex: number; key: string } | null>(null);
+  const focusRewireFrameRef = useRef<number | null>(null);
+  const wireFocusCandidateRef = useRef<(rowIndex: number, key: string, node: unknown) => void>(() => {});
+  const viewportDispatchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingViewportRef = useRef<{
+    runway: string[];
+    priorities: string[];
+    pageSize: number;
+  } | null>(null);
+  const rememberFocusNode = useCallback((node: unknown) => {
+    if (node) focusedNodeRef.current = node;
+  }, []);
+
+  const scheduleFocusedCandidateRewire = useCallback(() => {
+    if (focusRewireFrameRef.current != null) return;
+    focusRewireFrameRef.current = requestAnimationFrame(() => {
+      focusRewireFrameRef.current = null;
+      const focused = focusedCandidateRef.current;
+      if (!focused) return;
+      const candidate = focusCandidatesByRowRef.current
+        .get(focused.rowIndex)
+        ?.get(focused.key);
+      if (!candidate?.node) return;
+      wireFocusCandidateRef.current(focused.rowIndex, focused.key, candidate.node);
+    });
+  }, []);
+
+  const registerFocusCandidate = useCallback(
+    (rowIndex: number, candidate: FocusCandidate | null, key: string) => {
+      let row = focusCandidatesByRowRef.current.get(rowIndex);
+      if (!candidate) {
+        row?.delete(key);
+        if (row?.size === 0) focusCandidatesByRowRef.current.delete(rowIndex);
+        const focused = focusedCandidateRef.current;
+        if (focused && Math.abs(rowIndex - focused.rowIndex) <= 1) {
+          scheduleFocusedCandidateRewire();
+        }
+        return;
+      }
+      if (!row) {
+        row = new Map<string, FocusCandidate>();
+        focusCandidatesByRowRef.current.set(rowIndex, row);
+      }
+      row.set(key, candidate);
+      const focused = focusedCandidateRef.current;
+      if (focused && Math.abs(rowIndex - focused.rowIndex) <= 1) {
+        // FlashList often mounts the previous row only after an upward scroll.
+        // Rewire the still-focused native node as soon as that target exists.
+        scheduleFocusedCandidateRewire();
+      }
+    },
+    [scheduleFocusedCandidateRewire],
+  );
+
+  const wireFocusCandidate = useCallback((rowIndex: number, key: string, node: unknown) => {
+    if (!node) return;
+    focusedCandidateRef.current = { rowIndex, key };
+    const row = focusCandidatesByRowRef.current.get(rowIndex);
+    const current = row?.get(key);
+    if (!current) return;
+    const candidates = Array.from(row?.values() || [])
+      .filter((candidate) => !!findNodeHandle(candidate.node))
+      .sort((a, b) => a.left - b.left);
+    const currentIndex = candidates.findIndex((candidate) => candidate.key === key);
+    const geometricCenter = current.left + current.width / 2;
+    const center = current.key === "pending" && verticalFocusAnchorRef.current != null
+      ? verticalFocusAnchorRef.current
+      : geometricCenter;
+    const selfHandle = findNodeHandle(node as any) || -1;
+    const nearestVertical = (targetRowIndex: number): number => {
+      const targetRow = focusCandidatesByRowRef.current.get(targetRowIndex);
+      if (!targetRow?.size) return -1;
+      const pool = Array.from(targetRow.values()).filter((candidate) => {
+        if (!findNodeHandle(candidate.node)) return false;
+        return current.kind === "channel" ? candidate.kind === "channel" : candidate.kind === "program";
+      });
+      const fallback = pool.length ? pool : Array.from(targetRow.values());
+      let best: FocusCandidate | null = null;
+      let bestScore = Number.POSITIVE_INFINITY;
+      for (const candidate of fallback) {
+        const handle = findNodeHandle(candidate.node);
+        if (!handle) continue;
+        const candidateCenter = candidate.left + candidate.width / 2;
+        const overlaps = candidate.left <= center && candidate.left + candidate.width >= center;
+        const score = Math.abs(candidateCenter - center) + (overlaps ? -10_000 : 0);
+        if (score < bestScore) {
+          best = candidate;
+          bestScore = score;
+        }
+      }
+      return best ? findNodeHandle(best.node) || -1 : -1;
+    };
+    const verticalTargetOrSelf = (targetRowIndex: number) => {
+      const target = nearestVertical(targetRowIndex);
+      return target > 0 ? target : selfHandle;
+    };
+    const props: Record<string, number> = {};
+    if (current.kind === "program") {
+      props.nextFocusLeft = currentIndex > 0
+        ? findNodeHandle(candidates[currentIndex - 1]?.node) || -1
+        : -1;
+      props.nextFocusRight = currentIndex >= 0 && currentIndex < candidates.length - 1
+        ? findNodeHandle(candidates[currentIndex + 1]?.node) || -1
+        : -1;
+    } else {
+      const firstProgram = candidates.find((candidate) => candidate.kind === "program");
+      if (firstProgram) props.nextFocusRight = findNodeHandle(firstProgram.node) || -1;
+    }
+    if (rowIndex === 0) wireGuideTopBoundary(node);
+    else props.nextFocusUp = verticalTargetOrSelf(rowIndex - 1);
+    props.nextFocusDown = rowIndex >= channelsRef.current.length - 1
+      ? selfHandle
+      : verticalTargetOrSelf(rowIndex + 1);
+    try {
+      (node as any)?.setNativeProps?.(props);
+    } catch {}
+  }, []);
+  wireFocusCandidateRef.current = wireFocusCandidate;
+
+  const keepFocusedRowVisible = useCallback((index: number) => {
+    const viewport = bodyHRef.current;
+    if (!viewport) return;
+    const margin = ROW_H;
+    const currentOffset = verticalOffsetRef.current;
+    const rowTop = index * ROW_H;
+    const rowBottom = rowTop + ROW_H;
+    let target = currentOffset;
+    if (rowTop < currentOffset + margin) {
+      target = Math.max(0, rowTop - margin);
+    } else if (rowBottom > currentOffset + viewport - margin) {
+      target = Math.max(0, rowBottom - viewport + margin);
+    }
+    target = clampGuideScrollOffset(target, channelsRef.current.length * ROW_H, viewport);
+    if (Math.abs(target - currentOffset) < 1) return;
+    verticalOffsetRef.current = target;
+    try {
+      listRef.current?.scrollToOffset({ offset: target, animated: false });
+    } catch {}
+  }, [ROW_H]);
+  const onVerticalScroll = useCallback((event: any) => {
+    verticalOffsetRef.current = clampGuideScrollOffset(
+      event.nativeEvent.contentOffset.y,
+      channelsRef.current.length * ROW_H,
+      bodyHRef.current,
+    );
+  }, [ROW_H]);
+
+  const reportFocusedRow = useCallback(
+    (index: number) => {
+      focusedRowRef.current = index;
+      gridOwnsFocusRef.current = true;
+      keepFocusedRowVisible(index);
+      scheduleFocusedCandidateRewire();
+      const rows = channelsRef.current;
+      const deep = index > 0;
+      if (lastReportedDeepRef.current !== deep) {
+        lastReportedDeepRef.current = deep;
+        onFocusedRowChange?.(index);
+      } else if (index === 0) {
+        onFocusedRowChange?.(index);
+      }
+      if (onViewportChannelIds && rows.length) {
+        const visibleRows = Math.max(6, Math.ceil((bodyHRef.current || ROW_H * 6) / ROW_H));
+        if (index > lastPrefetchIndexRef.current) scanDirectionRef.current = 1;
+        else if (index < lastPrefetchIndexRef.current) scanDirectionRef.current = -1;
+        lastPrefetchIndexRef.current = index;
+        // Half-page buckets so held surfing refreshes the runway before the
+        // focused page fully exits the previous prefetch window.
+        const halfPage = Math.max(1, Math.floor(visibleRows / 2));
+        const viewportBucket = `${Math.floor(Math.max(0, index) / halfPage)}:${scanDirectionRef.current}`;
+        if (lastViewportBucketRef.current === viewportBucket) return;
+        lastViewportBucketRef.current = viewportBucket;
+        const runway = buildGuideRunwayIds(
+          rows,
+          index,
+          visibleRows,
+          scanDirectionRef.current,
+          cacheProfile,
+        );
+        const pageStart = Math.floor(Math.max(0, index) / visibleRows) * visibleRows;
+        const visiblePageIds = rows
+          .slice(pageStart, pageStart + visibleRows)
+          .map((row) => row.id);
+        const priorityIds = [
+          rows[index]?.id,
+          rows[index + scanDirectionRef.current]?.id,
+          rows[index + scanDirectionRef.current * 2]?.id,
+          rows[index + scanDirectionRef.current * 3]?.id,
+          rows[index + scanDirectionRef.current * 4]?.id,
+          ...visiblePageIds,
+        ].filter((id): id is string => !!id);
+        pendingViewportRef.current = { runway, priorities: priorityIds, pageSize: visibleRows };
+        if (!viewportDispatchRef.current) {
+          viewportDispatchRef.current = setTimeout(() => {
+            viewportDispatchRef.current = null;
+            const pending = pendingViewportRef.current;
+            pendingViewportRef.current = null;
+            if (pending) onViewportChannelIds(pending.runway, pending.priorities, pending.pageSize);
+          }, 16);
+        }
+      }
+    },
+    [ROW_H, cacheProfile, keepFocusedRowVisible, onFocusedRowChange, onViewportChannelIds, scheduleFocusedCandidateRewire],
+  );
+
+  const totalMin = mins(windowEnd, windowStart);
+  const longGuideWindow = totalMin >= 20 * 60;
+  const PX_PER_MIN = longGuideWindow ? (big ? 2.25 : 1.75) : big ? 4.4 : 3.4;
+  const timelineWidth = Math.max(1, totalMin * PX_PER_MIN);
+  const windowStartMs = useMemo(() => Date.parse(windowStart), [windowStart]);
+  const windowEndMs = useMemo(() => Date.parse(windowEnd), [windowEnd]);
+  const nowMs = useMemo(() => Date.parse(now), [now]);
+
+  const ticks = useMemo(() => {
+    const out: { key: string; label: string; left: number }[] = [];
+    let t = dayjs(windowStart);
+    const end = dayjs(windowEnd);
+    const m = t.minute();
+    t = t.minute(m < 30 ? 30 : 0).second(0);
+    if (m >= 30) t = t.add(1, "hour");
+    while (t.isBefore(end)) {
+      const tickMs = t.valueOf();
+      out.push({
+        key: t.toISOString(),
+        label: formatTime(tickMs),
+        left: ((tickMs - windowStartMs) / MINUTE_MS) * PX_PER_MIN,
+      });
+      t = t.add(30, "minute");
+    }
+    return out;
+  }, [windowStart, windowEnd, windowStartMs, PX_PER_MIN]);
+
+  useEffect(() => {
+    bodyHRef.current = bodyH;
+  }, [bodyH]);
+
+  const nowOffset = Number.isFinite(nowMs) && Number.isFinite(windowStartMs)
+    ? ((nowMs - windowStartMs) / MINUTE_MS) * PX_PER_MIN
+    : 0;
+  const showNow = nowMs > windowStartMs && nowMs < windowEndMs;
+
+  const setHorizontalOffset = useCallback(
+    (target: number, animated: boolean) => {
+      const next = clampGuideScrollOffset(
+        target,
+        LOGO_W + timelineWidth,
+        programViewportW,
+      );
+      scrollXRef.current = next;
+      const commitViewport = () => {
+        setChannelRailVisible((current) => {
+          const visible = next < Math.max(1, LOGO_W - 4);
+          return current === visible ? current : visible;
+        });
+        // Cull only after the pixels reach their destination. Updating the
+        // mounted slice before the pan completes can remove native focus.
+        const timelineOffset = Math.max(0, next - LOGO_W);
+        const bucket = Math.floor(timelineOffset / PAN_BUCKET_PX) * PAN_BUCKET_PX;
+        setPanBucket((prev) => (prev === bucket ? prev : bucket));
+      };
+      panAnimRef.current?.stop();
+      if (!animated || reduceMotion) {
+        scrollX.setValue(next);
+        commitViewport();
+        return;
+      }
+      panAnimRef.current = Animated.timing(scrollX, {
+        toValue: next,
+        duration: HORIZONTAL_PAN_MS,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      });
+      panAnimRef.current.start(() => {
+        panAnimRef.current = null;
+        commitViewport();
+      });
+    },
+    [LOGO_W, programViewportW, reduceMotion, scrollX, timelineWidth],
+  );
+
+  // Settings/date changes can shorten the rendered time window while this tab
+  // remains mounted. Re-clamp the retained pan immediately so no stale offset
+  // can leave the whole Guide track translated beyond its new right edge.
+  useEffect(() => {
+    setHorizontalOffset(scrollXRef.current, false);
+  }, [programViewportW, setHorizontalOffset, timelineWidth]);
+
+  // Mount-once preferred focus only â€” restore the last watched row when tabs
+  // were detached by fullscreen navigation.
+  useEffect(() => {
+    if (hasClaimedFocusRef.current) return;
+    if (!channels.length) return;
+    hasClaimedFocusRef.current = true;
+    const restoreIndex = restoreChannelId
+      ? channels.findIndex((channel) => channel.id === restoreChannelId)
+      : -1;
+    if (restoreIndex >= 0) {
+      try {
+        listRef.current?.scrollToIndex({ index: restoreIndex, animated: false, viewPosition: 0.45 });
+      } catch {}
+    }
+    setPreferFirstRow(true);
+    const clearPreferred = setTimeout(() => setPreferFirstRow(false), 600);
+    return () => clearTimeout(clearPreferred);
+  }, [channels, restoreChannelId]);
+
+  // Drawer â†’ Guide must re-claim preferred focus even after the mount-once pass.
+  // Depend only on the nonce â€” channels identity churn must not re-fire reclaim.
+  useEffect(() => {
+    if (!focusClaimNonce) return;
+    const rows = channelsRef.current;
+    if (!rows.length) return;
+    const restoreIndex = restoreChannelId
+      ? rows.findIndex((channel) => channel.id === restoreChannelId)
+      : 0;
+    if (restoreIndex >= 0) {
+      try {
+        listRef.current?.scrollToIndex({
+          index: Math.max(0, restoreIndex),
+          animated: false,
+          viewPosition: 0.45,
+        });
+      } catch {}
+    }
+    // Explicit retry is the sole drawer-return focus claim. Do not also pulse
+    // hasTVPreferredFocus against a potentially recycled row.
+    focusGuideSurfaceWhenMounted(restoreChannelId || rows[0]?.id, [0, 40, 120, 240, 420, 700]);
+  }, [focusClaimNonce, restoreChannelId]);
+
+  // Group/filter changes: reset scroll position only. Do not touch preferred focus.
+  useEffect(() => {
+    if (!resetToken) return;
+    focusCandidatesByRowRef.current.clear();
+    focusedCandidateRef.current = null;
+    lastReportedDeepRef.current = false;
+    lastViewportBucketRef.current = "";
+    lastPrefetchIndexRef.current = 0;
+    scanDirectionRef.current = 1;
+    focusedRowRef.current = 0;
+    verticalFocusAnchorRef.current = null;
+    try {
+      setHorizontalOffset(0, false);
+      listRef.current?.scrollToOffset({ offset: 0, animated: false });
+    } catch {}
+  }, [resetToken, setHorizontalOffset]);
+
+  useEffect(
+    () => () => {
+      if (escapeTimer.current) clearTimeout(escapeTimer.current);
+      if (viewportDispatchRef.current) clearTimeout(viewportDispatchRef.current);
+      if (focusRewireFrameRef.current != null) cancelAnimationFrame(focusRewireFrameRef.current);
+      panAnimRef.current?.stop();
+      focusCandidatesByRowRef.current.clear();
+      focusedCandidateRef.current = null;
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (active) return;
+    gridOwnsFocusRef.current = false;
+    pendingViewportRef.current = null;
+    if (viewportDispatchRef.current) {
+      clearTimeout(viewportDispatchRef.current);
+      viewportDispatchRef.current = null;
+    }
+  }, [active]);
+
+  const pageGuide = useCallback((direction: -1 | 1) => {
+    if (!active) return;
+    const rows = channelsRef.current;
+    if (!rows.length) return;
+    const visibleRows = Math.max(1, Math.floor((bodyHRef.current || ROW_H * 6) / ROW_H));
+    const targetIndex = Math.max(
+      0,
+      Math.min(rows.length - 1, focusedRowRef.current + direction * visibleRows),
+    );
+    focusedProgramKeyRef.current = null;
+    reportFocusedRow(targetIndex);
+    try {
+      listRef.current?.scrollToIndex({ index: targetIndex, animated: false, viewPosition: 0.45 });
+      verticalOffsetRef.current = clampGuideScrollOffset(
+        targetIndex * ROW_H - bodyHRef.current * 0.45,
+        rows.length * ROW_H,
+        bodyHRef.current,
+      );
+    } catch {}
+    focusGuideSurfaceWhenMounted(rows[targetIndex]?.id, [0, 16, 40, 80, 140, 240, 420, 700]);
+  }, [ROW_H, active, reportFocusedRow]);
+
+  useEffect(() => {
+    if (!active) return;
+    return addGuidePageKeyListener((key) => pageGuide(key === "UP" ? -1 : 1));
+  }, [active, pageGuide]);
+
+  useTVEventHandler(
+    useCallback(
+      (event) => {
+        if (!active) return;
+        const type = event?.eventType;
+        const decision = evaluateGuideNavigation({
+          active,
+          key: type,
+          gridOwnsFocus: gridOwnsFocusRef.current,
+          focusRegion: focusRegionRef.current,
+          focusedRow: focusedRowRef.current,
+          lastRow: lastRowIndexRef.current,
+        });
+        if (decision.axis === "vertical") {
+          lastAxisRef.current = "v";
+          lastAxisAtRef.current = Date.now();
+        } else if (decision.axis === "horizontal") {
+          lastAxisRef.current = "h";
+          lastAxisAtRef.current = Date.now();
+        }
+        // Left edge: hand focus to the fixed preview/actions panel.
+        if (decision.boundary === "left-boundary") {
+          if (onLeftBoundary) {
+            gridOwnsFocusRef.current = false;
+            onLeftBoundary();
+            return;
+          }
+          armGuideLeftFocusLock(focusedNodeRef.current);
+          return;
+        }
+        // Bottom of guide: keep focus in-grid. Holding Down must never land on Exit.
+        if (
+          decision.boundary === "bottom-lock"
+        ) {
+          armGuideBottomFocusLock(focusedNodeRef.current);
+          requestNativeFocus(focusedNodeRef.current);
+          return;
+        }
+        // Only escape when the grid currently owns focus â€” never yank chips/sidebar.
+        if (decision.boundary === "top-boundary") {
+          if (guideEscapeInFlight.current) return;
+          guideEscapeInFlight.current = true;
+          gridOwnsFocusRef.current = false;
+          onUpBoundary?.();
+          if (escapeTimer.current) clearTimeout(escapeTimer.current);
+          escapeTimer.current = setTimeout(() => {
+            guideEscapeInFlight.current = false;
+          }, GUIDE_ESCAPE_GUARD_MS);
+        }
+      },
+      [active, onLeftBoundary, onUpBoundary],
+    ),
+  );
+
+  const keepProgramVisible = useCallback((prepared: PreparedProgram, channel: Channel) => {
+    focusRegionRef.current = "program";
+    if (!programViewportW) return;
+
+    // During rapid vertical surfing, never chase horizontally â€” that drifts focus right.
+    const rapidVertical =
+      lastAxisRef.current === "v" && Date.now() - lastAxisAtRef.current < RAPID_VERTICAL_MS;
+    if (rapidVertical) return;
+
+    const margin = 18;
+    const currentX = scrollXRef.current;
+    const leftEdge = LOGO_W + prepared.left;
+    const rightEdge = LOGO_W + prepared.left + prepared.width;
+    let target = currentX;
+
+    if (leftEdge < currentX + margin) {
+      target = Math.max(0, leftEdge - margin);
+    } else if (rightEdge > currentX + programViewportW - margin) {
+      target = Math.max(0, rightEdge - programViewportW + margin);
+    }
+
+    const maxX = Math.max(0, LOGO_W + timelineWidth - programViewportW);
+    target = Math.min(maxX, target);
+    if (Math.abs(target - currentX) <= 8) return;
+
+    // Focus-driven pans must commit before the next remote repeat. Restarting a
+    // 110 ms animation every ~48 ms leaves the focused native cell off-screen
+    // until the key is released, which looks like disappearing focus.
+    setHorizontalOffset(target, false);
+  }, [LOGO_W, programViewportW, setHorizontalOffset, timelineWidth]);
+
+  const onRowChannelFocus = useCallback(
+    (channel: Channel, rowIndex: number, logoNode?: unknown) => {
+      focusRegionRef.current = "channel";
+      focusedProgramKeyRef.current = null;
+      verticalFocusAnchorRef.current = null;
+      // A channel node must never retain focus while translated off-screen.
+      if (scrollXRef.current > 4) setHorizontalOffset(0, false);
+      reportFocusedRow(rowIndex);
+      onChannelFocus?.(channel);
+      onBackTargetChange?.("channel", logoNode || focusedNodeRef.current);
+    },
+    [onBackTargetChange, onChannelFocus, reportFocusedRow, setHorizontalOffset],
+  );
+
+  const onRowProgramFocus = useCallback(
+    (prepared: PreparedProgram, channel: Channel, rowIndex: number) => {
+      focusRegionRef.current = "program";
+      verticalFocusAnchorRef.current = prepared.left + prepared.width / 2;
+      const movedVertically = gridOwnsFocusRef.current && rowIndex !== focusedRowRef.current;
+      reportFocusedRow(rowIndex);
+      focusedProgramKeyRef.current = prepared.key;
+      // A vertical focus move must preserve the shared time column exactly.
+      // Never let event-order differences between native focus and JS key
+      // handlers convert Up/Down into an accidental horizontal pan.
+      if (!movedVertically) keepProgramVisible(prepared, channel);
+      onProgramFocus?.(prepared.program, channel);
+      onBackTargetChange?.("program", null);
+    },
+    [keepProgramVisible, onBackTargetChange, onProgramFocus, reportFocusedRow],
+  );
+
+  const onRowPendingFocus = useCallback(
+    (channel: Channel, rowIndex: number) => {
+      focusRegionRef.current = "program";
+      focusedProgramKeyRef.current = null;
+      reportFocusedRow(rowIndex);
+      onChannelFocus?.(channel);
+      onBackTargetChange?.("program", null);
+    },
+    [onBackTargetChange, onChannelFocus, reportFocusedRow],
+  );
+
+  const renderDrawDistance = cacheProfile === "weak"
+    ? Math.max(240, ROW_H * 4)
+    : cacheProfile === "max_preview"
+      ? Math.max(480, ROW_H * 8)
+      : Math.max(360, ROW_H * 6);
+
+  const lastRowIndex = Math.max(0, channels.length - 1);
+  lastRowIndexRef.current = lastRowIndex;
+
+  const getFocusedProgramKey = useCallback(() => focusedProgramKeyRef.current, []);
+
+  const renderRow = useCallback(
+    ({ item: channel, index }: { item: Channel; index: number }) => (
+      <TimelineRow
+        channel={channel}
+        index={index}
+        rowHeight={ROW_H}
+        logoWidth={LOGO_W}
+        logoSize={LOGO_SIZE}
+        numberWidth={railMetrics.numberWidth}
+        nameFontSize={railMetrics.nameFontSize}
+        nameLineHeight={railMetrics.nameLineHeight}
+        nameMaxLines={railMetrics.channelNameMaxLines}
+        horizontalPadding={railMetrics.horizontalPadding}
+        itemGap={railMetrics.itemGap}
+        timelineWidth={timelineWidth}
+        windowStartMs={windowStartMs}
+        windowEndMs={windowEndMs}
+        currentTimeMs={nowMs}
+        pxPerMinute={PX_PER_MIN}
+        negScrollX={negScrollX}
+        panBucket={panBucket}
+        programViewportW={programViewportW}
+        showChannelNumbers={showChannelNumbers}
+        channelNumberById={channelNumberById}
+        showChannelLogos={showChannelLogos && channelRailVisible}
+        reminderKeys={reminderKeys}
+        onChannelPress={onChannelPress}
+        onChannelLongPress={onChannelLongPress}
+        onProgramPress={onProgramPress}
+        onProgramFocus={onRowProgramFocus}
+        onRowChannelFocus={onRowChannelFocus}
+        onRowPendingFocus={onRowPendingFocus}
+        onFocusNode={rememberFocusNode}
+        registerFocusCandidate={registerFocusCandidate}
+        wireFocusCandidate={wireFocusCandidate}
+        preferInitialFocus={
+          preferFirstRow &&
+          (restoreChannelId ? channel.id === restoreChannelId : index === 0)
+        }
+        lockFocusDown={index >= lastRowIndex}
+        lockFocusLeft={lockLeftEdge}
+        getFocusedProgramKey={getFocusedProgramKey}
+      />
+    ),
+    [ROW_H, LOGO_W, LOGO_SIZE, railMetrics.numberWidth, railMetrics.nameFontSize, railMetrics.nameLineHeight, railMetrics.channelNameMaxLines, railMetrics.horizontalPadding, railMetrics.itemGap, timelineWidth, windowStartMs, windowEndMs, nowMs, PX_PER_MIN, negScrollX, panBucket, programViewportW, showChannelNumbers, channelNumberById, showChannelLogos, channelRailVisible, reminderKeys, onChannelPress, onChannelLongPress, onProgramPress, onRowProgramFocus, onRowChannelFocus, onRowPendingFocus, preferFirstRow, rememberFocusNode, registerFocusCandidate, wireFocusCandidate, lastRowIndex, lockLeftEdge, getFocusedProgramKey, restoreChannelId],
+  );
+
+  return (
+    <View style={styles.wrap} testID="epg-timeline-grid">
+      <View style={styles.headerRow}>
+        <View style={styles.headerViewport}
+          onLayout={(event) => setProgramViewportW(event.nativeEvent.layout.width)}>
+          <Animated.View style={[styles.headerPanTrack,
+            { width: LOGO_W + timelineWidth, transform: [{ translateX: negScrollX }] }]}>
+            <View style={[styles.corner, { width: LOGO_W }]}>
+              <Text style={styles.cornerText}>{dayjs(windowStart).format("MMM D")}</Text>
+            </View>
+            <View style={[styles.headerTrack, { width: timelineWidth }]}>
+              {ticks.map((tick) => (
+                <Text key={tick.key} style={[styles.tickLabel, { left: tick.left }]}>{tick.label}</Text>
+              ))}
+              {showNow ? (
+                <View style={[styles.nowHeaderMark, { left: Math.max(0, nowOffset - 14) }]} pointerEvents="none">
+                  <Text style={styles.nowHeaderText}>NOW</Text>
+                  <View style={styles.nowHeaderCaret} />
+                </View>
+              ) : null}
+            </View>
+          </Animated.View>
+        </View>
+      </View>
+
+      {/* Channel identity and programme cells share one horizontal pan track. */}
+      <View
+        style={styles.body}
+        onLayout={(e: LayoutChangeEvent) => {
+          const h = e.nativeEvent.layout.height;
+          bodyHRef.current = h;
+          setBodyH(h);
+        }}
+      >
+        {bodyH > 0 && (
+          <FlashList
+            data={channels}
+            ref={listRef}
+            keyExtractor={(channel) => channel.id}
+            drawDistance={renderDrawDistance}
+            removeClippedSubviews={false}
+            onScroll={onVerticalScroll}
+            scrollEventThrottle={32}
+            showsVerticalScrollIndicator={false}
+            overScrollMode="never"
+            refreshControl={
+              onRefresh ? (
+                <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={ACCENT} colors={[ACCENT]} />
+              ) : undefined
+            }
+            renderItem={renderRow}
+          />
+        )}
+        {showNow && bodyH > 0 && (
+          <View
+            style={styles.nowOverlay}
+            pointerEvents="none"
+            testID="epg-timeline-now-indicator"
+            accessibilityLabel="Guide timeline progress indicator"
+          >
+            <Animated.View
+              style={{
+                width: LOGO_W + timelineWidth,
+                height: bodyH,
+                transform: [{ translateX: negScrollX }],
+              }}
+            >
+              <View style={[styles.nowLineTrack, { left: Math.max(0, LOGO_W + nowOffset - 1) }]}>
+                <View style={styles.nowLine} />
+              </View>
+            </Animated.View>
+          </View>
+        )}
+      </View>
+    </View>
+  );
+});
+
+const styles = StyleSheet.create({
+  wrap: { flex: 1, overflow: "hidden" },
+  body: { flex: 1, overflow: "hidden" },
+  headerRow: {
+    flexDirection: "row",
+    overflow: "hidden",
+    borderBottomWidth: 1,
+    borderBottomColor: tvColors.line,
+    backgroundColor: "rgba(9,8,20,0.98)",
+  },
+  corner: {
+    height: HEADER_H,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRightWidth: 1,
+    borderRightColor: tvColors.line,
+    backgroundColor: "#070711",
+    zIndex: 20,
+    elevation: 8,
+    overflow: "hidden",
+  },
+  cornerText: { color: ACCENT_SOFT, fontFamily: fonts.bold, fontSize: 11 },
+  headerViewport: { flex: 1, height: HEADER_H, overflow: "hidden" },
+  headerPanTrack: { flexDirection: "row", height: HEADER_H, flexShrink: 0 },
+  headerTrack: { height: HEADER_H, overflow: "hidden", flexShrink: 0 },
+  tickLabel: {
+    position: "absolute",
+    top: 7,
+    color: ACCENT_SOFT,
+    fontFamily: fonts.semibold,
+    fontSize: 10.5,
+    width: 100,
+  },
+  row: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.055)", overflow: "hidden" },
+  rowViewport: { flex: 1, height: "100%", overflow: "hidden" },
+  rowPanTrack: { flexDirection: "row", flexShrink: 0 },
+  logoCol: {
+    zIndex: 20,
+    elevation: 8,
+    flexShrink: 0,
+    overflow: "hidden",
+    backgroundColor: "#0A0916",
+    borderRightWidth: 1,
+    borderRightColor: tvColors.line,
+  },
+  logoCell: {
+    flex: 1,
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    borderWidth: 2,
+    borderColor: "transparent",
+    backgroundColor: "#0A0916",
+    overflow: "hidden",
+  },
+  logoCellFocused: {
+    borderColor: "#FFFFFF",
+    backgroundColor: "#2E1065",
+  },
+  channelNumber: {
+    color: ACCENT_SOFT,
+    fontFamily: fonts.bold,
+    fontSize: 10,
+    textAlign: "right",
+  },
+  logoName: { color: "#fff", fontFamily: fonts.semibold, textAlign: "left", flex: 1, minWidth: 0 },
+  timelineClip: {
+    flex: 1,
+    overflow: "hidden",
+    height: "100%",
+  },
+  timelineTrack: {
+    position: "relative",
+    flexShrink: 0,
+  },
+  progCell: {
+    position: "absolute",
+    top: 3,
+    bottom: 3,
+    backgroundColor: "rgba(24,23,42,0.88)",
+    borderRadius: 3,
+    borderWidth: 2,
+    borderColor: "transparent",
+    paddingHorizontal: 6,
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  pendingProgramCell: {
+    borderStyle: "dashed",
+    borderColor: "rgba(196,181,253,0.28)",
+    backgroundColor: "rgba(24,23,42,0.50)",
+  },
+  pendingProgramCellHidden: {
+    left: 0,
+    top: 0,
+    width: 1,
+    height: 1,
+    opacity: 0,
+    borderWidth: 0,
+    overflow: "hidden",
+  },
+  progLive: { borderColor: "rgba(168,85,247,0.50)", backgroundColor: "rgba(59,23,104,0.60)" },
+  progReminded: { borderColor: "rgba(250,204,21,0.55)" },
+  reminderBadge: {
+    position: "absolute",
+    top: 2,
+    right: 3,
+    zIndex: 2,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.45)",
+  },
+  programCellFocused: {
+    borderColor: "#FFFFFF",
+    backgroundColor: "rgba(91,33,182,0.92)",
+  },
+  progTitle: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: 10, zIndex: 1 },
+  progTitleExtraCompact: { fontSize: 8.8, lineHeight: 10.5 },
+  progTime: { color: "rgba(255,255,255,0.72)", fontFamily: fonts.regular, fontSize: 8, marginTop: 1, zIndex: 1 },
+  progTimeExtraCompact: { fontSize: 6.8, lineHeight: 8 },
+  progProgressFill: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: "rgba(168,85,247,0.38)",
+    zIndex: 0,
+  },
+  noData: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: 9 },
+  nowOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    overflow: "hidden",
+    zIndex: 3,
+  },
+  nowLineTrack: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    width: 3,
+    alignItems: "center",
+    zIndex: 3,
+  },
+  nowLine: {
+    width: 2,
+    flex: 1,
+    backgroundColor: "#F472B6",
+  },
+  nowHeaderMark: {
+    position: "absolute",
+    top: 2,
+    width: 28,
+    alignItems: "center",
+    zIndex: 4,
+  },
+  nowHeaderText: {
+    color: "#F9A8D4",
+    fontFamily: fonts.bold,
+    fontSize: 9,
+    letterSpacing: 0.6,
+  },
+  nowHeaderCaret: {
+    marginTop: 1,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 5,
+    borderRightWidth: 5,
+    borderTopWidth: 6,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderTopColor: "#F472B6",
+  },
+});

@@ -422,4 +422,1057 @@ export default function PurpleGuideScreen() {
   const [focusClaimNonce, setFocusClaimNonce] = useState(0);
   useEffect(() => {
     const wasOpen = drawerWasOpenForFocusRef.current;
-    drawerWasOpenÛù5∂âûÀk∫wµÁe¡IïôÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπΩç’ÃıÌôΩç’Õ5Ω…ï…Ω’¡Õ°•¡Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπA…ïÕÃıÏ†§ÄÙ¯ÅÕï—5Ω…ï…Ω’¡Õ=¡ï∏°—…’î•Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ—Â±îıÏ°ÏÅôΩç’ÕïêÅÙËÅÖπ‰§ÄÙ¯Ål(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ—Â±ïÃπù…Ω’¡°•¿∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ—Â±ïÃπù…Ω’¡°•¡Yï…—•çÖ∞∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅôΩç’ÕïêÄòòÅÕ—Â±ïÃπôΩç’Õïê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅuÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—ïÕ—%Ùâù’•ëîµµΩ…îµù…Ω’¡Ãà(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÒQï·–ÅÕ—Â±îıÌÕ—Â±ïÃπù…Ω’¡Qï·—Ù˘5Ω…îÅù…Ω’¡ÃΩQï·–¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄΩA…ïÕÕÖâ±î¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ§ÄËÅπ’±±Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄΩMç…Ω±±Y•ï‹¯(ÄÄÄÄÄÄÄÄÄÄÄÄ§ÄËÅπ’±±Ù((ÄÄÄÄÄÄÄÄÄÄÄÄÒ’•ëïMï±ïç—•ΩπA…ïŸ•ï‹(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ›•ë—†ıÌëï—Ö•±ÕIÖ•±]•ë—°Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅç°Öππï±	Â%êıÌô•±—ï…ïë°Öππï±	Â%ëÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅôÖ±±âÖç≠°Öππï∞ıÌ¡…ïŸ•ï›Ö±±âÖç≠°Öππï±Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅπΩ‹ıÌπΩ›Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅç°Öππï±9’µâï…	Â%êıÌç°Öππï±9’µâï…	Â%ëÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ°Ω›°Öππï±9’µâï…ÃıÌç°Öππï±9’µâï…ÕÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ°Ω›1ΩùΩÃıÌ•ÕΩç’ÕïêÄòòÅç°Öππï±1ΩùΩÃÄòòÄÖÕ’…ô1ΩùΩÕM’¡¡…ïÕÕïëÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅôÖŸΩ…•—ïMï–ıÌôÖŸΩ…•—ïMï—Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ°•ëïA…ïŸ•ï‹ıÌ°•ëïA…ïŸ•ï›Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅµ’—ïêıÌµ’—ïA…ïŸ•ï›Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπQΩùù±ï5’—îıÏ†§ÄÙ¯ÅÕï—5’—ïA…ïŸ•ï‹†Öµ’—ïA…ïŸ•ï‹•Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¡…ïŸ•ï›%êıÌÕÖôïA…ïŸ•ï›5ΩëîÄÙÙÙÄâΩôòàÄ¸Åπ’±∞ÄËÅ¡…ïŸ•ï›%ëÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¡…ïŸ•ï›M—Ö—’ÃıÌ¡…ïŸ•ï›M—Ö—’ÕÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¡…ïŸ•ï›¡Ωç†ıÌ¡…ïŸ•ï›¡Ωç°Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπA…ïŸ•ï›M—Ö—’ÃıÌΩπA…ïŸ•ï›M—Ö—’ÕÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπA…ïŸ•ï›……Ω…IïµΩ’π–ıÌΩπA…ïŸ•ï›……Ω…IïµΩ’π—Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπA±Ö‰ıÌ¡±ÖÂÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπÖŸΩ…•—îıÌ—Ωùù±ïÖŸΩ…•—ïÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπ=¡ïπIïµ•πëï…ÃıÏ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ•òÄ°¡…ïŸ•ï›Q•µï»πç’……ïπ–§Åç±ïÖ…Q•µïΩ’–°¡…ïŸ•ï›Q•µï»πç’……ïπ–§Ï(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕï—A…ïŸ•ï›%ê°π’±∞§Ï(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…Ω’—ï»π…ï¡±Öçî†àΩ…ïµ•πëï…ÃàÅÖÃÅÖπ‰§Ï(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅıÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπ!•ëïQΩùù±îıÏ†§ÄÙ¯ÅÕï—!•ëïA…ïŸ•ï‹†Ö°•ëïA…ïŸ•ï‹•Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπ=¡ïπ…Ö›ï»ıÌΩ¡ïπ…Ö›ï……ΩµA…ïŸ•ï›Ù(ÄÄÄÄÄÄÄÄÄÄÄÄº¯((ÄÄÄÄÄÄÄÄÄÄÄÅÏº®ÅQ°îÅ¡…ïŸ•ï‹Ωëï—Ö•±ÃΩÖç—•ΩπÃÅ…Ö•∞Å•ÃÅÑÅô•·ïêÅ±ïô–ÅÕ•â±•πú∏ÅQ°îÅ’•ëî(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩ›πÃÅ—°îÅ…ïµÖ•π•πúÅ›•ë—†ÅΩ∏Å—°îÅ…•ù°–ÏÅπï•—°ï»Å¡Öπï∞ÅΩŸï…±Ö¡ÃÅ—°îÅΩ—°ï»∏Ä®ΩÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÒΩç’Õ’•ëî(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ—Â±îıÌÕ—Â±ïÃπù…•ëAÖπï±Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—…Ö¡Ωç’ÕΩ›∏(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄººÅIΩ‹µ±ïŸï∞Å1ïô–Å°Öπë±•πúÅΩ›πÃÅ—°îÅï·Öç–Å¡…ïŸ•ï‹µâ’——Ω∏Å°ÖπëΩôò∏(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—…Ö¡Ωç’Õ1ïô–ıÌôÖ±ÕïÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—…Ö¡Ωç’ÕI•ù°–(ÄÄÄÄÄÄÄÄÄÄÄÄ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÌù’•ëï1ÖÂΩ’–ÄÙÙÙÄâçΩµ¡Öç–àÄ¸Ä†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÒ	Ω·…•ê(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅç°Öππï±ÃıÌô•±—ï…ïëÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅπΩ‹ıÌπΩ›Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπ°Öππï±A…ïÕÃıÌ¡±ÖÂÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπA…Ωù…ÖµA…ïÕÃıÌΩ¡ïπ’•ëïA…Ωù…ÖµÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπ°Öππï±Ωç’ÃıÌΩπΩç’Õ°Öππï±Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…ïô…ïÕ°•πúıÌ…ïô…ïÕ°•πùÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπIïô…ïÕ†ıÌ°Ö…ëIïô…ïÕ°Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ°Ω›°Öππï±9’µâï…ÃıÌç°Öππï±9’µâï…ÕÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅç°Öππï±9’µâï…	Â%êıÌç°Öππï±9’µâï…	Â%ëÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ°Ω›°Öππï±1ΩùΩÃıÌ•ÕΩç’ÕïêÄòòÅç°Öππï±1ΩùΩÃÄòòÄÖÕ’…ô1ΩùΩÕM’¡¡…ïÕÕïëÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…ïµ•πëï…-ïÂÃıÌù…•ëIïµ•πëï…-ïÂÕÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…ïÕï—QΩ≠ï∏ıÌ…ïÕï—QΩ≠ïπÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÖç—•ŸîıÌ•ÕΩç’ÕïêÄòòÄÖÖç—•ŸïA…Ωù…Ö¥ÄòòÄÖë…Ö›ï…=¡ïπÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄººÅA…ïŸ•ï‹Å•ÃÅ—°îÅπÖ—•ŸîÅ1ïô–Åπï•ù°âΩ»ÏÅ—°îÅç±ΩÕïêÅë…Ö›ï»Å°ÖÃ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄººÅπºÅµΩ’π—ïêÅôΩç’ÃÅ—…ïîÅÖπêÅ—°ï…ïôΩ…îÅπïïëÃÅπºÅÕï±òµ±Ωç¨∏(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ±Ωç≠1ïô—ëùîıÌôÖ±ÕïÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…ïÕ—Ω…ï°Öππï±%êıÌù’•ëïMïÕÕ•Ωπ°Öππï±%ëÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅôΩç’Õ±Ö•µ9ΩπçîıÌôΩç’Õ±Ö•µ9ΩπçïÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅçÖç°ïA…Ωô•±îıÌ¡Ω›ï…A…Ωô•±ïÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπU¡	Ω’πëÖ…‰ıÌΩπ’•ëïU¡	Ω’πëÖ…ÂÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπ1ïô—	Ω’πëÖ…‰ıÌΩπ’•ëï1ïô—	Ω’πëÖ…ÂÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπΩç’ÕïëIΩ›°ÖπùîıÌΩπΩç’Õïë’•ëïIΩ›Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπY•ï›¡Ω…—°Öππï±%ëÃıÌΩπY•ï›¡Ω…—°Öππï±%ëÕÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄº¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄ§ÄËÄ†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÒQ•µï±•πï…•ê(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅç°Öππï±ÃıÌô•±—ï…ïëÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ›•πëΩ›M—Ö…–ıÌ›•πëΩ›M—Ö…—Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ›•πëΩ›πêıÌ›•πëΩ›πëÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅπΩ‹ıÌπΩ›Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπ°Öππï±A…ïÕÃıÌ¡±ÖÂÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπA…Ωù…ÖµA…ïÕÃıÌΩ¡ïπ’•ëïA…Ωù…ÖµÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπA…Ωù…ÖµΩç’ÃıÌΩπΩç’ÕA…Ωù…ÖµÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπ°Öππï±Ωç’ÃıÌΩπΩç’Õ°Öππï±Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπ°Öππï±1ΩπùA…ïÕÃıÌΩπ°Öππï±1ΩπùA…ïÕÕÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…ïô…ïÕ°•πúıÌ…ïô…ïÕ°•πùÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπIïô…ïÕ†ıÌ°Ö…ëIïô…ïÕ°Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅëïπÕ•—‰ıÌù’•ëïïπÕ•—ÂÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ°Ω›°Öππï±9’µâï…ÃıÌç°Öππï±9’µâï…ÕÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅç°Öππï±9’µâï…	Â%êıÌç°Öππï±9’µâï…	Â%ëÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ°Ω›°Öππï±1ΩùΩÃıÌ•ÕΩç’ÕïêÄòòÅç°Öππï±1ΩùΩÃÄòòÄÖÕ’…ô1ΩùΩÕM’¡¡…ïÕÕïëÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…ïµ•πëï…-ïÂÃıÌù…•ëIïµ•πëï…-ïÂÕÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…ïÕï—QΩ≠ï∏ıÌ…ïÕï—QΩ≠ïπÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÖç—•ŸîıÌ•ÕΩç’ÕïêÄòòÄÖÖç—•ŸïA…Ωù…Ö¥ÄòòÄÖë…Ö›ï…=¡ïπÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄººÅA…ïŸ•ï‹Å•ÃÅ—°îÅπÖ—•ŸîÅ1ïô–Åπï•ù°âΩ»ÏÅ—°îÅç±ΩÕïêÅë…Ö›ï»Å°ÖÃ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄººÅπºÅµΩ’π—ïêÅôΩç’ÃÅ—…ïîÅÖπêÅ—°ï…ïôΩ…îÅπïïëÃÅπºÅÕï±òµ±Ωç¨∏(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ±Ωç≠1ïô—ëùîıÌôÖ±ÕïÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…ïÕ—Ω…ï°Öππï±%êıÌù’•ëïMïÕÕ•Ωπ°Öππï±%ëÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅôΩç’Õ±Ö•µ9ΩπçîıÌôΩç’Õ±Ö•µ9ΩπçïÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅçÖç°ïA…Ωô•±îıÌ¡Ω›ï…A…Ωô•±ïÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπU¡	Ω’πëÖ…‰ıÌΩπ’•ëïU¡	Ω’πëÖ…ÂÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπ1ïô—	Ω’πëÖ…‰ıÌΩπ’•ëï1ïô—	Ω’πëÖ…ÂÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπΩç’ÕïëIΩ›°ÖπùîıÌΩπΩç’Õïë’•ëïIΩ›Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπY•ï›¡Ω…—°Öππï±%ëÃıÌΩπY•ï›¡Ω…—°Öππï±%ëÕÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπ	Öç≠QÖ…ùï—°ÖπùîıÌΩπ’•ëï	Öç≠QÖ…ùï—Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…ïë’çï5Ω—•Ω∏ıÌ•πÕ—Öπ—’•ëïÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄº¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄ•Ù(ÄÄÄÄÄÄÄÄÄÄÄÄΩΩç’Õ’•ëî¯(ÄÄÄÄÄÄÄÄÄÄΩY•ï‹¯(ÄÄÄÄÄÄÄÄ•Ù((ÄÄÄÄÄÄÄÅÌµΩ…ï…Ω’¡Õ=¡ï∏Ä¸Ä†(ÄÄÄÄÄÄÄÄÄÄÒY•ï‹ÅÕ—Â±îıÌÕ—Â±ïÃπΩŸï…±ÖÂÙÅ—ïÕ—%Ùâù’•ëîµµΩ…îµù…Ω’¡ÃµΩŸï…±Ö‰à¯(ÄÄÄÄÄÄÄÄÄÄÄÅÏº®ÅQ…Ö¿Åµ¡ÖêÅ•πÕ•ëîÅ—°îÅÕ°ïï–ÅÕºÅôΩç’ÃÅçÖππΩ–ÅôÖ±∞ÅΩπ—ºÅ—°îÅù’•ëîÅù…•ê∏Ä®ΩÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÒΩç’Õ’•ëîÅÖ’—ΩΩç’ÃÅ—…Ö¡Ωç’ÕU¿Å—…Ö¡Ωç’ÕΩ›∏Å—…Ö¡Ωç’Õ1ïô–Å—…Ö¡Ωç’ÕI•ù°–¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÒY•ï‹ÅÕ—Â±îıÌÕ—Â±ïÃπΩŸï…±ÖÂÖ…ëÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÒY•ï‹ÅÕ—Â±îıÌÕ—Â±ïÃπΩŸï…±ÖÂ!ïÖëï…Ù¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÒQï·–ÅÕ—Â±îıÌÕ—Â±ïÃπΩŸï…±ÖÂQ•—±ïÙ˘5Ω…îÅù…Ω’¡ÃΩQï·–¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÒA…ïÕÕÖâ±î(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπA…ïÕÃıÏ†§ÄÙ¯ÅÕï—5Ω…ï…Ω’¡Õ=¡ï∏°ôÖ±Õî•Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ—Â±îıÏ°ÏÅôΩç’ÕïêÅÙËÅÖπ‰§ÄÙ¯ÅmÕ—Â±ïÃπΩŸï…±ÖÂ±ΩÕî∞ÅôΩç’ÕïêÄòòÅÕ—Â±ïÃπôΩç’ÕïëuÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÒQï·–ÅÕ—Â±îıÌÕ—Â±ïÃπÕïçΩπëÖ…ÂQï·—Ù˘±ΩÕîΩQï·–¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄΩA…ïÕÕÖâ±î¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄΩY•ï‹¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÒMç…Ω±±Y•ï‹ÅÕ—Â±îıÌÕ—Â±ïÃπΩŸï…±ÖÂ1•Õ—ÙÅÕ°Ω›ÕYï…—•çÖ±Mç…Ω±±%πë•çÖ—Ω»ıÌôÖ±ÕïÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÏ††§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ±ï–Å±ÖÕ—1ï——ï»ÄÙÄààÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅΩŸï…ô±Ω›…Ω’¡ÃπµÖ¿†°•—ï¥§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å±ï——ï»ÄÙÄ°•—ï¥π—…•¥†§πç°Ö…–†¿§ÅÒÄàåà§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–ÅÕ°Ω›1ï——ï»ÄÙÅ±ï——ï»ÄÑÙÙÅ±ÖÕ—1ï——ï»Ï(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ•òÄ°Õ°Ω›1ï——ï»§Å±ÖÕ—1ï——ï»ÄÙÅ±ï——ï»Ï(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏Ä†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÒY•ï‹Å≠ï‰ıÌ•—ïµÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÌÕ°Ω›1ï——ï»Ä¸ÄÒQï·–ÅÕ—Â±îıÌÕ—Â±ïÃπΩŸï…±ÖÂ1ï——ï…Ù˘Ì±ï——ï…ÙΩQï·–¯ÄËÅπ’±±Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÒA…ïÕÕÖâ±î(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπA…ïÕÃıÏ†§ÄÙ¯Åç°ΩΩÕï…Ω’¿°•—ï¥•Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπ1ΩπùA…ïÕÃıÏ†§ÄÙ¯Å—Ωùù±ïA•π…Ω’¿°•—ï¥•Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅëï±ÖÂ1ΩπùA…ïÕÃıÏ–»¡Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ—Â±îıÏ°ÏÅôΩç’ÕïêÅÙËÅÖπ‰§ÄÙ¯ÅmÕ—Â±ïÃπΩŸï…±ÖÂIΩ‹∞ÅôΩç’ÕïêÄòòÅÕ—Â±ïÃπôΩç’ÕïëuÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÒQï·–ÅÕ—Â±îıÌÕ—Â±ïÃπΩŸï…±ÖÂIΩ›Qï·—ÙÅπ’µâï…=ô1•πïÃıÏ≈Ù¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÌ•—ïµÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÌù…Ω’¡Ω’π—Õm•—ïµtÄ¸ÅÄÄÄëÌù…Ω’¡Ω’π—Õm•—ïµuıÄÄËÄàâÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄΩQï·–¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄΩA…ïÕÕÖâ±î¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄΩY•ï‹¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÙ§†•Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄΩMç…Ω±±Y•ï‹¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄΩY•ï‹¯(ÄÄÄÄÄÄÄÄÄÄÄÄΩΩç’Õ’•ëî¯(ÄÄÄÄÄÄÄÄÄÄΩY•ï‹¯(ÄÄÄÄÄÄÄÄ§ÄËÅπ’±±Ù((ÄÄÄÄÄÄÄÅÌ¡•πA…Ωµ¡—…Ω’¿Ä¸Ä†(ÄÄÄÄÄÄÄÄÄÄÒY•ï‹ÅÕ—Â±îıÌÕ—Â±ïÃπΩŸï…±ÖÂÙÅ—ïÕ—%Ùâù’•ëîµ¡•∏µΩŸï…±Ö‰à¯(ÄÄÄÄÄÄÄÄÄÄÄÄÒΩç’Õ’•ëîÅÖ’—ΩΩç’ÃÅ—…Ö¡Ωç’ÕU¿Å—…Ö¡Ωç’ÕΩ›∏Å—…Ö¡Ωç’Õ1ïô–Å—…Ö¡Ωç’ÕI•ù°–¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÒY•ï‹ÅÕ—Â±îıÌÕ—Â±ïÃπ¡•πÖ…ëÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÒQï·–ÅÕ—Â±îıÌÕ—Â±ïÃπΩŸï…±ÖÂQ•—±ïÙ˘π—ï»ÅA%8ΩQï·–¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÒQï·–ÅÕ—Â±îıÌÕ—Â±ïÃπ¡•π!•π—Ù˘Uπ±Ωç¨ÉäqÌ¡•πA…Ωµ¡—…Ω’¡˜ätΩQï·–¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÒQï·–ÅÕ—Â±îıÌÕ—Â±ïÃπ¡•π•ù•—ÕÙ˘Ì¡•π•ù•—Ãπ¡Öëπê†–∞Äãäàà§πÕ±•çî†¿∞Ä–•ÙΩQï·–¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÌ¡•π……Ω»Ä¸ÄÒQï·–ÅÕ—Â±îıÌÕ—Â±ïÃπ¡•π……Ω…Ù˘%πçΩ……ïç–ÅA%8ΩQï·–¯ÄËÅπ’±±Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÒY•ï‹ÅÕ—Â±îıÌÕ—Â±ïÃπ¡•πAÖëÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÌlàƒà∞Äà»à∞ÄàÃà∞Äà–à∞Äà‘à∞Äàÿà∞Äà‹à∞Äà‡à∞Äà‰à∞Äà¿âtπµÖ¿†°ë•ù•–§ÄÙ¯Ä†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÒA…ïÕÕÖâ±î(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ≠ï‰ıÌë•ù•—Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπA…ïÕÃıÏ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕï—A•π……Ω»°ôÖ±Õî§Ï(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕï—A•π•ù•—Ã†°¡…ïÿ§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–Åπï·–ÄÙÄ°¡…ïÿÄ¨Åë•ù•–§πÕ±•çî†¿∞Ä‡§Ï(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏Åπï·–Ï(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅıÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ—Â±îıÏ°ÏÅôΩç’ÕïêÅÙËÅÖπ‰§ÄÙ¯ÅmÕ—Â±ïÃπ¡•π-ï‰∞ÅôΩç’ÕïêÄòòÅÕ—Â±ïÃπôΩç’ÕïëuÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÒQï·–ÅÕ—Â±îıÌÕ—Â±ïÃπ¡•π-ïÂQï·—Ù˘Ìë•ù•—ÙΩQï·–¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄΩA…ïÕÕÖâ±î¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ§•Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄΩY•ï‹¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÒY•ï‹ÅÕ—Â±îıÌÕ—Â±ïÃπ¡•πç—•ΩπÕÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÒA…ïÕÕÖâ±î(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπA…ïÕÃıÏ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕï—A•πA…Ωµ¡—…Ω’¿°π’±∞§Ï(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕï—A•π•ù•—Ã†àà§Ï(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕï—A•π……Ω»°ôÖ±Õî§Ï(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅıÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ—Â±îıÏ°ÏÅôΩç’ÕïêÅÙËÅÖπ‰§ÄÙ¯ÅmÕ—Â±ïÃπÕïçΩπëÖ…Â	’——Ω∏∞ÅôΩç’ÕïêÄòòÅÕ—Â±ïÃπôΩç’ÕïëuÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÒQï·–ÅÕ—Â±îıÌÕ—Â±ïÃπÕïçΩπëÖ…ÂQï·—Ù˘Öπçï∞ΩQï·–¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄΩA…ïÕÕÖâ±î¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÒA…ïÕÕÖâ±î(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩπA…ïÕÃıÌÕ’âµ•—A•πÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ—Â±îıÏ°ÏÅôΩç’ÕïêÅÙËÅÖπ‰§ÄÙ¯ÅmÕ—Â±ïÃπ›Ö—ç°	’——Ω∏∞ÅôΩç’ÕïêÄòòÅÕ—Â±ïÃπôΩç’ÕïëuÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÒQï·–ÅÕ—Â±îıÌÕ—Â±ïÃπ›Ö—ç°Qï·—Ù˘Uπ±Ωç¨ΩQï·–¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄΩA…ïÕÕÖâ±î¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄΩY•ï‹¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄΩY•ï‹¯(ÄÄÄÄÄÄÄÄÄÄÄÄΩΩç’Õ’•ëî¯(ÄÄÄÄÄÄÄÄÄÄΩY•ï‹¯(ÄÄÄÄÄÄÄÄ§ÄËÅπ’±±Ù(ÄÄÄÄÄÄΩY•ï‹¯(ÄÄÄÄΩA’…¡±ïQŸM°ï±∞¯(ÄÄ§Ï)Ù()çΩπÕ–ÅÕ—Â±ïÃÄÙÅM—Â±ïM°ïï–πç…ïÖ—î°Ï(ÄÅ¡ÖùîËÅÏÅô±ï‡ËÄƒ∞Å¡Öëë•πúËÄƒ»∞ÅùÖ¿ËÄ‘ÅÙ∞(ÄÅ°ïÖëï»ËÅÏÅµ•π!ï•ù°–ËÄ–‡∞Åô±ï·•…ïç—•Ω∏ËÄâ…Ω‹à∞ÅÖ±•ùπ%—ïµÃËÄâçïπ—ï»à∞Å¡ΩÕ•—•Ω∏ËÄâ…ï±Ö—•ŸîàÅÙ∞(ÄÅù’•ëïQ•—±ï	±Ωç¨ËÅÏÅ¡ΩÕ•—•Ω∏ËÄâÖâÕΩ±’—îà∞Å±ïô–ËÄ¿∞Å›•ë—†ËÄƒÃ¿ÅÙ∞(ÄÅù…Ω’¡Mç…Ω±±ï»ËÅÏÅô±ï‡ËÄƒ∞Åµ•π]•ë—†ËÄ¿ÅÙ∞(ÄÅ≠•ç≠ï»ËÅÏÅçΩ±Ω»ËÅ—ŸΩ±Ω…Ãπ¡’…¡±ïMΩô–∞ÅôΩπ—Öµ•±‰ËÅôΩπ—ÃπÕïµ•âΩ±ê∞ÅôΩπ—M•ÈîËÄ‹∏‘∞Å±ï——ï…M¡Öç•πúËÄƒÅÙ∞(ÄÅ—•—±îËÅÏÅçΩ±Ω»ËÄàçôôòà∞ÅôΩπ—Öµ•±‰ËÅôΩπ—ÃπâΩ±ê∞ÅôΩπ—M•ÈîËÄƒ‹∞ÅµÖ…ù•πQΩ¿ËÄƒ∞Åµ•π]•ë—†ËÄƒ»¿ÅÙ∞(ÄÅù…Ω’¡IΩ‹ËÅÏÅùÖ¿ËÄ‘∞ÅÖ±•ùπ%—ïµÃËÄâçïπ—ï»à∞Å¡Öëë•πù!Ω…•ÈΩπ—Ö∞ËÄ–ÅÙ∞(ÄÅù…Ω’¡°•¿ËÅÏ(ÄÄÄÅµ•π!ï•ù°–ËÄ»‡∞(ÄÄÄÅ¡Öëë•πù!Ω…•ÈΩπ—Ö∞ËÄƒ¿∞(ÄÄÄÅ©’Õ—•ôÂΩπ—ïπ–ËÄâçïπ—ï»à∞(ÄÄÄÅâΩ…ëï…IÖë•’ÃËÄÿ∞(ÄÄÄÅâΩ…ëï…]•ë—†ËÄ»∞(ÄÄÄÅâΩ…ëï…Ω±Ω»ËÄâ—…ÖπÕ¡Ö…ïπ–à∞(ÄÄÄÅâÖç≠ù…Ω’πëΩ±Ω»ËÅ—ŸΩ±Ω…Ãπ¡Öπï∞∞(ÄÅÙ∞(ÄÅù…Ω’¡°•¡Yï…—•çÖ∞ËÅÏÅ›•ë—†ËÄàƒ¿¿îà∞Å¡Öëë•πù!Ω…•ÈΩπ—Ö∞ËÄ‡∞ÅµÖ…ù•π	Ω——Ω¥ËÄ–ÅÙ∞(ÄÅù…Ω’¡°•¡ç—•ŸîËÅÏÅâÖç≠ù…Ω’πëΩ±Ω»ËÅ—ŸΩ±Ω…Ãπ¡’…¡±îÅÙ∞(ÄÅù…Ω’¡°•¡A•ππïêËÅÏÅâΩ…ëï…Ω±Ω»ËÄâ…ùâÑ†ƒÿ‡∞‡‘∞»–‹∞¿∏–‘§àÅÙ∞(ÄÅù…Ω’¡Qï·–ËÅÏÅçΩ±Ω»ËÅ—ŸΩ±Ω…Ãπ—ï·—5’—ïê∞ÅôΩπ—Öµ•±‰ËÅôΩπ—Ãπµïë•’¥∞ÅôΩπ—M•ÈîËÄ‡∏‘ÅÙ∞(ÄÅù…Ω’¡Qï·—ç—•ŸîËÅÏÅçΩ±Ω»ËÄàçôôòà∞ÅôΩπ—Öµ•±‰ËÅôΩπ—ÃπÕïµ•âΩ±êÅÙ∞(ÄÅŸï…—•çÖ±!ïÖëï…!•π–ËÅÏÅçΩ±Ω»ËÄàçôôòà∞ÅôΩπ—Öµ•±‰ËÅôΩπ—ÃπâΩ±ê∞ÅôΩπ—M•ÈîËÄƒ–ÅÙ∞(ÄÅâΩë‰ËÅÏÅô±ï‡ËÄƒ∞Åô±ï·•…ïç—•Ω∏ËÄâ…Ω‹à∞ÅùÖ¿ËÄ‡∞Åµ•π!ï•ù°–ËÄ¿∞Å¡ΩÕ•—•Ω∏ËÄâ…ï±Ö—•ŸîàÅÙ∞(ÄÅŸï…—•çÖ±…Ω’¡ÃËÅÏÅ›•ë—†ËÄƒƒ‡∞Åô±ï·M°…•π¨ËÄ¿∞ÅµÖ·!ï•ù°–ËÄàƒ¿¿îàÅÙ∞(ÄÅŸï…—•çÖ±…Ω’¡1•Õ–ËÅÏÅ¡Öëë•πùYï…—•çÖ∞ËÄ»∞Å¡Öëë•πùI•ù°–ËÄ»ÅÙ∞(ÄÅù…•ëAÖπï∞ËÅÏ(ÄÄÄÅô±ï‡ËÄƒ∞(ÄÄÄÅµ•π]•ë—†ËÄ¿∞(ÄÄÄÅΩŸï…ô±Ω‹ËÄâ°•ëëï∏à∞(ÄÄÄÅâÖç≠ù…Ω’πëΩ±Ω»ËÅ—ŸΩ±Ω…ÃπçÖπŸÖÕIÖ•Õïê∞(ÄÄÄÅâΩ…ëï…]•ë—†ËÄƒ∞(ÄÄÄÅâΩ…ëï…Ω±Ω»ËÅ—ŸΩ±Ω…Ãπ±•πî∞(ÄÄÄÅâΩ…ëï…IÖë•’ÃËÅ…Öë•’ÃπÕ¥∞(ÄÅÙ∞(ÄÅ›Ö—ç°	’——Ω∏ËÅÏ(ÄÄÄÅô±ï‡ËÄƒ∞(ÄÄÄÅµ•π]•ë—†ËÄ¿∞(ÄÄÄÅµ•π!ï•ù°–ËÄ»‹∞(ÄÄÄÅô±ï·•…ïç—•Ω∏ËÄâ…Ω‹à∞(ÄÄÄÅÖ±•ùπ%—ïµÃËÄâçïπ—ï»à∞(ÄÄÄÅ©’Õ—•ôÂΩπ—ïπ–ËÄâçïπ—ï»à∞(ÄÄÄÅùÖ¿ËÄ–∞(ÄÄÄÅâÖç≠ù…Ω’πëΩ±Ω»ËÅ—ŸΩ±Ω…Ãπ¡’…¡±î∞(ÄÄÄÅâΩ…ëï…IÖë•’ÃËÄ‘∞(ÄÄÄÅâΩ…ëï…]•ë—†ËÄ»∞(ÄÄÄÅâΩ…ëï…Ω±Ω»ËÄâ—…ÖπÕ¡Ö…ïπ–à∞(ÄÄÄÅ¡Öëë•πù!Ω…•ÈΩπ—Ö∞ËÄÃ∞(ÄÅÙ∞(ÄÅ›Ö—ç°Qï·–ËÅÏÅçΩ±Ω»ËÄàçôôòà∞ÅôΩπ—Öµ•±‰ËÅôΩπ—ÃπÕïµ•âΩ±ê∞ÅôΩπ—M•ÈîËÄ‹∏‘ÅÙ∞(ÄÅÕïçΩπëÖ…Â	’——Ω∏ËÅÏ(ÄÄÄÅô±ï‡ËÄƒ∞(ÄÄÄÅµ•π]•ë—†ËÄ¿∞(ÄÄÄÅµ•π!ï•ù°–ËÄ»‹∞(ÄÄÄÅô±ï·•…ïç—•Ω∏ËÄâ…Ω‹à∞(ÄÄÄÅÖ±•ùπ%—ïµÃËÄâçïπ—ï»à∞(ÄÄÄÅ©’Õ—•ôÂΩπ—ïπ–ËÄâçïπ—ï»à∞(ÄÄÄÅùÖ¿ËÄ–∞(ÄÄÄÅâÖç≠ù…Ω’πëΩ±Ω»ËÅ—ŸΩ±Ω…Ãπ¡Öπï±IÖ•Õïê∞(ÄÄÄÅâΩ…ëï…IÖë•’ÃËÄ‘∞(ÄÄÄÅâΩ…ëï…]•ë—†ËÄ»∞(ÄÄÄÅâΩ…ëï…Ω±Ω»ËÄâ—…ÖπÕ¡Ö…ïπ–à∞(ÄÄÄÅ¡Öëë•πù!Ω…•ÈΩπ—Ö∞ËÄÃ∞(ÄÅÙ∞(ÄÅÕïçΩπëÖ…ÂQï·–ËÅÏÅçΩ±Ω»ËÄàçôôòà∞ÅôΩπ—Öµ•±‰ËÅôΩπ—Ãπµïë•’¥∞ÅôΩπ—M•ÈîËÄ‹∏»ÅÙ∞(ÄÅΩŸï…±Ö‰ËÅÏ(ÄÄÄÄ∏∏πM—Â±ïM°ïï–πÖâÕΩ±’—ï•±±=â©ïç–∞(ÄÄÄÅâÖç≠ù…Ω’πëΩ±Ω»ËÄâ…ùâÑ†¿∞¿∞¿∞¿∏‘‘§à∞(ÄÄÄÅÖ±•ùπ%—ïµÃËÄâçïπ—ï»à∞(ÄÄÄÅ©’Õ—•ôÂΩπ—ïπ–ËÄâçïπ—ï»à∞(ÄÄÄÅÈ%πëï‡ËÄ»¿∞(ÄÄÄÅ¡Öëë•πúËÄ»–∞(ÄÅÙ∞(ÄÅΩŸï…±ÖÂÖ…êËÅÏ(ÄÄÄÅ›•ë—†ËÄà‹»îà∞(ÄÄÄÅµÖ·]•ë—†ËÄ–»¿∞(ÄÄÄÅµÖ·!ï•ù°–ËÄà‹¿îà∞(ÄÄÄÅâÖç≠ù…Ω’πëΩ±Ω»ËÅ—ŸΩ±Ω…Ãπ¡Öπï∞∞(ÄÄÄÅâΩ…ëï…IÖë•’ÃËÅ…Öë•’ÃπÕ¥∞(ÄÄÄÅâΩ…ëï…]•ë—†ËÄƒ∞(ÄÄÄÅâΩ…ëï…Ω±Ω»ËÅ—ŸΩ±Ω…Ãπ±•πî∞(ÄÄÄÅ¡Öëë•πúËÄƒ»∞(ÄÅÙ∞(ÄÅΩŸï…±ÖÂ!ïÖëï»ËÅÏÅô±ï·•…ïç—•Ω∏ËÄâ…Ω‹à∞ÅÖ±•ùπ%—ïµÃËÄâçïπ—ï»à∞Å©’Õ—•ôÂΩπ—ïπ–ËÄâÕ¡Öçîµâï—›ïï∏à∞ÅµÖ…ù•π	Ω——Ω¥ËÄ‡ÅÙ∞(ÄÅΩŸï…±ÖÂQ•—±îËÅÏÅçΩ±Ω»ËÄàçôôòà∞ÅôΩπ—Öµ•±‰ËÅôΩπ—ÃπâΩ±ê∞ÅôΩπ—M•ÈîËÄƒ–ÅÙ∞(ÄÅΩŸï…±ÖÂ±ΩÕîËÅÏ(ÄÄÄÅµ•π!ï•ù°–ËÄ»‡∞(ÄÄÄÅ¡Öëë•πù!Ω…•ÈΩπ—Ö∞ËÄƒ¿∞(ÄÄÄÅ©’Õ—•ôÂΩπ—ïπ–ËÄâçïπ—ï»à∞(ÄÄÄÅâΩ…ëï…IÖë•’ÃËÄ‘∞(ÄÄÄÅâΩ…ëï…]•ë—†ËÄ»∞(ÄÄÄÅâΩ…ëï…Ω±Ω»ËÄâ—…ÖπÕ¡Ö…ïπ–à∞(ÄÄÄÅâÖç≠ù…Ω’πëΩ±Ω»ËÅ—ŸΩ±Ω…Ãπ¡Öπï±IÖ•Õïê∞(ÄÅÙ∞(ÄÅΩŸï…±ÖÂ1•Õ–ËÅÏÅµÖ·!ï•ù°–ËÄ»‡¿ÅÙ∞(ÄÅΩŸï…±ÖÂ1ï——ï»ËÅÏ(ÄÄÄÅçΩ±Ω»ËÅ—ŸΩ±Ω…Ãπ¡’…¡±ïMΩô–∞(ÄÄÄÅôΩπ—Öµ•±‰ËÅôΩπ—ÃπâΩ±ê∞(ÄÄÄÅôΩπ—M•ÈîËÄƒ¿∞(ÄÄÄÅµÖ…ù•πQΩ¿ËÄÿ∞(ÄÄÄÅµÖ…ù•π	Ω——Ω¥ËÄ»∞(ÄÄÄÅ¡Öëë•πù!Ω…•ÈΩπ—Ö∞ËÄ–∞(ÄÅÙ∞(ÄÅΩŸï…±ÖÂIΩ‹ËÅÏ(ÄÄÄÅµ•π!ï•ù°–ËÄÃ»∞(ÄÄÄÅ©’Õ—•ôÂΩπ—ïπ–ËÄâçïπ—ï»à∞(ÄÄÄÅ¡Öëë•πù!Ω…•ÈΩπ—Ö∞ËÄ‡∞(ÄÄÄÅâΩ…ëï…IÖë•’ÃËÄ‘∞(ÄÄÄÅâΩ…ëï…]•ë—†ËÄ»∞(ÄÄÄÅâΩ…ëï…Ω±Ω»ËÄâ—…ÖπÕ¡Ö…ïπ–à∞(ÄÄÄÅâÖç≠ù…Ω’πëΩ±Ω»ËÅ—ŸΩ±Ω…Ãπ¡Öπï±IÖ•Õïê∞(ÄÄÄÅµÖ…ù•π	Ω——Ω¥ËÄ–∞(ÄÅÙ∞(ÄÅΩŸï…±ÖÂIΩ›Qï·–ËÅÏÅçΩ±Ω»ËÄàçôôòà∞ÅôΩπ—Öµ•±‰ËÅôΩπ—Ãπµïë•’¥∞ÅôΩπ—M•ÈîËÄƒƒÅÙ∞(ÄÅ¡•πÖ…êËÅÏ(ÄÄÄÅ›•ë—†ËÄ»‡¿∞(ÄÄÄÅâÖç≠ù…Ω’πëΩ±Ω»ËÅ—ŸΩ±Ω…Ãπ¡Öπï∞∞(ÄÄÄÅâΩ…ëï…IÖë•’ÃËÅ…Öë•’ÃπÕ¥∞(ÄÄÄÅâΩ…ëï…]•ë—†ËÄƒ∞(ÄÄÄÅâΩ…ëï…Ω±Ω»ËÅ—ŸΩ±Ω…Ãπ±•πî∞(ÄÄÄÅ¡Öëë•πúËÄƒ–∞(ÄÄÄÅùÖ¿ËÄ‡∞(ÄÅÙ∞(ÄÅ¡•π!•π–ËÅÏÅçΩ±Ω»ËÅ—ŸΩ±Ω…Ãπ—ï·—5’—ïê∞ÅôΩπ—Öµ•±‰ËÅôΩπ—Ãπµïë•’¥∞ÅôΩπ—M•ÈîËÄƒ¿ÅÙ∞(ÄÅ¡•π•ù•—ÃËÅÏ(ÄÄÄÅçΩ±Ω»ËÄàçôôòà∞(ÄÄÄÅôΩπ—Öµ•±‰ËÅôΩπ—ÃπâΩ±ê∞(ÄÄÄÅôΩπ—M•ÈîËÄ»»∞(ÄÄÄÅ±ï——ï…M¡Öç•πúËÄ‡∞(ÄÄÄÅ—ï·—±•ù∏ËÄâçïπ—ï»à∞(ÄÄÄÅµÖ…ù•πYï…—•çÖ∞ËÄ–∞(ÄÅÙ∞(ÄÅ¡•π……Ω»ËÅÏÅçΩ±Ω»ËÄàçò‡‹ƒ‹ƒà∞ÅôΩπ—Öµ•±‰ËÅôΩπ—Ãπµïë•’¥∞ÅôΩπ—M•ÈîËÄƒ¿∞Å—ï·—±•ù∏ËÄâçïπ—ï»àÅÙ∞(ÄÅ¡•πAÖêËÅÏÅô±ï·•…ïç—•Ω∏ËÄâ…Ω‹à∞Åô±ï·]…Ö¿ËÄâ›…Ö¿à∞ÅùÖ¿ËÄÿ∞Å©’Õ—•ôÂΩπ—ïπ–ËÄâçïπ—ï»àÅÙ∞(ÄÅ¡•π-ï‰ËÅÏ(ÄÄÄÅ›•ë—†ËÄ––∞(ÄÄÄÅµ•π!ï•ù°–ËÄÃÿ∞(ÄÄÄÅÖ±•ùπ%—ïµÃËÄâçïπ—ï»à∞(ÄÄÄÅ©’Õ—•ôÂΩπ—ïπ–ËÄâçïπ—ï»à∞(ÄÄÄÅâΩ…ëï…IÖë•’ÃËÄ‘∞(ÄÄÄÅâΩ…ëï…]•ë—†ËÄ»∞(ÄÄÄÅâΩ…ëï…Ω±Ω»ËÄâ—…ÖπÕ¡Ö…ïπ–à∞(ÄÄÄÅâÖç≠ù…Ω’πëΩ±Ω»ËÅ—ŸΩ±Ω…Ãπ¡Öπï±IÖ•Õïê∞(ÄÅÙ∞(ÄÅ¡•π-ïÂQï·–ËÅÏÅçΩ±Ω»ËÄàçôôòà∞ÅôΩπ—Öµ•±‰ËÅôΩπ—ÃπÕïµ•âΩ±ê∞ÅôΩπ—M•ÈîËÄƒ–ÅÙ∞(ÄÅ¡•πç—•ΩπÃËÅÏÅô±ï·•…ïç—•Ω∏ËÄâ…Ω‹à∞ÅùÖ¿ËÄ‡∞ÅµÖ…ù•πQΩ¿ËÄ–ÅÙ∞(ÄÅçïπ—ï»ËÅÏÅô±ï‡ËÄƒ∞ÅÖ±•ùπ%—ïµÃËÄâçïπ—ï»à∞Å©’Õ—•ôÂΩπ—ïπ–ËÄâçïπ—ï»à∞ÅùÖ¿ËÅÕ¡Öç•πúπµêÅÙ∞(ÄÅçïπ—ï…Qï·–ËÅÏÅçΩ±Ω»ËÅ—ŸΩ±Ω…Ãπ—ï·—5’—ïê∞ÅôΩπ—Öµ•±‰ËÅôΩπ—Ãπµïë•’¥∞ÅôΩπ—M•ÈîËÄƒƒ∞Å—ï·—±•ù∏ËÄâçïπ—ï»à∞ÅµÖ·]•ë—†ËÄÃ»¿ÅÙ∞(ÄÅ…ï—…Â	’——Ω∏ËÅÏ(ÄÄÄÅµ•π!ï•ù°–ËÄÃ»∞(ÄÄÄÅô±ï·•…ïç—•Ω∏ËÄâ…Ω‹à∞(ÄÄÄÅÖ±•ùπ%—ïµÃËÄâçïπ—ï»à∞(ÄÄÄÅùÖ¿ËÄÿ∞(ÄÄÄÅ¡Öëë•πù!Ω…•ÈΩπ—Ö∞ËÄƒ–∞(ÄÄÄÅâΩ…ëï…IÖë•’ÃËÄÿ∞(ÄÄÄÅâΩ…ëï…]•ë—†ËÄ»∞(ÄÄÄÅâΩ…ëï…Ω±Ω»ËÄâ—…ÖπÕ¡Ö…ïπ–à∞(ÄÄÄÅâÖç≠ù…Ω’πëΩ±Ω»ËÅ—ŸΩ±Ω…Ãπ¡’…¡±î∞(ÄÄÄÅµÖ…ù•πQΩ¿ËÄ–∞(ÄÅÙ∞(ÄÅ…ï—…ÂQï·–ËÅÏÅçΩ±Ω»ËÄàçôôòà∞ÅôΩπ—Öµ•±‰ËÅôΩπ—ÃπÕïµ•âΩ±ê∞ÅôΩπ—M•ÈîËÄ‰ÅÙ∞(ÄÅôΩç’ÕïêËÅÏÅâΩ…ëï…Ω±Ω»ËÄàçôôòà∞ÅâÖç≠ù…Ω’πëΩ±Ω»ËÅ—ŸΩ±Ω…Ãπ¡’…¡±ïïï¿ÅÙ∞)Ù§Ï(
+    drawerWasOpenForFocusRef.current = drawerOpen;
+    if (drawerOpen) {
+      cancelGuideFocusRestore();
+      return;
+    }
+    if (!wasOpen || drawerOpen || activeProgram) return;
+    // Sole post-drawer reclaim path: bump nonce so TimelineGrid/BoxGrid restore
+    // the session channel. Do not also call focusGuideSurface here ‚Äî Shell and
+    // the shared cancelGuideRestoreTimers would race and yank focus.
+    setFocusClaimNonce((value) => value + 1);
+  }, [activeProgram, drawerOpen]);
+
+  const openDrawerFromPreview = useCallback(() => {
+    void Haptics.selectionAsync().catch(() => undefined);
+    openDrawer({ focusTop: true });
+  }, [openDrawer]);
+
+  // After Remind/Cancel sheet closes, return focus to the guide cell ‚Äî never Live TV.
+  useEffect(() => {
+    if (activeProgram) return;
+    if (!hadProgramModalRef.current) return;
+    hadProgramModalRef.current = false;
+    const origin = modalOriginRef.current;
+    modalOriginRef.current = null;
+    if (guideLayout !== "compact" && origin) {
+      focusGuideProgramCell(origin.channelId, origin.programStart);
+    } else {
+      focusGuideSurface(origin?.channelId || guideSessionChannelId);
+    }
+    return cancelGuideFocusRestore;
+  }, [activeProgram, guideLayout]);
+
+  const guideFocusRegionRef = useRef<"channel" | "program">("program");
+  const channelLogoNodeRef = useRef<unknown>(null);
+  const onGuideBackTarget = useCallback((region: "channel" | "program", logoNode: unknown) => {
+    guideFocusRegionRef.current = region;
+    if (logoNode) channelLogoNodeRef.current = logoNode;
+  }, []);
+
+  // Back in the guide: step to the channel logo first. Only at the left edge does
+  // Back defer to the shell double-Back drawer arm ‚Äî never opens on a single press.
+  useTvBackHandler(
+    useCallback(() => {
+      if (drawerOpen || activeProgram) return false;
+      if (guideFocusRegionRef.current === "program" && channelLogoNodeRef.current) {
+        requestNativeFocus(channelLogoNodeRef.current);
+        guideFocusRegionRef.current = "channel";
+        return true;
+      }
+      return false;
+    }, [activeProgram, drawerOpen]),
+  );
+
+  useEffect(() => {
+    if (loading || refreshing || channels.length > 0) return;
+    if (bootRetryRef.current >= 1) return;
+    bootRetryRef.current += 1;
+    const timer = setTimeout(() => void hardRefresh(), 5000);
+    return () => clearTimeout(timer);
+  }, [loading, refreshing, channels.length, hardRefresh]);
+
+  // Tick often enough for the timeline "now" indicator / progress fills without
+  // rebuilding guide geometry (TimelineGrid keeps layout independent of now).
+  useEffect(() => {
+    if (!isFocused) return;
+    setNow(new Date().toISOString());
+    const timer = setInterval(() => setNow(new Date().toISOString()), 30_000);
+    return () => clearInterval(timer);
+  }, [isFocused]);
+
+  useEffect(
+    () => () => {
+      if (previewTimer.current) clearTimeout(previewTimer.current);
+      if (previewRecoverTimer.current) clearTimeout(previewRecoverTimer.current);
+      if (surfReleaseTimer.current) clearTimeout(surfReleaseTimer.current);
+      if (memoryLogoRestoreTimer.current) clearTimeout(memoryLogoRestoreTimer.current);
+      previewTimer.current = null;
+      previewRecoverTimer.current = null;
+      surfReleaseTimer.current = null;
+      memoryLogoRestoreTimer.current = null;
+      setViewportGuideChannelIds(null);
+    },
+    [],
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      // Refocus after blur/player: rewarm the last runway so soft-trim on blur
+      // does not leave an empty FlashList waiting for the first D-pad event.
+      const last = lastRunwayRef.current;
+      if (last.ids.length) {
+        setViewportGuideChannelIds(last.ids);
+        setPriorityMatchChannelIds(
+          channels.length >= 400
+            ? Array.from(new Set([...last.priority, ...last.ids])).slice(0, 400)
+            : [],
+        );
+        retainGuideSlidingCache(
+          expandRunwayKeepSet(
+            orderedFilteredIdsRef.current,
+            last.ids,
+            last.pageSize,
+            1,
+            filteredIdIndexRef.current,
+          ),
+        );
+        void patchProgramsForChannelIds(last.ids, last.priority);
+      }
+      return () => {
+        if (previewTimer.current) {
+          clearTimeout(previewTimer.current);
+          previewTimer.current = null;
+        }
+        if (previewRecoverTimer.current) {
+          clearTimeout(previewRecoverTimer.current);
+          previewRecoverTimer.current = null;
+        }
+        if (surfReleaseTimer.current) {
+          clearTimeout(surfReleaseTimer.current);
+          surfReleaseTimer.current = null;
+        }
+        // A real route blur must unmount preview playback before cache release.
+        // The overlay drawer does not blur this route, so its runway stays warm.
+        setPreviewId(null);
+        setViewportGuideChannelIds(null);
+        setPriorityMatchChannelIds([]);
+        releaseGuideSlidingCache();
+      };
+    }, [channels.length, patchProgramsForChannelIds, releaseGuideSlidingCache, retainGuideSlidingCache]),
+  );
+
+  const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
+  const recentIdSet = useMemo(() => new Set(recentIds), [recentIds]);
+  const failedCount = failedStreamCount();
+
+  const groupCounts = useMemo(
+    () =>
+      buildGroupCounts(channels, {
+        favoriteSet,
+        recentIds: recentIdSet,
+        hasEpgMatch: channelHasEpgMatch,
+        isFailed: isFailedChannel,
+        hiddenIds: hiddenIdSet,
+      }),
+    // failedCount invalidates when the in-memory failure registry grows/shrinks.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [channels, favoriteSet, recentIdSet, hiddenIdSet, failedCount, epgGuideFilter],
+  );
+
+  const playlistGroups = useMemo(
+    () => listPlaylistGroupNames(channels, hiddenIdSet),
+    [channels, hiddenIdSet],
+  );
+
+  const { tabs: groups, overflow: overflowGroups } = useMemo(
+    () =>
+      buildVisibleGroups({
+        counts: groupCounts,
+        pinned: pinnedGroups,
+        playlistGroups,
+        maxPlaylistTabs: 10,
+      }),
+    [groupCounts, pinnedGroups, playlistGroups],
+  );
+
+  const filteredMeta = useMemo(() => {
+    let list = filterChannelsByGroup(channels, group, {
+      favoriteSet,
+      recent,
+      recentIds: recentIdSet,
+      hasEpgMatch: channelHasEpgMatch,
+      isFailed: isFailedChannel,
+      hiddenIds: hiddenIdSet,
+      customOrder,
+    });
+    if (epgGuideFilter === "all") return list;
+    if (epgGuideFilter === "matched") {
+      return list.filter(channelHasEpgMatch);
+    }
+    return list.filter((c) => !channelHasEpgMatch(c));
+  }, [channels, customOrder, epgGuideFilter, favoriteSet, group, hiddenIdSet, recent, recentIdSet]);
+
+  // Keep the complete selected group identity stable.
+  const filtered = filteredMeta;
+
+  const orderedFilteredIds = useMemo(
+    () => filtered.map((channel) => channel.id).filter(Boolean),
+    [filtered],
+  );
+  const filteredIdIndex = useMemo(
+    () => buildChannelIndexMap(orderedFilteredIds),
+    [orderedFilteredIds],
+  );
+  orderedFilteredIdsRef.current = orderedFilteredIds;
+  filteredIdIndexRef.current = filteredIdIndex;
+
+  const onViewportChannelIds = useCallback((ids: string[], priorityIds: string[] = [], pageSize = 8) => {
+    lastRunwayRef.current = { ids, priority: priorityIds, pageSize };
+    setViewportGuideChannelIds(ids);
+    if (channels.length >= 400) {
+      // Match the focused/next rows first. A symmetric runway starts at its
+      // oldest retained row, which must not delay the visible edge.
+      setPriorityMatchChannelIds(
+        Array.from(new Set([...priorityIds, ...ids])).slice(0, 400),
+      );
+    } else {
+      setPriorityMatchChannelIds([]);
+    }
+    // Conveyor belt: fetch the runway, retain fetch ¬± 1 page so reverse surfing
+    // does not blank rows the user just left, and drop everything else.
+    retainGuideSlidingCache(
+      expandRunwayKeepSet(orderedFilteredIds, ids, pageSize, 1, filteredIdIndex),
+    );
+    void patchProgramsForChannelIds(ids, priorityIds);
+  }, [
+    channels.length,
+    filteredIdIndex,
+    orderedFilteredIds,
+    patchProgramsForChannelIds,
+    retainGuideSlidingCache,
+  ]);
+
+  const viewportSeedKeyRef = useRef("");
+  // Seed only on cold load/group/reset. A silent refresh must not yank a deeply
+  // scrolled guide's EPG query scope back to the first channels.
+  useEffect(() => {
+    if (!isFocused || !filtered.length) return;
+    const key = `${group}:${resetToken}:${powerProfile}`;
+    if (viewportSeedKeyRef.current === key) return;
+    viewportSeedKeyRef.current = key;
+    const rowHeight = getGuideRailMetrics(
+      screenWidth,
+      guideDensity,
+      channelNumbers,
+      channelLogos,
+    ).rowHeight;
+    const visibleRows = Math.max(6, Math.min(24, Math.ceil(screenHeight / rowHeight)));
+    // Warm the complete initial direction-aware runway before the first focus
+    // event instead of waiting on row 1. Compatibility shortens ahead pages.
+    const ids = buildGuideRunwayIds(filtered, 0, visibleRows, 1, powerProfile);
+    lastRunwayRef.current = {
+      ids,
+      priority: [ids[0], ids[1], ids[2], ...ids.slice(0, visibleRows)].filter(
+        (id): id is string => !!id,
+      ),
+      pageSize: visibleRows,
+    };
+    setViewportGuideChannelIds(ids);
+    setPriorityMatchChannelIds(
+      channels.length >= 400
+        ? Array.from(new Set([...lastRunwayRef.current.priority, ...ids])).slice(0, 400)
+        : [],
+    );
+    retainGuideSlidingCache(
+      expandRunwayKeepSet(orderedFilteredIds, ids, visibleRows, 1, filteredIdIndex),
+    );
+    // Prewarm immediately on Guide/group entry, before the first native focus
+    // event. SQLite and the bridge can populate the first visible runway early.
+    void patchProgramsForChannelIds(
+      ids,
+      lastRunwayRef.current.priority,
+    );
+  }, [
+    channelLogos,
+    channelNumbers,
+    channels.length,
+    filtered,
+    filteredIdIndex,
+    group,
+    guideDensity,
+    isFocused,
+    orderedFilteredIds,
+    patchProgramsForChannelIds,
+    powerProfile,
+    retainGuideSlidingCache,
+    resetToken,
+    screenHeight,
+    screenWidth,
+  ]);
+
+  const onChannelLongPress = useCallback(
+    (channel: Channel) => {
+      toggleFavorite(channel.id);
+    },
+    [toggleFavorite],
+  );
+
+  // If Favorites/Recent (or a vanished category) becomes empty, fall back to All
+  // so the guide never leaves an unfocusable empty FlashList.
+  useEffect(() => {
+    if (!groups.includes(group) && !overflowGroups.includes(group)) {
+      guideSessionGroup = "All";
+      guideSessionChannelId = null;
+      setGroup("All");
+      setResetToken((value) => value + 1);
+    }
+  }, [group, groups, overflowGroups]);
+
+  const channelNumberById = useMemo(() => {
+    const result: Record<string, number> = {};
+    [...channels].sort(byName).forEach((channel, index) => {
+      result[channel.id] = resolveChannelNumber(channel.id, index + 1, customNumbers);
+    });
+    return result;
+  }, [channels, customNumbers]);
+
+  // Repeated focus uses this O(1) lookup through the external selection store;
+  // it never scans the complete filtered channel array.
+  const filteredChannelById = useMemo(
+    () => new Map(filtered.map((channel) => [channel.id, channel] as const)),
+    [filtered],
+  );
+  const previewFallbackChannel = useMemo(
+    () => (lastChannelId ? filteredChannelById.get(lastChannelId) : null) || filtered[0] || null,
+    [filtered, filteredChannelById, lastChannelId],
+  );
+
+  // Decoder preview stays deliberately delayed during held navigation. Guide
+  // metadata does not: title/description must track the actual focused row now.
+  const previewDelay =
+    safePreviewMode === "delayed" || safePreviewMode === "surf"
+      ? powerTuning.previewArmDelayedMs
+      : powerTuning.previewArmOnMs;
+  const surfSettleExtraMs =
+    safePreviewMode === "surf"
+      ? powerTuning.surfSettleExtraMs + 100
+      : powerTuning.surfSettleExtraMs;
+
+  const schedulePreview = useCallback((requestedId: string, delay: number, hasUrl: boolean) => {
+    if (previewTimer.current) {
+      clearTimeout(previewTimer.current);
+      previewTimer.current = null;
+    }
+    if (safePreviewMode === "off" || !hasUrl) {
+      setPreviewId(null);
+      return;
+    }
+    previewTimer.current = setTimeout(() => {
+      previewTimer.current = null;
+      // Break the sticky error latch ‚Äî always remount the decoder for this tune.
+      setPreviewStatus("loading");
+      setPreviewEpoch((value) => value + 1);
+      setPreviewId(requestedId);
+      setSurfLogosSuppressed(false);
+    }, delay);
+  }, [safePreviewMode]);
+
+  const detailsRailWidth = useMemo(() => {
+    // Fixed left details panel sized for readable descriptions/actions on modern
+    // Android TV hardware. The guide owns all remaining width to the right.
+    // Twenty-five percent smaller than the original 260-360px / 24% rail.
+    return Math.round(Math.min(270, Math.max(195, screenWidth * 0.18)));
+  }, [screenWidth]);
+  const armPreviewForChannel = useCallback(
+    (channel: Channel) => {
+      if (previewTimer.current) clearTimeout(previewTimer.current);
+      const requestedId = channel.id;
+      guideSessionChannelId = requestedId;
+
+      // Moving left/right across programmes on the same channel updates details
+      // immediately but must not tear down and re-arm an unchanged decoder.
+      if (previewId === requestedId && previewStatus !== "error") return;
+
+      const nowTs = Date.now();
+      const rapid = nowTs - lastFocusAtRef.current < 240;
+      lastFocusAtRef.current = nowTs;
+      if (rapid) rapidSurfUntilRef.current = nowTs + powerTuning.rapidSurfHoldMs;
+      if (rapid || nowTs < rapidSurfUntilRef.current) {
+        markGuideSurfing(powerTuning.rapidSurfHoldMs);
+      }
+      if (surfReleaseTimer.current) {
+        clearTimeout(surfReleaseTimer.current);
+        surfReleaseTimer.current = null;
+      }
+
+      if (nowTs < rapidSurfUntilRef.current || rapid) {
+        // Keep decoder/GPU work out of the repeated-focus path. Only the last
+        // focused channel after the hold settles is allowed to tune preview.
+        // Defer the one-time decoder/logo release until after native focus has
+        // painted; doing this synchronously makes the highlight visibly stall.
+        if (!surfReleaseTimer.current) {
+          surfReleaseTimer.current = setTimeout(() => {
+            surfReleaseTimer.current = null;
+            setPreviewId(null);
+            if (logosOffWhileSurfing) setSurfLogosSuppressed(true);
+          }, 48);
+        }
+        schedulePreview(
+          requestedId,
+          Math.max(powerTuning.rapidSurfHoldMs + 80, previewDelay + surfSettleExtraMs),
+          !!channel.url,
+        );
+        return;
+      }
+
+      const recentlyChangedGroup = nowTs - groupChangedAt.current < 1800;
+      const delay = recentlyChangedGroup
+        ? Math.max(previewDelay + surfSettleExtraMs, powerTuning.previewArmDelayedMs)
+        : previewDelay;
+      schedulePreview(requestedId, delay, !!channel.url);
+    },
+    [logosOffWhileSurfing, powerTuning, previewDelay, previewId, previewStatus, schedulePreview, surfSettleExtraMs],
+  );
+
+  const onFocusChannel = useCallback((channel: Channel) => {
+    // Logo/card focus represents the live row rather than a previously selected
+    // programme. Only the preview subtree subscribes to this external update.
+    resetGuideSelection(channel.id);
+    armPreviewForChannel(channel);
+  }, [armPreviewForChannel]);
+
+  const onFocusProgram = useCallback((program: Program, channel: Channel) => {
+    guideSessionChannelId = channel.id;
+    setGuideFocusedProgram(channel.id, program);
+    armPreviewForChannel(channel);
+  }, [armPreviewForChannel]);
+
+  const openGuideProgram = useCallback((program: Program, channel: Channel) => {
+    modalOriginRef.current = { channelId: channel.id, programStart: program.start };
+    openProgram(program, channel);
+  }, [openProgram]);
+
+  const play = useCallback(
+    (channel: Channel) => {
+      void Haptics.selectionAsync().catch(() => undefined);
+      // Drop guide preview before fullscreen allocates a decoder.
+      if (previewTimer.current) clearTimeout(previewTimer.current);
+      setPreviewId(null);
+      addRecent(channel);
+      openFullscreenPlayer(router, channel.id);
+    },
+    [addRecent, router],
+  );
+
+  const applyGroup = useCallback((next: string) => {
+    void Haptics.selectionAsync().catch(() => undefined);
+    if (previewTimer.current) clearTimeout(previewTimer.current);
+    groupChangedAt.current = Date.now();
+    guideSessionGroup = next;
+    guideSessionChannelId = null;
+    setGroup(next);
+    resetGuideSelection(null);
+    setPreviewId(null);
+    setMoreGroupsOpen(false);
+    // Scroll/filter reset only ‚Äî never reclaim grid preferred focus (keeps chip focused).
+    setResetToken((value) => value + 1);
+    // Re-assert focus on the chip the user pressed after the list swaps.
+    requestAnimationFrame(() => {
+      const chip = groupChipRefs.current.get(next);
+      if (chip) requestNativeFocus(chip);
+    });
+  }, []);
+
+  const chooseGroup = useCallback(
+    (next: string) => {
+      if (hasPin && isGroupLocked(next)) {
+        setPinPromptGroup(next);
+        setPinDigits("");
+        setPinError(false);
+        return;
+      }
+      applyGroup(next);
+    },
+    [applyGroup, hasPin, isGroupLocked],
+  );
+
+  const submitPin = useCallback(() => {
+    if (!pinPromptGroup) return;
+    if (!verifyPin(pinDigits)) {
+      setPinError(true);
+      setPinDigits("");
+      return;
+    }
+    unlockGroup(pinPromptGroup);
+    const next = pinPromptGroup;
+    setPinPromptGroup(null);
+    setPinDigits("");
+    setPinError(false);
+    applyGroup(next);
+  }, [applyGroup, pinDigits, pinPromptGroup, unlockGroup, verifyPin]);
+
+  const togglePinGroup = useCallback(
+    (name: string) => {
+      void Haptics.selectionAsync().catch(() => undefined);
+      if (pinnedGroups.includes(name)) {
+        setPinnedGroups(unpinGroup(pinnedGroups, name));
+      } else {
+        setPinnedGroups(pinGroup(pinnedGroups, name));
+      }
+    },
+    [pinnedGroups, setPinnedGroups],
+  );
+
+  const onFocusedGuideRow = useCallback((_index: number) => {
+    // Intentionally no-op for trapFocus toggling ‚Äî flipping traps mid-surf freezes TV focus.
+  }, []);
+
+  const onGuideUpBoundary = useCallback(() => {
+    cancelGuideFocusRestore();
+    const chip = groupChipRefs.current.get(group);
+    // Group chips are permanently mounted. One synchronous request avoids a
+    // delayed retry pulling focus back after the user moves across the tabs.
+    if (chip) {
+      registerGuideTopEntry(chip);
+      requestNativeFocus(chip);
+    }
+  }, [group]);
+
+  const onGuideLeftBoundary = useCallback(() => {
+    // The preview/details/actions panel is the Guide's only left neighbor.
+    focusGuidePreviewSurface();
+  }, []);
+
+  // One-shot Search/Health jump ‚Äî apply on focus/mount only.
+  useFocusEffect(
+    useCallback(() => {
+      const jump = consumeGuideJump();
+      if (!jump) return;
+      const nextGroup = jump.group || "All";
+      if (hasPin && isGroupLocked(nextGroup)) {
+        setPinPromptGroup(nextGroup);
+        setPinDigits("");
+        setPinError(false);
+        guideSessionChannelId = jump.channelId;
+        return;
+      }
+      guideSessionGroup = nextGroup;
+      guideSessionChannelId = jump.channelId;
+      setGroup(nextGroup);
+      resetGuideSelection(jump.channelId);
+      setResetToken((value) => value + 1);
+      const ch = channelById(jump.channelId);
+      if (ch) {
+        schedulePreview(jump.channelId, previewDelay + surfSettleExtraMs, !!ch.url);
+      }
+    }, [channelById, hasPin, isGroupLocked, previewDelay, schedulePreview, surfSettleExtraMs]),
+  );
+
+  const onPreviewStatus = useCallback((status: StreamStatus) => {
+    setPreviewStatus(status);
+  }, []);
+
+  const onPreviewErrorRemount = useCallback(() => {
+    if (previewRecoverTimer.current) clearTimeout(previewRecoverTimer.current);
+    previewRecoverTimer.current = setTimeout(() => {
+      previewRecoverTimer.current = null;
+      setPreviewStatus("loading");
+      setPreviewEpoch((value) => value + 1);
+    }, 700);
+  }, []);
+
+  const rememberGroupChipNode = useCallback((item: string, node: unknown) => {
+    if (node) groupChipRefs.current.set(item, node);
+    else groupChipRefs.current.delete(item);
+  }, []);
+  const renderGroupChip = useCallback(
+    (item: string) => (
+      <GuideGroupChip
+        key={item}
+        item={item}
+        count={groupCounts[item] || 0}
+        active={group === item}
+        pinned={pinnedGroups.includes(item)}
+        vertical={groupLayout === "vertical"}
+        onChoose={chooseGroup}
+        onTogglePin={togglePinGroup}
+        onNode={rememberGroupChipNode}
+      />
+    ),
+    [chooseGroup, group, groupCounts, groupLayout, pinnedGroups, rememberGroupChipNode, togglePinGroup],
+  );
+
+  return (
+    <PurpleTvShell
+      active="/guide"
+      watchingChannelId={lastChannelId}
+    >
+      <View style={styles.page}>
+        <View style={styles.header}>
+          <Animated.View
+            // Title is decorative ‚Äî never steal hits/focus beside an open drawer.
+            pointerEvents="none"
+            style={[styles.guideTitleBlock, { opacity: headerTitleProgress }]}
+          >
+            <Text style={styles.kicker}>TV GUIDE</Text>
+            <Text style={styles.title}>{group === "All" ? "All Channels" : group}</Text>
+          </Animated.View>
+          {groupLayout === "horizontal" ? (
+            <Animated.View
+              style={[
+                styles.groupScroller,
+                {
+                  // Keep group chips full-bleed until the full drawer is open.
+                  marginLeft: drawerOpen ? 140 : 0,
+                  transform: [{ translateX: groupSlideX }],
+                },
+              ]}
+            >
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.groupRow}>
+                {groups.map(renderGroupChip)}
+                {overflowGroups.length > 0 ? (
+                  <Pressable
+                    ref={setMoreGroupsChipRef}
+                    onFocus={focusMoreGroupsChip}
+                    onPress={() => setMoreGroupsOpen(true)}
+                    style={({ focused }: any) => [styles.groupChip, focused && styles.focused]}
+                    testID="guide-more-groups"
+                  >
+                    <Text style={styles.groupText}>More groups</Text>
+                  </Pressable>
+                ) : null}
+              </ScrollView>
+            </Animated.View>
+          ) : (
+            <View style={[styles.groupScroller, { marginLeft: drawerOpen ? 140 : 0 }]}>
+              <Text style={styles.verticalHeaderHint}>{chipLabel(group)}</Text>
+            </View>
+          )}
+        </View>
+
+        <EpgProgressBar />
+        {loading && channels.length === 0 ? (
+          <View style={styles.center}>
+            <ActivityIndicator color={tvColors.purpleBright} size="large" />
+            <Text style={styles.centerText}>Loading channels and guide‚Ä¶</Text>
+            <Pressable
+              focusable
+              disabled={refreshing}
+              onPress={() => void hardRefresh()}
+              style={({ focused }: any) => [styles.retryButton, focused && styles.focused]}
+              testID="purple-guide-retry-loading"
+            >
+              <Ionicons name="refresh-outline" size={14} color="#fff" />
+              <Text style={styles.retryText}>{refreshing ? "Loading‚Ä¶" : "Retry now"}</Text>
+            </Pressable>
+          </View>
+        ) : error && channels.length === 0 ? (
+          <View style={styles.center}>
+            <Ionicons name="cloud-offline-outline" size={32} color={tvColors.purpleSoft} />
+            <Text style={styles.centerText}>{error}</Text>
+            <Pressable
+              focusable
+              disabled={refreshing}
+              onPress={() => void hardRefresh()}
+              style={({ focused }: any) => [styles.retryButton, focused && styles.focused]}
+              testID="purple-guide-retry-error"
+            >
+              <Ionicons name="refresh-outline" size={14} color="#fff" />
+              <Text style={styles.retryText}>{refreshing ? "Reloading‚Ä¶" : "Reload guide"}</Text>
+            </Pressable>
+          </View>
+        ) : channels.length === 0 ? (
+          <View style={styles.center}>
+            <Ionicons name="tv-outline" size={32} color={tvColors.purpleSoft} />
+            <Text style={styles.centerText}>No channels in the current playlist yet.</Text>
+            <Pressable
+              focusable
+              disabled={refreshing}
+              onPress={() => void hardRefresh()}
+              style={({ focused }: any) => [styles.retryButton, focused && styles.focused]}
+              testID="purple-guide-retry-empty"
+            >
+              <Ionicons name="refresh-outline" size={14} color="#fff" />
+              <Text style={styles.retryText}>{refreshing ? "Loading‚Ä¶" : "Reload guide"}</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <View style={styles.body}>
+            {groupLayout === "vertical" ? (
+              <ScrollView
+                style={styles.verticalGroups}
+                contentContainerStyle={styles.verticalGroupList}
+                showsVerticalScrollIndicator={false}
+              >
+                {groups.map(renderGroupChip)}
+                {overflowGroups.length > 0 ? (
+                  <Pressable
+                    ref={setMoreGroupsChipRef}
+                    onFocus={focusMoreGroupsChip}
+                    onPress={() => setMoreGroupsOpen(true)}
+                    style={({ focused }: any) => [
+                      styles.groupChip,
+                      styles.groupChipVertical,
+                      focused && styles.focused,
+                    ]}
+                    testID="guide-more-groups"
+                  >
+                    <Text style={styles.groupText}>More groups</Text>
+                  </Pressable>
+                ) : null}
+              </ScrollView>
+            ) : null}
+
+            <GuideSelectionPreview
+              width={detailsRailWidth}
+              channelById={filteredChannelById}
+              fallbackChannel={previewFallbackChannel}
+              now={now}
+              channelNumberById={channelNumberById}
+              showChannelNumbers={channelNumbers}
+              showLogos={isFocused && channelLogos && !surfLogosSuppressed}
+              favoriteSet={favoriteSet}
+              hidePreview={hidePreview}
+              muted={mutePreview}
+              onToggleMute={() => setMutePreview(!mutePreview)}
+              previewId={safePreviewMode === "off" ? null : previewId}
+              previewStatus={previewStatus}
+              previewEpoch={previewEpoch}
+              onPreviewStatus={onPreviewStatus}
+              onPreviewErrorRemount={onPreviewErrorRemount}
+              onPlay={play}
+              onFavorite={toggleFavorite}
+              onOpenReminders={() => {
+                if (previewTimer.current) clearTimeout(previewTimer.current);
+                setPreviewId(null);
+                router.replace("/reminders" as any);
+              }}
+              onHideToggle={() => setHidePreview(!hidePreview)}
+              onOpenDrawer={openDrawerFromPreview}
+            />
+
+            {/* The preview/details/actions rail is a fixed left sibling. The Guide
+                owns the remaining width on the right; neither panel overlaps the other. */}
+            <FocusGuide
+              style={styles.gridPanel}
+              trapFocusDown
+              // Row-level Left handling owns the exact preview-button handoff.
+              trapFocusLeft={false}
+              trapFocusRight
+            >
+              {guideLayout === "compact" ? (
+                <BoxGrid
+                  channels={filtered}
+                  now={now}
+                  onChannelPress={play}
+                  onProgramPress={openGuideProgram}
+                  onChannelFocus={onFocusChannel}
+                  refreshing={refreshing}
+                  onRefresh={hardRefresh}
+                  showChannelNumbers={channelNumbers}
+                  channelNumberById={channelNumberById}
+                  showChannelLogos={isFocused && channelLogos && !surfLogosSuppressed}
+                  reminderKeys={gridReminderKeys}
+                  resetToken={resetToken}
+                  active={isFocused && !activeProgram && !drawerOpen}
+                  // Preview is the native Left neighbor; the closed drawer has
+                  // no mounted focus tree and therefore needs no self-lock.
+                  lockLeftEdge={false}
+                  restoreChannelId={guideSessionChannelId}
+                  focusClaimNonce={focusClaimNonce}
+                  cacheProfile={powerProfile}
+                  onUpBoundary={onGuideUpBoundary}
+                  onLeftBoundary={onGuideLeftBoundary}
+                  onFocusedRowChange={onFocusedGuideRow}
+                  onViewportChannelIds={onViewportChannelIds}
+                />
+              ) : (
+                <TimelineGrid
+                  channels={filtered}
+                  windowStart={windowStart}
+                  windowEnd={windowEnd}
+                  now={now}
+                  onChannelPress={play}
+                  onProgramPress={openGuideProgram}
+                  onProgramFocus={onFocusProgram}
+                  onChannelFocus={onFocusChannel}
+                  onChannelLongPress={onChannelLongPress}
+                  refreshing={refreshing}
+                  onRefresh={hardRefresh}
+                  density={guideDensity}
+                  showChannelNumbers={channelNumbers}
+                  channelNumberById={channelNumberById}
+                  showChannelLogos={isFocused && channelLogos && !surfLogosSuppressed}
+                  reminderKeys={gridReminderKeys}
+                  resetToken={resetToken}
+                  active={isFocused && !activeProgram && !drawerOpen}
+                  // Preview is the native Left neighbor; the closed drawer has
+                  // no mounted focus tree and therefore needs no self-lock.
+                  lockLeftEdge={false}
+                  restoreChannelId={guideSessionChannelId}
+                  focusClaimNonce={focusClaimNonce}
+                  cacheProfile={powerProfile}
+                  onUpBoundary={onGuideUpBoundary}
+                  onLeftBoundary={onGuideLeftBoundary}
+                  onFocusedRowChange={onFocusedGuideRow}
+                  onViewportChannelIds={onViewportChannelIds}
+                  onBackTargetChange={onGuideBackTarget}
+                  reduceMotion={instantGuide}
+                />
+              )}
+            </FocusGuide>
+          </View>
+        )}
+
+        {moreGroupsOpen ? (
+          <View style={styles.overlay} testID="guide-more-groups-overlay">
+            {/* Trap D-pad inside the sheet so focus cannot fall onto the guide grid. */}
+            <FocusGuide autoFocus trapFocusUp trapFocusDown trapFocusLeft trapFocusRight>
+              <View style={styles.overlayCard}>
+                <View style={styles.overlayHeader}>
+                  <Text style={styles.overlayTitle}>More groups</Text>
+                  <Pressable
+                    onPress={() => setMoreGroupsOpen(false)}
+                    style={({ focused }: any) => [styles.overlayClose, focused && styles.focused]}
+                  >
+                    <Text style={styles.secondaryText}>Close</Text>
+                  </Pressable>
+                </View>
+                <ScrollView style={styles.overlayList} showsVerticalScrollIndicator={false}>
+                  {(() => {
+                    let lastLetter = "";
+                    return overflowGroups.map((item) => {
+                      const letter = (item.trim().charAt(0) || "#").toUpperCase();
+                      const showLetter = letter !== lastLetter;
+                      if (showLetter) lastLetter = letter;
+                      return (
+                        <View key={item}>
+                          {showLetter ? <Text style={styles.overlayLetter}>{letter}</Text> : null}
+                          <Pressable
+                            onPress={() => chooseGroup(item)}
+                            onLongPress={() => togglePinGroup(item)}
+                            delayLongPress={420}
+                            style={({ focused }: any) => [styles.overlayRow, focused && styles.focused]}
+                          >
+                            <Text style={styles.overlayRowText} numberOfLines={1}>
+                              {item}
+                              {groupCounts[item] ? `  ${groupCounts[item]}` : ""}
+                            </Text>
+                          </Pressable>
+                        </View>
+                      );
+                    });
+                  })()}
+                </ScrollView>
+              </View>
+            </FocusGuide>
+          </View>
+        ) : null}
+
+        {pinPromptGroup ? (
+          <View style={styles.overlay} testID="guide-pin-overlay">
+            <FocusGuide autoFocus trapFocusUp trapFocusDown trapFocusLeft trapFocusRight>
+              <View style={styles.pinCard}>
+                <Text style={styles.overlayTitle}>Enter PIN</Text>
+                <Text style={styles.pinHint}>Unlock ‚Äú{pinPromptGroup}‚Äù</Text>
+                <Text style={styles.pinDigits}>{pinDigits.padEnd(4, "‚Ä¢").slice(0, 4)}</Text>
+                {pinError ? <Text style={styles.pinError}>Incorrect PIN</Text> : null}
+                <View style={styles.pinPad}>
+                  {["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"].map((digit) => (
+                    <Pressable
+                      key={digit}
+                      onPress={() => {
+                        setPinError(false);
+                        setPinDigits((prev) => {
+                          const next = (prev + digit).slice(0, 8);
+                          return next;
+                        });
+                      }}
+                      style={({ focused }: any) => [styles.pinKey, focused && styles.focused]}
+                    >
+                      <Text style={styles.pinKeyText}>{digit}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <View style={styles.pinActions}>
+                  <Pressable
+                    onPress={() => {
+                      setPinPromptGroup(null);
+                      setPinDigits("");
+                      setPinError(false);
+                    }}
+                    style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
+                  >
+                    <Text style={styles.secondaryText}>Cancel</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={submitPin}
+                    style={({ focused }: any) => [styles.watchButton, focused && styles.focused]}
+                  >
+                    <Text style={styles.watchText}>Unlock</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </FocusGuide>
+          </View>
+        ) : null}
+      </View>
+    </PurpleTvShell>
+  );
+}
+
+const styles = StyleSheet.create({
+  page: { flex: 1, padding: 12, gap: 5 },
+  header: { minHeight: 48, flexDirection: "row", alignItems: "center", position: "relative" },
+  guideTitleBlock: { position: "absolute", left: 0, width: 130 },
+  groupScroller: { flex: 1, minWidth: 0 },
+  kicker: { color: tvColors.purpleSoft, fontFamily: fonts.semibold, fontSize: 7.5, letterSpacing: 1 },
+  title: { color: "#fff", fontFamily: fonts.bold, fontSize: 17, marginTop: 1, minWidth: 120 },
+  groupRow: { gap: 5, alignItems: "center", paddingHorizontal: 4 },
+  groupChip: {
+    minHeight: 28,
+    paddingHorizontal: 10,
+    justifyContent: "center",
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: "transparent",
+    backgroundColor: tvColors.panel,
+  },
+  groupChipVertical: { width: "100%", paddingHorizontal: 8, marginBottom: 4 },
+  groupChipActive: { backgroundColor: tvColors.purple },
+  groupChipPinned: { borderColor: "rgba(168,85,247,0.45)" },
+  groupText: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 8.5 },
+  groupTextActive: { color: "#fff", fontFamily: fonts.semibold },
+  verticalHeaderHint: { color: "#fff", fontFamily: fonts.bold, fontSize: 14 },
+  body: { flex: 1, flexDirection: "row", gap: 8, minHeight: 0, position: "relative" },
+  verticalGroups: { width: 118, flexShrink: 0, maxHeight: "100%" },
+  verticalGroupList: { paddingVertical: 2, paddingRight: 2 },
+  gridPanel: {
+    flex: 1,
+    minWidth: 0,
+    overflow: "hidden",
+    backgroundColor: tvColors.canvasRaised,
+    borderWidth: 1,
+    borderColor: tvColors.line,
+    borderRadius: radius.sm,
+  },
+  watchButton: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 27,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    backgroundColor: tvColors.purple,
+    borderRadius: 5,
+    borderWidth: 2,
+    borderColor: "transparent",
+    paddingHorizontal: 3,
+  },
+  watchText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 7.5 },
+  secondaryButton: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 27,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    backgroundColor: tvColors.panelRaised,
+    borderRadius: 5,
+    borderWidth: 2,
+    borderColor: "transparent",
+    paddingHorizontal: 3,
+  },
+  secondaryText: { color: "#fff", fontFamily: fonts.medium, fontSize: 7.2 },
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 20,
+    padding: 24,
+  },
+  overlayCard: {
+    width: "72%",
+    maxWidth: 420,
+    maxHeight: "70%",
+    backgroundColor: tvColors.panel,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: tvColors.line,
+    padding: 12,
+  },
+  overlayHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
+  overlayTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 14 },
+  overlayClose: {
+    minHeight: 28,
+    paddingHorizontal: 10,
+    justifyContent: "center",
+    borderRadius: 5,
+    borderWidth: 2,
+    borderColor: "transparent",
+    backgroundColor: tvColors.panelRaised,
+  },
+  overlayList: { maxHeight: 280 },
+  overlayLetter: {
+    color: tvColors.purpleSoft,
+    fontFamily: fonts.bold,
+    fontSize: 10,
+    marginTop: 6,
+    marginBottom: 2,
+    paddingHorizontal: 4,
+  },
+  overlayRow: {
+    minHeight: 32,
+    justifyContent: "center",
+    paddingHorizontal: 8,
+    borderRadius: 5,
+    borderWidth: 2,
+    borderColor: "transparent",
+    backgroundColor: tvColors.panelRaised,
+    marginBottom: 4,
+  },
+  overlayRowText: { color: "#fff", fontFamily: fonts.medium, fontSize: 11 },
+  pinCard: {
+    width: 280,
+    backgroundColor: tvColors.panel,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: tvColors.line,
+    padding: 14,
+    gap: 8,
+  },
+  pinHint: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 10 },
+  pinDigits: {
+    color: "#fff",
+    fontFamily: fonts.bold,
+    fontSize: 22,
+    letterSpacing: 8,
+    textAlign: "center",
+    marginVertical: 4,
+  },
+  pinError: { color: "#f87171", fontFamily: fonts.medium, fontSize: 10, textAlign: "center" },
+  pinPad: { flexDirection: "row", flexWrap: "wrap", gap: 6, justifyContent: "center" },
+  pinKey: {
+    width: 44,
+    minHeight: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 5,
+    borderWidth: 2,
+    borderColor: "transparent",
+    backgroundColor: tvColors.panelRaised,
+  },
+  pinKeyText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 14 },
+  pinActions: { flexDirection: "row", gap: 8, marginTop: 4 },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.md },
+  centerText: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 11, textAlign: "center", maxWidth: 320 },
+  retryButton: {
+    minHeight: 32,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: "transparent",
+    backgroundColor: tvColors.purple,
+    marginTop: 4,
+  },
+  retryText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 9 },
+  focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
+});
