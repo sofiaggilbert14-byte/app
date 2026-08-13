@@ -101,7 +101,7 @@ test("favorites backup offers SAF portable export", async () => {
   assert.match(backup, /requestDirectoryPermissionsAsync/);
 });
 
-test("TvRemote suppresses duplicate Guide bridge events without consuming native focus", async () => {
+test("TvRemote gives logical Guide focus exclusive D-pad ownership only inside the grid", async () => {
   const [plugin, mod, activity] = await Promise.all([
     source("plugins/withTvRemote.js"),
     source("android/app/src/main/java/com/charmiptv/app/TvRemoteModule.kt"),
@@ -119,9 +119,11 @@ test("TvRemote suppresses duplicate Guide bridge events without consuming native
   assert.match(activity, /Static remote flags must never survive/);
   assert.match(activity, /TvRemoteModule\.pointerActive = false/);
   assert.match(activity, /!TvRemoteModule\.guideNavigationActive \|\| TvRemoteModule\.pointerActive/);
-  // Guide surfing must use Android focus — never consume Up/Down when "active".
-  assert.doesNotMatch(activity, /guideNavigationActive && \(key == "UP"/);
-  assert.doesNotMatch(plugin, /guideNavigationActive && \(key == "UP"/);
+  // Geometric focus remains available outside the grid; logical focus owns it inside.
+  assert.match(mod, /fun setGuideLogicalNavigationActive/);
+  assert.match(activity, /TvRemoteModule\.guideNavigationActive &&[\s\S]*TvRemoteModule\.guideLogicalNavigationActive/);
+  assert.match(activity, /emitRemoteEvent\("TvGuideLogicalKey", key\)[\s\S]*return true/);
+  assert.match(plugin, /TvGuideLogicalKey/);
 });
 
 test("Cloudflare worker does not default CORS to wildcard", async () => {

@@ -33,7 +33,7 @@ import {
 } from "@/src/utils/tvGuideFocusLock";
 import { getGuideRailMetrics } from "@/src/core/guideLayoutPolicy";
 import { clampGuideScrollOffset, evaluateGuideNavigation } from "@/src/core/guideNavigationPolicy";
-import { getGuideProgramRowState, useGuidePrograms } from "@/src/core/guideProgramsStore";
+import { getGuideProgramRowState, getGuidePrograms, useGuidePrograms } from "@/src/core/guideProgramsStore";
 import { channelHasEpgMatch } from "@/src/core/epgUserOverrides";
 import {
   buildGuideRunwayIds,
@@ -41,7 +41,17 @@ import {
 } from "@/src/core/guideRunwayPolicy";
 import { buildVisibleGuideCellSlice } from "@/src/core/guideCellCulling";
 import { noteGuideRowSlice, noteProgramCellMounted } from "@/src/utils/guidePerfMetrics";
-import { addGuidePageKeyListener } from "@/src/utils/tvRemote";
+import {
+  addGuideLogicalKeyListener,
+  addGuidePageKeyListener,
+  setGuideLogicalNavigationActive,
+} from "@/src/utils/tvRemote";
+import {
+  guideProgramCenterMs,
+  moveGuideLogicalCursor,
+  type GuideLogicalCursor,
+  type GuideLogicalKey,
+} from "@/src/core/guideLogicalFocus";
 
 const HEADER_H = 30;
 const ACCENT = "#8B5CF6";
@@ -97,6 +107,8 @@ type FocusCandidate = {
   kind: "channel" | "program";
   left: number;
   width: number;
+  startMs?: number;
+  endMs?: number;
 };
 
 type TimelineRowProps = {
@@ -208,7 +220,15 @@ const ProgramCell = memo(function ProgramCell({
       registerGuideProgramNode(channel.id, prepared.program.start, node);
       registerFocusCandidate(
         rowIndex,
-        node ? { key: prepared.key, node, kind: "program", left: prepared.left, width: prepared.width } : null,
+        node ? {
+          key: prepared.key,
+          node,
+          kind: "program",
+          left: prepared.left,
+          width: prepared.width,
+          startMs: Date.parse(prepared.program.start),
+          endMs: prepared.program.stop ? Date.parse(prepared.program.stop) : undefined,
+        } : null,
         prepared.key,
       );
       if (isPreferred) capturePreferred(node);
@@ -661,6 +681,12 @@ export const TimelineGrid = memo(function TimelineGrid({
   const LOGO_SIZE = railMetrics.logoSize;
   const scrollX = useRef(new Animated.Value(0)).current;
   const negScrollX = useMemo(() => Animated.multiply(scrollX, -1), [scrollX]);
+  // A lightweight ring stays visible while the virtualized destination mounts.
+  // Imperative values avoid re-rendering the FlashList on held repeats.
+  const logicalRingX = useRef(new Animated.Value(0)).current;
+  const logicalRingY = useRef(new Animated.Value(0)).current;
+  const logicalRingW = useRef(new Animated.Value(120)).current;
+  const logicalRingOpacity = useRef(new Animated.Value(0)).current;
   const panAnimRef = useRef<Animated.CompositeAnimation | null>(null);
   const [bodyH, setBodyH] = useState(0);
   const [programViewportW, setProgramViewportW] = useState(0);
@@ -701,6 +727,16 @@ export const TimelineGrid = memo(function TimelineGrid({
   const focusedCandidateRef = useRef<{ rowIndex: number; key: string } | null>(null);
   const focusRewireFrameRef = useRef<number | null>(null);
   const wireFocusCandidateRef = useRef<(rowIndex: number, key: string, node: unknown) => void>(() => {});
+  const logicalCursorRef = useRef<GuideLogicalCursor | null>(null);
+  const logicalIntentRef = useRef<{
+    generation: number;
+    cursor: GuideLogicalCursor;
+    targetKey: string | null;
+  } | null>(null);
+  const logicalGenerationRef = useRef(0);
+  const logicalFocusTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const logicalRingHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const logicalTryFocusRef = useRef<() => boolean>(() => false);
   const viewportDispatchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingViewportRef = useRef<{
     runway: string[];
@@ -742,6 +778,9 @@ export const TimelineGrid = memo(function TimelineGrid({
         focusCandidatesByRowRef.current.set(rowIndex, row);
       }
       row.set(key, candidate);
+      if (logicalIntentRef.current?.cursor.rowIndex === rowIndex) {
+        requestAnimationFrame(() => logicalTryFocusRef.current());
+      }
       const focused = focusedCandidateRef.current;
       if (focused && Math.abs(rowIndex - focused.rowIndex) <= 1) {
         // FlashList often mounts the previous row only after an upward scroll.
@@ -985,6 +1024,194 @@ export const TimelineGrid = memo(function TimelineGrid({
     setHorizontalOffset(scrollXRef.current, false);
   }, [programViewportW, setHorizontalOffset, timelineWidth]);
 
+  const clearLogicalFocusIntent = useCallback((hideRing = true) => {
+    logicalGenerationRef.current += 1;
+    for (const timer of logicalFocusTimersRef.current) clearTimeout(timer);
+    logicalFocusTimersRef.current = [];
+    logicalIntentRef.current = null;
+    if (logicalRingHideTimerRef.current) {
+      clearTimeout(logicalRingHideTimerRef.current);
+      logicalRingHideTimerRef.current = null;
+    }
+    if (hideRing) logicalRingOpacity.setValue(0);
+  }, [logicalRingOpacity]);
+
+  const positionLogicalRing = useCallback((cursor: GuideLogicalCursor, candidate?: FocusCandidate) => {
+    const viewportW = Math.max(1, programViewportW);
+    const left = candidate?.kind === "channel"
+      ? 0
+      : candidate
+        ? LOGO_W + candidate.left - scrollXRef.current
+        : LOGO_W + ((cursor.timeAnchorMs - windowStartMs) / MINUTE_MS) * PX_PER_MIN - scrollXRef.current - 60;
+    const desiredWidth = candidate?.kind === "channel"
+      ? LOGO_W
+      : candidate?.width || Math.min(160, Math.max(72, viewportW * 0.22));
+    const ringLeft = Math.max(1, Math.min(Math.max(1, viewportW - 28), left));
+    const ringWidth = Math.max(24, Math.min(desiredWidth, Math.max(24, viewportW - ringLeft - 2)));
+    const ringTop = Math.max(1, Math.min(Math.max(1, bodyHRef.current - ROW_H), cursor.rowIndex * ROW_H - verticalOffsetRef.current));
+    logicalRingX.setValue(ringLeft);
+    logicalRingY.setValue(ringTop + 1);
+    logicalRingW.setValue(ringWidth);
+    logicalRingOpacity.setValue(1);
+  }, [LOGO_W, PX_PER_MIN, ROW_H, logicalRingOpacity, logicalRingW, logicalRingX, logicalRingY, programViewportW, windowStartMs]);
+
+  const tryLogicalFocus = useCallback(() => {
+    const intent = logicalIntentRef.current;
+    if (!intent || !active || !gridOwnsFocusRef.current) return false;
+    const row = focusCandidatesByRowRef.current.get(intent.cursor.rowIndex);
+    if (!row?.size) return false;
+    let candidate: FocusCandidate | undefined;
+    if (intent.cursor.region === "channel") {
+      candidate = row.get("channel");
+    } else {
+      const programs = Array.from(row.values()).filter((item) => item.kind === "program" && item.key !== "pending");
+      const containing = programs.find((item) =>
+        Number.isFinite(item.startMs) &&
+        intent.cursor.timeAnchorMs >= (item.startMs as number) &&
+        intent.cursor.timeAnchorMs < (Number.isFinite(item.endMs) ? (item.endMs as number) : (item.startMs as number) + 30 * MINUTE_MS),
+      );
+      candidate = containing || programs.sort((a, b) => {
+        const aCenter = (a.startMs || 0) + Math.max(1, (a.endMs || (a.startMs || 0) + 30 * MINUTE_MS) - (a.startMs || 0)) / 2;
+        const bCenter = (b.startMs || 0) + Math.max(1, (b.endMs || (b.startMs || 0) + 30 * MINUTE_MS) - (b.startMs || 0)) / 2;
+        return Math.abs(aCenter - intent.cursor.timeAnchorMs) - Math.abs(bCenter - intent.cursor.timeAnchorMs);
+      })[0] || row.get("pending");
+    }
+    if (!candidate?.node) return false;
+    intent.targetKey = candidate.key;
+    positionLogicalRing(intent.cursor, candidate);
+    focusedCandidateRef.current = { rowIndex: intent.cursor.rowIndex, key: candidate.key };
+    return requestNativeFocus(candidate.node);
+  }, [active, positionLogicalRing]);
+  logicalTryFocusRef.current = tryLogicalFocus;
+
+  const startLogicalFocusMove = useCallback((cursor: GuideLogicalCursor) => {
+    for (const timer of logicalFocusTimersRef.current) clearTimeout(timer);
+    logicalFocusTimersRef.current = [];
+    if (logicalRingHideTimerRef.current) {
+      clearTimeout(logicalRingHideTimerRef.current);
+      logicalRingHideTimerRef.current = null;
+    }
+    const generation = logicalGenerationRef.current + 1;
+    logicalGenerationRef.current = generation;
+    logicalCursorRef.current = cursor;
+    logicalIntentRef.current = { generation, cursor, targetKey: null };
+    reportFocusedRow(cursor.rowIndex);
+
+    if (cursor.region === "channel") {
+      setHorizontalOffset(0, false);
+    } else if (programViewportW) {
+      const anchorLeft = LOGO_W + ((cursor.timeAnchorMs - windowStartMs) / MINUTE_MS) * PX_PER_MIN;
+      setHorizontalOffset(anchorLeft - programViewportW * 0.45, false);
+    }
+    positionLogicalRing(cursor);
+    const attempt = () => {
+      if (logicalIntentRef.current?.generation !== generation) return;
+      tryLogicalFocus();
+    };
+    attempt();
+    logicalFocusTimersRef.current = [16, 40, 80, 140, 240].map((delay) => setTimeout(attempt, delay));
+  }, [LOGO_W, PX_PER_MIN, positionLogicalRing, programViewportW, reportFocusedRow, setHorizontalOffset, tryLogicalFocus, windowStartMs]);
+
+  const acceptLogicalNativeFocus = useCallback((input: {
+    rowIndex: number;
+    region: "channel" | "program";
+    key: string;
+    timeAnchorMs: number;
+  }): boolean => {
+    if (!active) {
+      setGuideLogicalNavigationActive(false);
+      return false;
+    }
+    const intent = logicalIntentRef.current;
+    if (intent) {
+      const sameTarget = input.rowIndex === intent.cursor.rowIndex &&
+        input.region === intent.cursor.region &&
+        (!intent.targetKey || input.key === intent.targetKey);
+      if (!sameTarget) {
+        requestAnimationFrame(() => logicalTryFocusRef.current());
+        return false;
+      }
+      logicalCursorRef.current = intent.cursor;
+      for (const timer of logicalFocusTimersRef.current) clearTimeout(timer);
+      logicalFocusTimersRef.current = [];
+      logicalIntentRef.current = null;
+    } else {
+      logicalCursorRef.current = {
+        rowIndex: input.rowIndex,
+        region: input.region,
+        timeAnchorMs: input.timeAnchorMs,
+      };
+    }
+    setGuideLogicalNavigationActive(active);
+    if (logicalRingHideTimerRef.current) clearTimeout(logicalRingHideTimerRef.current);
+    logicalRingHideTimerRef.current = setTimeout(() => {
+      logicalRingHideTimerRef.current = null;
+      if (!logicalIntentRef.current) logicalRingOpacity.setValue(0);
+    }, 96);
+    return true;
+  }, [active, logicalRingOpacity]);
+
+  const handleLogicalGuideKey = useCallback((key: GuideLogicalKey) => {
+    if (!active || !gridOwnsFocusRef.current) return;
+    const rows = channelsRef.current;
+    if (!rows.length) return;
+    const fallbackAnchor = Number.isFinite(nowMs)
+      ? nowMs
+      : windowStartMs;
+    const cursor = logicalCursorRef.current || {
+      rowIndex: focusedRowRef.current,
+      region: focusRegionRef.current,
+      timeAnchorMs: verticalFocusAnchorRef.current != null
+        ? windowStartMs + (verticalFocusAnchorRef.current / PX_PER_MIN) * MINUTE_MS
+        : fallbackAnchor,
+    };
+    const move = moveGuideLogicalCursor({
+      cursor,
+      key,
+      lastRowIndex: lastRowIndexRef.current,
+      programs: getGuidePrograms(rows[cursor.rowIndex]?.id),
+      windowStartMs,
+      windowEndMs,
+    });
+    if (key === "UP" || key === "DOWN") {
+      lastAxisRef.current = "v";
+      lastAxisAtRef.current = Date.now();
+    } else {
+      lastAxisRef.current = "h";
+      lastAxisAtRef.current = Date.now();
+    }
+    if (move.boundary === "top") {
+      clearLogicalFocusIntent();
+      gridOwnsFocusRef.current = false;
+      setGuideLogicalNavigationActive(false);
+      onUpBoundary?.();
+      return;
+    }
+    if (move.boundary === "left") {
+      clearLogicalFocusIntent();
+      gridOwnsFocusRef.current = false;
+      setGuideLogicalNavigationActive(false);
+      onLeftBoundary?.();
+      return;
+    }
+    if (move.boundary === "bottom") {
+      armGuideBottomFocusLock(focusedNodeRef.current);
+      requestNativeFocus(focusedNodeRef.current);
+      return;
+    }
+    startLogicalFocusMove(move.cursor);
+  }, [PX_PER_MIN, active, clearLogicalFocusIntent, nowMs, onLeftBoundary, onUpBoundary, startLogicalFocusMove, windowEndMs, windowStartMs]);
+
+  useEffect(() => {
+    if (!active) {
+      gridOwnsFocusRef.current = false;
+      setGuideLogicalNavigationActive(false);
+      clearLogicalFocusIntent();
+      return;
+    }
+    return addGuideLogicalKeyListener(handleLogicalGuideKey);
+  }, [active, clearLogicalFocusIntent, handleLogicalGuideKey]);
+
   // Mount-once preferred focus only — restore the last watched row when tabs
   // were detached by fullscreen navigation.
   useEffect(() => {
@@ -1052,8 +1279,10 @@ export const TimelineGrid = memo(function TimelineGrid({
       panAnimRef.current?.stop();
       focusCandidatesByRowRef.current.clear();
       focusedCandidateRef.current = null;
+      clearLogicalFocusIntent();
+      setGuideLogicalNavigationActive(false);
     },
-    [],
+    [clearLogicalFocusIntent],
   );
 
   useEffect(() => {
@@ -1067,7 +1296,7 @@ export const TimelineGrid = memo(function TimelineGrid({
   }, [active]);
 
   const pageGuide = useCallback((direction: -1 | 1) => {
-    if (!active) return;
+    if (!active || !gridOwnsFocusRef.current) return;
     const rows = channelsRef.current;
     if (!rows.length) return;
     const visibleRows = Math.max(1, Math.floor((bodyHRef.current || ROW_H * 6) / ROW_H));
@@ -1075,8 +1304,6 @@ export const TimelineGrid = memo(function TimelineGrid({
       0,
       Math.min(rows.length - 1, focusedRowRef.current + direction * visibleRows),
     );
-    focusedProgramKeyRef.current = null;
-    reportFocusedRow(targetIndex);
     try {
       listRef.current?.scrollToIndex({ index: targetIndex, animated: false, viewPosition: 0.45 });
       verticalOffsetRef.current = clampGuideScrollOffset(
@@ -1085,8 +1312,13 @@ export const TimelineGrid = memo(function TimelineGrid({
         bodyHRef.current,
       );
     } catch {}
-    focusGuideSurfaceWhenMounted(rows[targetIndex]?.id, [0, 16, 40, 80, 140, 240, 420, 700]);
-  }, [ROW_H, active, reportFocusedRow]);
+    const cursor = logicalCursorRef.current || {
+      rowIndex: focusedRowRef.current,
+      region: focusRegionRef.current,
+      timeAnchorMs: Number.isFinite(nowMs) ? nowMs : windowStartMs,
+    };
+    startLogicalFocusMove({ ...cursor, rowIndex: targetIndex });
+  }, [ROW_H, active, nowMs, startLogicalFocusMove, windowStartMs]);
 
   useEffect(() => {
     if (!active) return;
@@ -1180,6 +1412,8 @@ export const TimelineGrid = memo(function TimelineGrid({
 
   const onRowChannelFocus = useCallback(
     (channel: Channel, rowIndex: number, logoNode?: unknown) => {
+      const anchor = logicalCursorRef.current?.timeAnchorMs || (Number.isFinite(nowMs) ? nowMs : windowStartMs);
+      if (!acceptLogicalNativeFocus({ rowIndex, region: "channel", key: "channel", timeAnchorMs: anchor })) return;
       focusRegionRef.current = "channel";
       focusedProgramKeyRef.current = null;
       verticalFocusAnchorRef.current = null;
@@ -1189,11 +1423,13 @@ export const TimelineGrid = memo(function TimelineGrid({
       onChannelFocus?.(channel);
       onBackTargetChange?.("channel", logoNode || focusedNodeRef.current);
     },
-    [onBackTargetChange, onChannelFocus, reportFocusedRow, setHorizontalOffset],
+    [acceptLogicalNativeFocus, nowMs, onBackTargetChange, onChannelFocus, reportFocusedRow, setHorizontalOffset, windowStartMs],
   );
 
   const onRowProgramFocus = useCallback(
     (prepared: PreparedProgram, channel: Channel, rowIndex: number) => {
+      const anchor = guideProgramCenterMs(prepared.program, windowStartMs);
+      if (!acceptLogicalNativeFocus({ rowIndex, region: "program", key: prepared.key, timeAnchorMs: anchor })) return;
       focusRegionRef.current = "program";
       verticalFocusAnchorRef.current = prepared.left + prepared.width / 2;
       const movedVertically = gridOwnsFocusRef.current && rowIndex !== focusedRowRef.current;
@@ -1206,18 +1442,20 @@ export const TimelineGrid = memo(function TimelineGrid({
       onProgramFocus?.(prepared.program, channel);
       onBackTargetChange?.("program", null);
     },
-    [keepProgramVisible, onBackTargetChange, onProgramFocus, reportFocusedRow],
+    [acceptLogicalNativeFocus, keepProgramVisible, onBackTargetChange, onProgramFocus, reportFocusedRow, windowStartMs],
   );
 
   const onRowPendingFocus = useCallback(
     (channel: Channel, rowIndex: number) => {
+      const anchor = logicalCursorRef.current?.timeAnchorMs || (Number.isFinite(nowMs) ? nowMs : windowStartMs);
+      if (!acceptLogicalNativeFocus({ rowIndex, region: "program", key: "pending", timeAnchorMs: anchor })) return;
       focusRegionRef.current = "program";
       focusedProgramKeyRef.current = null;
       reportFocusedRow(rowIndex);
       onChannelFocus?.(channel);
       onBackTargetChange?.("program", null);
     },
-    [onBackTargetChange, onChannelFocus, reportFocusedRow],
+    [acceptLogicalNativeFocus, nowMs, onBackTargetChange, onChannelFocus, reportFocusedRow, windowStartMs],
   );
 
   const renderDrawDistance = cacheProfile === "weak"
@@ -1351,6 +1589,22 @@ export const TimelineGrid = memo(function TimelineGrid({
             </Animated.View>
           </View>
         )}
+        <Animated.View
+          pointerEvents="none"
+          testID="epg-logical-focus-ring"
+          style={[
+            styles.logicalFocusRing,
+            {
+              height: Math.max(20, ROW_H - 2),
+              width: logicalRingW,
+              opacity: logicalRingOpacity,
+              transform: [
+                { translateX: logicalRingX },
+                { translateY: logicalRingY },
+              ],
+            },
+          ]}
+        />
       </View>
     </View>
   );
@@ -1359,6 +1613,17 @@ export const TimelineGrid = memo(function TimelineGrid({
 const styles = StyleSheet.create({
   wrap: { flex: 1, overflow: "hidden" },
   body: { flex: 1, overflow: "hidden" },
+  logicalFocusRing: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    zIndex: 100,
+    elevation: 20,
+    borderWidth: 3,
+    borderColor: "#FFFFFF",
+    borderRadius: 4,
+    backgroundColor: "rgba(139,92,246,0.16)",
+  },
   headerRow: {
     flexDirection: "row",
     overflow: "hidden",

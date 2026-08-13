@@ -96,11 +96,30 @@ class MainActivity : ReactActivity() {
     } else null
     if (key != null && (!TvRemoteModule.guideNavigationActive || TvRemoteModule.pointerActive)) {
       emitRemoteEvent("TvRemoteKey", key)
-      // Pointer mode owns the D-pad entirely. Guide Up/Down must NOT be consumed —
-      // Android's focus engine moves between guide cells; JS only handles boundaries
-      // (Up → group tabs, bottom lock). Consuming Up/Down freezes guide surfing.
+      // Pointer mode owns the D-pad entirely. Guide cells are handled below by
+      // the logical channel/time controller; auxiliary Guide panels still use
+      // Android's normal focus engine.
       if (TvRemoteModule.pointerActive) return true
     }
+    if (
+      key != null &&
+        directional &&
+        TvRemoteModule.guideNavigationActive &&
+        TvRemoteModule.guideLogicalNavigationActive &&
+        !TvRemoteModule.pointerActive
+    ) {
+      // The Guide controller owns channel/time movement. Consume the event so
+      // Android geometry cannot select a stale recycled cell in parallel.
+      emitRemoteEvent("TvGuideLogicalKey", key)
+      return true
+    }
+    if (
+      event.action == android.view.KeyEvent.ACTION_UP &&
+        directional &&
+        TvRemoteModule.guideNavigationActive &&
+        TvRemoteModule.guideLogicalNavigationActive &&
+        !TvRemoteModule.pointerActive
+    ) return true
     return super.dispatchKeyEvent(event)
   }
 
@@ -137,6 +156,7 @@ class MainActivity : ReactActivity() {
     // A stale pointer flag consumes every D-pad key before Android focus sees it.
     TvRemoteModule.pointerActive = false
     TvRemoteModule.guideNavigationActive = false
+    TvRemoteModule.guideLogicalNavigationActive = false
     super.onDestroy()
   }
 

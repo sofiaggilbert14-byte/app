@@ -34,7 +34,11 @@ import {
   buildGuideRunwayIds,
   type GuideScanDirection,
 } from "@/src/core/guideRunwayPolicy";
-import { addGuidePageKeyListener } from "@/src/utils/tvRemote";
+import {
+  addGuideLogicalKeyListener,
+  addGuidePageKeyListener,
+  setGuideLogicalNavigationActive,
+} from "@/src/utils/tvRemote";
 
 const ACCENT = "#A855F7";
 const ACCENT_SOFT = "#E9D5FF";
@@ -367,6 +371,7 @@ export function BoxGrid({
       focusedIndexRef.current = index;
       focusedRowRef.current = row;
       gridOwnsFocusRef.current = true;
+      setGuideLogicalNavigationActive(active);
       keepFocusedCardVisible(index);
       const deep = row > 0;
       if (lastReportedDeepRef.current !== deep) {
@@ -375,7 +380,7 @@ export function BoxGrid({
       }
       reportViewport(index);
     },
-    [keepFocusedCardVisible, numColumns, onFocusedRowChange, reportViewport],
+    [active, keepFocusedCardVisible, numColumns, onFocusedRowChange, reportViewport],
   );
 
   // Mount-once preferred focus — restore the last watched card after player.
@@ -442,6 +447,7 @@ export function BoxGrid({
   useEffect(() => {
     if (active) return;
     gridOwnsFocusRef.current = false;
+    setGuideLogicalNavigationActive(false);
     pendingViewportRef.current = null;
     if (viewportDispatchRef.current) {
       clearTimeout(viewportDispatchRef.current);
@@ -449,8 +455,65 @@ export function BoxGrid({
     }
   }, [active]);
 
-  const pageGuide = useCallback((direction: -1 | 1) => {
+  const focusLogicalCard = useCallback((targetIndex: number) => {
+    const rows = channelsRef.current;
+    if (!rows.length) return;
+    const index = Math.max(0, Math.min(rows.length - 1, targetIndex));
+    reportFocusedRow(index);
+    try {
+      listRef.current?.scrollToIndex({ index, animated: false, viewPosition: 0.45 });
+    } catch {}
+    // The shared restoration helper cancels the previous target's retries, so
+    // held-key movement coalesces instead of building a focus backlog.
+    focusGuideSurfaceWhenMounted(rows[index]?.id, [0, 16, 40, 80, 140, 240]);
+  }, [reportFocusedRow]);
+
+  useEffect(() => {
     if (!active) return;
+    return addGuideLogicalKeyListener((key) => {
+      if (!gridOwnsFocusRef.current) return;
+      const rows = channelsRef.current;
+      if (!rows.length) return;
+      const current = focusedIndexRef.current;
+      const col = current % Math.max(1, numColumns);
+      if (key === "UP") {
+        if (current < numColumns) {
+          gridOwnsFocusRef.current = false;
+          setGuideLogicalNavigationActive(false);
+          onUpBoundary?.();
+          return;
+        }
+        focusLogicalCard(current - numColumns);
+        return;
+      }
+      if (key === "DOWN") {
+        const target = current + numColumns;
+        if (target >= rows.length) {
+          armGuideBottomFocusLock(focusedNodeRef.current);
+          requestNativeFocus(focusedNodeRef.current);
+          return;
+        }
+        focusLogicalCard(target);
+        return;
+      }
+      if (key === "LEFT") {
+        if (col === 0) {
+          gridOwnsFocusRef.current = false;
+          setGuideLogicalNavigationActive(false);
+          onLeftBoundary?.();
+          return;
+        }
+        focusLogicalCard(current - 1);
+        return;
+      }
+      if (key === "RIGHT" && col < numColumns - 1 && current + 1 < rows.length) {
+        focusLogicalCard(current + 1);
+      }
+    });
+  }, [active, focusLogicalCard, numColumns, onLeftBoundary, onUpBoundary]);
+
+  const pageGuide = useCallback((direction: -1 | 1) => {
+    if (!active || !gridOwnsFocusRef.current) return;
     const rows = channelsRef.current;
     if (!rows.length) return;
     const visibleCardRows = Math.max(3, Math.floor(height / 148));

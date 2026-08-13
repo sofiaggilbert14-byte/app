@@ -36,6 +36,8 @@ class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBas
     @JvmField
     var guideNavigationActive: Boolean = false
     @JvmField
+    var guideLogicalNavigationActive: Boolean = false
+    @JvmField
     var guideRepeatIntervalMs: Long = 72L
     private const val MAX_SANE_CODEC_DIMENSION = 16_384
   }
@@ -48,6 +50,12 @@ class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBas
   @ReactMethod
   fun setGuideNavigationActive(active: Boolean) {
     guideNavigationActive = active
+    if (!active) guideLogicalNavigationActive = false
+  }
+
+  @ReactMethod
+  fun setGuideLogicalNavigationActive(active: Boolean) {
+    guideLogicalNavigationActive = active
   }
 
   @ReactMethod
@@ -346,12 +354,41 @@ function hardenMainActivity(src) {
     );
   }
 
+  if (src.includes("dispatchKeyEvent") && !src.includes('"TvGuideLogicalKey"')) {
+    const logicalGuide = `    if (
+      key != null &&
+        directional &&
+        TvRemoteModule.guideNavigationActive &&
+        TvRemoteModule.guideLogicalNavigationActive &&
+        !TvRemoteModule.pointerActive
+    ) {
+      try {
+        val app = application as com.facebook.react.ReactApplication
+        val rc = try { app.reactHost?.currentReactContext } catch (e: Throwable) { null }
+          ?: try { app.reactNativeHost.reactInstanceManager.currentReactContext } catch (e: Throwable) { null }
+        rc?.getJSModule(com.facebook.react.modules.core.DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+          ?.emit("TvGuideLogicalKey", key)
+      } catch (_: Throwable) {}
+      return true
+    }
+    if (
+      event.action == android.view.KeyEvent.ACTION_UP &&
+        directional &&
+        TvRemoteModule.guideNavigationActive &&
+        TvRemoteModule.guideLogicalNavigationActive &&
+        !TvRemoteModule.pointerActive
+    ) return true
+`;
+    src = src.replace("    return super.dispatchKeyEvent(event)", logicalGuide + "    return super.dispatchKeyEvent(event)");
+  }
+
   if (!src.includes("Static remote flags must never survive")) {
     const lifecycle = `
   override fun onDestroy() {
     // Static remote flags must never survive an Activity/bridge teardown.
     TvRemoteModule.pointerActive = false
     TvRemoteModule.guideNavigationActive = false
+    TvRemoteModule.guideLogicalNavigationActive = false
     super.onDestroy()
   }
 
@@ -400,9 +437,32 @@ function withTvRemoteKeyCapture(config) {
         rc?.getJSModule(com.facebook.react.modules.core.DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
           ?.emit("TvRemoteKey", key)
       } catch (e: Throwable) {}
-      // Pointer mode owns D-pad. Guide Up/Down must reach Android's focus engine.
+      // Pointer mode owns D-pad. Logical Guide cells are handled below.
       if (TvRemoteModule.pointerActive) return true
     }
+    if (
+      key != null &&
+        directional &&
+        TvRemoteModule.guideNavigationActive &&
+        TvRemoteModule.guideLogicalNavigationActive &&
+        !TvRemoteModule.pointerActive
+    ) {
+      try {
+        val app = application as com.facebook.react.ReactApplication
+        val rc = try { app.reactHost?.currentReactContext } catch (e: Throwable) { null }
+          ?: try { app.reactNativeHost.reactInstanceManager.currentReactContext } catch (e: Throwable) { null }
+        rc?.getJSModule(com.facebook.react.modules.core.DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+          ?.emit("TvGuideLogicalKey", key)
+      } catch (_: Throwable) {}
+      return true
+    }
+    if (
+      event.action == android.view.KeyEvent.ACTION_UP &&
+        directional &&
+        TvRemoteModule.guideNavigationActive &&
+        TvRemoteModule.guideLogicalNavigationActive &&
+        !TvRemoteModule.pointerActive
+    ) return true
     return super.dispatchKeyEvent(event)
   }
 `;

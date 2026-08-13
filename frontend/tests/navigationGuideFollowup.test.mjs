@@ -78,7 +78,11 @@ test("preview default, ONN page keys, and cold-row focus anchor are hardened", a
   assert.doesNotMatch(timeline, /Math\.max\(24, timelineWidth - 6\)/);
   assert.match(timeline, /overScrollMode="never"/);
   assert.doesNotMatch(timeline, /paddingBottom: 120/);
-  assert.match(timeline, /reportFocusedRow\(targetIndex\)/);
+  assert.match(timeline, /startLogicalFocusMove\(\{ \.\.\.cursor, rowIndex: targetIndex \}\)/);
+  assert.match(timeline, /addGuideLogicalKeyListener/);
+  assert.match(timeline, /logicalIntentRef/);
+  assert.match(activity, /TvGuideLogicalKey/);
+  assert.match(plugin, /TvGuideLogicalKey/);
   assert.match(box, /overScrollMode="never"/);
   assert.doesNotMatch(box, /paddingBottom: 130/);
   assert.match(box, /reportFocusedRow\(targetIndex\)/);

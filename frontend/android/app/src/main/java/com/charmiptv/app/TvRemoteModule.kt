@@ -21,6 +21,8 @@ class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBas
     @JvmField
     var guideNavigationActive: Boolean = false
     @JvmField
+    var guideLogicalNavigationActive: Boolean = false
+    @JvmField
     var guideRepeatIntervalMs: Long = 72L
     private const val MAX_SANE_CODEC_DIMENSION = 16_384
   }
@@ -33,6 +35,12 @@ class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBas
   @ReactMethod
   fun setGuideNavigationActive(active: Boolean) {
     guideNavigationActive = active
+    if (!active) guideLogicalNavigationActive = false
+  }
+
+  @ReactMethod
+  fun setGuideLogicalNavigationActive(active: Boolean) {
+    guideLogicalNavigationActive = active
   }
 
   @ReactMethod
