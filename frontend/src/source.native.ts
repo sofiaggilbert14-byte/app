@@ -31,12 +31,12 @@ import { applyManualEpgRemaps, type EpgManualRemap } from "@/src/core/epgUserOve
 import { cleanupLegacyEpgArtifactsOnce } from "@/src/utils/legacyEpgCleanup";
 
 export const API_BASE = "";
-/** Playlist URL — set via EXPO_PUBLIC_M3U_URL at build time. Never hardcode provider URLs. */
+/** Playlist URL â€” set via EXPO_PUBLIC_M3U_URL at build time. Never hardcode provider URLs. */
 export const SOURCE_M3U = (process.env.EXPO_PUBLIC_M3U_URL || "").trim();
-/** XMLTV URL — set via EXPO_PUBLIC_EPG_URL at build time. Never hardcode provider URLs. */
+/** XMLTV URL â€” set via EXPO_PUBLIC_EPG_URL at build time. Never hardcode provider URLs. */
 export const SOURCE_EPG = (process.env.EXPO_PUBLIC_EPG_URL || "").trim();
 
-/** Shared empty programmes array — reused for channels with no EPG in-window. Never mutate. */
+/** Shared empty programmes array â€” reused for channels with no EPG in-window. Never mutate. */
 const EMPTY_PROGRAMS: Program[] = [];
 
 const TTL_MS = 24 * 60 * 60 * 1000;
@@ -57,16 +57,16 @@ type NativeMeta = {
   epgProgramCount: number;
   epgChannelCount: number;
   epgError?: string;
-  /** Soft epochs — independent playlist vs guide; never a hard joint snapshot. */
+  /** Soft epochs â€” independent playlist vs guide; never a hard joint snapshot. */
   playlistEpoch?: number;
   guideEpoch?: number;
   playlistRefreshedAt?: number;
   guideRefreshedAt?: number;
   matchFingerprint?: string;
   matchQuality?: EpgMatchQuality;
-  /** "tvg" | "full" — logo-only skip must not ignore policy changes. */
+  /** "tvg" | "full" â€” logo-only skip must not ignore policy changes. */
   matchPolicy?: string;
-  /** Playlist id/tvg_id/name fingerprint — logo-only only when this is unchanged. */
+  /** Playlist id/tvg_id/name fingerprint â€” logo-only only when this is unchanged. */
   playlistIdentityFingerprint?: string;
 };
 
@@ -76,7 +76,7 @@ let lastSourceError: string | null = null;
 const listeners = new Set<() => void>();
 let sourceEmitScheduled = false;
 
-/** Runtime match policy — store syncs this from settings (prefer tvg-id only). */
+/** Runtime match policy â€” store syncs this from settings (prefer tvg-id only). */
 let preferTvgIdOnly = false;
 /** Optional priority channel ids for huge-list first-pass matching (current group / viewport). */
 let priorityMatchChannelIds: string[] = [];
@@ -84,7 +84,7 @@ let priorityMatchChannelIds: string[] = [];
 let manualEpgRemaps: EpgManualRemap = {};
 /** Optional viewport ids for guide window queries (perf). */
 let viewportGuideChannelIds: string[] | null = null;
-/** Merged programme window — viewport fetches must not wipe off-screen rows. */
+/** Merged programme window â€” viewport fetches must not wipe off-screen rows. */
 let programmeWindowCache: Record<string, Program[]> = {};
 /** Negative cache avoids re-querying unmatched/no-data rows on every D-pad move. */
 let programmeWindowEmptyKeys = new Set<string>();
@@ -97,7 +97,7 @@ let lastNativeMatchWriteFingerprint = "";
 
 export function setPreferTvgIdOnlyMatching(value: boolean): void {
   preferTvgIdOnly = !!value;
-  // Force a full rematch on next EPG refresh — do not keep a logo-only short-circuit.
+  // Force a full rematch on next EPG refresh â€” do not keep a logo-only short-circuit.
   if (MEM) {
     MEM = { ...MEM, matchFingerprint: undefined, matchPolicy: undefined };
   }
@@ -300,7 +300,7 @@ function matchPolicyKey(): string {
 }
 
 function playlistIdentityFingerprint(channels: Channel[]): string {
-  // Logo URLs intentionally excluded — logo-only EPG drift must not force rematch.
+  // Logo URLs intentionally excluded â€” logo-only EPG drift must not force rematch.
   return channels.map((channel) => channelMatchIdentity(channel)).join("\n");
 }
 
@@ -314,8 +314,8 @@ async function nextTick(): Promise<void> {
 
 /**
  * Two-phase match on huge lists: priority/viewport first + emit, then remainder.
- * Avoids waiting for the full rematch before the visible group feels “live”.
- * Returns auto-matched rows only — manual remaps are applied at loadGuide / UI read time
+ * Avoids waiting for the full rematch before the visible group feels â€œliveâ€.
+ * Returns auto-matched rows only â€” manual remaps are applied at loadGuide / UI read time
  * so clearing a remap can restore the auto-matched tvg_id.
  */
 async function matchChannelsWithPhases(
@@ -513,136 +513,7 @@ async function persistMeta(meta: NativeMeta): Promise<void> {
     await FileSystem.deleteAsync(CHANNEL_CACHE_BAK, { idempotent: true }).catch(() => undefined);
   } catch (error) {
     await FileSystem.deleteAsync(CHANNEL_CACHE, { idempotent: true }).catch(() => undefined);
-    const backup = await FileSystem.getInfoAsync(CHANNEL_CACHE_BAK).catch(() => null);
-    if (backup?.exists) {
-      await FileSystem.moveAsync({ from: CHANNEL_CACHE_BAK, to: CHANNEL_CACHE }).catch(() => undefined);
-    }
-    throw error;
-  }
-}
-
-async function fetchPlaylist(): Promise<Channel[]> {
-  if (!SOURCE_M3U) {
-    throw new Error("Playlist is not configured for this build (missing EXPO_PUBLIC_M3U_URL).");
-  }
-  const response = await fetch(https(SOURCE_M3U), {
-    headers: { "User-Agent": "CharmIPTV/Experimental-v3" },
-  });
-  if (!response.ok) throw new Error(`M3U HTTP ${response.status}`);
-  const contentLength = Number(response.headers.get("content-length") || "");
-  if (Number.isFinite(contentLength) && contentLength > 0) {
-    enforcePlaylistByteLimit(contentLength);
-  }
-  const text = await response.text();
-  enforcePlaylistTextLimit(text);
-  const { channels } = parseM3UWithStats(text, (url) => url, (ratio) => {
-    setProgress({ phase: "channels", ratio: 0.05 + ratio * 0.12, etaSeconds: null });
-  });
-  const sorted = sortChannels(channels);
-  // Empty / unusable refresh must not wipe a last-good on-disk list (refreshInternal catch).
-  if (!sorted.length) throw new Error("Playlist contained no playable channels");
-  return sorted;
-}
-
-async function ensureLoaded(): Promise<NativeMeta> {
-  // Best-effort once per install: drop superseded JS/expo EPG files (never v3 native DB).
-  void cleanupLegacyEpgArtifactsOnce();
-
-  if (MEM && MEM.channels.length > 0) return MEM;
-  const cached = await readChannelCache();
-  if (cached) {
-    if (cached.channels.length === 0) {
-      return refreshInternal(true);
-    }
-    MEM = cached;
-    if (cached.epgError) {
-      lastSourceError = cached.epgError;
-      setProgress({ phase: "error", ratio: 0, etaSeconds: null, message: cached.epgError }, true);
-    }
-    // Rebuild SQL playlist/match tables after upgrade or cold start (queryGuideWindow needs them).
-    void syncPlaylistToNative(cached.channels, cached.playlistEpoch || 0)
-      .then(() => syncMatchesToNative(cached.channels, cached.guideEpoch || 0))
-      .catch(() => undefined);
-    if (cached.ts <= 0 || Date.now() - cached.ts >= TTL_MS) {
-      if (!cached.epgError) {
-        setProgress({ phase: "update_available", ratio: 0, etaSeconds: null, message: null }, true);
-      }
-      void refreshInternal(false);
-    }
-    return cached;
-  }
-
-  const legacy = await readMetaFile(LEGACY_CHANNEL_CACHE);
-  if (legacy) {
-    if (legacy.channels.length === 0) {
-      return refreshInternal(true);
-    }
-    MEM = { ...legacy, ts: 0 };
-    await persistMeta(MEM).catch(() => undefined);
-    void refreshInternal(false);
-    return MEM;
-  }
-
-  return refreshInternal(true);
-}
-
-async function refreshInternal(force: boolean): Promise<NativeMeta> {
-  if (refreshPromise) return refreshPromise;
-  refreshPromise = (async () => {
-    const cached = MEM || (await readChannelCache());
-    if (!force && cached && cached.ts > 0 && Date.now() - cached.ts < TTL_MS) {
-      MEM = cached;
-      void syncPlaylistToNative(cached.channels, cached.playlistEpoch || 0)
-        .then(() => syncMatchesToNative(cached.channels, cached.guideEpoch || 0))
-        .catch(() => undefined);
-      return cached;
-    }
-
-    lastSourceError = null;
-    let channels = cached?.channels || [];
-    try {
-      setProgress({ phase: "channels", ratio: 0.05, etaSeconds: null }, true);
-      channels = await fetchPlaylist();
-      const playlistRefreshedAt = Date.now();
-      const playlistEpoch = (cached?.playlistEpoch || 0) + 1;
-      const playlistFp = playlistIdentityFingerprint(channels);
-      MEM = {
-        ts: cached?.ts || 0,
-        channels,
-        epgProgramCount: cached?.epgProgramCount || 0,
-        epgChannelCount: cached?.epgChannelCount || 0,
-        playlistEpoch,
-        playlistRefreshedAt,
-        guideEpoch: cached?.guideEpoch,
-        guideRefreshedAt: cached?.guideRefreshedAt,
-        matchFingerprint: cached?.matchFingerprint,
-        matchQuality: cached?.matchQuality,
-        matchPolicy: cached?.matchPolicy,
-        playlistIdentityFingerprint: playlistFp,
-      };
-      // Channels-first paint — EPG continues async below.
-      await persistMeta(MEM);
-      // Sync raw playlist rows into SQLite before match rewrites tvg_id.
-      void syncPlaylistToNative(channels, playlistEpoch).catch(() => undefined);
-      emit();
-
-      if (!nativeEpgAvailable) throw new Error("Native EPG engine is unavailable in this Android build");
-      if (!SOURCE_EPG) throw new Error("EPG is not configured for this build (missing EXPO_PUBLIC_EPG_URL).");
-      setProgress({ phase: "downloading", ratio: 0.2, etaSeconds: null, message: null }, true);
-      const epg = await refreshNativeEpg(https(SOURCE_EPG), false);
-      setProgress({ phase: "indexing", ratio: 0.91, etaSeconds: null }, true);
-
-      const epgLogos = epg.channelLogos || {};
-      const epgNames = epg.channelNames || {};
-      const indexes = buildXmltvMatchIndexes({
-        channelIds: new Set([
-          ...Object.keys(epgLogos),
-          ...Object.keys(epgNames),
-          ...(epg.channelIdsWithPrograms || []),
-        ]),
-        channelNames: epgNames,
-        idsWithPrograms: epg.channelIdsWithPrograms || [],
-      });
+    const backup = await FileSys…1337 tokens truncated… });
 
       const policy = matchPolicyKey();
       const playlistUnchanged = cached?.playlistIdentityFingerprint === playlistFp;
@@ -850,11 +721,11 @@ export async function loadGuide(startISO?: string, hours = 6, force = false): Pr
   playlistIds = Array.from(new Set(playlistIds));
 
   await loadProgrammeCacheMisses(remapped, playlistIds, startMs, endMs);
-  // Soft trim only — strict viewport trim would wipe the conveyor hysteresis band
+  // Soft trim only â€” strict viewport trim would wipe the conveyor hysteresis band
   // that retainProgrammeWindowCache(expandRunwayKeepSet(...)) intentionally keeps.
   trimProgrammeWindowCache(playlistIds, "soft");
 
-  // Shared empty list — avoid allocating tens of thousands of `[]` on big playlists.
+  // Shared empty list â€” avoid allocating tens of thousands of `[]` on big playlists.
   // Never mutate EMPTY_PROGRAMS.
   const emptyPrograms: Program[] = EMPTY_PROGRAMS;
   const programsByChannelId: Record<string, Program[]> = {};
@@ -882,7 +753,7 @@ export async function loadGuide(startISO?: string, hours = 6, force = false): Pr
 }
 
 /**
- * Exact directional runway fetch — patches programme cache only.
+ * Exact directional runway fetch â€” patches programme cache only.
  * It reads cache misses only, records negative results, and never emits().
  */
 export async function loadGuideProgramsForChannelIds(
@@ -933,7 +804,7 @@ export async function refreshSource(force = false): Promise<SourceStatus> {
   return sourceStatus();
 }
 
-/** Refresh XMLTV only — keep current playlist rows (independent epochs). */
+/** Refresh XMLTV only â€” keep current playlist rows (independent epochs). */
 export async function refreshEpgOnly(): Promise<SourceStatus> {
   // Wait for any in-flight refresh, then always rematch with the current policy.
   if (refreshPromise) await refreshPromise;
@@ -1113,7 +984,7 @@ export async function sourceDiagnostics(): Promise<SourceDiagnostics> {
 }
 
 /**
- * Safe guide maintenance — clears native EPG + channel meta cache only.
+ * Safe guide maintenance â€” clears native EPG + channel meta cache only.
  * Never touches favorites / recents / reminders.
  */
 export async function clearGuideCache(): Promise<void> {
