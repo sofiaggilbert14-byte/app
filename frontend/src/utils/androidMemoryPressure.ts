@@ -6,19 +6,27 @@ const ramEpgModule = NativeModules.CharmEpgRam as
   | { clearMemory?: () => Promise<boolean> }
   | undefined;
 
+const listeners = new Set<(pressure: AndroidMemoryPressure) => void>();
+let nativeSubscription: { remove: () => void } | null = null;
+
+function ensureNativeSubscription(): void {
+  if (nativeSubscription || Platform.OS !== "android") return;
+  nativeSubscription = DeviceEventEmitter.addListener("CharmMemoryPressure", (raw: unknown) => {
+    if (raw !== "moderate" && raw !== "critical") return;
+    if (raw === "critical") {
+      // One global native clear per Android event. Feature subscribers only trim
+      // their own JS/logo/preview state and cannot duplicate this native work.
+      void ramEpgModule?.clearMemory?.().catch(() => undefined);
+    }
+    for (const listener of Array.from(listeners)) listener(raw);
+  });
+}
+
 export function subscribeAndroidMemoryPressure(
   listener: (pressure: AndroidMemoryPressure) => void,
 ): () => void {
   if (Platform.OS !== "android") return () => undefined;
-  const subscription = DeviceEventEmitter.addListener("CharmMemoryPressure", (raw: unknown) => {
-    if (raw !== "moderate" && raw !== "critical") return;
-    if (raw === "critical") {
-      // The full native EPG snapshot is intentionally expendable. SQLite keeps
-      // the last-good guide, so release RAM before JS rows/logos trim and let
-      // later Guide reads fall back to disk rather than risk an Android OOM/LMK.
-      void ramEpgModule?.clearMemory?.().catch(() => undefined);
-    }
-    listener(raw);
-  });
-  return () => subscription.remove();
+  listeners.add(listener);
+  ensureNativeSubscription();
+  return () => listeners.delete(listener);
 }
