@@ -112,13 +112,22 @@ class MainActivity : ReactActivity() {
     ) {
       // Exactly one logical focus transaction may be in flight. While its
       // destination is still mounting, retain only the newest accepted repeat.
-      // Native onFocus acknowledgement releases that queued key from
-      // TvRemoteModule.setGuideLogicalNavigationActive(true).
+      // If a recycled/unmounted cell never acknowledges focus, the watchdog
+      // below releases the stale transaction instead of freezing navigation.
       if (TvRemoteModule.guideLogicalFocusPending) {
-        TvRemoteModule.pendingLogicalGuideKey = key
-        return true
+        val pendingSince = TvRemoteModule.guideLogicalFocusPendingSinceMs
+        val pendingAge = if (pendingSince > 0L) event.eventTime - pendingSince else 0L
+        if (pendingSince > 0L && pendingAge >= LOGICAL_FOCUS_ACK_TIMEOUT_MS) {
+          TvRemoteModule.guideLogicalFocusPending = false
+          TvRemoteModule.guideLogicalFocusPendingSinceMs = 0L
+          TvRemoteModule.pendingLogicalGuideKey = null
+        } else {
+          TvRemoteModule.pendingLogicalGuideKey = key
+          return true
+        }
       }
       TvRemoteModule.guideLogicalFocusPending = true
+      TvRemoteModule.guideLogicalFocusPendingSinceMs = event.eventTime
       emitRemoteEvent("TvGuideLogicalKey", key)
       return true
     }
@@ -167,6 +176,7 @@ class MainActivity : ReactActivity() {
     TvRemoteModule.guideNavigationActive = false
     TvRemoteModule.guideLogicalNavigationActive = false
     TvRemoteModule.guideLogicalFocusPending = false
+    TvRemoteModule.guideLogicalFocusPendingSinceMs = 0L
     TvRemoteModule.pendingLogicalGuideKey = null
     super.onDestroy()
   }
@@ -196,5 +206,8 @@ class MainActivity : ReactActivity() {
     // Non-Guide screens retain the existing cap. Guide repeats use the
     // configurable device-profile cadence (72 ms Normal by default).
     private const val MIN_DPAD_REPEAT_MS = 48L
+    // Longer than the JS retry burst (240 ms), short enough that a recycled
+    // destination cannot hold the remote gate indefinitely.
+    private const val LOGICAL_FOCUS_ACK_TIMEOUT_MS = 650L
   }
 }
