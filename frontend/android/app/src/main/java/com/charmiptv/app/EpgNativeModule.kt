@@ -24,6 +24,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   ReactContextBaseJavaModule(reactContext) {
 
   private val database = EpgDatabase(reactContext)
+  private val guideHotCache = EpgGuideHotCache(database::queryGuideWindow)
 
   // Refresh/network/XML work is intentionally isolated from guide reads. A slow
   // EPG download must never queue getWindow/getCurrent behind it; WAL lets the
@@ -100,14 +101,12 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         val deleted = database.deleteExpired(now - GUIDE_HISTORY_MS)
         // Rare idle reclaim only after a large expiry — never every refresh.
         database.maybeIncrementalVacuum(MIN_VACUUM_DELETED_ROWS, deleted)
-        // The Guide reads bounded channel windows and never consumes getCurrent.
-        // Invalidate this optional compatibility cache after refresh and rebuild
-        // it lazily only if a caller actually asks for the all-current snapshot.
-        // This avoids retaining one extra NativeEpgProgram per channel all day.
+        // Invalidate small RAM caches only after the new live guide is committed.
         synchronized(currentCacheLock) {
           currentCache.clear()
           currentCacheValidUntilMs = 0L
         }
+        guideHotCache.clear()
 
         val logos = Arguments.createMap()
         for ((channelId, logoUrl) in channelLogos) {
@@ -162,7 +161,9 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
 
   /**
    * Fast path for the TV guide: JOIN playlist_epg_matches → epg_programmes and
-   * return programmes keyed by playlist channel id (not XMLTV id).
+   * return programmes keyed by playlist channel id (not XMLTV id). Recently
+   * requested rows are retained in a small native RAM hot cache; SQLite remains
+   * authoritative and fills misses in one batched query.
    */
   @ReactMethod
   fun queryGuideWindow(startMs: Double, endMs: Double, playlistChannelIds: ReadableArray, promise: Promise) {
@@ -178,7 +179,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
           val id = playlistChannelIds.getString(i)?.trim()
           if (!id.isNullOrEmpty()) ids.add(id)
         }
-        val programmes = database.queryGuideWindow(start, end, ids)
+        val programmes = guideHotCache.query(start, end, ids)
         promise.resolve(groupPrograms(programmes))
       } catch (t: Throwable) {
         promise.reject("EPG_GUIDE_WINDOW_FAILED", t.message ?: "Could not read joined EPG window", t)
@@ -221,9 +222,9 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
             )
           )
         }
-        promise.resolve(
-          database.replacePlaylistChannels(rows, playlistEpoch.toLong(), contentFingerprint.trim())
-        )
+        val changed = database.replacePlaylistChannels(rows, playlistEpoch.toLong(), contentFingerprint.trim())
+        guideHotCache.clear()
+        promise.resolve(changed)
       } catch (t: Throwable) {
         promise.reject("EPG_PLAYLIST_UPSERT_FAILED", t.message ?: "Could not upsert playlist channels", t)
       }
@@ -250,7 +251,9 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
             )
           )
         }
-        promise.resolve(database.replacePlaylistEpgMatches(rows, guideEpoch.toLong()))
+        val changed = database.replacePlaylistEpgMatches(rows, guideEpoch.toLong())
+        guideHotCache.clear()
+        promise.resolve(changed)
       } catch (t: Throwable) {
         promise.reject("EPG_MATCH_UPSERT_FAILED", t.message ?: "Could not upsert EPG matches", t)
       }
@@ -284,6 +287,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
           currentCache.clear()
           currentCacheValidUntilMs = 0L
         }
+        guideHotCache.clear()
         promise.resolve(true)
       } catch (t: Throwable) {
         promise.reject("EPG_CLEAR_FAILED", t.message ?: "Could not clear native EPG cache", t)
@@ -599,6 +603,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
       currentCache.clear()
       currentCacheValidUntilMs = 0L
     }
+    guideHotCache.clear()
     refreshExecutor.shutdownNow()
     queryExecutor.shutdownNow()
     database.close()
