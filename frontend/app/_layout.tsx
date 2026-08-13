@@ -17,6 +17,10 @@ import { PurpleTvDrawerProvider, usePurpleTvDrawer } from "@/src/components/Purp
 import { TvCalibrationFrame, TvCalibrationProvider } from "@/src/tvCalibration";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 import { setGuideNavigationActive } from "@/src/utils/tvRemote";
+import { storage } from "@/src/utils/storage";
+
+const COMPACT_DENSITY_DEFAULT_MIGRATION_KEY = "gs_compact_density_default_v2";
+const GUIDE_DENSITY_STORAGE_KEY = "gs_guide_density";
 
 // Keep real errors visible for TV QA; only silence known noisy module warnings.
 LogBox.ignoreLogs([
@@ -90,6 +94,33 @@ function StartScreenRedirect() {
 }
 
 /**
+ * Migrate the old Extra Compact default to Compact once. After this marker is
+ * written, every density the user chooses is left alone permanently.
+ */
+function GuideDensityDefaultMigration() {
+  const { setGuideDensity } = useStore();
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const applied = await storage.getItem<boolean>(COMPACT_DENSITY_DEFAULT_MIGRATION_KEY, false);
+      if (applied || cancelled) return;
+      const storedDensity = await storage.getItem<string | null>(GUIDE_DENSITY_STORAGE_KEY, null);
+      if (cancelled) return;
+      if (!storedDensity || storedDensity === "extra_compact") {
+        setGuideDensity("compact");
+      }
+      await storage.setItem(COMPACT_DENSITY_DEFAULT_MIGRATION_KEY, true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [setGuideDensity]);
+
+  return null;
+}
+
+/**
  * One owner for native Guide D-pad mode. The Guide may own directional keys only
  * while it is actually visible and no overlay is responsible for focus. Without
  * this guard, the Program sheet/drawer and the hidden Guide can both react to the
@@ -133,6 +164,7 @@ export default function RootLayout() {
                 <NotificationRouter />
                 <ReminderCleanup />
                 <StartScreenRedirect />
+                <GuideDensityDefaultMigration />
                 <TvFocusOwnershipCoordinator />
                 <ErrorBoundary>
                   <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#070711" } }}>
