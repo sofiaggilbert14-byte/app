@@ -26,12 +26,12 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
   fun warm(startMs: Double, endMs: Double, promise: Promise) {
     worker.execute {
       try {
-        database.ensureHealthy()
         val warmed = engine.rebuild(startMs.toLong(), endMs.toLong())
         if (warmed) warmGuideEpoch = currentGuideEpoch()
         promise.resolve(warmed)
-      } catch (t: Throwable) {
-        promise.reject("EPG_RAM_WARM_FAILED", t.message ?: "Could not warm EPG RAM index", t)
+      } catch (_: Throwable) {
+        // RAM acceleration must never turn a healthy persisted guide into a failure.
+        promise.resolve(false)
       }
     }
   }
@@ -58,8 +58,8 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
         }
         engine.replaceMatches(rows)
         promise.resolve(true)
-      } catch (t: Throwable) {
-        promise.reject("EPG_RAM_MATCH_FAILED", t.message ?: "Could not update RAM EPG matches", t)
+      } catch (_: Throwable) {
+        promise.resolve(false)
       }
     }
   }
@@ -72,8 +72,9 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
         val ids = readIds(playlistChannelIds)
         val programmes = engine.queryGuideWindow(startMs.toLong(), endMs.toLong(), ids)
         if (programmes == null) promise.resolve(null) else promise.resolve(groupPrograms(programmes))
-      } catch (t: Throwable) {
-        promise.reject("EPG_RAM_GUIDE_FAILED", t.message ?: "Could not read RAM Guide window", t)
+      } catch (_: Throwable) {
+        // null explicitly tells JS to use the existing SQLite Guide path.
+        promise.resolve(null)
       }
     }
   }
@@ -86,8 +87,8 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
         val ids = readIds(channelIds)
         val programmes = engine.queryWindow(startMs.toLong(), endMs.toLong(), ids)
         if (programmes == null) promise.resolve(null) else promise.resolve(groupPrograms(programmes))
-      } catch (t: Throwable) {
-        promise.reject("EPG_RAM_WINDOW_FAILED", t.message ?: "Could not read RAM EPG window", t)
+      } catch (_: Throwable) {
+        promise.resolve(null)
       }
     }
   }
@@ -111,7 +112,6 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
   private fun ensureWarmForCurrentEpoch() {
     val epoch = currentGuideEpoch()
     if (engine.isWarm() && warmGuideEpoch == epoch) return
-    database.ensureHealthy()
     val now = System.currentTimeMillis()
     if (engine.rebuild(now - GUIDE_HISTORY_MS, now + GUIDE_WINDOW_MS)) {
       warmGuideEpoch = epoch
@@ -149,7 +149,7 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
   }
 
   override fun invalidate() {
-    engine.clear()
+    engine.clear(0L)
     worker.shutdownNow()
     queryPool.shutdownNow()
     database.close()
