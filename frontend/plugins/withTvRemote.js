@@ -234,6 +234,7 @@ function withTvRemotePackageRegistered(config) {
 
 function hardenMainActivity(src) {
   src = src
+    .replace("import android.os.Bundle\n", "import android.os.Bundle\nimport android.view.View\nimport kotlin.math.abs\nimport kotlin.math.max\n")
     .replace(/private val minDpadRepeatMs = \d+L/, "private val minDpadRepeatMs = 48L")
     .replace(/private const val MIN_DPAD_REPEAT_MS = \d+L/, "private const val MIN_DPAD_REPEAT_MS = 48L")
     .replace(/\n\s*private val guideFocusAckTimeoutMs = \d+L/, "")
@@ -263,6 +264,32 @@ function hardenMainActivity(src) {
   private var lastAcceptedDirectionalRepeatAt = 0L
   private var lastAcceptedDirectionalKeyCode = -1
   private val minDpadRepeatMs = 48L
+
+  private fun hasSafeGuideVerticalTarget(direction: Int): Boolean {
+    val source = currentFocus ?: return false
+    val target = try { source.focusSearch(direction) } catch (_: Throwable) { null } ?: return false
+    if (target === source || !target.isShown || !target.isFocusable || !target.isEnabled) return false
+    return try {
+      val sourceLoc = IntArray(2)
+      val targetLoc = IntArray(2)
+      source.getLocationOnScreen(sourceLoc)
+      target.getLocationOnScreen(targetLoc)
+      val sourceCenterX = sourceLoc[0] + source.width / 2f
+      val targetCenterX = targetLoc[0] + target.width / 2f
+      val sourceCenterY = sourceLoc[1] + source.height / 2f
+      val targetCenterY = targetLoc[1] + target.height / 2f
+      val horizontalJump = abs(targetCenterX - sourceCenterX)
+      val verticalJump = abs(targetCenterY - sourceCenterY)
+      val screenWidth = resources.displayMetrics.widthPixels.toFloat().coerceAtLeast(1f)
+      val movesRequestedDirection =
+        if (direction == View.FOCUS_UP) targetCenterY < sourceCenterY else targetCenterY > sourceCenterY
+      movesRequestedDirection &&
+        horizontalJump <= max(240f, screenWidth * 0.42f) &&
+        verticalJump <= max(180f, source.height * 3f)
+    } catch (_: Throwable) {
+      false
+    }
+  }
 `;
     src = src.slice(0, idx) + fields + src.slice(idx);
     src = src.replace(
@@ -286,6 +313,18 @@ function hardenMainActivity(src) {
         if (sameDirection) {
           val repeatFloor = if (guideActive) TvRemoteModule.guideRepeatIntervalMs else minDpadRepeatMs
           if (elapsed < repeatFloor) return true
+        }
+        if (
+          guideActive &&
+            sameDirection &&
+            (event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP ||
+              event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN) &&
+            !hasSafeGuideVerticalTarget(
+              if (event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP) View.FOCUS_UP else View.FOCUS_DOWN,
+            )
+        ) {
+          lastAcceptedDirectionalRepeatAt = event.eventTime
+          return true
         }
         lastAcceptedDirectionalKeyCode = event.keyCode
         lastAcceptedDirectionalRepeatAt = event.eventTime
@@ -367,7 +406,7 @@ function withTvRemoteKeyCapture(config) {
     let src = cfg.modResults.contents;
 
     // Upgrade an Activity produced by an earlier version of this plugin.
-    // Never consume guide Up/Down — that freezes Android focus surfing in the grid.
+    // Never consume guide Up/Down â€” that freezes Android focus surfing in the grid.
     if (src.includes("dispatchKeyEvent")) {
       src = src.replace(
         /\n\s*if \(TvRemoteModule\.guideNavigationActive && \(key == "UP" \|\| key == "DOWN"\)\) return true/g,
