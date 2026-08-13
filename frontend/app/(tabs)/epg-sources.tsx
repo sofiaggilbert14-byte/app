@@ -65,19 +65,19 @@ export default function EpgSourcesScreen() {
         <View style={styles.sourceList}>
           <SourceRow
             title="Primary XMLTV Guide"
-            subtitle="Managed by CharmIPTV · locked source"
+            subtitle="Managed by CharmIPTV Â· locked source"
             enabled
-            status={status.error ? "Guide error — see health" : "Active"}
+            status={status.error ? "Guide error â€” see health" : "Active"}
           />
           <SourceRow
             title="Playlist Channel Map"
-            subtitle="Managed by CharmIPTV · locked source"
+            subtitle="Managed by CharmIPTV Â· locked source"
             enabled
             status={`${status.channel_count || 0} channels`}
           />
           <SourceRow
             title="Native EPG Cache"
-            subtitle="Streamed XMLTV on-device (Android) · no JS fallback on TV"
+            subtitle="Complete local-file XMLTV ingest (Android) Â· no JS parser on TV"
             enabled
             status={status.error ? "Unavailable" : `${diagnostics?.programs || 0} cached programs`}
           />
@@ -96,8 +96,8 @@ export default function EpgSourcesScreen() {
             label="Match quality"
             value={
               diagnostics?.matchQuality
-                ? `${diagnostics.matchQuality.matched} matched · ${diagnostics.matchQuality.ambiguous} ambiguous · ${diagnostics.matchQuality.unmatched} unmatched`
-                : "—"
+                ? `${diagnostics.matchQuality.matched} matched Â· ${diagnostics.matchQuality.ambiguous} ambiguous Â· ${diagnostics.matchQuality.unmatched} unmatched`
+                : "â€”"
             }
           />
           <Info label="Refresh in progress" value={diagnostics?.refreshInFlight ? "Yes" : "No"} />
@@ -107,7 +107,7 @@ export default function EpgSourcesScreen() {
             value={
               diagnostics?.playlistRefreshedAt
                 ? dayjs(diagnostics.playlistRefreshedAt).format("MMM D, h:mm A")
-                : "—"
+                : "â€”"
             }
           />
           <Info
@@ -115,10 +115,10 @@ export default function EpgSourcesScreen() {
             value={
               diagnostics?.guideRefreshedAt
                 ? dayjs(diagnostics.guideRefreshedAt).format("MMM D, h:mm A")
-                : "—"
+                : "â€”"
             }
           />
-          <Info label="Cache age" value={diagnostics?.cacheAgeMinutes != null ? `${diagnostics.cacheAgeMinutes} min` : "—"} />
+          <Info label="Cache age" value={diagnostics?.cacheAgeMinutes != null ? `${diagnostics.cacheAgeMinutes} min` : "â€”"} />
           {diagnostics?.epgError || status.error ? (
             <Text style={styles.error} testID="epg-sources-error">
               {diagnostics?.epgError || status.error}
@@ -128,7 +128,7 @@ export default function EpgSourcesScreen() {
 
         <Pressable disabled={busy} onPress={refreshAll} style={({ focused }: any) => [styles.refresh, busy && styles.disabled, focused && styles.focused]}>
           <Ionicons name="refresh" size={14} color="#fff" />
-          <Text style={styles.refreshText}>{busy ? "Refreshing…" : "Refresh Sources Now"}</Text>
+          <Text style={styles.refreshText}>{busy ? "Refreshingâ€¦" : "Refresh Sources Now"}</Text>
         </Pressable>
       </View>
     </PurpleTvShell>
