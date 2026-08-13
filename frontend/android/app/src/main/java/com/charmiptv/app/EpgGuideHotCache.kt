@@ -19,6 +19,10 @@ internal class EpgGuideHotCache(
   )
 
   private val lock = Any()
+  // Query executor has two threads. Keep cache hits concurrent, but serialize the
+  // comparatively rare miss fill so overlapping runway reads do not issue the
+  // same SQLite JOIN twice before either thread has populated the cache.
+  private val loadLock = Any()
   private val byChannel = object : LinkedHashMap<String, Entry>(128, 0.75f, true) {
     override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Entry>?): Boolean {
       return size > maxChannels
@@ -36,27 +40,38 @@ internal class EpgGuideHotCache(
     val misses = ArrayList<String>()
 
     synchronized(lock) {
-      for (channelId in channelIds) {
-        val entry = byChannel[channelId]
-        if (entry != null && entry.startMs <= startMs && entry.endMs >= endMs) {
-          resultByChannel[channelId] = filterWindow(entry.programs, startMs, endMs)
-        } else {
-          misses.add(channelId)
-        }
-      }
+      collectHitsAndMisses(startMs, endMs, channelIds, resultByChannel, misses)
     }
 
     if (misses.isNotEmpty()) {
-      val loaded = loader(startMs, endMs, misses)
-      val grouped = LinkedHashMap<String, MutableList<NativeEpgProgram>>(misses.size)
-      for (channelId in misses) grouped[channelId] = ArrayList()
-      for (program in loaded) grouped.getOrPut(program.channelId) { ArrayList() }.add(program)
+      synchronized(loadLock) {
+        // Another query thread may have filled some/all of these rows while this
+        // request was waiting for the miss loader. Re-check before touching SQLite.
+        val stillMissing = ArrayList<String>(misses.size)
+        synchronized(lock) {
+          for (channelId in misses) {
+            val entry = byChannel[channelId]
+            if (entry != null && entry.startMs <= startMs && entry.endMs >= endMs) {
+              resultByChannel[channelId] = filterWindow(entry.programs, startMs, endMs)
+            } else {
+              stillMissing.add(channelId)
+            }
+          }
+        }
 
-      synchronized(lock) {
-        for (channelId in misses) {
-          val programs = grouped[channelId]?.toList() ?: emptyList()
-          byChannel[channelId] = Entry(startMs, endMs, programs)
-          resultByChannel[channelId] = programs
+        if (stillMissing.isNotEmpty()) {
+          val loaded = loader(startMs, endMs, stillMissing)
+          val grouped = LinkedHashMap<String, MutableList<NativeEpgProgram>>(stillMissing.size)
+          for (channelId in stillMissing) grouped[channelId] = ArrayList()
+          for (program in loaded) grouped.getOrPut(program.channelId) { ArrayList() }.add(program)
+
+          synchronized(lock) {
+            for (channelId in stillMissing) {
+              val programs = grouped[channelId]?.toList() ?: emptyList()
+              byChannel[channelId] = Entry(startMs, endMs, programs)
+              resultByChannel[channelId] = programs
+            }
+          }
         }
       }
     }
@@ -66,6 +81,23 @@ internal class EpgGuideHotCache(
       resultByChannel[channelId]?.let(flattened::addAll)
     }
     return flattened
+  }
+
+  private fun collectHitsAndMisses(
+    startMs: Long,
+    endMs: Long,
+    channelIds: List<String>,
+    resultByChannel: MutableMap<String, List<NativeEpgProgram>>,
+    misses: MutableList<String>,
+  ) {
+    for (channelId in channelIds) {
+      val entry = byChannel[channelId]
+      if (entry != null && entry.startMs <= startMs && entry.endMs >= endMs) {
+        resultByChannel[channelId] = filterWindow(entry.programs, startMs, endMs)
+      } else {
+        misses.add(channelId)
+      }
+    }
   }
 
   private fun filterWindow(
