@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - experiment/full-ram-epg-engine
+      - experiment/local-file-ram-epg
   pull_request:
     branches:
       - main
