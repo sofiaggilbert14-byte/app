@@ -57,9 +57,20 @@ type CharmEpgModule = {
   clear(): Promise<boolean>;
 };
 
+type CharmEpgRamModule = {
+  warm(startMs: number, endMs: number): Promise<boolean>;
+  replaceMatches(matches: NativePlaylistEpgMatchRow[]): Promise<boolean>;
+  queryGuideWindow(startMs: number, endMs: number, playlistChannelIds: string[]): Promise<NativeWindow | null>;
+  getWindow(startMs: number, endMs: number, channelIds: string[]): Promise<NativeWindow | null>;
+  clearMemory(): Promise<boolean>;
+  stats(): Promise<Record<string, number | boolean>>;
+};
+
 const nativeModule = NativeModules.CharmEpg as CharmEpgModule | undefined;
+const ramModule = NativeModules.CharmEpgRam as CharmEpgRamModule | undefined;
 
 export const nativeEpgAvailable = Platform.OS === "android" && !!nativeModule;
+export const nativeEpgRamAvailable = Platform.OS === "android" && !!ramModule;
 
 function toProgram(program: NativeProgramme): Program {
   return {
@@ -88,6 +99,15 @@ export async function refreshNativeEpg(url: string, allowNotModified: boolean): 
   return nativeModule.refresh(url, allowNotModified);
 }
 
+export async function warmNativeEpgRam(startMs: number, endMs: number): Promise<boolean> {
+  if (!ramModule || endMs <= startMs) return false;
+  return ramModule.warm(startMs, endMs);
+}
+
+export async function clearNativeEpgRam(): Promise<void> {
+  if (ramModule) await ramModule.clearMemory();
+}
+
 export async function loadNativeEpgWindow(
   channelIds: string[],
   startMs: number,
@@ -97,11 +117,15 @@ export async function loadNativeEpgWindow(
   const uniqueIds = Array.from(new Set(channelIds.filter(Boolean)));
   if (!uniqueIds.length) return {};
 
+  if (ramModule) {
+    const ramWindow = await ramModule.getWindow(startMs, endMs, uniqueIds);
+    if (ramWindow) return windowToPrograms(ramWindow, uniqueIds);
+  }
   const window = await nativeModule.getWindow(startMs, endMs, uniqueIds);
   return windowToPrograms(window, uniqueIds);
 }
 
-/** Joined guide window keyed by playlist channel id (SQL MATCH ⋈ PROGRAMMES). */
+/** Joined guide window keyed by playlist channel id. RAM is preferred; SQLite is fallback. */
 export async function queryNativeGuideWindow(
   playlistChannelIds: string[],
   startMs: number,
@@ -111,11 +135,14 @@ export async function queryNativeGuideWindow(
   const uniqueIds = Array.from(new Set(playlistChannelIds.filter(Boolean)));
   if (!uniqueIds.length) return {};
 
+  if (ramModule) {
+    const ramWindow = await ramModule.queryGuideWindow(startMs, endMs, uniqueIds);
+    if (ramWindow) return windowToPrograms(ramWindow, uniqueIds);
+  }
   if (typeof nativeModule.queryGuideWindow === "function") {
     const window = await nativeModule.queryGuideWindow(startMs, endMs, uniqueIds);
     return windowToPrograms(window, uniqueIds);
   }
-  // Older APKs: fall back to XMLTV-keyed getWindow (caller must pass xmltv ids).
   return loadNativeEpgWindow(uniqueIds, startMs, endMs);
 }
 
@@ -139,8 +166,10 @@ export async function upsertNativePlaylistEpgMatches(
   matches: NativePlaylistEpgMatchRow[],
   guideEpoch: number,
 ): Promise<void> {
-  if (!nativeModule || typeof nativeModule.upsertPlaylistEpgMatches !== "function") return;
-  await nativeModule.upsertPlaylistEpgMatches(matches, guideEpoch);
+  if (nativeModule && typeof nativeModule.upsertPlaylistEpgMatches === "function") {
+    await nativeModule.upsertPlaylistEpgMatches(matches, guideEpoch);
+  }
+  if (ramModule) await ramModule.replaceMatches(matches);
 }
 
 export async function loadNativeCurrentPrograms(): Promise<Record<string, Program>> {
@@ -154,5 +183,6 @@ export async function loadNativeCurrentPrograms(): Promise<Record<string, Progra
 }
 
 export async function clearNativeEpg(): Promise<void> {
+  if (ramModule) await ramModule.clearMemory();
   if (nativeModule) await nativeModule.clear();
 }
