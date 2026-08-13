@@ -13,9 +13,10 @@ import { GuideProvider, useStore } from "@/src/store";
 import { ProgramModal } from "@/src/components/ProgramModal";
 import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { PointerOverlay } from "@/src/components/PointerOverlay";
-import { PurpleTvDrawerProvider } from "@/src/components/PurpleTvShell";
+import { PurpleTvDrawerProvider, usePurpleTvDrawer } from "@/src/components/PurpleTvShell";
 import { TvCalibrationFrame, TvCalibrationProvider } from "@/src/tvCalibration";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
+import { setGuideNavigationActive } from "@/src/utils/tvRemote";
 
 // Keep real errors visible for TV QA; only silence known noisy module warnings.
 LogBox.ignoreLogs([
@@ -88,6 +89,26 @@ function StartScreenRedirect() {
   return null;
 }
 
+/**
+ * One owner for native Guide D-pad mode. The Guide may own directional keys only
+ * while it is actually visible and no overlay is responsible for focus. Without
+ * this guard, the Program sheet/drawer and the hidden Guide can both react to the
+ * same remote event, leaving Android focus visually behind the overlay.
+ */
+function TvFocusOwnershipCoordinator() {
+  const pathname = usePathname();
+  const { activeProgram } = useStore();
+  const { drawerOpen } = usePurpleTvDrawer();
+
+  useEffect(() => {
+    const guideOwnsRemote = pathname?.startsWith("/guide") && !activeProgram && !drawerOpen;
+    setGuideNavigationActive(!!guideOwnsRemote);
+    return () => setGuideNavigationActive(false);
+  }, [activeProgram, drawerOpen, pathname]);
+
+  return null;
+}
+
 export default function RootLayout() {
   const [iconsLoaded, iconErr] = useIconFonts();
   const [fontsLoaded, fontErr] = useAppFonts();
@@ -112,6 +133,7 @@ export default function RootLayout() {
                 <NotificationRouter />
                 <ReminderCleanup />
                 <StartScreenRedirect />
+                <TvFocusOwnershipCoordinator />
                 <ErrorBoundary>
                   <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#070711" } }}>
                     <Stack.Screen name="(tabs)" />
