@@ -7,6 +7,9 @@ const read = (relativePath) => readFileSync(resolve(root, relativePath), 'utf8')
 const app = JSON.parse(read('app.json')).expo;
 const gradle = read('android/app/build.gradle');
 const manifest = read('android/app/src/main/AndroidManifest.xml');
+const mainActivity = read('android/app/src/main/java/com/charmiptv/app/MainActivity.kt');
+const guideSafeTemplate = read('plugins/templates/MainActivity.guideSafe.kt');
+const guideSafePlugin = read('plugins/withTvRemoteGuideSafe.js');
 const failures = [];
 
 function requireMatch(condition, message) {
@@ -41,8 +44,17 @@ requireMatch(
   'JavaScriptCore fallback must be pinned to an exact version',
 );
 requireMatch(app.plugins.includes('./plugins/withAndroidTv'), 'Android TV config plugin is missing');
-requireMatch(app.plugins.includes('./plugins/withTvRemote'), 'TV remote config plugin is missing');
+requireMatch(app.plugins.includes('./plugins/withTvRemoteGuideSafe'), 'Guide-safe TV remote config plugin is missing');
+requireMatch(!app.plugins.includes('./plugins/withTvRemote'), 'Legacy TV remote plugin must not also run separately');
 requireMatch(app.plugins.includes('./plugins/withLowMemoryAndroidBuild'), 'Android memory config plugin is missing');
+requireMatch(guideSafePlugin.includes('withTvRemote(config)'), 'Guide-safe wrapper must retain established TV remote configuration');
+requireMatch(guideSafePlugin.includes('MainActivity.guideSafe.kt'), 'Guide-safe wrapper must install the pinned MainActivity template');
+requireMatch(mainActivity === guideSafeTemplate, 'Checked-in MainActivity must match the Guide-safe prebuild template exactly');
+for (const source of [mainActivity, guideSafeTemplate]) {
+  requireMatch(source.includes('hasSafeGuideVerticalTarget'), 'Guide-safe MainActivity must reject stale vertical targets');
+  requireMatch(source.includes('source.focusSearch(direction)'), 'Guide-safe MainActivity must inspect Android focusSearch before held vertical repeats');
+  requireMatch(source.includes('horizontalJump <= max(240f, screenWidth * 0.42f)'), 'Guide-safe MainActivity must bound sideways jumps during vertical surfing');
+}
 
 if (failures.length > 0) {
   for (const failure of failures) console.error(`CONFIG ERROR: ${failure}`);
