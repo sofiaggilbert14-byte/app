@@ -12,6 +12,9 @@ import com.facebook.react.bridge.WritableArray
 import com.facebook.react.bridge.WritableMap
 import org.xmlpull.v1.XmlPullParser
 import java.io.BufferedInputStream
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.io.FilterInputStream
 import java.io.InputStream
 import java.net.HttpURLConnection
@@ -50,16 +53,16 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         val channelNames = LinkedHashMap<String, String>()
         val channelIdsWithPrograms = LinkedHashSet<String>()
         val httpValidators = EpgHttpValidators()
+        var downloaded: DownloadedEpg? = null
         try {
-          val batches = streamProgramBatches(
-            url,
+          downloaded = downloadEpg(url, httpValidators, allowNotModified)
+          val batches = parseProgramBatches(
+            downloaded.file,
             minStop,
             maxStart,
             channelLogos,
             channelNames,
             channelIdsWithPrograms,
-            httpValidators,
-            allowNotModified,
           )
           database.replaceBatches(batches)
         } catch (_: EpgNotModifiedException) {
@@ -73,9 +76,11 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
           }
           promise.resolve(result)
           return@execute
+        } finally {
+          downloaded?.file?.delete()
         }
 
-        // Soft guide epoch — independent of playlist last-good (no joint snapshot).
+        // Soft guide epoch â€” independent of playlist last-good (no joint snapshot).
         // Persist aliases for SQL joins / future native rematch; JS still owns match policy.
         val aliases = ArrayList<Triple<String, String, String>>(channelNames.size + channelIdsWithPrograms.size)
         for ((channelId, displayName) in channelNames) {
@@ -98,7 +103,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         database.setMeta(HTTP_LAST_MODIFIED_KEY, httpValidators.lastModified)
 
         val deleted = database.deleteExpired(now - GUIDE_HISTORY_MS)
-        // Rare idle reclaim only after a large expiry — never every refresh.
+        // Rare idle reclaim only after a large expiry â€” never every refresh.
         database.maybeIncrementalVacuum(MIN_VACUUM_DELETED_ROWS, deleted)
         // The Guide reads bounded channel windows and never consumes getCurrent.
         // Invalidate this optional compatibility cache after refresh and rebuild
@@ -127,6 +132,8 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
           putDouble("windowStartMs", (now - GUIDE_HISTORY_MS).toDouble())
           putDouble("windowEndMs", maxStart.toDouble())
           putDouble("guideEpoch", guideEpoch.toDouble())
+          putString("ingestMode", "downloaded-local-file")
+          putDouble("downloadedBytes", (downloaded?.bytes ?: 0L).toDouble())
           putMap("channelLogos", logos)
           putMap("channelNames", names)
           putArray("channelIdsWithPrograms", programIds)
@@ -161,7 +168,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   }
 
   /**
-   * Fast path for the TV guide: JOIN playlist_epg_matches → epg_programmes and
+   * Fast path for the TV guide: JOIN playlist_epg_matches â†’ epg_programmes and
    * return programmes keyed by playlist channel id (not XMLTV id).
    */
   @ReactMethod
@@ -336,17 +343,15 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     return grouped
   }
 
-  private fun streamProgramBatches(
-    url: String,
+  private fun parseProgramBatches(
+    file: File,
     minStop: Long,
     maxStart: Long,
     channelLogos: MutableMap<String, String>,
     channelNames: MutableMap<String, String>,
     channelIdsWithPrograms: MutableSet<String>,
-    httpValidators: EpgHttpValidators,
-    allowNotModified: Boolean,
   ): Sequence<List<NativeEpgProgram>> = sequence {
-    openPossiblyGzipped(url, httpValidators, allowNotModified).use { input ->
+    openDownloadedFile(file).use { input ->
       val parser = Xml.newPullParser()
       parser.setInput(input, "UTF-8")
 
@@ -391,7 +396,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
               }
               channelId = parser.getAttributeValue(null, "channel")?.trim()
               startMs = parseXmltvTime(parser.getAttributeValue(null, "start"))
-              // Match JS resolveXmltvStop: missing/invalid/absurd stop → +30 minutes.
+              // Match JS resolveXmltvStop: missing/invalid/absurd stop â†’ +30 minutes.
               // Next-program inference runs once on staging after ingest.
               val parsedStop = parseXmltvTime(parser.getAttributeValue(null, "stop"))
               endMs = resolveProgrammeStop(startMs, parsedStop)
@@ -443,11 +448,12 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     }
   }
 
-  private fun openPossiblyGzipped(
+  /** Download completes and the HTTP connection closes before XML parsing starts. */
+  private fun downloadEpg(
     urlString: String,
     validators: EpgHttpValidators,
     allowNotModified: Boolean,
-  ): InputStream {
+  ): DownloadedEpg {
     val sourceHash = sha256(urlString)
     validators.sourceHash = sourceHash
     val connection = URL(urlString).openConnection() as HttpURLConnection
@@ -487,6 +493,13 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     }
     database.assertRefreshStorageAvailable(declaredLength)
 
+    val downloadDir = File(reactContext.cacheDir, DOWNLOAD_DIRECTORY)
+    if (!downloadDir.exists() && !downloadDir.mkdirs()) {
+      connection.disconnect()
+      throw IllegalStateException("Could not create temporary EPG download directory")
+    }
+    cleanupAbandonedDownloads(downloadDir)
+    val target = File.createTempFile("xmltv-", ".download", downloadDir)
     try {
       val connectionStream = object : FilterInputStream(connection.inputStream) {
         override fun close() {
@@ -502,21 +515,49 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         MAX_COMPRESSED_EPG_BYTES,
         "compressed EPG download",
       )
-      val buffered = BufferedInputStream(networkStream, NETWORK_BUFFER_SIZE)
-      buffered.mark(2)
-      val b1 = buffered.read()
-      val b2 = buffered.read()
-      buffered.reset()
-
-      val decoded = if (b1 == 0x1f && b2 == 0x8b) {
-        GZIPInputStream(buffered, NETWORK_BUFFER_SIZE)
-      } else {
-        buffered
+      var copied = 0L
+      FileOutputStream(target).use { fileOutput ->
+        fileOutput.buffered(NETWORK_BUFFER_SIZE).use { output ->
+          networkStream.use { input ->
+            val buffer = ByteArray(NETWORK_BUFFER_SIZE)
+            while (true) {
+              val read = input.read(buffer)
+              if (read < 0) break
+              output.write(buffer, 0, read)
+              copied += read.toLong()
+            }
+            output.flush()
+            fileOutput.fd.sync()
+          }
+        }
       }
-      return BoundedInputStream(decoded, MAX_DECOMPRESSED_EPG_BYTES, "decompressed EPG data")
+      if (copied <= 0L) throw IllegalStateException("EPG download was empty")
+      return DownloadedEpg(target, copied)
     } catch (t: Throwable) {
+      target.delete()
       connection.disconnect()
       throw t
+    }
+  }
+
+  private fun openDownloadedFile(file: File): InputStream {
+    val buffered = BufferedInputStream(FileInputStream(file), FILE_BUFFER_SIZE)
+    buffered.mark(2)
+    val b1 = buffered.read()
+    val b2 = buffered.read()
+    buffered.reset()
+    val decoded = if (b1 == 0x1f && b2 == 0x8b) {
+      GZIPInputStream(buffered, FILE_BUFFER_SIZE)
+    } else {
+      buffered
+    }
+    return BoundedInputStream(decoded, MAX_DECOMPRESSED_EPG_BYTES, "decompressed EPG data")
+  }
+
+  private fun cleanupAbandonedDownloads(directory: File) {
+    val cutoff = System.currentTimeMillis() - ABANDONED_DOWNLOAD_MAX_AGE_MS
+    directory.listFiles()?.forEach { file ->
+      if (file.isFile && file.name.startsWith("xmltv-") && file.lastModified() < cutoff) file.delete()
     }
   }
 
@@ -606,6 +647,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   }
 
   companion object {
+    private data class DownloadedEpg(val file: File, val bytes: Long)
     private class BoundedInputStream(
       input: InputStream,
       private val maxBytes: Long,
@@ -660,6 +702,9 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     private const val HTTP_LAST_MODIFIED_KEY = "epg_http_last_modified"
     private const val BATCH_SIZE = 1000
     private const val NETWORK_BUFFER_SIZE = 64 * 1024
+    private const val FILE_BUFFER_SIZE = 64 * 1024
+    private const val DOWNLOAD_DIRECTORY = "epg-downloads"
+    private const val ABANDONED_DOWNLOAD_MAX_AGE_MS = 6L * 60L * 60L * 1000L
     private const val MAX_COMPRESSED_EPG_BYTES = 256L * 1024L * 1024L
     private const val MAX_DECOMPRESSED_EPG_BYTES = 1024L * 1024L * 1024L
     private const val MAX_PROGRAMME_COUNT = 2_000_000L
@@ -669,7 +714,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     private const val CURRENT_CACHE_REFRESH_MS = 30_000L
     private const val DEFAULT_PROGRAMME_DURATION_MS = 30L * 60L * 1000L
     private const val MAX_PROGRAMME_DURATION_MS = 24L * 60L * 60L * 1000L
-    /** Only vacuum after a large expiry purge — never on every refresh. */
+    /** Only vacuum after a large expiry purge â€” never on every refresh. */
     private const val MIN_VACUUM_DELETED_ROWS = 5_000
   }
 }
