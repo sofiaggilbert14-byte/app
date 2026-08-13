@@ -9,6 +9,7 @@ import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.WritableArray
 import com.facebook.react.bridge.WritableMap
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Experimental RAM serving layer. SQLite stays authoritative and is never cleared here. */
 class EpgRamModule(private val reactContext: ReactApplicationContext) :
@@ -19,6 +20,7 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
   private val worker = Executors.newSingleThreadExecutor()
   private val queryPool = Executors.newFixedThreadPool(2)
   @Volatile private var warmGuideEpoch = -1L
+  private val warmQueued = AtomicBoolean(false)
 
   override fun getName(): String = "CharmEpgRam"
 
@@ -68,7 +70,11 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
   fun queryGuideWindow(startMs: Double, endMs: Double, playlistChannelIds: ReadableArray, promise: Promise) {
     queryPool.execute {
       try {
-        ensureWarmForCurrentEpoch()
+        if (!isWarmForCurrentEpoch()) {
+          scheduleWarmForCurrentEpoch()
+          promise.resolve(null)
+          return@execute
+        }
         val ids = readIds(playlistChannelIds)
         val programmes = engine.queryGuideWindow(startMs.toLong(), endMs.toLong(), ids)
         if (programmes == null) promise.resolve(null) else promise.resolve(groupPrograms(programmes))
@@ -83,7 +89,11 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
   fun getWindow(startMs: Double, endMs: Double, channelIds: ReadableArray, promise: Promise) {
     queryPool.execute {
       try {
-        ensureWarmForCurrentEpoch()
+        if (!isWarmForCurrentEpoch()) {
+          scheduleWarmForCurrentEpoch()
+          promise.resolve(null)
+          return@execute
+        }
         val ids = readIds(channelIds)
         val programmes = engine.queryWindow(startMs.toLong(), endMs.toLong(), ids)
         if (programmes == null) promise.resolve(null) else promise.resolve(groupPrograms(programmes))
@@ -109,12 +119,24 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
     promise.resolve(result)
   }
 
-  private fun ensureWarmForCurrentEpoch() {
+  private fun isWarmForCurrentEpoch(): Boolean {
     val epoch = currentGuideEpoch()
-    if (engine.isWarm() && warmGuideEpoch == epoch) return
-    val now = System.currentTimeMillis()
-    if (engine.rebuild(now - GUIDE_HISTORY_MS, now + GUIDE_WINDOW_MS)) {
-      warmGuideEpoch = epoch
+    return engine.isWarm() && warmGuideEpoch == epoch
+  }
+
+  private fun scheduleWarmForCurrentEpoch() {
+    if (!warmQueued.compareAndSet(false, true)) return
+    worker.execute {
+      try {
+        val epoch = currentGuideEpoch()
+        if (engine.isWarm() && warmGuideEpoch == epoch) return@execute
+        val now = System.currentTimeMillis()
+        if (engine.rebuild(now - GUIDE_HISTORY_MS, now + GUIDE_WINDOW_MS)) {
+          warmGuideEpoch = epoch
+        }
+      } finally {
+        warmQueued.set(false)
+      }
     }
   }
 
