@@ -64,7 +64,7 @@ test("native focus graph avoids dead tap events and wires every preview action",
   assert.match(guide, /pointerEvents="none"/);
   assert.doesNotMatch(guide, /pointerEvents=\{drawerOpen \? "auto" : "none"\}/);
   assert.match(guide, /clearStreamFailure\(channel\.id\)/);
-  // Drawer-close reclaim is nonce-only — no parallel focusGuideSurface race.
+  // Drawer-close reclaim is nonce-only â€” no parallel focusGuideSurface race.
   assert.match(guide, /setFocusClaimNonce\(\(value\) => value \+ 1\)/);
   assert.doesNotMatch(
     guide,
@@ -102,9 +102,10 @@ test("runway applies focused, immediate, visible, then retained tiers", async ()
 });
 
 test("memory cleanup preserves active logo accounting and cancels recycled focus work", async () => {
-  const [logo, focusLock] = await Promise.all([
+  const [logo, focusLock, memoryPressure] = await Promise.all([
     readFile(join(root, "src/components/ChannelLogo.tsx"), "utf8"),
     readFile(join(root, "src/utils/tvGuideFocusLock.ts"), "utf8"),
+    readFile(join(root, "src/utils/androidMemoryPressure.ts"), "utf8"),
   ]);
   const clearMemoryBody = logo.slice(
     logo.indexOf("export function clearChannelLogoMemory"),
@@ -113,6 +114,8 @@ test("memory cleanup preserves active logo accounting and cancels recycled focus
   assert.doesNotMatch(clearMemoryBody, /activeLoads\s*=\s*0/);
   assert.match(focusLock, /leftFocusLockTimers = new WeakMap/);
   assert.match(focusLock, /cancelDelayedLeftFocusLock\(removed\?\.node\)/);
+  assert.match(memoryPressure, /let nativeSubscription/);
+  assert.equal(memoryPressure.match(/clearMemory\?\.\(\)/g)?.length, 1);
 });
 
 test("Guide focus stays continuous in every direction and restores modal origin", async () => {
@@ -176,6 +179,9 @@ test("held Guide navigation uses bounded native cadence without a cross-thread p
   assert.match(activity, /repeatFloor = if \(guideActive\) TvRemoteModule\.guideRepeatIntervalMs/);
   assert.doesNotMatch(activity, /guideFocusSyncActive|guideFocusMoveReady|GUIDE_FOCUS_ACK_TIMEOUT_MS/);
   assert.match(activity, /event\.keyCode == lastAcceptedDirectionalKeyCode/);
+  assert.match(activity, /hasSafeGuideVerticalTarget/);
+  assert.match(activity, /source\.focusSearch\(direction\)/);
+  assert.match(activity, /horizontalJump <= max\(240f, screenWidth \* 0\.42f\)/);
   assert.doesNotMatch(module, /guideFocusSyncActive|guideFocusMoveReady|acknowledgeGuideFocusMove/);
   assert.match(module, /coerceIn\(60L, 120L\)/);
   assert.doesNotMatch(remote, /guideFocusSyncEnabled|acknowledgeGuideFocusAfterPaint/);
