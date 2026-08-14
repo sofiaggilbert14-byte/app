@@ -39,7 +39,14 @@ export const SOURCE_EPG = (process.env.EXPO_PUBLIC_EPG_URL || "").trim();
 /** Shared empty programmes array â€” reused for channels with no EPG in-window. Never mutate. */
 const EMPTY_PROGRAMS: Program[] = [];
 
-const TTL_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_EPG_REFRESH_HOURS = 24;
+const SOURCE_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
+let epgRefreshIntervalMs = DEFAULT_EPG_REFRESH_HOURS * 60 * 60 * 1000;
+
+export function setEpgRefreshIntervalHours(hours: number): void {
+  const boundedHours = Math.min(48, Math.max(1, Math.round(Number(hours) || DEFAULT_EPG_REFRESH_HOURS)));
+  epgRefreshIntervalMs = boundedHours * 60 * 60 * 1000;
+}
 const PROGRESS_THROTTLE_MS = 150;
 /** Above this, match current-group / priority ids first, then the rest (keeps channels-first paint snappy). */
 const HUGE_PLAYLIST_MATCH_THRESHOLD = 400;
@@ -308,6 +315,15 @@ function withManualRemaps(channels: Channel[]): Channel[] {
   return applyManualEpgRemaps(channels, manualEpgRemaps);
 }
 
+function restoreLastGoodMatchesAfterEpgFailure(freshChannels: Channel[], lastGoodChannels: Channel[] = []): Channel[] {
+  if (!freshChannels.length || !lastGoodChannels.length) return freshChannels;
+  const previousById = new Map(lastGoodChannels.map((channel) => [channel.id, channel] as const));
+  return freshChannels.map((channel) => {
+    const previous = previousById.get(channel.id);
+    return previous ? { ...channel, tvg_id: previous.tvg_id || channel.tvg_id, logo: channel.logo || previous.logo } : channel;
+  });
+}
+
 async function nextTick(): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
 }
@@ -563,11 +579,15 @@ async function ensureLoaded(): Promise<NativeMeta> {
     void syncPlaylistToNative(cached.channels, cached.playlistEpoch || 0)
       .then(() => syncMatchesToNative(cached.channels, cached.guideEpoch || 0))
       .catch(() => undefined);
-    if (cached.ts <= 0 || Date.now() - cached.ts >= TTL_MS) {
+    const playlistAgeBase = cached.playlistRefreshedAt || cached.ts;
+    const guideAgeBase = cached.guideRefreshedAt || cached.ts;
+    if (playlistAgeBase <= 0 || Date.now() - playlistAgeBase >= SOURCE_REFRESH_INTERVAL_MS) {
       if (!cached.epgError) {
         setProgress({ phase: "update_available", ratio: 0, etaSeconds: null, message: null }, true);
       }
       void refreshInternal(false);
+    } else if (guideAgeBase <= 0 || Date.now() - guideAgeBase >= epgRefreshIntervalMs) {
+      void refreshEpgOnly();
     }
     return cached;
   }
@@ -590,7 +610,8 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
   if (refreshPromise) return refreshPromise;
   refreshPromise = (async () => {
     const cached = MEM || (await readChannelCache());
-    if (!force && cached && cached.ts > 0 && Date.now() - cached.ts < TTL_MS) {
+    const playlistAgeBase = cached?.playlistRefreshedAt || cached?.ts || 0;
+    if (!force && cached && playlistAgeBase > 0 && Date.now() - playlistAgeBase < SOURCE_REFRESH_INTERVAL_MS) {
       MEM = cached;
       void syncPlaylistToNative(cached.channels, cached.playlistEpoch || 0)
         .then(() => syncMatchesToNative(cached.channels, cached.guideEpoch || 0))
@@ -737,7 +758,7 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
       lastSourceError = message;
       setProgress({ phase: "error", ratio: 0, etaSeconds: null, message }, true);
       if (MEM) {
-        MEM = { ...MEM, epgError: message };
+        MEM = { ...MEM, channels: restoreLastGoodMatchesAfterEpgFailure(MEM.channels, cached?.channels), epgError: message };
         await persistMeta(MEM).catch(() => undefined);
         emit();
         return MEM;
@@ -949,15 +970,26 @@ export async function refreshSource(force = false): Promise<SourceStatus> {
   return sourceStatus();
 }
 
+export async function refreshEpgIfDue(): Promise<boolean> {
+  const cached = MEM || (await readChannelCache());
+  if (!cached?.channels?.length) return false;
+  const guideAgeBase = cached.guideRefreshedAt || cached.ts || 0;
+  if (guideAgeBase > 0 && Date.now() - guideAgeBase < epgRefreshIntervalMs) return false;
+  await refreshEpgOnly();
+  return true;
+}
+
 /** Refresh XMLTV only â€” keep current playlist rows (independent epochs). */
 export async function refreshEpgOnly(): Promise<SourceStatus> {
-  // Wait for any in-flight refresh, then always rematch with the current policy.
-  if (refreshPromise) await refreshPromise;
+  while (refreshPromise) await refreshPromise;
+  const initialCached = MEM || (await readChannelCache());
+  while (refreshPromise) await refreshPromise;
+  if (!initialCached?.channels?.length) {
+    await refreshInternal(true);
+    return sourceStatus();
+  }
   refreshPromise = (async () => {
-    const cached = MEM || (await readChannelCache());
-    if (!cached?.channels?.length) {
-      return refreshInternal(true);
-    }
+    const cached = MEM?.channels?.length ? MEM : initialCached;
     lastSourceError = null;
     try {
       if (!nativeEpgAvailable) throw new Error("Native EPG engine is unavailable in this Android build");
@@ -1113,7 +1145,7 @@ export async function sourceDiagnostics(): Promise<SourceDiagnostics> {
     programs: MEM?.epgProgramCount || 0,
     refreshInFlight: !!refreshPromise,
     epgError: MEM?.epgError || lastSourceError,
-    nextAutoRefresh: MEM && MEM.ts > 0 ? new Date(MEM.ts + TTL_MS).toISOString() : null,
+    nextAutoRefresh: MEM && MEM.ts > 0 ? new Date(MEM.ts + epgRefreshIntervalMs).toISOString() : null,
     matchQuality: MEM?.matchQuality || null,
     playlistRefreshedAt:
       MEM?.playlistRefreshedAt && MEM.playlistRefreshedAt > 0

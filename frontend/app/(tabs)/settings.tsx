@@ -12,6 +12,7 @@ import {
   useStore,
   type DeviceLayoutMode,
   type EpgGuideFilter,
+  type EpgRefreshIntervalHours,
   type GuideDensity,
   type GuideLayout,
   type GuideWindowHours,
@@ -141,6 +142,8 @@ export default function SettingsScreen() {
     setEpgGuideFilter,
     guideWindowHours,
     setGuideWindowHours,
+    epgRefreshIntervalHours,
+    setEpgRefreshIntervalHours,
     clock24h,
     setClock24h,
     startScreen,
@@ -550,6 +553,8 @@ export default function SettingsScreen() {
                   ]}
                   onChange={setGuideWindowHours}
                 />
+                <EpgRefreshIntervalRow value={epgRefreshIntervalHours} onChange={setEpgRefreshIntervalHours} />
+                <Text style={styles.help}>Checks hourly and downloads a new guide when the selected interval has elapsed. Manual refresh is always available.</Text>
                 <ToggleRow label="24-hour clock" value={clock24h} onChange={setClock24h} />
                 <ChoiceRow<StartScreen>
                   label="Start screen"
@@ -1156,6 +1161,19 @@ function ChoiceRow<T extends string | number>({ label, value, options, onChange 
             <Text style={[styles.choiceText, option.value === value && styles.choiceTextActive]}>{option.label}</Text>
           </Pressable>
         ))}
+      </View>
+    </View>
+  );
+}
+
+function EpgRefreshIntervalRow({ value, onChange }: { value: EpgRefreshIntervalHours; onChange: (value: EpgRefreshIntervalHours) => void }) {
+  return (
+    <View style={styles.settingRow}>
+      <Text style={styles.settingLabel}>EPG refresh interval</Text>
+      <View style={styles.channelEditActions}>
+        <Pressable disabled={value <= 1} onPress={() => onChange(Math.max(1, value - 1))} style={({ focused }: any) => [styles.miniAction, value <= 1 && styles.disabled, focused && styles.focused]} testID="settings-epg-refresh-dec"><Text style={styles.miniActionText}>−</Text></Pressable>
+        <Text style={styles.infoValue}>{value}h</Text>
+        <Pressable disabled={value >= 48} onPress={() => onChange(Math.min(48, value + 1))} style={({ focused }: any) => [styles.miniAction, value >= 48 && styles.disabled, focused && styles.focused]} testID="settings-epg-refresh-inc"><Text style={styles.miniActionText}>+</Text></Pressable>
       </View>
     </View>
   );

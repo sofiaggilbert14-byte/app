@@ -111,3 +111,20 @@ test("drawer globally suspends playback and Guide native ownership", async () =>
   assert.match(mainActivity, /hasSafeGuideVerticalTarget/);
   assert.match(mainActivity, /focusSearch\(direction\)/);
 });
+
+test("EPG refresh interval persists whole-hour choices and controls only guide age", async () => {
+  const [store, settings, nativeSource, webSource] = await Promise.all([
+    read("src/store.tsx"),
+    read("app/(tabs)/settings.tsx"),
+    read("src/source.native.ts"),
+    read("src/source.ts"),
+  ]);
+  assert.match(store, /EPG_REFRESH_INTERVAL_HOURS_KEY/);
+  assert.match(store, /setEpgRefreshIntervalHours\(storedEpgRefreshHours\)/);
+  assert.match(store, /refreshEpgIfDue\(\)/);
+  assert.match(settings, /settings-epg-refresh-dec/);
+  assert.match(settings, /settings-epg-refresh-inc/);
+  assert.match(nativeSource, /SOURCE_REFRESH_INTERVAL_MS/);
+  assert.match(nativeSource, /epgRefreshIntervalMs/);
+  assert.match(webSource, /epgRefreshIntervalMs/);
+});
