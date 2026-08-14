@@ -125,7 +125,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         val activeRamStart = now - (now % HOUR_MS) - ACTIVE_GUIDE_HISTORY_MS
         val activeRamEnd = activeRamStart + ACTIVE_GUIDE_WINDOW_MS
         val activeRamPrograms = retainedPrograms.filter {
-          it.stopMs > activeRamStart && it.startMs < activeRamEnd
+          it.endMs > activeRamStart && it.startMs < activeRamEnd
         }
         val ramRuntime = EpgRamRuntime.get(reactContext)
         if (ramRuntime.engine.replacePrograms(activeRamPrograms, activeRamStart, activeRamEnd)) {
