@@ -20,6 +20,7 @@ import {
   type SessionFailReason,
   type SessionRole,
 } from "@/src/core/playbackSession";
+import { useDrawerActivityGate } from "@/src/core/drawerActivityGate";
 import {
   fingerprintStreamUri,
   recordAudioDiagnostics,
@@ -118,7 +119,6 @@ function recordFailure(
   uri: string,
   reason?: SessionFailReason | null,
 ): void {
-  // Preview is best-effort — never open a circuit that blocks later fullscreen play.
   if (!uri || role === "preview") return;
   if (reason && NON_CIRCUIT_REASONS.has(reason)) return;
   const now = Date.now();
@@ -139,7 +139,6 @@ function recordStablePlayback(role: SessionRole, engine: Engine, uri: string): v
   failureStateByKey.set(key, state);
 }
 
-/** True while any fullscreen engine circuit is cooling down for this URI. */
 export function isFullscreenCircuitOpen(uri?: string): boolean {
   if (!uri) return false;
   const clean = parsePipeHeaders(uri).uri || uri;
@@ -151,7 +150,6 @@ export function isFullscreenCircuitOpen(uri?: string): boolean {
   );
 }
 
-/** Explicit Retry / user recover — clear fullscreen circuit entries for this URI. */
 export function clearFullscreenCircuit(uri?: string): void {
   if (!uri) {
     for (const key of Array.from(failureStateByKey.keys())) {
@@ -159,7 +157,6 @@ export function clearFullscreenCircuit(uri?: string): void {
     }
     return;
   }
-  // Circuit keys store the pipe-stripped URI; callers often pass the raw channel.url.
   const clean = parsePipeHeaders(uri).uri || uri;
   const needles = clean === uri ? [uri] : [uri, clean];
   for (const key of Array.from(failureStateByKey.keys())) {
@@ -196,19 +193,16 @@ function useStatusTracker(
 export const vlcAvailable = Platform.OS !== "web" && !!UIManager.getViewManagerConfig?.("RCTVLCPlayer");
 
 const VLCPlayer: any = vlcAvailable
-  // eslint-disable-next-line @typescript-eslint/no-require-imports -- native module must be lazy outside installed builds
   ? require("react-native-vlc-media-player").VLCPlayer
   : null;
 
 type Props = {
   uri: string;
-  /** Stable channel id for bounded successful-engine memory (URI tokens rotate). */
   channelKey?: string;
   onStatus: (s: StreamStatus, reason?: SessionFailReason | null) => void;
   style?: StyleProp<ViewStyle>;
   mode?: "preview" | "full";
   sessionRole?: SessionRole;
-  /** When true, Media3/VLC start muted (guide preview default). */
   muted?: boolean;
   audioTrack?: string | number;
   textTrack?: string | number | null;
@@ -249,14 +243,11 @@ function useCircuitCooldown(
     }
 
     if (remaining <= 0) {
-      // Cooldown finished — remount cleanly as loading (do not emit error/circuit-open,
-      // which stacked with auto-retry and left a false failed state).
       setBlocked(false);
       setStatus("loading");
       return;
     }
 
-    // Surface the cooldown as an error overlay instead of a silent black player.
     setStatus("error", "circuit-open");
     const timer = setTimeout(() => {
       setBlocked(false);
@@ -309,7 +300,6 @@ function VlcStream({
       `--http-user-agent=${userAgent}`,
     ];
     if (!hardwareDecode) options.push("--avcodec-hw=none");
-    // stereo-mode=1 forces a 2-channel mix/downmix (not stereo_widen).
     if (audioOutput === "stereo") options.push("--stereo-mode=1");
     if (audioOutput === "passthrough") {
       options.push("--aout=android_audiotrack");
@@ -346,19 +336,12 @@ function VlcStream({
   const hardStop = useCallback(() => {
     tearingDownRef.current = true;
     activeRef.current = false;
-    // Soft-stop while mounted. A destructive `clear` releases LibVLC but leaves
-    // the same React native view/source in place, producing a permanent black
-    // surface until a remount.
     try {
       playerRef.current?.stopPlayer?.();
-    } catch {
-      /* native teardown best-effort */
-    }
+    } catch {}
     try {
       playerRef.current?.setNativeProps?.({ paused: true });
-    } catch {
-      /* native teardown best-effort */
-    }
+    } catch {}
   }, []);
 
   useEffect(() => {
@@ -376,8 +359,6 @@ function VlcStream({
     if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
     recordFailure(sessionRole, engine, uri, "stream-error");
     if (isCircuitOpen(sessionRole, engine, uri)) {
-      // Stop LibVLC before unmounting the native view — otherwise blocked→null
-      // leaks a running decoder until a later remount.
       hardStop();
       setBlocked(true);
       emit("loading", "circuit-open");
@@ -471,8 +452,6 @@ function ExpoStream({
     try {
       const tunneling = playerCompat.media3Tunneling;
       const media3Audio = playerCompat.media3AudioMode;
-      // Tunneling prefers shorter forward buffers; ffmpeg mode keeps a slightly
-      // larger decode cushion because the extension path is heavier on weak SoCs.
       const profile = tunneling && bufferProfile !== "stable" ? "low_latency" : bufferProfile;
       const full = profile === "low_latency"
         ? {
@@ -480,8 +459,6 @@ function ExpoStream({
             maxBufferBytes: (media3Audio === "ffmpeg" ? 36 : 28) * 1024 * 1024,
           }
         : profile === "stable"
-          // Cap Stable below the old 72MB ceiling — Fire TV sticks OOM when the
-          // guide preview + fullscreen decoder both retain large forward buffers.
           ? { preferredForwardBufferDuration: 6, maxBufferBytes: 48 * 1024 * 1024 }
           : {
               preferredForwardBufferDuration: media3Audio === "ffmpeg" ? 3.5 : 3,
@@ -490,18 +467,10 @@ function ExpoStream({
       player.bufferOptions = mode === "preview"
         ? { preferredForwardBufferDuration: 1.2, maxBufferBytes: 12 * 1024 * 1024 }
         : full;
-    } catch {
-      /* older native builds may ignore bufferOptions */
-    }
+    } catch {}
     try {
-      // Fullscreen TV playback must own AUDIOFOCUS_GAIN. Expo's default "auto"
-      // usually does this too; doNotMix makes it deterministic after preview /
-      // decoder handoff and avoids a silent focused player losing focus to a
-      // stale background audio session.
       player.audioMixingMode = mode === "preview" ? "mixWithOthers" : "doNotMix";
-    } catch {
-      /* older native builds may not expose audio mixing mode */
-    }
+    } catch {}
   }, [
     bufferProfile,
     mode,
@@ -533,8 +502,6 @@ function ExpoStream({
       const preferredRaw = preferred
         ? audioTracks.find((track: any) => String(track.id) === String(preferred.id)) || null
         : null;
-      // device mode prefers isSupported tracks; ffmpeg mode will still try unsupported
-      // tracks before falling back because the FFmpeg extension may decode them.
       const candidatePool = media3Audio === "device"
         ? supportedTracks
         : media3Audio === "ffmpeg"
@@ -550,8 +517,6 @@ function ExpoStream({
 
       let selectedAudio: any = null;
       let selectedBy: "user" | "current" | "auto-supported" | "auto-first" | "none" = "none";
-      // isSupported is supplied by the checked-in expo-video native patch but
-      // is not part of Expo's upstream AudioTrack TypeScript declaration.
       if (requestedAudio && (media3Audio === "ffmpeg" || (requestedAudio as any).isSupported !== false)) {
         selectedAudio = requestedAudio;
         selectedBy = audioTrack == null ? "auto-supported" : "user";
@@ -572,7 +537,6 @@ function ExpoStream({
         selectedBy = "auto-first";
       }
 
-      // Displace an unsupported selection when a supported track exists.
       if (selectedAudio && selectedAudio.isSupported === false && automaticSupported) {
         selectedAudio = automaticSupported;
         selectedBy = "auto-supported";
@@ -584,13 +548,10 @@ function ExpoStream({
 
       const subtitleTracks = Array.isArray(player.availableSubtitleTracks) ? player.availableSubtitleTracks : [];
       if (textTrack == null) {
-        // Explicit Off — clear any engine-selected subtitle so CC does not stick.
         if (player.subtitleTrack != null) {
           try {
             player.subtitleTrack = null;
-          } catch {
-            /* older expo-video */
-          }
+          } catch {}
         }
       } else {
         const selectedText = subtitleTracks.find((track) => String(track.id) === String(textTrack));
@@ -628,8 +589,6 @@ function ExpoStream({
         reason: `mode=${media3Audio};tunnel=${playerCompat.media3Tunneling ? 1 : 0}`,
       });
 
-      // FFmpeg mode may decode tracks marked isSupported=false. Treat a selected
-      // track as success so silent-audio fallback does not false-trigger.
       if (media3Audio === "ffmpeg") return selectedAudio != null && audioTracks.length > 0;
       return supportedTracks.length > 0;
     } catch {
@@ -647,7 +606,6 @@ function ExpoStream({
     uri,
   ]);
 
-  // Settings changes must re-apply track selection without waiting for a channel change.
   useEffect(() => {
     if (!mediaReady || blocked) return;
     reportAndSelectMedia3Tracks();
@@ -756,9 +714,7 @@ function ExpoStream({
     try {
       player.muted = muted;
       player.volume = muted ? 0 : 1;
-    } catch {
-      /* older native builds */
-    }
+    } catch {}
   }, [muted, player]);
 
   useEffect(() => {
@@ -798,9 +754,6 @@ function ExpoStream({
     };
   }, [player, reportAndSelectMedia3Tracks, uri]);
 
-  // Media3 can paint video while failing to expose/decode audio (AC-3 etc.).
-  // Soft-fail when no supported audio track appears after grace so default mode
-  // can swap to VLC. Media3-only mode still emits silent-audio for UI messaging.
   useEffect(() => {
     if (blocked || mode === "preview" || !mediaReady) return;
     let cancelled = false;
@@ -869,20 +822,18 @@ export function StreamPlayer({
 }: Props) {
   const isFocused = useIsFocused();
   const pathname = usePathname();
+  const { suspended: drawerSuspended, generation: drawerGeneration } = useDrawerActivityGate();
   const isGuidePreview = pathname === "/guide";
   const playbackMode = mode ?? (isGuidePreview ? "preview" : "full");
   const role: SessionRole = sessionRole ?? (playbackMode === "preview" ? "preview" : "fullscreen");
-  // RN may report null/unknown AppState during initial bridge startup. Treat
-  // anything except an explicit background/inactive event as active.
   const [appActive, setAppActive] = useState(
     () => AppState.currentState !== "background" && AppState.currentState !== "inactive",
   );
-  const playbackFocused = isFocused && appActive;
+  const playbackFocused = isFocused && appActive && !drawerSuspended;
   const [playerEnginePreference] = usePlayerEnginePreference();
   const [savedBufferProfile] = usePlaybackBufferProfile();
   const playerCompat = usePlayerCompatibilityPreferences();
   const effectiveBufferProfile = bufferProfile || savedBufferProfile;
-  // Remount engines when settings that only apply at construction change.
   const vlcEngineKey = `vlc:${uri}:${playerCompat.vlcAudioOutput}:${playerCompat.vlcHardwareDecode ? 1 : 0}:${effectiveBufferProfile}`;
   const media3EngineKey = `media3:${uri}:${playerCompat.media3AudioMode}:${playerCompat.media3Tunneling ? 1 : 0}:${effectiveBufferProfile}`;
   const forceVlc = playerEnginePreference === "vlc" && vlcAvailable && role !== "preview";
@@ -913,16 +864,13 @@ export function StreamPlayer({
     return () => sub.remove();
   }, []);
 
-  // Fullscreen remounts immediately when Settings change. Guide preview stays
-  // mounted under Tabs keep-alive — freeze the applied compat key while the
-  // Guide route is unfocused so Settings toggles cannot remount a background decoder.
   const appliedCompatKeyRef = useRef(`${media3EngineKey}|${vlcEngineKey}`);
   if (role !== "preview" || isFocused) {
     appliedCompatKeyRef.current = `${media3EngineKey}|${vlcEngineKey}`;
   }
-  // Include engine remount keys so mid-play Settings changes reset fallback /
-  // stable gates. Otherwise a prior silent-audio swap blocks the next attempt.
-  const sessionKey = `${role}:${uri}:${initialEngine}:${appliedCompatKeyRef.current}`;
+  // Drawer generation is part of the session identity. Opening the drawer
+  // unmounts the active decoder; closing it creates exactly one fresh session.
+  const sessionKey = `${role}:${uri}:${initialEngine}:${appliedCompatKeyRef.current}:drawer-${drawerGeneration}`;
   useEffect(() => {
     const generation = beginSession(role);
     setSession({ key: sessionKey, generation });
@@ -930,12 +878,9 @@ export function StreamPlayer({
     stableRef.current = false;
     setFallbackUsed(false);
     setEngine(initialEngine);
-    setStatus("loading");
-  }, [initialEngine, role, sessionKey, setStatus, uri]);
+    if (!drawerSuspended) setStatus("loading");
+  }, [drawerSuspended, initialEngine, role, sessionKey, setStatus, uri]);
 
-  // URI changes render no child until beginSession has invalidated/released the
-  // previous decoder. This avoids mounting newUri:oldGeneration and immediately
-  // remounting it again when the generation effect runs.
   const sessionGeneration = session.key === sessionKey ? session.generation : 0;
 
   useEffect(() => {
@@ -968,8 +913,6 @@ export function StreamPlayer({
         setStatus("playing");
         return;
       }
-      // One alternate-engine attempt handles HLS/codec differences / silent audio
-      // between Media3 and VLC for both preview and fullscreen.
       if (status === "error" && !forceVlc && !forceMedia3 && !fallbackUsed) {
         if (reason === "silent-audio" && !playerCompat.silentAudioFallback) {
           setSessionPhase(role, sessionGeneration, "failed", "silent-audio");
