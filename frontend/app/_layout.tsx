@@ -13,9 +13,10 @@ import { GuideProvider, useStore } from "@/src/store";
 import { ProgramModal } from "@/src/components/ProgramModal";
 import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { PointerOverlay } from "@/src/components/PointerOverlay";
-import { PurpleTvDrawerProvider } from "@/src/components/PurpleTvShell";
+import { PurpleTvDrawerProvider, usePurpleTvDrawer } from "@/src/components/PurpleTvShell";
 import { TvCalibrationFrame, TvCalibrationProvider } from "@/src/tvCalibration";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
+import { setGuideNavigationActive } from "@/src/utils/tvRemote";
 
 // Keep real errors visible for TV QA; only silence known noisy module warnings.
 LogBox.ignoreLogs([
@@ -66,6 +67,25 @@ function ReminderCleanup() {
   return null;
 }
 
+/**
+ * One process-wide owner decides whether Android's native Guide repeat/focus
+ * path is enabled. The drawer and program modal always win ownership over the
+ * Guide, so an overlay can never leave a hidden Guide D-pad handler active.
+ */
+function TvFocusOwnershipCoordinator() {
+  const pathname = usePathname();
+  const { activeProgram } = useStore();
+  const { drawerOpen } = usePurpleTvDrawer();
+
+  useEffect(() => {
+    const guideOwnsFocus = !!pathname?.startsWith("/guide") && !activeProgram && !drawerOpen;
+    setGuideNavigationActive(guideOwnsFocus);
+    return () => setGuideNavigationActive(false);
+  }, [activeProgram, drawerOpen, pathname]);
+
+  return null;
+}
+
 function StartScreenRedirect() {
   const router = useRouter();
   const pathname = usePathname();
@@ -109,6 +129,7 @@ export default function RootLayout() {
             <GuideProvider>
               <PurpleTvDrawerProvider>
                 <StatusBar style="light" />
+                <TvFocusOwnershipCoordinator />
                 <NotificationRouter />
                 <ReminderCleanup />
                 <StartScreenRedirect />
