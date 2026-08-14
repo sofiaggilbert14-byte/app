@@ -408,6 +408,8 @@ function VlcStream({
       audioTrack={typeof audioTrack === "number" ? audioTrack : undefined}
       textTrack={typeof textTrack === "number" ? textTrack : undefined}
       onLoad={(info: any) => {
+        if (!activeRef.current || tearingDownRef.current) return;
+        if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
         const audio = Array.isArray(info?.audioTracks)
           ? info.audioTracks.map((t: any) => ({ id: Number(t.id), name: String(t.name || t.language || `Audio ${t.id}`) }))
           : [];
@@ -485,7 +487,7 @@ function ExpoStream({
           ? { preferredForwardBufferDuration: 6, maxBufferBytes: 48 * 1024 * 1024 }
           : {
               preferredForwardBufferDuration: media3Audio === "ffmpeg" ? 3.5 : 3,
-              maxBufferBytes: (media3Audio === "ffmpeg" ? 56 : 48) * 1024 * 1024,
+              maxBufferBytes: 48 * 1024 * 1024,
             };
       player.bufferOptions = mode === "preview"
         ? { preferredForwardBufferDuration: 1.2, maxBufferBytes: 12 * 1024 * 1024 }
@@ -511,6 +513,7 @@ function ExpoStream({
   ]);
 
   const reportAndSelectMedia3Tracks = useCallback(() => {
+    if (!isSessionCurrent(sessionRole, sessionGeneration)) return false;
     try {
       const audioTracks = Array.isArray(player.availableAudioTracks) ? player.availableAudioTracks : [];
       const supportedTracks = audioTracks.filter((track: any) => track.isSupported !== false);
@@ -642,6 +645,7 @@ function ExpoStream({
     player,
     playerCompat.media3AudioMode,
     playerCompat.media3Tunneling,
+    sessionGeneration,
     sessionRole,
     textTrack,
     uri,

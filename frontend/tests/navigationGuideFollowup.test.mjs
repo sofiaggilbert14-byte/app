@@ -66,7 +66,12 @@ test("preview default, ONN page keys, and cold-row focus anchor are hardened", a
     assert.match(source, /0x192, 0x1b8/);
     assert.match(source, /0x193, 0x1b9/);
   }
-  assert.match(epgNative, /avoids retaining one extra NativeEpgProgram per channel/);
+  assert.match(activity, /hasSafeGuideVerticalTarget/);
+  assert.match(activity, /source\.focusSearch\(direction\)/);
+  assert.match(activity, /horizontalJump <= max\(240f, screenWidth \* 0\.42f\)/);
+  assert.match(activity, /event\.repeatCount/);
+  assert.match(epgNative, /currentCache\.clear\(\)/);
+  assert.match(epgNative, /currentCacheValidUntilMs = 0L/);
   assert.doesNotMatch(epgNative, /maybeIncrementalVacuum\(MIN_VACUUM_DELETED_ROWS, deleted\)\s+rebuildCurrentCache\(now\)/);
   assert.match(timeline, /verticalFocusAnchorRef/);
   assert.match(timeline, /current\.key === "pending"/);
@@ -82,4 +87,26 @@ test("preview default, ONN page keys, and cold-row focus anchor are hardened", a
   assert.match(box, /overScrollMode="never"/);
   assert.doesNotMatch(box, /paddingBottom: 130/);
   assert.match(box, /reportFocusedRow\(targetIndex\)/);
+});
+
+test("Program modal takes real TV focus and Guide remote ownership pauses under overlays", async () => {
+  const [modal, rootLayout] = await Promise.all([
+    readFile(join(root, "src/components/ProgramModal.tsx"), "utf8"),
+    readFile(join(root, "app/_layout.tsx"), "utf8"),
+  ]);
+
+  assert.match(modal, /requestNativeFocusWithRetry/);
+  assert.match(modal, /watchButtonRef/);
+  assert.match(modal, /ref=\{watchButtonRef\}/);
+  assert.match(modal, /focusable=\{false\}/);
+  assert.match(modal, /testID="program-modal-backdrop"/);
+  assert.match(modal, /program-watch-btn/);
+  assert.match(modal, /program-reminder-btn/);
+
+  assert.match(rootLayout, /TvFocusOwnershipCoordinator/);
+  assert.match(rootLayout, /!activeProgram && !drawerOpen/);
+  assert.match(rootLayout, /setGuideNavigationActive\(!!guideOwnsRemote\)/);
+  assert.match(rootLayout, /COMPACT_DENSITY_DEFAULT_MIGRATION_KEY/);
+  assert.match(rootLayout, /storedDensity === "extra_compact"/);
+  assert.match(rootLayout, /setGuideDensity\("compact"\)/);
 });

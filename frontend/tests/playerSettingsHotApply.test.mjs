@@ -21,6 +21,9 @@ test("player remounts Media3/VLC engines when compatibility settings change", as
   // Preview freezes compat keys while Guide is unfocused (Tabs keep-alive).
   assert.match(source, /role !== "preview" \|\| isFocused/);
   assert.match(source, /maxBufferBytes: 48 \* 1024 \* 1024/);
+  assert.doesNotMatch(source, /maxBufferBytes: \(media3Audio === "ffmpeg" \? 56 : 48\)/);
+  assert.match(source, /if \(!isSessionCurrent\(sessionRole, sessionGeneration\)\) return false;/);
+  assert.match(source, /if \(!activeRef\.current \|\| tearingDownRef\.current\) return;[\s\S]*onTracksAvailable\?\./);
   assert.match(source, /if \(media3Audio === "ffmpeg"\) return selectedAudio != null/);
   assert.match(source, /export function isFullscreenCircuitOpen/);
   assert.match(source, /hardStop\(\);\s*setBlocked\(true\)/);

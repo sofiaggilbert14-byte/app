@@ -74,7 +74,8 @@ test("store patches per-row programmes and defers silent refresh while surfing",
   assert.match(gate, /export function isGuideSurfing/);
   assert.match(guide, /markGuideSurfing/);
   assert.match(guide, /patchProgramsForChannelIds/);
-  assert.match(guide, /void patchProgramsForChannelIds\(ids, priorityIds\)/);
+  assert.match(guide, /void patchProgramsForChannelIds\(dataIds, priorityIds\)/);
+  assert.match(guide, /const dataIds = isGuideSurfing\(\)/);
   assert.match(timeline, /useGuidePrograms/);
   assert.match(timeline, /data=\{channels\}/);
   assert.doesNotMatch(timeline, /preparedRows/);

@@ -217,3 +217,30 @@ test("EPG staging and metadata promotion preserve last-good caches", async () =>
   assert.match(webSource, /CACHE_BAK_FILE/);
   assert.match(webSource, /readValidCacheMeta\(CACHE_TMP_FILE\)/);
 });
+
+test("Guide focus registry handles first preview entry and recycled programme targets", async () => {
+  const focusLock = await readFile(join(root, "src/utils/tvGuideFocusLock.ts"), "utf8");
+  assert.match(
+    focusLock,
+    /if \(!guidePreviewEntryNode && !guidePreviewPreferredNode\) return false;/,
+  );
+  assert.match(
+    focusLock,
+    /const target = guidePreviewEntryNode \|\| guidePreviewPreferredNode;/,
+  );
+  assert.match(
+    focusLock,
+    /if \(activeGuideFocusNode === removed\) activeGuideFocusNode = null;/,
+  );
+});
+
+test("Guide releases hidden preview ownership and compacts held-surf data work", async () => {
+  const guide = await readFile(join(root, "app/(tabs)/guide.tsx"), "utf8");
+  assert.match(
+    guide,
+    /safePreviewMode === "off" \|\| drawerOpen \|\| !!activeProgram \|\| !isFocused/,
+  );
+  assert.match(guide, /const dataIds = isGuideSurfing\(\)/);
+  assert.match(guide, /patchProgramsForChannelIds\(dataIds, priorityIds\)/);
+  assert.match(guide, /expandRunwayKeepSet\(orderedFilteredIds, ids, pageSize/);
+});

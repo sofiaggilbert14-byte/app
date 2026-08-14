@@ -269,13 +269,19 @@ export function wireGuideTopBoundary(node: unknown): void {
 
 /** Move focus from the guide's left boundary into the preview/actions panel. */
 export function focusGuidePreviewSurface(): boolean {
-  if (!guidePreviewEntryNode) return false;
+  // On the first trip left from the Guide no preview control has emitted an
+  // onFocus event yet, so `guidePreviewEntryNode` is still empty. Fall back to
+  // the registered preferred control (Play) instead of consuming Left without
+  // moving focus.
+  if (!guidePreviewEntryNode && !guidePreviewPreferredNode) return false;
   cancelGuideFocusRestore();
   cancelPreviewFocusAttempts();
   const attempt = previewFocusAttempt;
   const requestCurrentEntry = () => {
-    if (attempt !== previewFocusAttempt || !guidePreviewEntryNode) return;
-    requestNativeFocus(guidePreviewEntryNode);
+    if (attempt !== previewFocusAttempt) return;
+    const target = guidePreviewEntryNode || guidePreviewPreferredNode;
+    if (!target) return;
+    requestNativeFocus(target);
   };
   requestCurrentEntry();
   // Android TV occasionally runs focus-search before the sibling Pressable is
@@ -335,8 +341,15 @@ export function registerGuideProgramNode(
 ): void {
   if (!channelId || !programStart) return;
   const key = guideProgramNodeKey(channelId, programStart);
-  if (node) guideProgramNodes.set(key, node);
-  else guideProgramNodes.delete(key);
+  if (node) {
+    guideProgramNodes.set(key, node);
+    return;
+  }
+  const removed = guideProgramNodes.get(key);
+  guideProgramNodes.delete(key);
+  // A recycled programme Pressable is no longer a valid restore target. Keep
+  // the channel id so restoration can fall back to the row's current rail node.
+  if (activeGuideFocusNode === removed) activeGuideFocusNode = null;
 }
 
 /** Restore the exact programme cell, resolving its current recycled ref per retry. */

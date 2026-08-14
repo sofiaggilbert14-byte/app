@@ -26,7 +26,7 @@ import { EpgProgressBar } from "@/src/components/EpgProgressBar";
 import { Channel, Program } from "@/src/api";
 import { useStore } from "@/src/store";
 import { setPriorityMatchChannelIds, setViewportGuideChannelIds } from "@/src/source";
-import { markGuideSurfing } from "@/src/utils/guideSurfGate";
+import { isGuideSurfing, markGuideSurfing } from "@/src/utils/guideSurfGate";
 import { useGuidePrograms } from "@/src/core/guideProgramsStore";
 import { getGuideRailMetrics } from "@/src/core/guideLayoutPolicy";
 import { buildGuideRunwayIds } from "@/src/core/guideRunwayPolicy";
@@ -619,7 +619,14 @@ export default function PurpleGuideScreen() {
   filteredIdIndexRef.current = filteredIdIndex;
 
   const onViewportChannelIds = useCallback((ids: string[], priorityIds: string[] = [], pageSize = 8) => {
-    lastRunwayRef.current = { ids, priority: priorityIds, pageSize };
+    const focusIndex = Math.max(0, ids.indexOf(priorityIds[0] || ""));
+    const dataIds = isGuideSurfing()
+      ? ids.slice(
+          Math.max(0, focusIndex - pageSize * 2),
+          Math.min(ids.length, focusIndex + pageSize * 4 + 1),
+        )
+      : ids;
+    lastRunwayRef.current = { ids: dataIds, priority: priorityIds, pageSize };
     setViewportGuideChannelIds(ids);
     if (channels.length >= 400) {
       // Match the focused/next rows first. A symmetric runway starts at its
@@ -635,7 +642,9 @@ export default function PurpleGuideScreen() {
     retainGuideSlidingCache(
       expandRunwayKeepSet(orderedFilteredIds, ids, pageSize, 1, filteredIdIndex),
     );
-    void patchProgramsForChannelIds(ids, priorityIds);
+    // Retain the wider focus runway for reverse movement, but query only a
+    // compact data runway during a sustained hold. The settled pass expands it.
+    void patchProgramsForChannelIds(dataIds, priorityIds);
   }, [
     channels.length,
     filteredIdIndex,
@@ -1127,7 +1136,13 @@ export default function PurpleGuideScreen() {
               hidePreview={hidePreview}
               muted={mutePreview}
               onToggleMute={() => setMutePreview(!mutePreview)}
-              previewId={safePreviewMode === "off" ? null : previewId}
+              // Drawer/modal/tab ownership must release the preview decoder;
+              // otherwise it competes with overlays or hidden-tab playback.
+              previewId={
+                safePreviewMode === "off" || drawerOpen || !!activeProgram || !isFocused
+                  ? null
+                  : previewId
+              }
               previewStatus={previewStatus}
               previewEpoch={previewEpoch}
               onPreviewStatus={onPreviewStatus}
