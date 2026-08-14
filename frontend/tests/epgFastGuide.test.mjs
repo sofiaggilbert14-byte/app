@@ -116,19 +116,19 @@ test("native EPG uses HTTP validators and skips all rematch work on 304", async 
   assert.match(mod, /HTTP_NOT_MODIFIED/);
   assert.match(mod, /putBoolean\("notModified", true\)/);
   assert.match(bridge, /notModified\?: boolean/);
-  assert.doesNotMatch(native, /refreshNativeEpg\(providerHttpUrl\(SOURCE_EPG, "EPG"\), false\)/);
-  assert.equal(native.match(/refreshNativeEpg\(providerHttpUrl\(SOURCE_EPG, "EPG"\), true\)/g)?.length, 2);
+  assert.equal(native.match(/refreshConfiguredNativeEpg\(true\)/g)?.length, 2);
   assert.equal(native.match(/if \(epg\.notModified/g)?.length, 2);
   assert.match(native, /if \(epg\.notModified\)/);
   assert.match(native, /return MEM;/);
 });
 
-test("native provider configuration preserves HTTP/HTTPS URLs and rejects other schemes", async () => {
+test("native provider configuration preserves PR23 HTTPS-first behavior with HTTP fallback", async () => {
   const native = await source("src/source.native.ts");
-  assert.match(native, /function providerHttpUrl/);
+  assert.match(native, /function providerHttpUrls/);
   assert.match(native, /\^https\?:\\\/\\\//i);
-  assert.match(native, /fetch\(providerHttpUrl\(SOURCE_M3U, "playlist"\)/);
-  assert.doesNotMatch(native, /startsWith\("http:\/\/"\).*https:/s);
+  assert.match(native, /return \[`https:\/\/\$\{value\.slice\(7\)\}`, value\]/);
+  assert.match(native, /refreshNativeEpg\(candidate, allowNotModified\)/);
+  assert.match(native, /const candidates = providerHttpUrls\(SOURCE_M3U, "playlist"\)/);
 });
 
 test("experimental EPG downloads first, parses locally, and hands finalized data directly to RAM", async () => {

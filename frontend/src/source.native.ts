@@ -471,15 +471,29 @@ export function subscribeSource(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
-function providerHttpUrl(url: string, label: "playlist" | "EPG"): string {
+function providerHttpUrls(url: string, label: "playlist" | "EPG"): string[] {
   const value = url.trim();
   if (!/^https?:\/\//i.test(value)) {
     throw new Error(`${label} URL must use HTTP or HTTPS`);
   }
-  // Respect the provider URL exactly. The sideload flavor intentionally allows
-  // cleartext streams; silently upgrading an HTTP-only provider to HTTPS makes
-  // both its playlist and XMLTV endpoint unreachable.
-  return value;
+  if (!value.toLowerCase().startsWith("http://")) return [value];
+  // Preserve PR #23's proven HTTPS-first provider behavior. Some IPTV servers
+  // serve playlists over HTTP but reject the XMLTV endpoint unless upgraded.
+  // Keep the configured HTTP form as a compatibility fallback.
+  return [`https://${value.slice(7)}`, value];
+}
+
+async function refreshConfiguredNativeEpg(allowNotModified: boolean) {
+  const candidates = providerHttpUrls(SOURCE_EPG, "EPG");
+  let firstError: unknown = null;
+  for (const candidate of candidates) {
+    try {
+      return await refreshNativeEpg(candidate, allowNotModified);
+    } catch (error) {
+      if (firstError == null) firstError = error;
+    }
+  }
+  throw firstError || new Error("Could not download the TV guide");
 }
 
 function sortChannels(channels: Channel[]): Channel[] {
@@ -556,10 +570,22 @@ async function fetchPlaylist(): Promise<Channel[]> {
   if (!SOURCE_M3U) {
     throw new Error("Playlist is not configured for this build (missing EXPO_PUBLIC_M3U_URL).");
   }
-  const response = await fetch(providerHttpUrl(SOURCE_M3U, "playlist"), {
-    headers: { "User-Agent": "CharmIPTV/Experimental-v3" },
-  });
-  if (!response.ok) throw new Error(`M3U HTTP ${response.status}`);
+  const candidates = providerHttpUrls(SOURCE_M3U, "playlist");
+  let response: Response | null = null;
+  let firstError: unknown = null;
+  for (const candidate of candidates) {
+    try {
+      const attempt = await fetch(candidate, {
+        headers: { "User-Agent": "CharmIPTV/Experimental-v3" },
+      });
+      if (!attempt.ok) throw new Error(`M3U HTTP ${attempt.status}`);
+      response = attempt;
+      break;
+    } catch (error) {
+      if (firstError == null) firstError = error;
+    }
+  }
+  if (!response) throw firstError || new Error("Could not download playlist");
   const contentLength = Number(response.headers.get("content-length") || "");
   if (Number.isFinite(contentLength) && contentLength > 0) {
     enforcePlaylistByteLimit(contentLength);
@@ -665,7 +691,7 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
       if (!nativeEpgAvailable) throw new Error("Native EPG engine is unavailable in this Android build");
       if (!SOURCE_EPG) throw new Error("EPG is not configured for this build (missing EXPO_PUBLIC_EPG_URL).");
       setProgress({ phase: "downloading", ratio: 0.2, etaSeconds: null, message: null }, true);
-      const epg = await refreshNativeEpg(providerHttpUrl(SOURCE_EPG, "EPG"), true);
+      const epg = await refreshConfiguredNativeEpg(true);
       if (epg.notModified && cached?.channels?.length) {
         const checkedAt = Date.now();
         MEM = {
@@ -1018,7 +1044,7 @@ export async function refreshEpgOnly(): Promise<SourceStatus> {
       if (!nativeEpgAvailable) throw new Error("Native EPG engine is unavailable in this Android build");
       if (!SOURCE_EPG) throw new Error("EPG is not configured for this build (missing EXPO_PUBLIC_EPG_URL).");
       setProgress({ phase: "downloading", ratio: 0.2, etaSeconds: null, message: null }, true);
-      const epg = await refreshNativeEpg(providerHttpUrl(SOURCE_EPG, "EPG"), true);
+      const epg = await refreshConfiguredNativeEpg(true);
       if (epg.notModified) {
         const checkedAt = Date.now();
         MEM = {
