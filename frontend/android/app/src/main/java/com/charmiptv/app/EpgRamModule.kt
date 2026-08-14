@@ -36,7 +36,6 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
         if (warmed) warmGuideEpoch = currentGuideEpoch()
         promise.resolve(warmed)
       } catch (_: Throwable) {
-        // RAM acceleration must never turn a healthy persisted guide into a failure.
         promise.resolve(false)
       }
     }
@@ -86,9 +85,11 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
         if (programmes == null) {
           sqliteFallbackCount.incrementAndGet()
           promise.resolve(null)
-        } else promise.resolve(groupProgramsByOutput(programmes))
+        } else {
+          promise.resolve(groupProgramsByOutput(programmes))
+        }
       } catch (_: Throwable) {
-        // null explicitly tells JS to use the existing SQLite Guide path.
+        sqliteFallbackCount.incrementAndGet()
         promise.resolve(null)
       } finally {
         guideQueryCount.incrementAndGet()
@@ -117,6 +118,7 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
 
   @ReactMethod
   fun clearMemory(promise: Promise) {
+    SharedParsedEpgSnapshot.clear()
     engine.clear()
     warmGuideEpoch = -1L
     promise.resolve(true)
@@ -205,6 +207,7 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
   }
 
   override fun invalidate() {
+    SharedParsedEpgSnapshot.clear()
     engine.clear(0L)
     worker.shutdownNow()
     queryPool.shutdownNow()
