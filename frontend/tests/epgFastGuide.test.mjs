@@ -116,11 +116,19 @@ test("native EPG uses HTTP validators and skips all rematch work on 304", async 
   assert.match(mod, /HTTP_NOT_MODIFIED/);
   assert.match(mod, /putBoolean\("notModified", true\)/);
   assert.match(bridge, /notModified\?: boolean/);
-  assert.doesNotMatch(native, /refreshNativeEpg\(https\(SOURCE_EPG\), false\)/);
-  assert.equal(native.match(/refreshNativeEpg\(https\(SOURCE_EPG\), true\)/g)?.length, 2);
+  assert.doesNotMatch(native, /refreshNativeEpg\(providerHttpUrl\(SOURCE_EPG, "EPG"\), false\)/);
+  assert.equal(native.match(/refreshNativeEpg\(providerHttpUrl\(SOURCE_EPG, "EPG"\), true\)/g)?.length, 2);
   assert.equal(native.match(/if \(epg\.notModified/g)?.length, 2);
   assert.match(native, /if \(epg\.notModified\)/);
   assert.match(native, /return MEM;/);
+});
+
+test("native provider configuration preserves HTTP/HTTPS URLs and rejects other schemes", async () => {
+  const native = await source("src/source.native.ts");
+  assert.match(native, /function providerHttpUrl/);
+  assert.match(native, /\^https\?:\\\/\\\//i);
+  assert.match(native, /fetch\(providerHttpUrl\(SOURCE_M3U, "playlist"\)/);
+  assert.doesNotMatch(native, /startsWith\("http:\/\/"\).*https:/s);
 });
 
 test("experimental EPG downloads first, parses locally, and hands finalized data directly to RAM", async () => {
@@ -132,12 +140,14 @@ test("experimental EPG downloads first, parses locally, and hands finalized data
     source("src/nativeEpg.ts"),
   ]);
   assert.match(mod, /downloadEpg\(url, httpValidators, allowNotModified\)/);
-  assert.match(mod, /parseCompleteLocalFile\(\s*downloaded\.file/);
-  assert.match(mod, /database\.replaceBatches\(sequenceOf\(retainedPrograms\)\)/);
+  assert.match(mod, /parseRetainedPrograms\(\s*downloaded\.file/);
+  assert.match(mod, /database\.replacePrograms\(retainedPrograms\)/);
   assert.doesNotMatch(mod, /BATCH_SIZE|yield\(ArrayList\(batch\)\)/);
-  assert.match(mod, /channelIdsWithPrograms = retainedPrograms\.mapTo/);
-  assert.match(mod, /normalizeStopsAndRetain\(parsed, minStop, maxStart\)/);
-  assert.match(mod, /SharedParsedEpgSnapshot\.publish\(retainedPrograms, minStop, maxStart\)/);
+  assert.match(mod, /database\.readChannelIdsWithPrograms\(\)/);
+  assert.match(mod, /finalizeRetainedPrograms\(parsedPrograms, minStop\)/);
+  assert.match(mod, /runtime\.engine\.replacePrograms\(finalRetainedPrograms, minStop, maxStart\)/);
+  assert.match(mod, /runtime\.warmGuideEpoch = -1L/);
+  assert.match(db, /SELECT DISTINCT channel_id FROM \$LIVE_TABLE/);
   assert.match(mod, /File\.createTempFile\("xmltv-", "\.download"/);
   assert.match(mod, /downloaded\?\.file\?\.delete\(\)/);
   assert.match(mod, /GZIPInputStream\(buffered, FILE_BUFFER_SIZE\)/);
@@ -154,8 +164,7 @@ test("experimental EPG downloads first, parses locally, and hands finalized data
   assert.match(ramModule, /groupProgramsByOutput/);
   assert.match(ramModule, /sqliteFallbackCount/);
   assert.match(ramModule, /guideQueryDurationMs/);
-  assert.match(ramModule, /runtime\.warmGuideEpoch != guideEpoch/);
-  assert.match(ramModule, /runtime\.warmGuideEpoch = guideEpoch/);
+  assert.match(ramModule, /if \(engine\.isWarm\(\)\) runtime\.warmGuideEpoch = currentGuideEpoch\(\)/);
   assert.doesNotMatch(bridge, /void ramModule\.warm\(result\.windowStartMs/);
 });
 

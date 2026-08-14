@@ -27,6 +27,13 @@ jobs:
       CI: "1"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Require playlist and EPG build configuration
+        run: |
+          if [ -z "${EXPO_PUBLIC_M3U_URL}" ] || [ -z "${EXPO_PUBLIC_EPG_URL}" ]; then
+            echo "::error::Missing playlist/EPG config. Set repository secrets M3U_URL and EPG_URL, or repository variables EXPO_PUBLIC_M3U_URL and EXPO_PUBLIC_EPG_URL."
+            exit 1
+          fi
+          echo "Playlist/EPG build configuration is present (values not printed)."
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "24"
@@ -65,6 +72,10 @@ jobs:
       - name: Build RAM experiment universal tester APK
         if: github.event_name == 'push'
         run: ./android/gradlew -p android :app:assembleSideload --no-daemon --max-workers=1 --stacktrace
+        env:
+          EXPO_PUBLIC_M3U_URL: ${{ env.EXPO_PUBLIC_M3U_URL }}
+          EXPO_PUBLIC_EPG_URL: ${{ env.EXPO_PUBLIC_EPG_URL }}
+          EXPO_PUBLIC_GUIDE_WINDOW_HOURS: ${{ env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS }}
       - name: Verify and stage APK
         if: github.event_name == 'push'
         shell: bash
