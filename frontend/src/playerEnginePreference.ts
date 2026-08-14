@@ -4,7 +4,10 @@ import { storage } from "@/src/utils/storage";
 export type PlayerEnginePreference = "default" | "media3" | "vlc";
 
 const PLAYER_ENGINE_KEY = "gs_player_engine_preference";
-let cachedPreference: PlayerEnginePreference = "default";
+// VLC is the product default on native builds. An explicitly stored Media3 or
+// VLC choice still wins; the legacy "default" value follows the current
+// product default without rewriting user storage.
+let cachedPreference: PlayerEnginePreference = "vlc";
 let loaded = false;
 let loadPromise: Promise<PlayerEnginePreference> | null = null;
 const listeners = new Set<(value: PlayerEnginePreference) => void>();
@@ -14,8 +17,8 @@ async function loadPreference(): Promise<PlayerEnginePreference> {
   if (loadPromise) return loadPromise;
 
   loadPromise = (async () => {
-    const stored = await storage.getItem<PlayerEnginePreference>(PLAYER_ENGINE_KEY, "default");
-    cachedPreference = stored === "vlc" || stored === "media3" ? stored : "default";
+    const stored = await storage.getItem<PlayerEnginePreference>(PLAYER_ENGINE_KEY, "vlc");
+    cachedPreference = stored === "media3" ? "media3" : "vlc";
     loaded = true;
     return cachedPreference;
   })();

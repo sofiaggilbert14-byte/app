@@ -513,7 +513,7 @@ async function persistMeta(meta: NativeMeta): Promise<void> {
     await FileSystem.deleteAsync(CHANNEL_CACHE_BAK, { idempotent: true }).catch(() => undefined);
   } catch (error) {
     await FileSystem.deleteAsync(CHANNEL_CACHE, { idempotent: true }).catch(() => undefined);
-    const backup = await FileSys…1337 tokens truncated… });
+    const backup = await FileSys…1477 tokens truncated… });
 
       const policy = matchPolicyKey();
       const playlistUnchanged = cached?.playlistIdentityFingerprint === playlistFp;

@@ -25,3 +25,11 @@ test("player remounts Media3/VLC engines when compatibility settings change", as
   assert.match(source, /export function isFullscreenCircuitOpen/);
   assert.match(source, /hardStop\(\);\s*setBlocked\(true\)/);
 });
+
+test("VLC is the native playback default while an explicit Media3 choice is preserved", async () => {
+  const preference = await readFile(join(root, "src/playerEnginePreference.ts"), "utf8");
+  const settings = await readFile(join(root, "app/(tabs)/settings.tsx"), "utf8");
+  assert.match(preference, /cachedPreference: PlayerEnginePreference = "vlc"/);
+  assert.match(preference, /stored === "media3" \? "media3" : "vlc"/);
+  assert.match(settings, /App Default \(VLC\)/);
+});

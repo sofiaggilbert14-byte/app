@@ -166,7 +166,7 @@ export default function SettingsScreen() {
   const [pinDraft, setPinDraft] = useState("");
   const [focusedCustomizeId, setFocusedCustomizeId] = useState<string | null>(null);
   const clearFavoritesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Mount-once preferred focus — sticky hasTVPreferredFocus steals focus on re-render.
+  // Mount-once preferred focus â€” sticky hasTVPreferredFocus steals focus on re-render.
   const [preferTileFocus, setPreferTileFocus] = useState(true);
   const [preferBackFocus, setPreferBackFocus] = useState(false);
 
@@ -202,7 +202,7 @@ export default function SettingsScreen() {
 
   useTvBackHandler(
     useCallback(() => {
-      // Close a settings section first — never open the drawer on a single Back.
+      // Close a settings section first â€” never open the drawer on a single Back.
       if (section) {
         setBackupStatus(null);
         setClearFavoritesArmed(false);
@@ -282,7 +282,7 @@ export default function SettingsScreen() {
   const reloadEpgOnly = useCallback(async () => {
     if (busy) return;
     setBusy(true);
-    setBackupStatus("Refreshing EPG only…");
+    setBackupStatus("Refreshing EPG onlyâ€¦");
     try {
       await refreshEpgOnly();
       await refresh(true);
@@ -347,7 +347,7 @@ export default function SettingsScreen() {
   const clearCache = useCallback(async () => {
     if (busy) return;
     setBusy(true);
-    setBackupStatus("Clearing guide cache (favorites kept)…");
+    setBackupStatus("Clearing guide cache (favorites kept)â€¦");
     try {
       await clearGuideCache();
       await refreshSource(true);
@@ -373,7 +373,7 @@ export default function SettingsScreen() {
       clearFavoritesTimer.current = null;
     }
     setBusy(true);
-    setBackupStatus("Clearing all favorites…");
+    setBackupStatus("Clearing all favoritesâ€¦");
     try {
       replaceFavorites([]);
       setClearFavoritesArmed(false);
@@ -386,7 +386,7 @@ export default function SettingsScreen() {
   const backupFavorites = useCallback(async () => {
     if (busy) return;
     setBusy(true);
-    setBackupStatus("Saving favorites backup…");
+    setBackupStatus("Saving favorites backupâ€¦");
     try {
       const raw = serializeFavoritesBackup(favorites, channels);
       const { fileName, portable } = await writeFavoritesBackup(raw);
@@ -409,7 +409,7 @@ export default function SettingsScreen() {
       return;
     }
     setBusy(true);
-    setBackupStatus("Looking for the newest CharmIPTV favorites backup…");
+    setBackupStatus("Looking for the newest CharmIPTV favorites backupâ€¦");
     try {
       const { fileName, raw } = await readLatestFavoritesBackup();
       const restored = resolveFavoritesBackup(raw, channels);
@@ -421,7 +421,7 @@ export default function SettingsScreen() {
         .filter(Boolean)
         .slice(0, 3);
       const skippedSummary = unavailableCount
-        ? ` ${unavailableCount} unavailable favorite${unavailableCount === 1 ? " was" : "s were"} skipped${unavailableNames.length ? ` (${unavailableNames.join(", ")}${unavailableCount > unavailableNames.length ? ", …" : ""})` : ""}.`
+        ? ` ${unavailableCount} unavailable favorite${unavailableCount === 1 ? " was" : "s were"} skipped${unavailableNames.length ? ` (${unavailableNames.join(", ")}${unavailableCount > unavailableNames.length ? ", â€¦" : ""})` : ""}.`
         : " All favorites matched current playable channels.";
 
       setBackupStatus(
@@ -516,381 +516,7 @@ export default function SettingsScreen() {
                   Off while surfing soft-clears preview during D-pad surfing and arms after settle. Preview never shares a decoder with fullscreen.
                 </Text>
                 <ToggleRow label="Channel numbers" value={channelNumbers} onChange={setChannelNumbers} />
-                <ToggleRow label="Channel logos" value={channelLogos} onChange={setChannelLogos} />
-                <ToggleRow label="Logos off while surfing" value={logosOffWhileSurfing} onChange={setLogosOffWhileSurfing} />
-                <ToggleRow label="Instant Guide / reduce motion" value={instantGuide} onChange={setInstantGuide} />
-                <Text style={styles.help}>Snaps Guide movement and avoids repeated transition work during fast remote navigation.</Text>
-                <ChoiceRow<PowerProfile>
-                  label="Power profile"
-                  value={powerProfile}
-                  options={POWER_PROFILE_OPTIONS}
-                  onChange={setPowerProfile}
-                />
-                <Text style={styles.help}>
-                  Compatibility lengthens preview arm and settle times for older devices. Max preview arms sooner on stronger devices.
-                </Text>
-                <ChoiceRow<EpgGuideFilter>
-                  label="Guide EPG filter"
-                  value={epgGuideFilter}
-                  options={[
-                    { label: "All", value: "all" },
-                    { label: "Matched", value: "matched" },
-                    { label: "Unmatched", value: "unmatched" },
-                  ]}
-                  onChange={setEpgGuideFilter}
-                />
-                <ChoiceRow<GuideWindowHours>
-                  label="Guide window"
-                  value={guideWindowHours}
-                  options={[
-                    { label: "6h", value: 6 },
-                    { label: "8h", value: 8 },
-                    { label: "12h", value: 12 },
-                    { label: "24h", value: 24 },
-                  ]}
-                  onChange={setGuideWindowHours}
-                />
-                <ToggleRow label="24-hour clock" value={clock24h} onChange={setClock24h} />
-                <ChoiceRow<StartScreen>
-                  label="Start screen"
-                  value={startScreen}
-                  options={[
-                    { label: "Home", value: "home" },
-                    { label: "Guide", value: "guide" },
-                    { label: "Last channel", value: "last_channel" },
-                  ]}
-                  onChange={setStartScreen}
-                />
-                <ToggleRow
-                  label="Prefer tvg-id matching only"
-                  value={preferTvgIdOnly}
-                  onChange={setPreferTvgIdOnly}
-                />
-                <Text style={styles.help}>
-                  For messy providers: match playlist channels by tvg-id only (never by display name). Ambiguous names never invent a match. Turn this off to allow conservative display-name matching.
-                </Text>
-                <Action label={busy ? "Refreshing…" : "Refresh playlist & EPG"} icon="refresh" onPress={hardReload} disabled={busy} />
-                <Action label={busy ? "Working…" : "Refresh EPG only"} icon="calendar-outline" onPress={reloadEpgOnly} disabled={busy} />
-                <Action label={busy ? "Working…" : "Export diagnostics"} icon="document-text-outline" onPress={exportDiagnostics} disabled={busy} />
-                {backupStatus && section === "general" ? <Text style={styles.status}>{backupStatus}</Text> : null}
-                {diagnostics?.matchQuality ? (
-                  <View style={styles.matchBlock}>
-                    <Text style={styles.settingLabel}>EPG match quality</Text>
-                    <InfoRow label="Matched" value={String(diagnostics.matchQuality.matched)} />
-                    <InfoRow label="Ambiguous" value={String(diagnostics.matchQuality.ambiguous)} />
-                    <InfoRow label="Unmatched" value={String(diagnostics.matchQuality.unmatched)} />
-                    {groupMatchBreakdown.length ? (
-                      <View style={styles.matchGroups}>
-                        {groupMatchBreakdown.map((item) => (
-                          <InfoRow
-                            key={item.name}
-                            label={item.name}
-                            value={`${item.matched} matched / ${item.unmatched} unmatched`}
-                          />
-                        ))}
-                      </View>
-                    ) : null}
-                    <Text style={styles.help}>
-                      Guide filter and favorite folders use this match state. Matched ≈ channels with a programme source id after refresh.
-                    </Text>
-                  </View>
-                ) : null}
-                <InfoRow
-                  label="Playlist refreshed"
-                  value={
-                    diagnostics?.playlistRefreshedAt
-                      ? `${formatRelativeAge(diagnostics.playlistRefreshedAt)} · ${dayjs(diagnostics.playlistRefreshedAt).format(clock24h ? "MMM D, HH:mm" : "MMM D, h:mm A")}`
-                      : "—"
-                  }
-                />
-                <InfoRow
-                  label="EPG refreshed"
-                  value={
-                    diagnostics?.guideRefreshedAt
-                      ? `${formatRelativeAge(diagnostics.guideRefreshedAt)} · ${dayjs(diagnostics.guideRefreshedAt).format(clock24h ? "MMM D, HH:mm" : "MMM D, h:mm A")}`
-                      : "—"
-                  }
-                />
-              </SettingsCard>
-            ) : null}
-
-            {section === "player" ? (
-              <SettingsCard title="Playback" icon="play-circle-outline">
-                <ChoiceRow<PlayerEnginePreference>
-                  label="Video player"
-                  value={playerEnginePreference}
-                  options={[
-                    { label: "App Default", value: "default" },
-                    { label: "Media3", value: "media3" },
-                    { label: "VLC", value: "vlc" },
-                  ]}
-                  onChange={setPlayerEnginePreference}
-                />
-                <ChoiceRow<PlayerControlsTimeoutMs>
-                  label="Controls timeout"
-                  value={playerControlsTimeoutMs}
-                  options={[{ label: "8 sec", value: 8000 }, { label: "15 sec", value: 15000 }, { label: "30 sec", value: 30000 }, { label: "60 sec", value: 60000 }]}
-                  onChange={setPlayerControlsTimeoutMs}
-                />
-                <ChoiceRow<PlaybackBufferProfile>
-                  label="Playback buffer"
-                  value={playbackBufferProfile}
-                  options={[
-                    { label: "Low latency", value: "low_latency" },
-                    { label: "Balanced", value: "balanced" },
-                    { label: "Stable", value: "stable" },
-                  ]}
-                  onChange={setPlaybackBufferProfile}
-                />
-                <ToggleRow label="Auto retry streams" value={autoRetryStreams} onChange={setAutoRetryStreams} />
-                <ChoiceRow<SleepTimerMinutes>
-                  label="Sleep timer"
-                  value={sleepTimerMinutes}
-                  options={[
-                    { label: "Off", value: 0 },
-                    { label: "15m", value: 15 },
-                    { label: "30m", value: 30 },
-                    { label: "60m", value: 60 },
-                    { label: "90m", value: 90 },
-                  ]}
-                  onChange={setSleepTimerMinutes}
-                />
-                <Text style={styles.help}>
-                  Media3 exposes audio/CC tracks and uses the Android TV codec path. Choose Media3 to keep one player engine; VLC remains an optional compatibility mode.
-                </Text>
-                <View style={styles.divider} />
-                <Text style={styles.settingLabel}>Audio / CC</Text>
-                <Text style={styles.help}>
-                  Preferred audio language auto-selects a matching track when Media3 or VLC exposes one.
-                  The last working track is remembered per channel (up to 128). Use Audio/CC in the fullscreen player to pick a track manually.
-                </Text>
-                <ChoiceRow<string>
-                  label="Preferred audio language"
-                  value={audioPreferences.defaultLanguage}
-                  options={PREFERRED_AUDIO_LANGUAGE_OPTIONS}
-                  onChange={audioPreferences.setDefaultLanguage}
-                />
-                <ToggleRow
-                  label="Silent-audio fallback"
-                  value={playerCompat.silentAudioFallback}
-                  onChange={playerCompat.setSilentAudioFallback}
-                />
-                <Text style={styles.help}>
-                  When Media3 reports an unsupported or silent track, automatically try VLC compatibility mode (unless the engine is forced).
-                </Text>
-                <View style={styles.divider} />
-                <Text style={styles.settingLabel}>Media3</Text>
-                <ChoiceRow<Media3AudioMode>
-                  label="Media3 audio mode"
-                  value={playerCompat.media3AudioMode}
-                  options={[
-                    { label: "Auto", value: "auto" },
-                    { label: "Device codecs", value: "device" },
-                    { label: "FFmpeg extension", value: "ffmpeg" },
-                  ]}
-                  onChange={playerCompat.setMedia3AudioMode}
-                />
-                <ToggleRow
-                  label="Media3 tunneling"
-                  value={playerCompat.media3Tunneling}
-                  onChange={playerCompat.setMedia3Tunneling}
-                />
-                <Text style={styles.help}>
-                  Tunneling can reduce latency on some Android TV devices but may break audio on others. Leave off unless you are testing.
-                </Text>
-                <View style={styles.divider} />
-                <Text style={styles.settingLabel}>VLC</Text>
-                <ChoiceRow<VlcAudioOutput>
-                  label="VLC audio output"
-                  value={playerCompat.vlcAudioOutput}
-                  options={[
-                    { label: "Auto", value: "auto" },
-                    { label: "Stereo / 2-channel", value: "stereo" },
-                    { label: "Passthrough", value: "passthrough" },
-                  ]}
-                  onChange={playerCompat.setVlcAudioOutput}
-                />
-                <Text style={styles.help}>
-                  Stereo / 2-channel forces a downmix. Changing VLC or Media3 audio options remounts the active player so the new setting applies immediately.
-                </Text>
-                <ToggleRow
-                  label="VLC hardware decode"
-                  value={playerCompat.vlcHardwareDecode}
-                  onChange={playerCompat.setVlcHardwareDecode}
-                />
-                <Text style={styles.help}>
-                  Hardware decode is faster on most Fire TV / Android TV boxes. Turn it off only if a specific channel fails on VLC.
-                </Text>
-                <View style={styles.divider} />
-                <Text style={styles.settingLabel}>Subtitles (CC)</Text>
-                <Text style={styles.help}>Default language auto-selects when tracks appear. Size/background are stored for Settings (native burn-in styling is not available yet).</Text>
-                <View style={styles.pinInputRow}>
-                  <Text style={styles.infoLabel}>Default language</Text>
-                  <TextInput
-                    value={subtitles.defaultLanguage}
-                    onChangeText={subtitles.setDefaultLanguage}
-                    placeholder="eng"
-                    placeholderTextColor={tvColors.textMuted}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    maxLength={16}
-                    style={styles.pinInput}
-                    testID="settings-subtitle-lang"
-                  />
-                </View>
-                <ChoiceRow<SubtitleSize>
-                  label="Subtitle size"
-                  value={subtitles.size}
-                  options={[
-                    { label: "Small", value: "small" },
-                    { label: "Normal", value: "normal" },
-                    { label: "Large", value: "large" },
-                  ]}
-                  onChange={subtitles.setSize}
-                />
-                <ChoiceRow<SubtitleBg>
-                  label="Subtitle background"
-                  value={subtitles.background}
-                  options={[
-                    { label: "None", value: "none" },
-                    { label: "Dim", value: "dim" },
-                    { label: "Solid", value: "solid" },
-                  ]}
-                  onChange={subtitles.setBackground}
-                />
-                <View style={styles.divider} />
-                <Text style={styles.settingLabel}>Guide preview</Text>
-                <ChoiceRow<"horizontal" | "vertical">
-                  label="Group layout"
-                  value={guideUi.groupLayout}
-                  options={[
-                    { label: "Horizontal", value: "horizontal" },
-                    { label: "Vertical", value: "vertical" },
-                  ]}
-                  onChange={guideUi.setGroupLayout}
-                />
-                <ToggleRow label="Mute preview by default" value={guideUi.mutePreview} onChange={guideUi.setMutePreview} />
-                <ToggleRow label="Hide preview by default" value={guideUi.hidePreview} onChange={guideUi.setHidePreview} />
-              </SettingsCard>
-            ) : null}
-
-            {section === "health" ? (
-              <SettingsCard title="Health" icon="pulse-outline">
-                <InfoRow
-                  label="Native codecs"
-                  value={codecCapabilities
-                    ? [codecCapabilities.h264 && "H.264", codecCapabilities.hevc && "HEVC", codecCapabilities.vp9 && "VP9", codecCapabilities.av1 && "AV1", codecCapabilities.aac && "AAC", codecCapabilities.ac3 && "AC-3", codecCapabilities.eac3 && "E-AC-3"].filter(Boolean).join(", ")
-                    : "Unavailable"}
-                />
-                <InfoRow
-                  label="Advertised video max"
-                  value={codecCapabilities?.maxWidth ? `${codecCapabilities.maxWidth} × ${codecCapabilities.maxHeight}` : "Unavailable"}
-                />
-                <InfoRow label="Channels" value={String(channels.length)} />
-                <InfoRow label="Matched" value={String(diagnostics?.matchQuality?.matched ?? "—")} />
-                <InfoRow label="Unmatched" value={String(diagnostics?.matchQuality?.unmatched ?? "—")} />
-                <InfoRow
-                  label="Unmatched %"
-                  value={(() => {
-                    const matched = diagnostics?.matchQuality?.matched ?? 0;
-                    const unmatched = diagnostics?.matchQuality?.unmatched ?? 0;
-                    const denom = matched + unmatched + (diagnostics?.matchQuality?.ambiguous ?? 0);
-                    if (!denom) return "—";
-                    return `${Math.round((unmatched / denom) * 100)}%`;
-                  })()}
-                />
-                <InfoRow label="Failed streams" value={String(failedStreamCount())} />
-                <InfoRow label="Ambiguous matches" value={String(diagnostics?.matchQuality?.ambiguous ?? "—")} />
-                <InfoRow
-                  label="Last audio engine"
-                  value={latestAudio?.engine ? String(latestAudio.engine).toUpperCase() : "—"}
-                />
-                <InfoRow
-                  label="Last audio mime"
-                  value={latestAudio?.mimeType || "—"}
-                />
-                <InfoRow
-                  label="Last audio silent"
-                  value={latestAudio ? (latestAudio.silentAudio ? "Yes" : "No") : "—"}
-                />
-                <InfoRow
-                  label="Audio tracks seen"
-                  value={latestAudio?.trackCount != null ? String(latestAudio.trackCount) : "—"}
-                />
-                <InfoRow
-                  label="Playlist refreshed"
-                  value={
-                    diagnostics?.playlistRefreshedAt
-                      ? `${formatRelativeAge(diagnostics.playlistRefreshedAt)} · ${dayjs(diagnostics.playlistRefreshedAt).format(clock24h ? "MMM D, HH:mm" : "MMM D, h:mm A")}`
-                      : "—"
-                  }
-                />
-                <InfoRow
-                  label="Guide refreshed"
-                  value={
-                    diagnostics?.guideRefreshedAt
-                      ? `${formatRelativeAge(diagnostics.guideRefreshedAt)} · ${dayjs(diagnostics.guideRefreshedAt).format(clock24h ? "MMM D, HH:mm" : "MMM D, h:mm A")}`
-                      : "—"
-                  }
-                />
-                <Action label={busy ? "Working…" : "Export diagnostics"} icon="document-text-outline" onPress={exportDiagnostics} disabled={busy} />
-                {backupStatus && section === "health" ? <Text style={styles.status}>{backupStatus}</Text> : null}
-                {failedChannelRows.length ? (
-                  <View style={styles.matchBlock}>
-                    <Text style={styles.settingLabel}>Recent failed channels</Text>
-                    {failedChannelRows.map((row) => (
-                      <InfoRow key={row.id} label={row.name} value={row.id.slice(0, 18)} />
-                    ))}
-                  </View>
-                ) : (
-                  <Text style={styles.help}>No recent stream failures recorded this session.</Text>
-                )}
-              </SettingsCard>
-            ) : null}
-
-            {section === "channels" ? (
-              <SettingsCard title="Channels" icon="list-circle-outline">
-                <Text style={styles.help}>
-                  Cap of 30 rows for TV memory. Focus a channel, then Hide, Move, or set a custom number. Clear custom order resets sort.
-                </Text>
-                <Action
-                  label="Clear custom order"
-                  icon="refresh-outline"
-                  onPress={() => {
-                    void Haptics.selectionAsync().catch(() => undefined);
-                    channelCustomize.clearCustomOrder();
-                    setBackupStatus("Custom channel order cleared.");
-                  }}
-                />
-                {backupStatus && section === "channels" ? <Text style={styles.status}>{backupStatus}</Text> : null}
-                {customizeChannels.map((channel, index) => {
-                  const hidden = hiddenSet.has(channel.id);
-                  const focused = focusedCustomizeId === channel.id;
-                  const customNumber = channelCustomize.customNumbers[channel.id];
-                  const displayNumber = customNumber || index + 1;
-                  return (
-                    <View key={channel.id} style={styles.channelEditBlock}>
-                      <Pressable
-                        onFocus={() => setFocusedCustomizeId(channel.id)}
-                        onPress={() => setFocusedCustomizeId(channel.id)}
-                        style={({ focused: rowFocused }: any) => [
-                          styles.settingRow,
-                          (focused || rowFocused) && styles.focused,
-                        ]}
-                      >
-                        <Text numberOfLines={1} style={styles.settingLabel}>
-                          {displayNumber}. {channel.name}
-                        </Text>
-                        <Text style={styles.infoValue}>{hidden ? "Hidden" : "Visible"}</Text>
-                      </Pressable>
-                      {focused ? (
-                        <>
-                          <View style={styles.channelEditActions}>
-                            <Pressable
-                              onPress={() => channelCustomize.toggleHidden(channel.id)}
-                              style={({ focused: btnFocused }: any) => [styles.miniAction, btnFocused && styles.focused]}
-                            >
-                              <Text style={styles.miniActionText}>{hidden ? "Show" : "Hide"}</Text>
+                <ToggleRow label=…5095 tokens truncated…iniActionText}>{hidden ? "Show" : "Hide"}</Text>
                             </Pressable>
                             <Pressable
                               onPress={() => channelCustomize.moveInCustomOrder(channel.id, -1)}
@@ -916,7 +542,7 @@ export default function SettingsScreen() {
                               style={({ focused: btnFocused }: any) => [styles.miniAction, btnFocused && styles.focused]}
                               testID="settings-channel-number-dec"
                             >
-                              <Text style={styles.miniActionText}>Num −</Text>
+                              <Text style={styles.miniActionText}>Num âˆ’</Text>
                             </Pressable>
                             <Text style={styles.infoValue}>#{displayNumber}</Text>
                             <Pressable
@@ -956,7 +582,7 @@ export default function SettingsScreen() {
                   <TextInput
                     value={pinDraft}
                     onChangeText={(value) => setPinDraft(value.replace(/\D/g, "").slice(0, 8))}
-                    placeholder="4–8 digit PIN"
+                    placeholder="4â€“8 digit PIN"
                     placeholderTextColor={tvColors.textMuted}
                     keyboardType="number-pad"
                     secureTextEntry
@@ -1064,17 +690,17 @@ export default function SettingsScreen() {
 
             {section === "backup" ? (
               <SettingsCard title="Backup & Restore" icon="cloud-download-outline">
-                <Text style={styles.help}>Favorites backups are portable JSON files. Back Up writes a local copy and offers a shared folder (Downloads / USB) via the system picker so you can move the file off this device. They contain channel identity only—never stream URLs. Restore matches the current playlist and uses the current build&apos;s stream, logo and EPG data.</Text>
+                <Text style={styles.help}>Favorites backups are portable JSON files. Back Up writes a local copy and offers a shared folder (Downloads / USB) via the system picker so you can move the file off this device. They contain channel identity onlyâ€”never stream URLs. Restore matches the current playlist and uses the current build&apos;s stream, logo and EPG data.</Text>
                 <View style={styles.backupActions}>
-                  <Action label={busy ? "Working…" : "Back Up Favorites"} icon="save-outline" onPress={backupFavorites} disabled={busy} />
-                  <Action label={busy ? "Working…" : "Restore Favorites"} icon="download-outline" onPress={restoreFavorites} disabled={busy} />
+                  <Action label={busy ? "Workingâ€¦" : "Back Up Favorites"} icon="save-outline" onPress={backupFavorites} disabled={busy} />
+                  <Action label={busy ? "Workingâ€¦" : "Restore Favorites"} icon="download-outline" onPress={restoreFavorites} disabled={busy} />
                 </View>
                 {backupStatus ? <Text style={styles.status}>{backupStatus}</Text> : null}
                 <View style={styles.divider} />
                 <Text style={styles.help}>
-                  Clear guide cache is safe — rebuilds playlist/EPG meta and native guide DB only. Favorites stay intact.
+                  Clear guide cache is safe â€” rebuilds playlist/EPG meta and native guide DB only. Favorites stay intact.
                 </Text>
-                <Action label={busy ? "Working…" : "Clear & rebuild guide cache"} icon="trash-outline" onPress={clearCache} disabled={busy} />
+                <Action label={busy ? "Workingâ€¦" : "Clear & rebuild guide cache"} icon="trash-outline" onPress={clearCache} disabled={busy} />
                 <View style={styles.divider} />
                 <Text style={styles.help}>
                   Clear favorites is destructive and separate from guide cache. Export a backup first if you may need them later.
@@ -1082,7 +708,7 @@ export default function SettingsScreen() {
                 <Action
                   label={
                     busy
-                      ? "Working…"
+                      ? "Workingâ€¦"
                       : clearFavoritesArmed
                         ? "Confirm clear all favorites"
                         : "Clear all favorites"
@@ -1106,7 +732,7 @@ export default function SettingsScreen() {
             {section === "about" ? (
               <SettingsCard title="About CharmIPTV" icon="information-circle-outline">
                 <InfoRow label="Version" value={appVersion} />
-                <InfoRow label="Android build" value={versionCode ? String(versionCode) : "—"} />
+                <InfoRow label="Android build" value={versionCode ? String(versionCode) : "â€”"} />
                 <InfoRow label="Interface" value="Purple TV experiment" />
                 <InfoRow label="Install package" value="Purple / side-by-side" />
                 <InfoRow label="Core" value="perf/opt-fix performance grade" />

@@ -26,7 +26,7 @@ test("ProgramModal owns reminder toggling and Guide preview opens My Reminders",
   assert.doesNotMatch(preview, /clock24h|onInfo|onRemind/);
 });
 
-test("guide is a fixed left details panel plus right grid without drawer extras", async () => {
+test("guide puts its enlarged preview, 3-by-2 actions, and details above the channel tabs", async () => {
   const [guide, shell] = await Promise.all([
     source("app/(tabs)/guide.tsx"),
     source("src/components/PurpleTvShell.tsx"),
@@ -34,7 +34,9 @@ test("guide is a fixed left details panel plus right grid without drawer extras"
   const railPosition = guide.indexOf("<GuidePreviewRail");
   const gridPosition = guide.indexOf("<TimelineGrid");
   assert.ok(railPosition >= 0 && gridPosition > railPosition);
-  assert.match(guide, /const detailsRailWidth = useMemo/);
+  assert.match(guide, /const previewHeaderWidth = useMemo/);
+  assert.match(guide, /Math\.min\(324, Math\.max\(234, screenWidth \* 0\.216\)\)/);
+  assert.ok(guide.indexOf("<GuideSelectionPreview") < guide.indexOf("styles.header"));
   assert.match(guide, /flex: 1/);
   assert.doesNotMatch(guide, /NowPlayingBar|guide-now-playing/);
   assert.doesNotMatch(guide, /footerAction|purple-guide-reset/);

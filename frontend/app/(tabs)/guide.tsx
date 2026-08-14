@@ -537,7 +537,41 @@ export default function PurpleGuideScreen() {
         }
         if (previewRecoverTimer.current) {
           clearTimeout(previewRecoverTimer.current);
-     …4373 tokens truncated…         <Animated.View
+     …4313 tokens truncated…ide"
+      watchingChannelId={lastChannelId}
+    >
+      <View style={styles.page}>
+        {channels.length > 0 ? (
+          <GuideSelectionPreview
+            width={previewHeaderWidth}
+            channelById={filteredChannelById}
+            fallbackChannel={previewFallbackChannel}
+            now={now}
+            channelNumberById={channelNumberById}
+            showChannelNumbers={channelNumbers}
+            showLogos={isFocused && channelLogos && !surfLogosSuppressed}
+            favoriteSet={favoriteSet}
+            hidePreview={hidePreview}
+            muted={mutePreview}
+            onToggleMute={() => setMutePreview(!mutePreview)}
+            previewId={safePreviewMode === "off" ? null : previewId}
+            previewStatus={previewStatus}
+            previewEpoch={previewEpoch}
+            onPreviewStatus={onPreviewStatus}
+            onPreviewErrorRemount={onPreviewErrorRemount}
+            onPlay={play}
+            onFavorite={toggleFavorite}
+            onOpenReminders={() => {
+              if (previewTimer.current) clearTimeout(previewTimer.current);
+              setPreviewId(null);
+              router.replace("/reminders" as any);
+            }}
+            onHideToggle={() => setHidePreview(!hidePreview)}
+            onOpenDrawer={openDrawerFromPreview}
+          />
+        ) : null}
+        <View style={styles.header}>
+          <Animated.View
             // Title is decorative â€” never steal hits/focus beside an open drawer.
             pointerEvents="none"
             style={[styles.guideTitleBlock, { opacity: headerTitleProgress }]}
@@ -651,36 +685,7 @@ export default function PurpleGuideScreen() {
               </ScrollView>
             ) : null}
 
-            <GuideSelectionPreview
-              width={detailsRailWidth}
-              channelById={filteredChannelById}
-              fallbackChannel={previewFallbackChannel}
-              now={now}
-              channelNumberById={channelNumberById}
-              showChannelNumbers={channelNumbers}
-              showLogos={isFocused && channelLogos && !surfLogosSuppressed}
-              favoriteSet={favoriteSet}
-              hidePreview={hidePreview}
-              muted={mutePreview}
-              onToggleMute={() => setMutePreview(!mutePreview)}
-              previewId={safePreviewMode === "off" ? null : previewId}
-              previewStatus={previewStatus}
-              previewEpoch={previewEpoch}
-              onPreviewStatus={onPreviewStatus}
-              onPreviewErrorRemount={onPreviewErrorRemount}
-              onPlay={play}
-              onFavorite={toggleFavorite}
-              onOpenReminders={() => {
-                if (previewTimer.current) clearTimeout(previewTimer.current);
-                setPreviewId(null);
-                router.replace("/reminders" as any);
-              }}
-              onHideToggle={() => setHidePreview(!hidePreview)}
-              onOpenDrawer={openDrawerFromPreview}
-            />
-
-            {/* The preview/details/actions rail is a fixed left sibling. The Guide
-                owns the remaining width on the right; neither panel overlaps the other. */}
+            {/* Preview, actions, and programme details live in the header above. */}
             <FocusGuide
               style={styles.gridPanel}
               trapFocusDown

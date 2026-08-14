@@ -118,6 +118,7 @@ test("native EPG uses HTTP validators and skips all rematch work on 304", async 
   assert.match(bridge, /notModified\?: boolean/);
   assert.doesNotMatch(native, /refreshNativeEpg\(https\(SOURCE_EPG\), false\)/);
   assert.equal(native.match(/refreshNativeEpg\(https\(SOURCE_EPG\), true\)/g)?.length, 2);
+  assert.equal(native.match(/if \(epg\.notModified/g)?.length, 2);
   assert.match(native, /if \(epg\.notModified\)/);
   assert.match(native, /return MEM;/);
 });

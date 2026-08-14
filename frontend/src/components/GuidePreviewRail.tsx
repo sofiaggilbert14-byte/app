@@ -89,14 +89,14 @@ export function GuidePreviewRail({
   const audio = getLastAudioDiagnostics();
   const codecChip =
     audio && audio.streamKey && channel?.url
-      ? `${audio.mimeType?.replace(/^audio\//, "").toUpperCase() || "AUDIO"} · ${String(audio.engine).toUpperCase()}`
+      ? `${audio.mimeType?.replace(/^audio\//, "").toUpperCase() || "AUDIO"} Â· ${String(audio.engine).toUpperCase()}`
       : null;
   const about = current?.desc || "Focus a channel to preview it and read the current program.";
 
   return (
-    <View style={[styles.panel, { width }]} testID="guide-preview-rail">
+    <View style={styles.panel} testID="guide-preview-rail">
       {!hidePreview ? (
-        <View style={styles.preview}>
+        <View style={[styles.preview, { width }]}>
           {previewVisible && channel?.url ? (
             <ErrorBoundary
               onError={onPreviewErrorRemount}
@@ -125,7 +125,7 @@ export function GuidePreviewRail({
               ) : (
                 <Ionicons name="tv-outline" size={34} color={tvColors.purpleSoft} />
               )}
-              <Text style={styles.fallbackHint}>{channel ? "Tuning preview…" : "Select a channel"}</Text>
+              <Text style={styles.fallbackHint}>{channel ? "Tuning previewâ€¦" : "Select a channel"}</Text>
             </View>
           )}
           <View style={styles.liveTag}>
@@ -150,6 +150,72 @@ export function GuidePreviewRail({
         </Pressable>
       )}
 
+      <View style={styles.actionGrid}>
+        <Pressable
+          ref={playFocus.setRef}
+          disabled={!channel}
+          onPress={onPlay}
+          onFocus={playFocus.onFocus}
+          style={({ focused }: any) => [styles.watchButton, focused && styles.focused]}
+          testID="guide-preview-play"
+        >
+          <Ionicons name="play" size={12} color="#fff" />
+          <Text style={styles.watchText}>Play</Text>
+        </Pressable>
+        <Pressable
+          ref={favoriteFocus.setRef}
+          disabled={!channel}
+          onPress={onFavorite}
+          onFocus={favoriteFocus.onFocus}
+          style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
+          testID="guide-preview-favorite"
+        >
+          <Ionicons name={isFavorite ? "heart" : "heart-outline"} size={12} color={tvColors.purpleSoft} />
+          <Text style={styles.secondaryText}>Favorite</Text>
+        </Pressable>
+        <Pressable
+          ref={remindersFocus.setRef}
+          onPress={onOpenReminders}
+          onFocus={remindersFocus.onFocus}
+          style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
+          testID="guide-preview-remind"
+        >
+          <Ionicons name="notifications-outline" size={12} color={tvColors.purpleSoft} />
+          <Text style={styles.secondaryText}>Reminders</Text>
+        </Pressable>
+        <Pressable
+          ref={drawerFocus.setRef}
+          onPress={onOpenDrawer}
+          onFocus={drawerFocus.onFocus}
+          style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
+          testID="guide-preview-drawer"
+        >
+          <Ionicons name="menu-outline" size={12} color={tvColors.purpleSoft} />
+          <Text style={styles.secondaryText}>Drawer</Text>
+        </Pressable>
+        <Pressable
+          ref={muteFocus.setRef}
+          disabled={hidePreview}
+          onPress={onToggleMute}
+          onFocus={muteFocus.onFocus}
+          style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
+          testID="guide-preview-mute"
+        >
+          <Ionicons name={muted ? "volume-mute-outline" : "volume-medium-outline"} size={12} color={tvColors.purpleSoft} />
+          <Text style={styles.secondaryText}>{muted ? "Unmute" : "Mute"}</Text>
+        </Pressable>
+        <Pressable
+          ref={hideFocus.setRef}
+          onPress={onHideToggle}
+          onFocus={hideFocus.onFocus}
+          style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
+          testID="guide-preview-hide"
+        >
+          <Ionicons name={hidePreview ? "eye-outline" : "eye-off-outline"} size={12} color={tvColors.purpleSoft} />
+          <Text style={styles.secondaryText}>{hidePreview ? "Show" : "Hide"}</Text>
+        </Pressable>
+      </View>
+
       <View style={styles.copy}>
         <Text numberOfLines={1} style={styles.channelName}>
           {channel
@@ -162,7 +228,7 @@ export function GuidePreviewRail({
         <View style={styles.nowNextRow}>
           <Text numberOfLines={1} style={styles.timeText}>
             {current
-              ? `${fmtTime(current.start)}${current.stop ? ` – ${fmtTime(current.stop)}` : ""}`
+              ? `${fmtTime(current.start)}${current.stop ? ` â€“ ${fmtTime(current.stop)}` : ""}`
               : "Guide information will appear here"}
           </Text>
           {endsIn != null ? <Text style={styles.endsIn}>{endsIn}m left</Text> : null}
@@ -172,7 +238,7 @@ export function GuidePreviewRail({
         </View>
         {next?.title ? (
           <Text numberOfLines={1} style={styles.nextTitle}>
-            Next · {next.title}
+            Next Â· {next.title}
           </Text>
         ) : null}
         <Text style={styles.descLabel}>ABOUT</Text>
@@ -180,83 +246,6 @@ export function GuidePreviewRail({
           {about}
         </Text>
 
-        <View style={styles.actions}>
-          <Pressable
-            ref={playFocus.setRef}
-            disabled={!channel}
-            onPress={onPlay}
-            onFocus={playFocus.onFocus}
-            style={({ focused }: any) => [styles.watchButton, focused && styles.focused]}
-            testID="guide-preview-play"
-          >
-            <Ionicons name="play" size={12} color="#fff" />
-            <Text style={styles.watchText}>Play</Text>
-          </Pressable>
-          <Pressable
-            ref={favoriteFocus.setRef}
-            disabled={!channel}
-            onPress={onFavorite}
-            onFocus={favoriteFocus.onFocus}
-            style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
-            testID="guide-preview-favorite"
-          >
-            <Ionicons name={isFavorite ? "heart" : "heart-outline"} size={12} color={tvColors.purpleSoft} />
-            <Text style={styles.secondaryText}>Favorite</Text>
-          </Pressable>
-        </View>
-        <View style={styles.actions}>
-          <Pressable
-            ref={remindersFocus.setRef}
-            onPress={onOpenReminders}
-            onFocus={remindersFocus.onFocus}
-            style={({ focused }: any) => [
-              styles.secondaryButton,
-              focused && styles.focused,
-            ]}
-            testID="guide-preview-remind"
-          >
-            <Ionicons
-              name="notifications-outline"
-              size={12}
-              color={tvColors.purpleSoft}
-            />
-            <Text style={styles.secondaryText}>Reminders</Text>
-          </Pressable>
-          <Pressable
-            ref={drawerFocus.setRef}
-            onPress={onOpenDrawer}
-            onFocus={drawerFocus.onFocus}
-            style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
-            testID="guide-preview-drawer"
-          >
-            <Ionicons name="menu-outline" size={12} color={tvColors.purpleSoft} />
-            <Text style={styles.secondaryText}>Drawer</Text>
-          </Pressable>
-        </View>
-        <View style={styles.actions}>
-          {!hidePreview ? (
-            <Pressable
-              ref={muteFocus.setRef}
-              onPress={onToggleMute}
-              onFocus={muteFocus.onFocus}
-              style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
-              testID="guide-preview-mute"
-            >
-              <Ionicons name={muted ? "volume-mute-outline" : "volume-medium-outline"} size={12} color={tvColors.purpleSoft} />
-              <Text style={styles.secondaryText}>{muted ? "Unmute" : "Mute"}</Text>
-            </Pressable>
-          ) : null}
-          <Pressable
-            ref={hideFocus.setRef}
-            onPress={onHideToggle}
-            onFocus={hideFocus.onFocus}
-            style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
-            testID="guide-preview-hide"
-          >
-            <Ionicons name={hidePreview ? "eye-outline" : "eye-off-outline"} size={12} color={tvColors.purpleSoft} />
-            <Text style={styles.secondaryText}>{hidePreview ? "Show" : "Hide"}</Text>
-          </Pressable>
-        </View>
       </View>
     </View>
   );
@@ -264,6 +253,11 @@ export function GuidePreviewRail({
 
 const styles = StyleSheet.create({
   panel: {
+    width: "100%",
+    minHeight: 132,
+    maxHeight: 182,
+    flexDirection: "row",
+    gap: 8,
     flexShrink: 0,
     backgroundColor: tvColors.panel,
     borderRadius: radius.sm,
@@ -272,7 +266,6 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   preview: {
-    width: "100%",
     aspectRatio: 16 / 9,
     flexShrink: 0,
     backgroundColor: "#05050B",
@@ -309,6 +302,7 @@ const styles = StyleSheet.create({
   },
   codecText: { color: "#fff", fontFamily: fonts.medium, fontSize: 7 },
   hiddenPreview: {
+    width: 234,
     minHeight: 36,
     flexDirection: "row",
     alignItems: "center",
@@ -320,7 +314,16 @@ const styles = StyleSheet.create({
     borderColor: "transparent",
   },
   hiddenPreviewText: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 9 },
-  copy: { flex: 1, minHeight: 0, padding: 8 },
+  actionGrid: {
+    width: 282,
+    flexShrink: 0,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignContent: "center",
+    gap: 6,
+    paddingVertical: 8,
+  },
+  copy: { flex: 1, minWidth: 0, minHeight: 0, padding: 8, paddingLeft: 2 },
   channelName: { color: tvColors.purpleSoft, fontFamily: fonts.semibold, fontSize: 8 },
   programTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 14, lineHeight: 17, marginTop: 3 },
   nowNextRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },
@@ -344,11 +347,9 @@ const styles = StyleSheet.create({
     marginBottom: 3,
   },
   description: { color: "rgba(255,255,255,0.82)", fontFamily: fonts.regular, fontSize: 8.1, lineHeight: 11.5 },
-  actions: { flexDirection: "row", gap: 5, marginTop: 6 },
   watchButton: {
-    flex: 1,
-    minWidth: 0,
-    minHeight: 28,
+    width: 90,
+    minHeight: 48,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -360,9 +361,8 @@ const styles = StyleSheet.create({
   },
   watchText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 8 },
   secondaryButton: {
-    flex: 1,
-    minWidth: 0,
-    minHeight: 28,
+    width: 90,
+    minHeight: 48,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
