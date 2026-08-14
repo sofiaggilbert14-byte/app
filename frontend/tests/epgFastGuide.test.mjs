@@ -139,13 +139,13 @@ test("experimental EPG downloads first, parses locally, and hands finalized data
     source("src/nativeEpg.ts"),
   ]);
   assert.match(mod, /downloadEpg\(url, httpValidators, allowNotModified\)/);
-  assert.match(mod, /parseRetainedPrograms\(\s*downloaded\.file/);
-  assert.match(mod, /database\.replacePrograms\(retainedPrograms\)/);
+  assert.match(mod, /parseCompleteLocalFile\(\s*downloaded\.file/);
+  assert.match(mod, /database\.replaceBatches\(sequenceOf\(retainedPrograms\)\)/);
   assert.doesNotMatch(mod, /BATCH_SIZE|yield\(ArrayList\(batch\)\)/);
-  assert.match(mod, /database\.readChannelIdsWithPrograms\(\)/);
-  assert.match(mod, /finalizeRetainedPrograms\(parsedPrograms, minStop\)/);
-  assert.match(mod, /runtime\.engine\.replacePrograms\(finalRetainedPrograms, minStop, maxStart\)/);
-  assert.match(mod, /runtime\.warmGuideEpoch = -1L/);
+  assert.match(mod, /channelIdsWithPrograms = retainedPrograms\.mapTo/);
+  assert.match(mod, /normalizeStopsAndRetain\(parsed, minStop, maxStart\)/);
+  assert.match(mod, /ramRuntime\.engine\.replacePrograms\(retainedPrograms, minStop, maxStart\)/);
+  assert.match(mod, /ramRuntime\.warmGuideEpoch = guideEpoch/);
   assert.match(db, /SELECT DISTINCT channel_id FROM \$LIVE_TABLE/);
   assert.match(mod, /File\.createTempFile\("xmltv-", "\.download"/);
   assert.match(mod, /downloaded\?\.file\?\.delete\(\)/);

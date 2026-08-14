@@ -19,7 +19,6 @@ import {
   applyGuidePrograms,
   getGuidePrograms,
   makeGuideProgramWindowKey,
-  retainGuidePrograms,
   setGuideProgramRowLimit,
 } from "@/src/core/guideProgramsStore";
 import { reminderKey, setTimeFormat24h } from "@/src/utils/time";

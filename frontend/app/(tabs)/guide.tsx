@@ -248,7 +248,7 @@ export default function PurpleGuideScreen() {
   const router = useRouter();
   const isFocused = useIsFocused();
   const { drawerOpen, openDrawer } = usePurpleTvDrawer();
-  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const { width: screenWidth } = useWindowDimensions();
   useFocusEffect(
     useCallback(() => {
       setGuideNavigationActive(true);

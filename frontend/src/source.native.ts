@@ -920,7 +920,7 @@ async function loadProgrammeCacheMisses(
 
 export async function loadGuide(startISO?: string, hours = 6, force = false): Promise<GuideResponse> {
   const parsed = force ? await refreshInternal(true) : await ensureLoaded();
-  const { winStart, winEnd, startMs, endMs, now } = resolveGuideWindowBounds(startISO, hours);
+  const { winStart, winEnd, now } = resolveGuideWindowBounds(startISO, hours);
 
   // Apply user remaps at read time so clear-remap restores auto-matched ids from MEM.
   const remapped = withManualRemaps(parsed.channels);
