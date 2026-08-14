@@ -15,6 +15,22 @@ export type TvKey = "UP" | "DOWN" | "LEFT" | "RIGHT" | "SELECT" | "BACK";
 
 const emitter = TvRemote ? new NativeEventEmitter(TvRemote) : null;
 
+// Guide route intent and overlay ownership are intentionally separate. Only
+// applyGuideNavigationOwnership() writes the native flag, so drawer/modal state
+// can never race an older Guide useFocusEffect and accidentally reactivate it.
+let guideRouteWantsNavigation = false;
+let guideNavigationSuppressed = false;
+let lastAppliedGuideNavigation: boolean | null = null;
+
+function applyGuideNavigationOwnership() {
+  const active = guideRouteWantsNavigation && !guideNavigationSuppressed;
+  if (lastAppliedGuideNavigation === active) return;
+  lastAppliedGuideNavigation = active;
+  try {
+    TvRemote?.setGuideNavigationActive?.(active);
+  } catch {}
+}
+
 // Subscribe to D-pad key presses forwarded from the native Activity.
 export function addTvKeyListener(cb: (key: TvKey) => void): () => void {
   if (emitter) {
@@ -45,11 +61,23 @@ export function addGuidePageKeyListener(cb: (key: "UP" | "DOWN") => void): () =>
   return () => sub.remove();
 }
 
-/** Avoid duplicating every Guide D-pad repeat across the JS bridge. */
+/**
+ * Register whether the mounted/focused Guide route wants native navigation.
+ * Native ownership is still withheld whenever the global drawer/modal gate is
+ * active.
+ */
 export function setGuideNavigationActive(active: boolean) {
-  try {
-    TvRemote?.setGuideNavigationActive?.(active);
-  } catch {}
+  guideRouteWantsNavigation = !!active;
+  applyGuideNavigationOwnership();
+}
+
+/**
+ * Global overlay gate. The drawer/program sheet has exclusive D-pad ownership
+ * while this is true, regardless of stale route effects or recycled Guide views.
+ */
+export function setGuideNavigationSuppressed(suppressed: boolean) {
+  guideNavigationSuppressed = !!suppressed;
+  applyGuideNavigationOwnership();
 }
 
 /** Configure the bounded held-key cadence used while the Guide route is active. */
