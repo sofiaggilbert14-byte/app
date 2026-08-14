@@ -16,7 +16,7 @@ import { PointerOverlay } from "@/src/components/PointerOverlay";
 import { PurpleTvDrawerProvider, usePurpleTvDrawer } from "@/src/components/PurpleTvShell";
 import { TvCalibrationFrame, TvCalibrationProvider } from "@/src/tvCalibration";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
-import { setGuideNavigationActive } from "@/src/utils/tvRemote";
+import { setGuideNavigationSuppressed } from "@/src/utils/tvRemote";
 
 // Keep real errors visible for TV QA; only silence known noisy module warnings.
 LogBox.ignoreLogs([
@@ -68,9 +68,9 @@ function ReminderCleanup() {
 }
 
 /**
- * One process-wide owner decides whether Android's native Guide repeat/focus
- * path is enabled. The drawer and program modal always win ownership over the
- * Guide, so an overlay can never leave a hidden Guide D-pad handler active.
+ * One process-wide overlay gate decides whether the focused Guide route is
+ * allowed to own Android's native repeat/focus path. The Guide route registers
+ * only its route intent; drawer/modal state can never race it back on.
  */
 function TvFocusOwnershipCoordinator() {
   const pathname = usePathname();
@@ -78,9 +78,9 @@ function TvFocusOwnershipCoordinator() {
   const { drawerOpen } = usePurpleTvDrawer();
 
   useEffect(() => {
-    const guideOwnsFocus = !!pathname?.startsWith("/guide") && !activeProgram && !drawerOpen;
-    setGuideNavigationActive(guideOwnsFocus);
-    return () => setGuideNavigationActive(false);
+    const onGuide = !!pathname?.startsWith("/guide");
+    setGuideNavigationSuppressed(!onGuide || !!activeProgram || drawerOpen);
+    return () => setGuideNavigationSuppressed(true);
   }, [activeProgram, drawerOpen, pathname]);
 
   return null;
