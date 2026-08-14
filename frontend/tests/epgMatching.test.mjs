@@ -183,12 +183,12 @@ test("Android source path stays native-only (no JS XMLTV inflate/parse)", async 
   assert.doesNotMatch(native, /parseXMLTV|inflateToTextChunks|from "fflate"|epgDb/);
   assert.match(native, /Native EPG engine is unavailable/);
   assert.match(native, /Never mutate EMPTY_PROGRAMS/);
-  // Weak-stick memory: bounded programme cache + no full-playlist warm emit hitch.
-  assert.match(native, /maxProgrammeWindowKeys = 1800/);
+  // Full-guide experiment: one bounded complete snapshot + no warm emit hitch.
+  assert.match(native, /maxProgrammeWindowKeys = 20_000/);
   assert.match(native, /setProgrammeWindowCacheLimit/);
   assert.match(native, /HUGE_PLAYLIST_MATCH_THRESHOLD = 400/);
   assert.match(native, /trimProgrammeWindowCache/);
-  assert.match(native, /never emits\(\)/i);
+  assert.doesNotMatch(native, /loadGuideProgramsForChannelIds/);
 });
 
 test("web source path documents no TV JS fallback and uses shared matching", async () => {
@@ -233,3 +233,4 @@ test("edge-case XMLTV fixture covers missing stop + malformed start", async () =
   assert.match(xml, /Malformed start/);
   assert.match(xml, /<category>/);
 });
+

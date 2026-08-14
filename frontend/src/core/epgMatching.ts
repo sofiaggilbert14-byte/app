@@ -311,3 +311,4 @@ export function shouldDeleteLegacyEpgName(name: string): boolean {
   if ((LEGACY_EPG_CLEANUP_NAMES as readonly string[]).includes(name)) return true;
   return LEGACY_EPG_CLEANUP_PREFIXES.some((prefix) => name.startsWith(prefix));
 }
+

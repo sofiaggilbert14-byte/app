@@ -51,7 +51,7 @@ const PROGRESS_THROTTLE_MS = 150;
 /** Above this, match current-group / priority ids first, then the rest (keeps channels-first paint snappy). */
 const HUGE_PLAYLIST_MATCH_THRESHOLD = 400;
 /** Bounded JS row cache; the native SQLite index remains authoritative. */
-let maxProgrammeWindowKeys = 1800;
+let maxProgrammeWindowKeys = 20_000;
 const CACHE_ROOT = FileSystem.documentDirectory || "";
 const CHANNEL_CACHE = CACHE_ROOT ? `${CACHE_ROOT}charm_native_channels_v2.json` : "";
 const LEGACY_CHANNEL_CACHE = CACHE_ROOT ? `${CACHE_ROOT}charm_native_channels_v1.json` : "";
@@ -262,7 +262,9 @@ function trimProgrammeWindowCache(keepKeys: Iterable<string>, mode: "soft" | "st
 }
 
 export function setProgrammeWindowCacheLimit(limit: number): void {
-  maxProgrammeWindowKeys = Math.max(128, Math.min(4000, Math.floor(limit || 1800)));
+  // Full-guide experiment: never let device-profile runway tuning shrink the
+  // all-channel programme snapshot after its single bridge delivery.
+  maxProgrammeWindowKeys = Math.max(20_000, Math.floor(limit || 20_000));
   trimProgrammeWindowCache(viewportGuideChannelIds || []);
 }
 
@@ -925,27 +927,12 @@ export async function loadGuide(startISO?: string, hours = 6, force = false): Pr
   }
 
   const allPlaylistIds = remapped.map((channel) => channel.id).filter(Boolean);
-  let playlistIds = allPlaylistIds;
-  const huge = remapped.length >= HUGE_PLAYLIST_MATCH_THRESHOLD;
-  if ((huge || viewportGuideChannelIds?.length) && viewportGuideChannelIds?.length) {
-    const want = new Set<string>([
-      ...viewportGuideChannelIds,
-      ...priorityMatchChannelIds.slice(0, 192),
-    ]);
-    const scoped = Array.from(want).filter((id) => id);
-    if (scoped.length) playlistIds = scoped;
-  } else if (huge) {
-    // Do not bridge a whole 400+ channel guide before the screen has reported
-    // its first viewport. The leading page is immediately navigable through
-    // focusable pending cells and the queue fills the real viewport next.
-    playlistIds = allPlaylistIds.slice(0, 96);
-  }
-  playlistIds = Array.from(new Set(playlistIds));
+  // Full-guide experiment: one native query and one bridge response populate
+  // every playlist channel before scrolling begins.
+  const playlistIds = Array.from(new Set(allPlaylistIds));
 
   await loadProgrammeCacheMisses(remapped, playlistIds, startMs, endMs);
-  // Soft trim only — strict viewport trim would wipe the conveyor hysteresis band
-  // that retainProgrammeWindowCache(expandRunwayKeepSet(...)) intentionally keeps.
-  trimProgrammeWindowCache(playlistIds, "soft");
+  // Keep the complete window resident; scrolling performs no follow-up query.
 
   // Shared empty list — avoid allocating tens of thousands of `[]` on big playlists.
   // Never mutate EMPTY_PROGRAMS.
@@ -958,8 +945,7 @@ export async function loadGuide(startISO?: string, hours = 6, force = false): Pr
       programsByChannelId[channel.id] = list;
       return { ...channel, programs: list };
     }
-    // Full refresh deltas must explicitly clear queried rows whose programmes
-    // disappeared. Off-screen rows remain stale-while-revalidate until scoped.
+    // Full refreshes explicitly clear rows whose programmes disappeared.
     if (queriedPlaylistIds.has(channel.id)) programsByChannelId[channel.id] = emptyPrograms;
     return { ...channel, programs: emptyPrograms };
   });
@@ -972,53 +958,6 @@ export async function loadGuide(startISO?: string, hours = 6, force = false): Pr
     programsByChannelId,
     guideEpoch: parsed.guideEpoch || 0,
   };
-}
-
-/**
- * Exact directional runway fetch — patches programme cache only.
- * It reads cache misses only, records negative results, and never emits().
- */
-export async function loadGuideProgramsForChannelIds(
-  channelIds: string[],
-  startISO?: string,
-  hours = 6,
-): Promise<Record<string, Program[]>> {
-  if (!channelIds.length) return {};
-  const unique = Array.from(new Set(channelIds.filter(Boolean)));
-  if (!nativeEpgAvailable) {
-    return Object.fromEntries(unique.map((id) => [id, EMPTY_PROGRAMS]));
-  }
-  const parsed = MEM || (await ensureLoaded().catch(() => null));
-  if (!parsed?.channels?.length) {
-    return Object.fromEntries(unique.map((id) => [id, EMPTY_PROGRAMS]));
-  }
-
-  const { startMs, endMs } = resolveGuideWindowBounds(startISO, hours);
-  const cacheKey = `${startMs}|${endMs}|${parsed.guideEpoch || 0}`;
-  if (programmeWindowCacheKey !== cacheKey) {
-    clearProgrammeWindowCache();
-    programmeWindowCacheKey = cacheKey;
-  }
-
-  const remapped = withManualRemaps(parsed.channels);
-
-  // The grid supplies an exact direction-aware eight-page runway in its filtered
-  // on-screen order. Querying any larger source-order ring wastes SQLite/bridge
-  // work and can warm channels that are not even visible in the selected group.
-  await loadProgrammeCacheMisses(remapped, unique, startMs, endMs);
-  // A background EPG refresh can replace the cache while SQLite is reading.
-  // Returning explicit empty rows here would erase the last-good Guide even
-  // though the old query correctly refused to merge into the new epoch.
-  if (programmeWindowCacheKey !== cacheKey) return {};
-  const delta: Record<string, Program[]> = {};
-  for (const id of unique) {
-    const cached = programmeWindowCache[id];
-    delta[id] = cached?.length ? cached : EMPTY_PROGRAMS;
-  }
-  // Soft-cap only here. The guide conveyor calls retainProgrammeWindowCache with
-  // the hysteresis keep set so previously warmed pages are not dropped early.
-  trimProgrammeWindowCache([...(viewportGuideChannelIds || []), ...unique]);
-  return delta;
 }
 
 export async function refreshSource(force = false): Promise<SourceStatus> {
@@ -1244,3 +1183,4 @@ export async function clearGuideCache(): Promise<void> {
   setProgress({ phase: "idle", ratio: 0, etaSeconds: null, message: null }, true);
   emit();
 }
+

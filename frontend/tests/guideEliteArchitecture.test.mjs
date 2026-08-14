@@ -64,7 +64,7 @@ test("native focus graph avoids dead tap events and wires every preview action",
   assert.match(guide, /pointerEvents="none"/);
   assert.doesNotMatch(guide, /pointerEvents=\{drawerOpen \? "auto" : "none"\}/);
   assert.match(guide, /clearStreamFailure\(channel\.id\)/);
-  // Drawer-close reclaim is nonce-only â€” no parallel focusGuideSurface race.
+  // Drawer-close reclaim is nonce-only — no parallel focusGuideSurface race.
   assert.match(guide, /setFocusClaimNonce\(\(value\) => value \+ 1\)/);
   assert.doesNotMatch(
     guide,
@@ -85,20 +85,19 @@ test("native focus graph avoids dead tap events and wires every preview action",
   assert.doesNotMatch(shell, /purple-icon-rail|ICON_RAIL/);
 });
 
-test("runway applies focused, immediate, visible, then retained tiers", async () => {
+test("grids virtualize rendering while EPG data remains a complete snapshot", async () => {
   const [store, timeline, box, guide] = await Promise.all([
     readFile(join(root, "src/store.tsx"), "utf8"),
     readFile(join(root, "src/components/TimelineGrid.tsx"), "utf8"),
     readFile(join(root, "src/components/BoxGrid.tsx"), "utf8"),
     readFile(join(root, "app/(tabs)/guide.tsx"), "utf8"),
   ]);
-  assert.match(store, /buildGuidePatchTiers\(ids, priorityOrder, 12, 24\)/);
-  assert.match(store, /keepUsefulGuidePatch\(delta \|\| \{\}, keep\)/);
+  assert.doesNotMatch(store, /buildGuidePatchTiers|keepUsefulGuidePatch|flushProgramPatchQueue/);
   assert.match(timeline, /visiblePageIds/);
   assert.match(box, /visiblePageIds/);
   assert.match(box, /cacheProfile === "weak"[\s\S]*?320/);
   assert.match(box, /drawDistance=\{renderDrawDistance\}/);
-  assert.match(guide, /buildGuideRunwayIds\(filtered, 0, visibleRows, 1, powerProfile\)/);
+  assert.doesNotMatch(guide, /buildGuideRunwayIds|onViewportChannelIds=/);
 });
 
 test("memory cleanup preserves active logo accounting and cancels recycled focus work", async () => {
@@ -201,7 +200,7 @@ test("hidden tabs stop Guide input, clocks, and decoded-logo work", async () => 
     readFile(join(root, "app/(tabs)/search.tsx"), "utf8"),
   ]);
   assert.match(guide, /active=\{isFocused && !activeProgram && !drawerOpen\}/);
-  assert.match(guide, /if \(!isFocused\) return;[\s\S]*setInterval\(\(\) => \{[\s\S]*setNow/);
+  assert.match(guide, /if \(!isFocused\) return;[\s\S]*setInterval\(\(\) => setNow/);
   assert.match(guide, /showChannelLogos=\{isFocused && channelLogos/);
   assert.match(channels, /if \(!isFocused\) return;[\s\S]*setInterval\(\(\) => setNow/);
   assert.match(channels, /logos=\{isFocused && channelLogos\}/);
@@ -216,10 +215,11 @@ test("EPG staging and metadata promotion preserve last-good caches", async () =>
     readFile(join(root, "src/source.native.ts"), "utf8"),
     readFile(join(root, "src/source.ts"), "utf8"),
   ]);
-  assert.match(database, /STORAGE_RECHECK_BATCHES/);
+  assert.match(database, /fun replacePrograms\(programs: List<NativeEpgProgram>\)/);
   assert.match(database, /catch \(failure: Throwable\)/);
   assert.match(database, /db\.delete\(STAGING_TABLE/);
   assert.match(nativeSource, /CHANNEL_CACHE_BAK/);
   assert.match(webSource, /CACHE_BAK_FILE/);
   assert.match(webSource, /readValidCacheMeta\(CACHE_TMP_FILE\)/);
 });
+

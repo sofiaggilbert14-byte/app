@@ -17,7 +17,7 @@ const EMPTY_PROGRAMS: Program[] = [];
 // Programme arrays are shared with the source cache rather than copied. A wider
 // bounded row index lets a 2,000-channel playlist reverse direction without
 // immediately rebuilding rows that were already visited.
-let maxProgrammeRows = 1800;
+let maxProgrammeRows = 20_000;
 
 let activeWindowKey = "";
 const programsByChannelId = new Map<string, Program[]>();
@@ -66,7 +66,9 @@ function trim(keepIds: ReadonlySet<string> = new Set(), force = false): void {
 }
 
 export function setGuideProgramRowLimit(limit: number): void {
-  maxProgrammeRows = Math.max(128, Math.min(4000, Math.floor(limit || 1800)));
+  // Full-guide experiment: power profiles cannot evict off-screen programme
+  // rows after the all-channel response has reached JavaScript.
+  maxProgrammeRows = Math.max(20_000, Math.floor(limit || 20_000));
   trim();
 }
 
@@ -187,3 +189,4 @@ export function useGuidePrograms(channelId: string | null | undefined): Program[
   const getSnapshot = useCallback(() => getGuidePrograms(channelId), [channelId]);
   return useSyncExternalStore(subscribeForChannel, getSnapshot, getSnapshot);
 }
+

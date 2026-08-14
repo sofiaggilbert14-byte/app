@@ -53,7 +53,7 @@ test("focus metadata is immediate while decoder tune stays delayed and restores 
   assert.match(guide, /setGuideFocusedProgram\(channel\.id, program\)/);
   assert.match(guide, /useGuideSelection\(\)/);
   assert.match(guide, /schedulePreview\(/);
-  assert.match(guide, /previewId === requestedId && previewStatusRef\.current !== "error"/);
+  assert.match(guide, /previewId === requestedId && previewStatus !== "error"/);
   assert.match(guide, /focusGuideProgramCell\(origin\.channelId, origin\.programStart\)/);
   assert.match(timeline, /noteGuideChannelFocus\(item\.id/);
   assert.match(box, /noteGuideChannelFocus\(item\.id/);
@@ -79,7 +79,7 @@ test("Home no longer mounts a NowPlayingBar; guide owns live preview", async () 
   assert.doesNotMatch(home, /NowPlayingBar|home-now-playing/);
 });
 
-test("EPG screen delivery uses a symmetric eight-page conveyor runway with retained bounded caches", async () => {
+test("EPG screen delivery publishes one bounded complete guide snapshot", async () => {
   const [native, programStore, store, runway, sliding, guide] = await Promise.all([
     source("src/source.native.ts"),
     source("src/core/guideProgramsStore.ts"),
@@ -92,30 +92,22 @@ test("EPG screen delivery uses a symmetric eight-page conveyor runway with retai
   assert.match(runway, /GUIDE_PREFETCH_PAGES_BEHIND = 8/);
   assert.match(sliding, /expandRunwayKeepSet/);
   assert.match(sliding, /hysteresis/);
-  assert.match(programStore, /export function retainGuidePrograms/);
-  assert.match(native, /retainProgrammeWindowCache/);
-  assert.match(native, /mode === "strict"/);
+  assert.match(programStore, /maxProgrammeRows = 20_000/);
+  assert.match(native, /maxProgrammeWindowKeys = 20_000/);
+  assert.match(native, /const playlistIds = Array\.from\(new Set\(allPlaylistIds\)\)/);
   assert.match(store, /retainGuideSlidingCache/);
-  assert.match(guide, /expandRunwayKeepSet/);
-  assert.match(guide, /retainGuideSlidingCache/);
+  assert.doesNotMatch(guide, /expandRunwayKeepSet|retainGuideSlidingCache|onViewportChannelIds=/);
   assert.match(native, /programmeWindowInFlight/);
   assert.match(native, /programmeWindowAccessOrder/);
   assert.match(native, /programmeWindowCacheKey === requestCacheKey/);
-  assert.match(native, /for \(const id of unique\)/);
+  assert.match(native, /for \(const id of requested\)/);
   assert.match(native, /queriedPlaylistIds\.has\(channel\.id\)/);
-  assert.match(store, /pendingPatchIdsRef\.current\.clear\(\)/);
-  assert.doesNotMatch(store, /runwayGenerationRef|pendingPatchGenerationRef/);
-  assert.match(native, /programmeWindowCacheKey !== cacheKey\) return \{\}/);
-  assert.match(store, /guideEpoch !== guideEpochRef\.current/);
+  assert.doesNotMatch(store, /pendingPatchIdsRef|patchInFlightRef|flushProgramPatchQueue/);
+  assert.match(native, /programmeWindowCacheKey !== requestCacheKey\) return result/);
   assert.match(store, /releaseGuideSlidingCache/);
-  assert.match(guide, /releaseGuideSlidingCache\(\)/);
   assert.match(store, /resolveStoredGuideLayout/);
-  assert.match(store, /keepUsefulGuidePatch\(delta \|\| \{\}, keep\)/);
-  assert.match(store, /buildGuidePatchTiers\(ids, priorityOrder, 12, 24\)/);
-  assert.match(store, /lastKeepIdsRef/);
-  assert.match(store, /retainProgrammeWindowCache\(keep\)/);
+  assert.doesNotMatch(store, /keepUsefulGuidePatch|buildGuidePatchTiers|lastKeepIdsRef/);
   assert.match(native, /hours = 6/);
-  assert.match(programStore, /maxProgrammeRows = 1800/);
   assert.match(programStore, /setGuideProgramRowLimit/);
   assert.match(store, /EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 6/);
 });
@@ -140,7 +132,7 @@ test("EPG finalization reports truthful late phases and skips identical match wr
   assert.match(bar, /phase === "finalizing"/);
 });
 
-test("release hardening rejects stale epochs, trims on Guide blur, and derives APK identity", async () => {
+test("release hardening preserves full guide on blur and derives APK identity", async () => {
   const [native, store, guide, workflow, workerPackage] = await Promise.all([
     source("src/source.native.ts"),
     source("src/store.tsx"),
@@ -148,12 +140,11 @@ test("release hardening rejects stale epochs, trims on Guide blur, and derives A
     source("../.github/workflows/purple-tv-ui.yml"),
     source("../cloudflare-backend/worker/package.json"),
   ]);
-  assert.match(native, /programmeWindowCacheKey !== cacheKey\) return \{\}/);
-  assert.match(store, /guideEpoch !== guideEpochRef\.current/);
-  assert.match(store, /lastPatchRunwayIdsRef\.current = keep;[\s\S]*lastKeepIdsRef\.current = keep;/);
-  assert.match(store, /trimGuideProgramRows\(keep, true\)/);
-  assert.match(guide, /releaseGuideSlidingCache\(\)/);
+  assert.match(native, /programmeWindowCacheKey !== requestCacheKey\) return result/);
+  assert.doesNotMatch(store, /lastPatchRunwayIdsRef|lastKeepIdsRef|trimGuideProgramRows\(keep, true\)/);
+  assert.doesNotMatch(guide, /releaseGuideSlidingCache\(\)|onViewportChannelIds=/);
   assert.match(workflow, /require\("\.\/app\.json"\)\.expo\.version/);
   assert.match(workflow, /TESTER_RELEASE_NOTES_\$\{APP_VERSION\}\.md/);
   assert.match(workerPackage, /--config \.\.\/\.\.\/wrangler\.toml/);
 });
+

@@ -32,10 +32,10 @@ test("native EPG v4 adds playlist/match tables and joined queryGuideWindow", asy
   assert.match(bridge, /nativePlaylistIsCurrent/);
 });
 
-test("source loadGuide uses SQL join path and exact-runway programme patches", async () => {
+test("source loadGuide uses one complete all-channel SQL join response", async () => {
   const native = await source("src/source.native.ts");
   assert.match(native, /queryNativeGuideWindow/);
-  assert.match(native, /loadGuideProgramsForChannelIds/);
+  assert.doesNotMatch(native, /loadGuideProgramsForChannelIds/);
   assert.doesNotMatch(native, /buildFocusRing/);
   assert.match(native, /syncPlaylistToNative/);
   assert.match(native, /playlistNativeContentFingerprint/);
@@ -45,13 +45,15 @@ test("source loadGuide uses SQL join path and exact-runway programme patches", a
   assert.match(native, /now\.startOf\("minute"\)\.subtract\(1, "hour"\)/);
   assert.match(native, /programmeWindowEmptyKeys/);
   assert.match(native, /loadProgrammeCacheMisses/);
+  assert.match(native, /const playlistIds = Array\.from\(new Set\(allPlaylistIds\)\)/);
+  assert.doesNotMatch(native, /allPlaylistIds\.slice\(0, 96\)/);
   assert.doesNotMatch(
     native,
     /for \(const id of allGuideIds\) \{\s*if \(have\.has\(id\)\) continue;\s*ring\.push\(id\);/,
   );
 });
 
-test("store patches per-row programmes and defers silent refresh while surfing", async () => {
+test("store publishes a complete snapshot and schedules no viewport patch work", async () => {
   const [store, gate, guide, timeline, programStore] = await Promise.all([
     source("src/store.tsx"),
     source("src/utils/guideSurfGate.ts"),
@@ -62,22 +64,17 @@ test("store patches per-row programmes and defers silent refresh while surfing",
   assert.match(store, /applyGuidePrograms/);
   assert.doesNotMatch(store, /const \[programsByChannelId, setProgramsByChannelId\]/);
   assert.match(store, /patchProgramsForChannelIds/);
-  assert.match(store, /pendingPatchIdsRef/);
-  assert.match(store, /patchInFlightRef/);
+  assert.doesNotMatch(store, /pendingPatchIdsRef|patchInFlightRef|flushProgramPatchQueue/);
   assert.match(store, /isGuideSurfing/);
   assert.match(store, /pendingSilentRefreshRef/);
   assert.match(store, /onGuideSurfSettled/);
   assert.match(programStore, /useSyncExternalStore/);
-  assert.match(programStore, /maxProgrammeRows = 1800/);
+  assert.match(programStore, /maxProgrammeRows = 20_000/);
   assert.match(programStore, /setGuideProgramRowLimit/);
   assert.match(gate, /export function markGuideSurfing/);
   assert.match(gate, /export function isGuideSurfing/);
   assert.match(guide, /markGuideSurfing/);
-  assert.match(guide, /patchProgramsForChannelIds/);
-  assert.match(guide, /void patchProgramsForChannelIds\(dataIds, priorityIds\)/);
-  assert.match(guide, /isGuideSurfing\(\)/);
-  assert.match(guide, /focusIndex - pageSize \* 2/);
-  assert.match(guide, /focusIndex \+ pageSize \* 4/);
+  assert.doesNotMatch(guide, /patchProgramsForChannelIds|onViewportChannelIds=|lastRunwayRef/);
   assert.match(timeline, /useGuidePrograms/);
   assert.match(timeline, /data=\{channels\}/);
   assert.doesNotMatch(timeline, /preparedRows/);
@@ -87,7 +84,7 @@ test("store patches per-row programmes and defers silent refresh while surfing",
   assert.match(timeline, /drawDistance=\{renderDrawDistance\}/);
 });
 
-test("programme deltas keep explicit empty rows and use the exact screen runway", async () => {
+test("complete guide keeps explicit empty rows and has no viewport slice", async () => {
   const [native, bridge, box, policy] = await Promise.all([
     source("src/source.native.ts"),
     source("src/nativeEpg.ts"),
@@ -95,12 +92,12 @@ test("programme deltas keep explicit empty rows and use the exact screen runway"
     source("src/core/guideRunwayPolicy.ts"),
   ]);
   assert.match(bridge, /: EMPTY_NATIVE_PROGRAMS/);
-  assert.match(native, /delta\[id\] = cached\?\.length \? cached : EMPTY_PROGRAMS/);
-  assert.match(native, /Object\.fromEntries\(unique\.map\(\(id\) => \[id, EMPTY_PROGRAMS\]\)\)/);
-  assert.match(native, /loadProgrammeCacheMisses\(remapped, unique, startMs, endMs\)/);
+  assert.match(native, /programsByChannelId\[channel\.id\] = emptyPrograms/);
+  assert.match(native, /loadProgrammeCacheMisses\(remapped, playlistIds, startMs, endMs\)/);
   assert.doesNotMatch(native, /buildFocusRing|PROGRAMME_WARM_RING_ROWS/);
   assert.match(policy, /GUIDE_PREFETCH_PAGES_AHEAD = 8/);
-  assert.match(native, /allPlaylistIds\.slice\(0, 96\)/);
+  assert.match(native, /const playlistIds = Array\.from\(new Set\(allPlaylistIds\)\)/);
+  assert.doesNotMatch(native, /allPlaylistIds\.slice\(0, 96\)/);
   assert.doesNotMatch(box, /mountedRowBandRef/);
   assert.match(box, /drawDistance=\{renderDrawDistance\}/);
 });
@@ -182,3 +179,4 @@ test("Media3 silent audio soft-fails into VLC engine swap", async () => {
   assert.match(player, /reason === "silent-audio"/);
   assert.match(ui, /no supported Media3 audio track/);
 });
+

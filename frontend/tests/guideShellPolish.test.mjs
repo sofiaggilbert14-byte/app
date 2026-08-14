@@ -131,15 +131,15 @@ test("drawer shell boots closed without an icon rail", async () => {
   assert.match(shell, /outputRange: \[-PURPLE_SIDEBAR_WIDTH, 0\]/);
 });
 
-test("guide.tsx routes its left boundary to GuidePreviewRail with conveyor retain", async () => {
+test("guide.tsx routes its left boundary without viewport EPG work", async () => {
   const guide = await source("app/(tabs)/guide.tsx");
   assert.match(guide, /GuidePreviewRail/);
   assert.match(guide, /focusGuidePreviewSurface\(\)/);
   assert.match(guide, /onOpenReminders=/);
-  assert.match(guide, /expandRunwayKeepSet/);
-  assert.match(guide, /retainGuideSlidingCache/);
+  assert.doesNotMatch(guide, /expandRunwayKeepSet|retainGuideSlidingCache|onViewportChannelIds=/);
   assert.doesNotMatch(guide, /focusPurpleIconRail/);
   assert.match(guide, /buildVisibleGroups/);
   assert.doesNotMatch(guide, /NowPlayingBar/);
   assert.doesNotMatch(guide, /focusPurpleIconRail/);
 });
+

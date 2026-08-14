@@ -1,37 +1,27 @@
 import React, { createContext, startTransition, useCallback, useContext, useEffect, useRef, useState, useMemo } from "react";
-import { AppState, Platform } from "react-native";
-import { usePathname } from "expo-router";
+import { Platform } from "react-native";
 import dayjs from "dayjs";
 import { storage } from "@/src/utils/storage";
 import { Channel, Program } from "@/src/api";
 import {
   loadGuide,
-  loadGuideProgramsForChannelIds,
   refreshEpgOnly,
   refreshEpgIfDue,
   refreshSource,
-  retainProgrammeWindowCache,
   setManualEpgRemaps,
   setEpgRefreshIntervalHours,
   setPreferTvgIdOnlyMatching,
   setProgrammeWindowCacheLimit,
-  trimProgrammeWindowCacheForMemoryPressure,
   subscribeSource,
 } from "@/src/source";
 import { isGuideSurfing, onGuideSurfSettled } from "@/src/utils/guideSurfGate";
-import { isDrawerActivitySuspended, subscribeDrawerActivity } from "@/src/core/drawerActivityGate";
-import { isPlaybackSessionActive } from "@/src/core/playbackSession";
-import { getGuideSelection } from "@/src/core/guideSelectionStore";
 import {
   applyGuidePrograms,
   getGuidePrograms,
   makeGuideProgramWindowKey,
   retainGuidePrograms,
   setGuideProgramRowLimit,
-  trimGuideProgramRows,
 } from "@/src/core/guideProgramsStore";
-import { pickKeepIdsAroundFocus } from "@/src/core/guideSlidingCache";
-import { buildGuidePatchTiers, keepUsefulGuidePatch } from "@/src/core/guidePatchPolicy";
 import { reminderKey, setTimeFormat24h } from "@/src/utils/time";
 import { subscribeAndroidMemoryPressure } from "@/src/utils/androidMemoryPressure";
 import { clearChannelLogoMemory } from "@/src/components/ChannelLogo";
@@ -229,20 +219,6 @@ export function useStore(): Store {
 }
 
 export function GuideProvider({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
-  const pathnameRef = useRef(pathname);
-  pathnameRef.current = pathname;
-  const automaticMaintenanceBlocked = useCallback(() => {
-    const route = pathnameRef.current || "";
-    return (
-      AppState.currentState !== "active" ||
-      route.startsWith("/guide") ||
-      route.startsWith("/player") ||
-      isDrawerActivitySuspended() ||
-      isPlaybackSessionActive() ||
-      isGuideSurfing()
-    );
-  }, []);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [windowStart, setWindowStart] = useState("");
   const [windowEnd, setWindowEnd] = useState("");
@@ -254,22 +230,11 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const refreshRequestRef = useRef(0);
   const refreshSilentRef = useRef<(silent?: boolean) => Promise<void>>(async () => undefined);
   const pendingSilentRefreshRef = useRef(false);
-  const patchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const patchInFlightRef = useRef(false);
-  const pendingPatchIdsRef = useRef(new Set<string>());
-  const pendingPatchPriorityIdsRef = useRef<string[]>([]);
-  const lastPatchRunwayIdsRef = useRef<string[]>([]);
-  /** Expanded conveyor keep set (± hysteresis). Prefer this over raw runway on retain. */
-  const lastKeepIdsRef = useRef<string[]>([]);
-  const windowStartRef = useRef("");
-  const windowEndRef = useRef("");
   const guideEpochRef = useRef(0);
 
   const [favorites, setFavorites] = useState<string[]>([]);
   const [recentIds, setRecentIds] = useState<string[]>([]);
   const [lastChannelId, setLastChannelId] = useState<string | null>(null);
-  const lastChannelIdRef = useRef<string | null>(null);
-  lastChannelIdRef.current = lastChannelId;
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const remindersRef = useRef<Reminder[]>([]);
   const reminderDesiredStateRef = useRef(new Map<string, boolean>());
@@ -296,41 +261,15 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [logosOffWhileSurfing, setLogosOffWhileSurfingState] = useState(getPowerProfileTuning("normal").logosOffWhileSurfingDefault);
   const [instantGuide, setInstantGuideState] = useState(true);
   useEffect(() => {
-    const limit = getPowerProfileTuning(powerProfile).programmeRowCacheLimit;
+    const limit = 20_000;
     setGuideProgramRowLimit(limit);
     setProgrammeWindowCacheLimit(limit);
   }, [powerProfile]);
   useEffect(
     () => subscribeAndroidMemoryPressure((pressure) => {
-      const critical = pressure === "critical";
-      // Mounted Guide rows are protected by subscriptions; SQLite/user data are
-      // never touched by Android memory-pressure cleanup. Prefer the expanded
-      // hysteresis keep set (focus-centered) over the raw runway head.
-      const source = lastKeepIdsRef.current.length
-        ? lastKeepIdsRef.current
-        : lastPatchRunwayIdsRef.current;
-      const keepLimit = critical
-        ? powerProfile === "weak" ? 8 : powerProfile === "max_preview" ? 16 : 12
-        : powerProfile === "weak" ? 16 : powerProfile === "max_preview" ? 48 : 32;
-      const focusChannelId = getGuideSelection().channelId || lastChannelIdRef.current;
-      const keep = pickKeepIdsAroundFocus(source, keepLimit, focusChannelId);
-      if (critical) {
-        // Replace both source runways before strict eviction. An in-flight SQL
-        // result is filtered against these refs when it returns, so it cannot
-        // repopulate the larger pre-pressure window.
-        lastPatchRunwayIdsRef.current = keep;
-        lastKeepIdsRef.current = keep;
-        pendingPatchIdsRef.current.clear();
-        pendingPatchPriorityIdsRef.current = [];
-        if (patchTimerRef.current) {
-          clearTimeout(patchTimerRef.current);
-          patchTimerRef.current = null;
-        }
-        retainGuidePrograms(keep, { force: true });
-        retainProgrammeWindowCache(keep);
-      }
-      trimGuideProgramRows(keep, critical);
-      trimProgrammeWindowCacheForMemoryPressure(keep, critical);
+      // Preserve the complete JS guide snapshot. Native RAM may be released by
+      // the centralized listener, but scrolling remains query-free from JS.
+      void pressure;
       clearChannelLogoMemory();
     }),
     [powerProfile],
@@ -751,8 +690,6 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
                 .filter((channel) => Array.isArray(channel.programs) && channel.programs.length)
                 .map((channel) => [channel.id, channel.programs as Program[]]),
             );
-      windowStartRef.current = data.start;
-      windowEndRef.current = data.end;
       guideEpochRef.current = data.guideEpoch || 0;
       applyGuidePrograms(makeGuideProgramWindowKey(data.start, data.end, guideEpochRef.current), nextPrograms);
       setChannels((prev) => {
@@ -818,139 +755,27 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
 
   refreshSilentRef.current = refresh;
 
-  const flushProgramPatchQueue = useCallback(async () => {
-    if (patchInFlightRef.current || pendingPatchIdsRef.current.size === 0) return;
-    if (!windowStartRef.current || !windowEndRef.current) return;
-
-    patchInFlightRef.current = true;
-    const ids = Array.from(pendingPatchIdsRef.current);
-    const priorityOrder = pendingPatchPriorityIdsRef.current;
-    pendingPatchIdsRef.current.clear();
-    pendingPatchPriorityIdsRef.current = [];
-    const start = windowStartRef.current;
-    const end = windowEndRef.current;
-    const guideEpoch = guideEpochRef.current;
-    try {
-      const applyTier = async (tierIds: string[]) => {
-        if (!tierIds.length) return true;
-        const delta = await loadGuideProgramsForChannelIds(tierIds, start, guideWindowHoursRef.current);
-        // Date/window changed while SQLite was reading. Do not paint an old day.
-        if (start !== windowStartRef.current || end !== windowEndRef.current) return false;
-        // A background guide refresh replaced the native cache while this tier
-        // was reading. Keep last-good rows and enqueue the newest runway again.
-        if (guideEpoch !== guideEpochRef.current) {
-          pendingPatchIdsRef.current.clear();
-          for (const id of lastPatchRunwayIdsRef.current) {
-            if (id) pendingPatchIdsRef.current.add(id);
-          }
-          pendingPatchPriorityIdsRef.current = lastPatchRunwayIdsRef.current.slice(0, 3);
-          return false;
-        }
-        // Focus may advance while SQLite is reading. Keep results that still
-        // belong to the newest hysteresis band instead of discarding the whole
-        // query and repeatedly starting over until the remote is released.
-        const keep = lastKeepIdsRef.current.length
-          ? lastKeepIdsRef.current
-          : lastPatchRunwayIdsRef.current;
-        const usefulDelta = keepUsefulGuidePatch(delta || {}, keep);
-        // Native returns explicit empty arrays too, clearing stale rows without
-        // waiting for the complete runway.
-        if (Object.keys(usefulDelta).length) {
-          applyGuidePrograms(makeGuideProgramWindowKey(start, end, guideEpochRef.current), usefulDelta);
-        }
-        retainGuidePrograms(keep);
-        retainProgrammeWindowCache(keep);
-        return true;
-      };
-      // One leading batch avoids paying a native bridge round-trip for only one
-      // row while still getting the focused page on glass first. Tail chunks
-      // are bounded so a long runway never creates one giant JS allocation.
-      const tiers = buildGuidePatchTiers(ids, priorityOrder, 12, 24);
-      for (const tier of tiers) {
-        if (!(await applyTier(tier))) return;
-        // A newer runway supersedes the old tail. Finish its focused tier next
-        // instead of making held-D-pad input wait behind obsolete bridge work.
-        if (pendingPatchIdsRef.current.size > 0) return;
-      }
-    } catch {
-      /* keep last-good programmes on the glass */
-    } finally {
-      patchInFlightRef.current = false;
-      if (pendingPatchIdsRef.current.size > 0) {
-        if (patchTimerRef.current) clearTimeout(patchTimerRef.current);
-        patchTimerRef.current = setTimeout(() => {
-          patchTimerRef.current = null;
-          void flushProgramPatchQueue();
-        }, isGuideSurfing() ? 24 : 0);
-      }
-    }
-  }, []);
-
   const patchProgramsForChannelIds = useCallback(async (channelIds: string[], priorityIds: string[] = []) => {
-    // Each call is a complete eight-page runway. Keep only the newest pending
-    // window while SQLite is busy; the previous completed/in-flight pages remain
-    // cached inside the conveyor hysteresis band until retain drops them.
-    pendingPatchIdsRef.current.clear();
-    pendingPatchPriorityIdsRef.current = [];
-    lastPatchRunwayIdsRef.current = channelIds.filter(Boolean);
-    for (const id of channelIds) {
-      if (id) pendingPatchIdsRef.current.add(id);
-    }
-    for (const id of priorityIds) {
-      if (
-        id &&
-        pendingPatchIdsRef.current.has(id) &&
-        !pendingPatchPriorityIdsRef.current.includes(id)
-      ) {
-        pendingPatchPriorityIdsRef.current.push(id);
-      }
-    }
-    if (!pendingPatchIdsRef.current.size || patchInFlightRef.current || patchTimerRef.current) return;
-    // Leading-edge work keeps the next rows populated while the key is held.
-    patchTimerRef.current = setTimeout(() => {
-      patchTimerRef.current = null;
-      void flushProgramPatchQueue();
-    }, isGuideSurfing() ? 16 : 32);
-  }, [flushProgramPatchQueue]);
+    // Kept as a compatibility API for grid callers outside the native build.
+    // Native full-guide delivery never schedules viewport SQL/bridge work.
+    void channelIds;
+    void priorityIds;
+  }, []);
 
   /**
    * Advance the conveyor-belt keep set: drop JS + native programme rows that
    * left the hysteresis band so held surfing cannot accumulate the playlist.
    */
   const retainGuideSlidingCache = useCallback((keepIds: Iterable<string>) => {
-    const keep = Array.from(keepIds).filter(Boolean);
-    if (!keep.length) return;
-    lastKeepIdsRef.current = keep;
-    retainGuidePrograms(keep);
-    retainProgrammeWindowCache(keep);
+    // Full-guide delivery keeps all rows resident.
+    void keepIds;
   }, []);
 
   const releaseGuideSlidingCache = useCallback(() => {
-    // Preserve a small warm runway for a fast return to Guide while releasing
-    // the bulk of programme arrays before fullscreen video decoders start.
-    // Cap around lastChannelId — slicing the ascending keep head drops focus.
-    const keepLimit = powerProfile === "weak" ? 24 : powerProfile === "max_preview" ? 72 : 48;
-    const source = lastKeepIdsRef.current.length
-      ? lastKeepIdsRef.current
-      : lastPatchRunwayIdsRef.current;
-    const focusChannelId = getGuideSelection().channelId || lastChannelId;
-    const keep = pickKeepIdsAroundFocus(source, keepLimit, focusChannelId);
-    lastPatchRunwayIdsRef.current = keep;
-    lastKeepIdsRef.current = keep;
-    pendingPatchIdsRef.current.clear();
-    pendingPatchPriorityIdsRef.current = [];
-    if (patchTimerRef.current) {
-      clearTimeout(patchTimerRef.current);
-      patchTimerRef.current = null;
-    }
-    // Strict retain first so blur cannot leave hundreds of off-runway rows warm.
-    // Force empties subscribed off-keep rows — FlashList may still be mounted.
-    retainGuidePrograms(keep, { force: true });
-    retainProgrammeWindowCache(keep);
-    trimGuideProgramRows(keep, true);
-    trimProgrammeWindowCacheForMemoryPressure(keep, true);
+    // Do not discard the guide when opening fullscreen playback; returning to
+    // Guide must require no runway refill.
     clearChannelLogoMemory();
-  }, [lastChannelId, powerProfile]);
+  }, []);
 
   const setSelectedDate = useCallback(
     (d: string) => {
@@ -966,7 +791,6 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     try {
       await refreshSource(true);
       await refresh(true);
-      pendingSilentRefreshRef.current = false;
     } catch (e) {
       console.warn("hardRefresh error:", e);
     }
@@ -1071,12 +895,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       if (disposed) return;
 
       // Health check after the UI can accept D-pad input.
-      const runHealthCheck = () => {
+      healthTimer = setTimeout(() => {
         if (disposed) return;
-        if (automaticMaintenanceBlocked()) {
-          healthTimer = setTimeout(runHealthCheck, 30_000);
-          return;
-        }
         void (async () => {
           try {
             const status = await refreshSource(false);
@@ -1088,14 +908,14 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
             // Leave the cached guide up; user can Retry from the guide screen.
           }
         })();
-      };
-      healthTimer = setTimeout(runHealthCheck, 4500);
+      }, 4500);
     })();
     return () => {
       disposed = true;
       if (healthTimer) clearTimeout(healthTimer);
     };
-  }, [automaticMaintenanceBlocked, refresh]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1107,7 +927,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       refreshTimer = setTimeout(() => {
         refreshTimer = null;
         if (disposed) return;
-        if (automaticMaintenanceBlocked()) {
+        if (isGuideSurfing()) {
           pendingSilentRefreshRef.current = true;
           return;
         }
@@ -1115,43 +935,20 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       }, 500);
     });
     const unsubSettle = onGuideSurfSettled(() => {
-      if (disposed || !pendingSilentRefreshRef.current || automaticMaintenanceBlocked()) return;
+      if (disposed || !pendingSilentRefreshRef.current) return;
       pendingSilentRefreshRef.current = false;
       void refresh(true);
     });
-    const flushDeferredRefresh = () => {
-      if (disposed || !pendingSilentRefreshRef.current || automaticMaintenanceBlocked()) return;
-      pendingSilentRefreshRef.current = false;
-      void refresh(true);
-    };
-    const unsubDrawer = subscribeDrawerActivity(flushDeferredRefresh);
-    const appStateSub = AppState.addEventListener("change", flushDeferredRefresh);
     return () => {
       disposed = true;
       if (refreshTimer) clearTimeout(refreshTimer);
       unsubscribe();
       unsubSettle();
-      unsubDrawer();
-      appStateSub.remove();
     };
-  }, [automaticMaintenanceBlocked, refresh]);
-
-  // A refresh that completed while Guide/player owned the device stays
-  // invisible until navigation reaches a safe page, avoiding context/grid and
-  // player rerenders in the middle of focus or playback.
-  useEffect(() => {
-    if (!pendingSilentRefreshRef.current || automaticMaintenanceBlocked()) return;
-    pendingSilentRefreshRef.current = false;
-    void refresh(true);
-  }, [automaticMaintenanceBlocked, pathname, refresh]);
+  }, [refresh]);
 
   useEffect(
     () => () => {
-      if (patchTimerRef.current) clearTimeout(patchTimerRef.current);
-      pendingPatchIdsRef.current.clear();
-      pendingPatchPriorityIdsRef.current = [];
-      lastPatchRunwayIdsRef.current = [];
-      lastKeepIdsRef.current = [];
       if (favoritesPersistTimer.current) clearTimeout(favoritesPersistTimer.current);
       if (favoritesPendingRef.current) void storage.setItem(FAV_KEY, favoritesPendingRef.current);
       if (recentPersistTimer.current) clearTimeout(recentPersistTimer.current);
@@ -1164,19 +961,19 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
-  // Check the user-selected EPG cadence while the app stays open. Never start
-  // download/parse/SQLite work under Guide focus, playback, drawer, or background.
+  // Schedule one due-time refresh instead of polling the guide every hour. This
+  // leaves no recurring EPG task running after the complete snapshot is loaded.
   const busyRef = useRef(false);
   useEffect(() => {
     busyRef.current = loading || refreshing;
   }, [loading, refreshing]);
   useEffect(() => {
-    const timer = setInterval(() => {
-      if (busyRef.current || automaticMaintenanceBlocked()) return;
+    const timer = setTimeout(() => {
+      if (busyRef.current || isGuideSurfing()) return;
       void refreshEpgIfDue().catch(() => undefined);
-    }, 5 * 60 * 1000);
-    return () => clearInterval(timer);
-  }, [automaticMaintenanceBlocked]);
+    }, epgRefreshIntervalHours * 60 * 60 * 1000);
+    return () => clearTimeout(timer);
+  }, [epgRefreshIntervalHours]);
 
   const openProgram = useCallback((program: Program, channel: Channel) => {
     if (!program || !channel || !channel.id || !program.start || Number.isNaN(Date.parse(program.start))) {
@@ -1357,3 +1154,4 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
+

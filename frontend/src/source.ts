@@ -101,13 +101,6 @@ export function trimProgrammeWindowCacheForMemoryPressure(
 ): void {
   /* native-only */
 }
-export async function loadGuideProgramsForChannelIds(
-  _channelIds: string[],
-  _startISO?: string,
-  _hours = 6,
-): Promise<Record<string, Program[]>> {
-  return {};
-}
 export async function refreshEpgOnly(): Promise<SourceStatus> {
   return refreshSource(true);
 }
@@ -1233,3 +1226,4 @@ export async function clearGuideCache(): Promise<void> {
   setProgress({ phase: "idle", ratio: 0, etaSeconds: null }, true);
   emit();
 }
+

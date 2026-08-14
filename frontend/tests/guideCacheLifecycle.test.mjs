@@ -15,25 +15,17 @@ test("clearGuideCache also clears in-memory guide programme rows", async () => {
   assert.match(webSource, /clearGuidePrograms/);
 });
 
-test("loadGuide soft-trims so conveyor hysteresis survives refresh", async () => {
+test("loadGuide retains the complete bounded playlist snapshot", async () => {
   const nativeSource = await readFile(join(root, "src/source.native.ts"), "utf8");
-  assert.match(nativeSource, /trimProgrammeWindowCache\(playlistIds, "soft"\)/);
-  assert.doesNotMatch(
-    nativeSource,
-    /trimProgrammeWindowCache\(playlistIds, viewportGuideChannelIds\?\.length \? "strict" : "soft"\)/,
-  );
+  assert.match(nativeSource, /const playlistIds = Array\.from\(new Set\(allPlaylistIds\)\)/);
+  assert.match(nativeSource, /maxProgrammeWindowKeys = 20_000/);
+  assert.doesNotMatch(nativeSource, /trimProgrammeWindowCache\(playlistIds/);
 });
 
-test("sliding cache retains expanded keep set and strict-releases on blur", async () => {
+test("full-guide store has no sliding queues or background patch timer", async () => {
   const store = await readFile(join(root, "src/store.tsx"), "utf8");
-  assert.match(store, /lastKeepIdsRef/);
-  assert.match(store, /retainGuidePrograms\(keep\)/);
-  assert.match(store, /retainGuidePrograms\(keep, \{ force: true \}\)/);
-  assert.match(store, /retainProgrammeWindowCache\(keep\)/);
-  assert.match(store, /getGuideSelection\(\)\.channelId \|\| lastChannelId/);
-  assert.match(store, /pickKeepIdsAroundFocus\(source, keepLimit, focusChannelId\)/);
-  assert.match(store, /lastPatchRunwayIdsRef\.current = keep;[\s\S]*lastKeepIdsRef\.current = keep;/);
-  assert.match(store, /pendingPatchIdsRef\.current\.clear\(\)/);
+  assert.doesNotMatch(store, /lastKeepIdsRef|pendingPatchIdsRef|patchTimerRef|flushProgramPatchQueue/);
+  assert.match(store, /Full-guide delivery keeps all rows resident/);
 });
 
 test("prepared program orphan map stays bounded to current + focused keys", async () => {
@@ -63,14 +55,14 @@ test("focusClaimNonce reclaim ignores channels identity churn", async () => {
   assert.doesNotMatch(box, /\[channels, focusClaimNonce, restoreChannelId\]/);
 });
 
-test("guide rewarms last runway on focus and reuses channel index maps", async () => {
+test("guide focus does not rewarm or schedule guide data work", async () => {
   const [guide, sliding] = await Promise.all([
     readFile(join(root, "app/(tabs)/guide.tsx"), "utf8"),
     readFile(join(root, "src/core/guideSlidingCache.ts"), "utf8"),
   ]);
-  assert.match(guide, /lastRunwayRef/);
-  assert.match(guide, /buildChannelIndexMap/);
+  assert.doesNotMatch(guide, /lastRunwayRef|buildChannelIndexMap|onViewportChannelIds=/);
   assert.match(guide, /cacheProfile=\{powerProfile\}/);
   assert.match(sliding, /export function buildChannelIndexMap/);
   assert.match(sliding, /indexById\?: ReadonlyMap/);
 });
+

@@ -94,8 +94,7 @@ test("guide tabs reclaim the left edge and top-row Up restores the active tab", 
   assert.doesNotMatch(guide, /focusPurpleIconRail/);
   assert.doesNotMatch(guide, /NowPlayingBar/);
   assert.match(guide, /trapFocusLeft=\{false\}/);
-  assert.match(guide, /expandRunwayKeepSet/);
-  assert.match(guide, /retainGuideSlidingCache/);
+  assert.doesNotMatch(guide, /expandRunwayKeepSet|retainGuideSlidingCache|onViewportChannelIds=/);
   assert.match(guide, /active=\{isFocused && !activeProgram && !drawerOpen\}/);
   assert.match(guide, /safePreviewMode === "off" \|\| drawerOpen \|\| !isFocused \? null : previewId/);
   assert.match(guide, /lockLeftEdge=\{false\}/);
@@ -163,3 +162,4 @@ test("APK install artifact is separate from diagnostics evidence", async () => {
   assert.match(workflow, /path: frontend\/artifact\/install\/CharmIPTV-Purple-Next\.apk/);
   assert.match(workflow, /name: CharmIPTV-Purple-Next-Evidence-/);
 });
+
