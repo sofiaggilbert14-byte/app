@@ -6,6 +6,7 @@ import type { Channel, Program } from "@/src/api";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { StreamPlayer, type StreamStatus } from "@/src/components/StreamPlayer";
+import { usePurpleTvDrawer } from "@/src/components/PurpleTvShell";
 import { getLastAudioDiagnostics } from "@/src/core/audioDiagnostics";
 import {
   noteGuidePreviewFocus,
@@ -74,6 +75,7 @@ export function GuidePreviewRail({
   onHideToggle,
   onOpenDrawer,
 }: Props) {
+  const { drawerOpen } = usePurpleTvDrawer();
   const playFocus = usePreviewFocusNode("play", true);
   const favoriteFocus = usePreviewFocusNode("favorite");
   const remindersFocus = usePreviewFocusNode("reminders");
@@ -89,15 +91,18 @@ export function GuidePreviewRail({
   const audio = getLastAudioDiagnostics();
   const codecChip =
     audio && audio.streamKey && channel?.url
-      ? `${audio.mimeType?.replace(/^audio\//, "").toUpperCase() || "AUDIO"} Â· ${String(audio.engine).toUpperCase()}`
+      ? `${audio.mimeType?.replace(/^audio\//, "").toUpperCase() || "AUDIO"} · ${String(audio.engine).toUpperCase()}`
       : null;
   const about = current?.desc || "Focus a channel to preview it and read the current program.";
+  // Drawer owns the screen exclusively. Unmounting StreamPlayer here releases
+  // Media3/VLC immediately; closing the drawer remounts the same selected preview.
+  const canRunPreview = previewVisible && !drawerOpen;
 
   return (
     <View style={styles.panel} testID="guide-preview-rail">
       {!hidePreview ? (
         <View style={[styles.preview, { width }]}>
-          {previewVisible && channel?.url ? (
+          {canRunPreview && channel?.url ? (
             <ErrorBoundary
               onError={onPreviewErrorRemount}
               fallback={() => (
@@ -125,13 +130,17 @@ export function GuidePreviewRail({
               ) : (
                 <Ionicons name="tv-outline" size={34} color={tvColors.purpleSoft} />
               )}
-              <Text style={styles.fallbackHint}>{channel ? "Tuning previewâ€¦" : "Select a channel"}</Text>
+              <Text style={styles.fallbackHint}>
+                {drawerOpen ? "Preview paused" : channel ? "Tuning preview…" : "Select a channel"}
+              </Text>
             </View>
           )}
           <View style={styles.liveTag}>
-            <Text style={styles.liveTagText}>{muted ? "PREVIEW MUTED" : "LIVE PREVIEW"}</Text>
+            <Text style={styles.liveTagText}>
+              {drawerOpen ? "PREVIEW PAUSED" : muted ? "PREVIEW MUTED" : "LIVE PREVIEW"}
+            </Text>
           </View>
-          {codecChip ? (
+          {codecChip && !drawerOpen ? (
             <View style={styles.codecChip} pointerEvents="none">
               <Text style={styles.codecText} numberOfLines={1}>{codecChip}</Text>
             </View>
@@ -228,7 +237,7 @@ export function GuidePreviewRail({
         <View style={styles.nowNextRow}>
           <Text numberOfLines={1} style={styles.timeText}>
             {current
-              ? `${fmtTime(current.start)}${current.stop ? ` â€“ ${fmtTime(current.stop)}` : ""}`
+              ? `${fmtTime(current.start)}${current.stop ? ` – ${fmtTime(current.stop)}` : ""}`
               : "Guide information will appear here"}
           </Text>
           {endsIn != null ? <Text style={styles.endsIn}>{endsIn}m left</Text> : null}
@@ -238,14 +247,13 @@ export function GuidePreviewRail({
         </View>
         {next?.title ? (
           <Text numberOfLines={1} style={styles.nextTitle}>
-            Next Â· {next.title}
+            Next · {next.title}
           </Text>
         ) : null}
         <Text style={styles.descLabel}>ABOUT</Text>
         <Text accessibilityRole="text" accessibilityLabel={about} style={styles.description} numberOfLines={5}>
           {about}
         </Text>
-
       </View>
     </View>
   );
