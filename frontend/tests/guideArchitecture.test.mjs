@@ -55,7 +55,9 @@ test("focus metadata is immediate while decoder tune stays delayed and restores 
   assert.match(guide, /schedulePreview\(/);
   assert.match(guide, /previewId === requestedId && previewStatus !== "error"/);
   assert.match(guide, /focusGuideProgramCell\(origin\.channelId, origin\.programStart\)/);
-  assert.match(timeline, /noteGuideChannelFocus\(item\.id/);
+  assert.match(timeline, /focusable=\{false\}/);
+  assert.match(timeline, /hasTVPreferredFocus=\{preferInitialFocus && isPreferred\}/);
+  assert.match(timeline, /registerFocusCandidate\(index, null, "channel"\)/);
   assert.match(box, /noteGuideChannelFocus\(item\.id/);
   assert.match(focusLock, /registerGuideChannelNode/);
   assert.match(focusLock, /focusedGuideChannelId/);
@@ -148,4 +150,3 @@ test("release hardening preserves full guide on blur and derives APK identity", 
   assert.match(workflow, /TESTER_RELEASE_NOTES_\$\{APP_VERSION\}\.md/);
   assert.match(workerPackage, /--config \.\.\/\.\.\/wrangler\.toml/);
 });
-

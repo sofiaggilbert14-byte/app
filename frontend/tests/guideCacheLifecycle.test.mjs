@@ -15,9 +15,10 @@ test("clearGuideCache also clears in-memory guide programme rows", async () => {
   assert.match(webSource, /clearGuidePrograms/);
 });
 
-test("loadGuide retains the complete bounded playlist snapshot", async () => {
+test("loadGuide retains every channel for one bounded 12-hour snapshot", async () => {
   const nativeSource = await readFile(join(root, "src/source.native.ts"), "utf8");
   assert.match(nativeSource, /const playlistIds = Array\.from\(new Set\(allPlaylistIds\)\)/);
+  assert.match(nativeSource, /ACTIVE_GUIDE_WINDOW_MS = 12 \* 60 \* 60 \* 1000/);
   assert.match(nativeSource, /maxProgrammeWindowKeys = 20_000/);
   assert.doesNotMatch(nativeSource, /trimProgrammeWindowCache\(playlistIds/);
 });
@@ -25,7 +26,16 @@ test("loadGuide retains the complete bounded playlist snapshot", async () => {
 test("full-guide store has no sliding queues or background patch timer", async () => {
   const store = await readFile(join(root, "src/store.tsx"), "utf8");
   assert.doesNotMatch(store, /lastKeepIdsRef|pendingPatchIdsRef|patchTimerRef|flushProgramPatchQueue/);
-  assert.match(store, /Full-guide delivery keeps all rows resident/);
+  assert.match(store, /All-channel 12-hour delivery keeps every row resident/);
+});
+
+test("critical pressure releases both JS programme owners without deleting SQLite", async () => {
+  const [store, nativeSource] = await Promise.all([
+    readFile(join(root, "src/store.tsx"), "utf8"),
+    readFile(join(root, "src/source.native.ts"), "utf8"),
+  ]);
+  assert.match(store, /pressure === "critical"[\s\S]*releaseGuideProgrammeMemory\(\)/);
+  assert.match(nativeSource, /function releaseGuideProgrammeMemory\(\)[\s\S]*clearProgrammeWindowCache\(\)[\s\S]*clearGuidePrograms\(\)/);
 });
 
 test("prepared program orphan map stays bounded to current + focused keys", async () => {
@@ -65,4 +75,3 @@ test("guide focus does not rewarm or schedule guide data work", async () => {
   assert.match(sliding, /export function buildChannelIndexMap/);
   assert.match(sliding, /indexById\?: ReadonlyMap/);
 });
-

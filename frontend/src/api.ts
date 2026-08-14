@@ -43,4 +43,3 @@ export type SourceStatus = {
   refreshing: boolean;
   error: string | null;
 };
-

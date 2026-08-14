@@ -233,4 +233,3 @@ test("edge-case XMLTV fixture covers missing stop + malformed start", async () =
   assert.match(xml, /Malformed start/);
   assert.match(xml, /<category>/);
 });
-

@@ -169,7 +169,7 @@ export default function SettingsScreen() {
   const [pinDraft, setPinDraft] = useState("");
   const [focusedCustomizeId, setFocusedCustomizeId] = useState<string | null>(null);
   const clearFavoritesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Mount-once preferred focus â€” sticky hasTVPreferredFocus steals focus on re-render.
+  // Mount-once preferred focus — sticky hasTVPreferredFocus steals focus on re-render.
   const [preferTileFocus, setPreferTileFocus] = useState(true);
   const [preferBackFocus, setPreferBackFocus] = useState(false);
 
@@ -205,7 +205,7 @@ export default function SettingsScreen() {
 
   useTvBackHandler(
     useCallback(() => {
-      // Close a settings section first â€” never open the drawer on a single Back.
+      // Close a settings section first — never open the drawer on a single Back.
       if (section) {
         setBackupStatus(null);
         setClearFavoritesArmed(false);
@@ -285,7 +285,7 @@ export default function SettingsScreen() {
   const reloadEpgOnly = useCallback(async () => {
     if (busy) return;
     setBusy(true);
-    setBackupStatus("Refreshing EPG onlyâ€¦");
+    setBackupStatus("Refreshing EPG only…");
     try {
       await refreshEpgOnly();
       await refresh(true);
@@ -350,7 +350,7 @@ export default function SettingsScreen() {
   const clearCache = useCallback(async () => {
     if (busy) return;
     setBusy(true);
-    setBackupStatus("Clearing guide cache (favorites kept)â€¦");
+    setBackupStatus("Clearing guide cache (favorites kept)…");
     try {
       await clearGuideCache();
       await refreshSource(true);
@@ -376,7 +376,7 @@ export default function SettingsScreen() {
       clearFavoritesTimer.current = null;
     }
     setBusy(true);
-    setBackupStatus("Clearing all favoritesâ€¦");
+    setBackupStatus("Clearing all favorites…");
     try {
       replaceFavorites([]);
       setClearFavoritesArmed(false);
@@ -389,7 +389,7 @@ export default function SettingsScreen() {
   const backupFavorites = useCallback(async () => {
     if (busy) return;
     setBusy(true);
-    setBackupStatus("Saving favorites backupâ€¦");
+    setBackupStatus("Saving favorites backup…");
     try {
       const raw = serializeFavoritesBackup(favorites, channels);
       const { fileName, portable } = await writeFavoritesBackup(raw);
@@ -412,7 +412,7 @@ export default function SettingsScreen() {
       return;
     }
     setBusy(true);
-    setBackupStatus("Looking for the newest CharmIPTV favorites backupâ€¦");
+    setBackupStatus("Looking for the newest CharmIPTV favorites backup…");
     try {
       const { fileName, raw } = await readLatestFavoritesBackup();
       const restored = resolveFavoritesBackup(raw, channels);
@@ -424,7 +424,7 @@ export default function SettingsScreen() {
         .filter(Boolean)
         .slice(0, 3);
       const skippedSummary = unavailableCount
-        ? ` ${unavailableCount} unavailable favorite${unavailableCount === 1 ? " was" : "s were"} skipped${unavailableNames.length ? ` (${unavailableNames.join(", ")}${unavailableCount > unavailableNames.length ? ", â€¦" : ""})` : ""}.`
+        ? ` ${unavailableCount} unavailable favorite${unavailableCount === 1 ? " was" : "s were"} skipped${unavailableNames.length ? ` (${unavailableNames.join(", ")}${unavailableCount > unavailableNames.length ? ", …" : ""})` : ""}.`
         : " All favorites matched current playable channels.";
 
       setBackupStatus(
@@ -549,7 +549,6 @@ export default function SettingsScreen() {
                     { label: "6h", value: 6 },
                     { label: "8h", value: 8 },
                     { label: "12h", value: 12 },
-                    { label: "24h", value: 24 },
                   ]}
                   onChange={setGuideWindowHours}
                 />
@@ -574,9 +573,9 @@ export default function SettingsScreen() {
                 <Text style={styles.help}>
                   For messy providers: match playlist channels by tvg-id only (never by display name). Ambiguous names never invent a match. Turn this off to allow conservative display-name matching.
                 </Text>
-                <Action label={busy ? "Refreshingâ€¦" : "Refresh playlist & EPG"} icon="refresh" onPress={hardReload} disabled={busy} />
-                <Action label={busy ? "Workingâ€¦" : "Refresh EPG only"} icon="calendar-outline" onPress={reloadEpgOnly} disabled={busy} />
-                <Action label={busy ? "Workingâ€¦" : "Export diagnostics"} icon="document-text-outline" onPress={exportDiagnostics} disabled={busy} />
+                <Action label={busy ? "Refreshing…" : "Refresh playlist & EPG"} icon="refresh" onPress={hardReload} disabled={busy} />
+                <Action label={busy ? "Working…" : "Refresh EPG only"} icon="calendar-outline" onPress={reloadEpgOnly} disabled={busy} />
+                <Action label={busy ? "Working…" : "Export diagnostics"} icon="document-text-outline" onPress={exportDiagnostics} disabled={busy} />
                 {backupStatus && section === "general" ? <Text style={styles.status}>{backupStatus}</Text> : null}
                 {diagnostics?.matchQuality ? (
                   <View style={styles.matchBlock}>
@@ -596,7 +595,7 @@ export default function SettingsScreen() {
                       </View>
                     ) : null}
                     <Text style={styles.help}>
-                      Guide filter and favorite folders use this match state. Matched â‰ˆ channels with a programme source id after refresh.
+                      Guide filter and favorite folders use this match state. Matched ≈ channels with a programme source id after refresh.
                     </Text>
                   </View>
                 ) : null}
@@ -604,16 +603,16 @@ export default function SettingsScreen() {
                   label="Playlist refreshed"
                   value={
                     diagnostics?.playlistRefreshedAt
-                      ? `${formatRelativeAge(diagnostics.playlistRefreshedAt)} Â· ${dayjs(diagnostics.playlistRefreshedAt).format(clock24h ? "MMM D, HH:mm" : "MMM D, h:mm A")}`
-                      : "â€”"
+                      ? `${formatRelativeAge(diagnostics.playlistRefreshedAt)} · ${dayjs(diagnostics.playlistRefreshedAt).format(clock24h ? "MMM D, HH:mm" : "MMM D, h:mm A")}`
+                      : "—"
                   }
                 />
                 <InfoRow
                   label="EPG refreshed"
                   value={
                     diagnostics?.guideRefreshedAt
-                      ? `${formatRelativeAge(diagnostics.guideRefreshedAt)} Â· ${dayjs(diagnostics.guideRefreshedAt).format(clock24h ? "MMM D, HH:mm" : "MMM D, h:mm A")}`
-                      : "â€”"
+                      ? `${formatRelativeAge(diagnostics.guideRefreshedAt)} · ${dayjs(diagnostics.guideRefreshedAt).format(clock24h ? "MMM D, HH:mm" : "MMM D, h:mm A")}`
+                      : "—"
                   }
                 />
               </SettingsCard>
@@ -789,56 +788,56 @@ export default function SettingsScreen() {
                 />
                 <InfoRow
                   label="Advertised video max"
-                  value={codecCapabilities?.maxWidth ? `${codecCapabilities.maxWidth} Ã— ${codecCapabilities.maxHeight}` : "Unavailable"}
+                  value={codecCapabilities?.maxWidth ? `${codecCapabilities.maxWidth} × ${codecCapabilities.maxHeight}` : "Unavailable"}
                 />
                 <InfoRow label="Channels" value={String(channels.length)} />
-                <InfoRow label="Matched" value={String(diagnostics?.matchQuality?.matched ?? "â€”")} />
-                <InfoRow label="Unmatched" value={String(diagnostics?.matchQuality?.unmatched ?? "â€”")} />
+                <InfoRow label="Matched" value={String(diagnostics?.matchQuality?.matched ?? "—")} />
+                <InfoRow label="Unmatched" value={String(diagnostics?.matchQuality?.unmatched ?? "—")} />
                 <InfoRow
                   label="Unmatched %"
                   value={(() => {
                     const matched = diagnostics?.matchQuality?.matched ?? 0;
                     const unmatched = diagnostics?.matchQuality?.unmatched ?? 0;
                     const denom = matched + unmatched + (diagnostics?.matchQuality?.ambiguous ?? 0);
-                    if (!denom) return "â€”";
+                    if (!denom) return "—";
                     return `${Math.round((unmatched / denom) * 100)}%`;
                   })()}
                 />
                 <InfoRow label="Failed streams" value={String(failedStreamCount())} />
-                <InfoRow label="Ambiguous matches" value={String(diagnostics?.matchQuality?.ambiguous ?? "â€”")} />
+                <InfoRow label="Ambiguous matches" value={String(diagnostics?.matchQuality?.ambiguous ?? "—")} />
                 <InfoRow
                   label="Last audio engine"
-                  value={latestAudio?.engine ? String(latestAudio.engine).toUpperCase() : "â€”"}
+                  value={latestAudio?.engine ? String(latestAudio.engine).toUpperCase() : "—"}
                 />
                 <InfoRow
                   label="Last audio mime"
-                  value={latestAudio?.mimeType || "â€”"}
+                  value={latestAudio?.mimeType || "—"}
                 />
                 <InfoRow
                   label="Last audio silent"
-                  value={latestAudio ? (latestAudio.silentAudio ? "Yes" : "No") : "â€”"}
+                  value={latestAudio ? (latestAudio.silentAudio ? "Yes" : "No") : "—"}
                 />
                 <InfoRow
                   label="Audio tracks seen"
-                  value={latestAudio?.trackCount != null ? String(latestAudio.trackCount) : "â€”"}
+                  value={latestAudio?.trackCount != null ? String(latestAudio.trackCount) : "—"}
                 />
                 <InfoRow
                   label="Playlist refreshed"
                   value={
                     diagnostics?.playlistRefreshedAt
-                      ? `${formatRelativeAge(diagnostics.playlistRefreshedAt)} Â· ${dayjs(diagnostics.playlistRefreshedAt).format(clock24h ? "MMM D, HH:mm" : "MMM D, h:mm A")}`
-                      : "â€”"
+                      ? `${formatRelativeAge(diagnostics.playlistRefreshedAt)} · ${dayjs(diagnostics.playlistRefreshedAt).format(clock24h ? "MMM D, HH:mm" : "MMM D, h:mm A")}`
+                      : "—"
                   }
                 />
                 <InfoRow
                   label="Guide refreshed"
                   value={
                     diagnostics?.guideRefreshedAt
-                      ? `${formatRelativeAge(diagnostics.guideRefreshedAt)} Â· ${dayjs(diagnostics.guideRefreshedAt).format(clock24h ? "MMM D, HH:mm" : "MMM D, h:mm A")}`
-                      : "â€”"
+                      ? `${formatRelativeAge(diagnostics.guideRefreshedAt)} · ${dayjs(diagnostics.guideRefreshedAt).format(clock24h ? "MMM D, HH:mm" : "MMM D, h:mm A")}`
+                      : "—"
                   }
                 />
-                <Action label={busy ? "Workingâ€¦" : "Export diagnostics"} icon="document-text-outline" onPress={exportDiagnostics} disabled={busy} />
+                <Action label={busy ? "Working…" : "Export diagnostics"} icon="document-text-outline" onPress={exportDiagnostics} disabled={busy} />
                 {backupStatus && section === "health" ? <Text style={styles.status}>{backupStatus}</Text> : null}
                 {failedChannelRows.length ? (
                   <View style={styles.matchBlock}>
@@ -921,7 +920,7 @@ export default function SettingsScreen() {
                               style={({ focused: btnFocused }: any) => [styles.miniAction, btnFocused && styles.focused]}
                               testID="settings-channel-number-dec"
                             >
-                              <Text style={styles.miniActionText}>Num âˆ’</Text>
+                              <Text style={styles.miniActionText}>Num −</Text>
                             </Pressable>
                             <Text style={styles.infoValue}>#{displayNumber}</Text>
                             <Pressable
@@ -961,7 +960,7 @@ export default function SettingsScreen() {
                   <TextInput
                     value={pinDraft}
                     onChangeText={(value) => setPinDraft(value.replace(/\D/g, "").slice(0, 8))}
-                    placeholder="4â€“8 digit PIN"
+                    placeholder="4–8 digit PIN"
                     placeholderTextColor={tvColors.textMuted}
                     keyboardType="number-pad"
                     secureTextEntry
@@ -1069,17 +1068,17 @@ export default function SettingsScreen() {
 
             {section === "backup" ? (
               <SettingsCard title="Backup & Restore" icon="cloud-download-outline">
-                <Text style={styles.help}>Favorites backups are portable JSON files. Back Up writes a local copy and offers a shared folder (Downloads / USB) via the system picker so you can move the file off this device. They contain channel identity onlyâ€”never stream URLs. Restore matches the current playlist and uses the current build&apos;s stream, logo and EPG data.</Text>
+                <Text style={styles.help}>Favorites backups are portable JSON files. Back Up writes a local copy and offers a shared folder (Downloads / USB) via the system picker so you can move the file off this device. They contain channel identity only—never stream URLs. Restore matches the current playlist and uses the current build&apos;s stream, logo and EPG data.</Text>
                 <View style={styles.backupActions}>
-                  <Action label={busy ? "Workingâ€¦" : "Back Up Favorites"} icon="save-outline" onPress={backupFavorites} disabled={busy} />
-                  <Action label={busy ? "Workingâ€¦" : "Restore Favorites"} icon="download-outline" onPress={restoreFavorites} disabled={busy} />
+                  <Action label={busy ? "Working…" : "Back Up Favorites"} icon="save-outline" onPress={backupFavorites} disabled={busy} />
+                  <Action label={busy ? "Working…" : "Restore Favorites"} icon="download-outline" onPress={restoreFavorites} disabled={busy} />
                 </View>
                 {backupStatus ? <Text style={styles.status}>{backupStatus}</Text> : null}
                 <View style={styles.divider} />
                 <Text style={styles.help}>
-                  Clear guide cache is safe â€” rebuilds playlist/EPG meta and native guide DB only. Favorites stay intact.
+                  Clear guide cache is safe — rebuilds playlist/EPG meta and native guide DB only. Favorites stay intact.
                 </Text>
-                <Action label={busy ? "Workingâ€¦" : "Clear & rebuild guide cache"} icon="trash-outline" onPress={clearCache} disabled={busy} />
+                <Action label={busy ? "Working…" : "Clear & rebuild guide cache"} icon="trash-outline" onPress={clearCache} disabled={busy} />
                 <View style={styles.divider} />
                 <Text style={styles.help}>
                   Clear favorites is destructive and separate from guide cache. Export a backup first if you may need them later.
@@ -1087,7 +1086,7 @@ export default function SettingsScreen() {
                 <Action
                   label={
                     busy
-                      ? "Workingâ€¦"
+                      ? "Working…"
                       : clearFavoritesArmed
                         ? "Confirm clear all favorites"
                         : "Clear all favorites"
@@ -1111,7 +1110,7 @@ export default function SettingsScreen() {
             {section === "about" ? (
               <SettingsCard title="About CharmIPTV" icon="information-circle-outline">
                 <InfoRow label="Version" value={appVersion} />
-                <InfoRow label="Android build" value={versionCode ? String(versionCode) : "â€”"} />
+                <InfoRow label="Android build" value={versionCode ? String(versionCode) : "—"} />
                 <InfoRow label="Interface" value="Purple TV experiment" />
                 <InfoRow label="Install package" value="Purple / side-by-side" />
                 <InfoRow label="Core" value="perf/opt-fix performance grade" />
@@ -1171,9 +1170,23 @@ function EpgRefreshIntervalRow({ value, onChange }: { value: EpgRefreshIntervalH
     <View style={styles.settingRow}>
       <Text style={styles.settingLabel}>EPG refresh interval</Text>
       <View style={styles.channelEditActions}>
-        <Pressable disabled={value <= 1} onPress={() => onChange(Math.max(1, value - 1))} style={({ focused }: any) => [styles.miniAction, value <= 1 && styles.disabled, focused && styles.focused]} testID="settings-epg-refresh-dec"><Text style={styles.miniActionText}>−</Text></Pressable>
+        <Pressable
+          disabled={value <= 1}
+          onPress={() => onChange(Math.max(1, value - 1))}
+          style={({ focused }: any) => [styles.miniAction, value <= 1 && styles.disabled, focused && styles.focused]}
+          testID="settings-epg-refresh-dec"
+        >
+          <Text style={styles.miniActionText}>−</Text>
+        </Pressable>
         <Text style={styles.infoValue}>{value}h</Text>
-        <Pressable disabled={value >= 48} onPress={() => onChange(Math.min(48, value + 1))} style={({ focused }: any) => [styles.miniAction, value >= 48 && styles.disabled, focused && styles.focused]} testID="settings-epg-refresh-inc"><Text style={styles.miniActionText}>+</Text></Pressable>
+        <Pressable
+          disabled={value >= 48}
+          onPress={() => onChange(Math.min(48, value + 1))}
+          style={({ focused }: any) => [styles.miniAction, value >= 48 && styles.disabled, focused && styles.focused]}
+          testID="settings-epg-refresh-inc"
+        >
+          <Text style={styles.miniActionText}>+</Text>
+        </Pressable>
       </View>
     </View>
   );

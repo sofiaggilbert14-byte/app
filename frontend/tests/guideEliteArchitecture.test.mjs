@@ -222,4 +222,3 @@ test("EPG staging and metadata promotion preserve last-good caches", async () =>
   assert.match(webSource, /CACHE_BAK_FILE/);
   assert.match(webSource, /readValidCacheMeta\(CACHE_TMP_FILE\)/);
 });
-

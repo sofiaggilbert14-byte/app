@@ -1227,3 +1227,12 @@ export async function clearGuideCache(): Promise<void> {
   emit();
 }
 
+/** Release disposable rendered Guide rows without deleting persisted EPG data. */
+export async function releaseGuideProgrammeMemory(): Promise<void> {
+  try {
+    const { clearGuidePrograms } = await import("@/src/core/guideProgramsStore");
+    clearGuidePrograms();
+  } catch {
+    /* optional in non-React source consumers */
+  }
+}

@@ -151,7 +151,8 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
         val epoch = currentGuideEpoch()
         if (engine.isWarm() && runtime.warmGuideEpoch == epoch) return@execute
         val now = System.currentTimeMillis()
-        if (engine.rebuild(now - GUIDE_HISTORY_MS, now + GUIDE_WINDOW_MS)) {
+        val activeStart = now - (now % HOUR_MS) - GUIDE_HISTORY_MS
+        if (engine.rebuild(activeStart, activeStart + ACTIVE_GUIDE_WINDOW_MS)) {
           runtime.warmGuideEpoch = epoch
         }
       } finally {
@@ -217,8 +218,10 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
   }
 
   companion object {
-    private const val GUIDE_HISTORY_MS = 100L * 365L * 24L * 60L * 60L * 1000L
-    private const val GUIDE_WINDOW_MS = 100L * 365L * 24L * 60L * 60L * 1000L
+    // Disposable accelerator only: the authoritative multi-day feed remains
+    // in SQLite. Keep one hour behind plus eleven hours ahead in RAM.
+    private const val GUIDE_HISTORY_MS = 3_600_000L
+    private const val ACTIVE_GUIDE_WINDOW_MS = 43_200_000L
+    private const val HOUR_MS = 3_600_000L
   }
 }
-

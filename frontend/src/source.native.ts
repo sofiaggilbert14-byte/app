@@ -38,10 +38,12 @@ export const SOURCE_EPG = (process.env.EXPO_PUBLIC_EPG_URL || "").trim();
 
 /** Shared empty programmes array — reused for channels with no EPG in-window. Never mutate. */
 const EMPTY_PROGRAMS: Program[] = [];
-const FULL_FEED_SPAN_MS = 99 * 365 * 24 * 60 * 60 * 1000;
-const FULL_FEED_ANCHOR_MS = Date.now();
-const FULL_FEED_START_MS = FULL_FEED_ANCHOR_MS - FULL_FEED_SPAN_MS;
-const FULL_FEED_END_MS = FULL_FEED_ANCHOR_MS + FULL_FEED_SPAN_MS;
+/**
+ * Keep the complete provider feed in native SQLite, but expose only one
+ * contiguous 12-hour slice to native RAM/JS at a time. All channel rows share
+ * this slice, so vertical D-pad scrolling never triggers another EPG query.
+ */
+const ACTIVE_GUIDE_WINDOW_MS = 12 * 60 * 60 * 1000;
 
 const DEFAULT_EPG_REFRESH_HOURS = 24;
 const SOURCE_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -208,9 +210,9 @@ function resolveGuideWindowBounds(startISO?: string, hours = 6): {
   const now = dayjs();
   // A live guide must keep one stable time window while focus moves. Including
   // the current millisecond in the cache key cleared every programme row on
-  // every D-pad patch. Minute alignment is only a cold-start fallback; Store
+  // every D-pad patch. Hour alignment also matches the native RAM handoff; Store
   // subsequently passes the exact rendered window start back to us.
-  const winStart = startISO ? dayjs(startISO) : now.startOf("minute").subtract(1, "hour");
+  const winStart = startISO ? dayjs(startISO) : now.startOf("hour").subtract(1, "hour");
   const winEnd = winStart.add(hours, "hour");
   return {
     winStart,
@@ -921,23 +923,26 @@ async function loadProgrammeCacheMisses(
 export async function loadGuide(startISO?: string, hours = 6, force = false): Promise<GuideResponse> {
   const parsed = force ? await refreshInternal(true) : await ensureLoaded();
   const { winStart, winEnd, now } = resolveGuideWindowBounds(startISO, hours);
+  const activeStartMs = winStart.valueOf();
+  const activeEndMs = activeStartMs + ACTIVE_GUIDE_WINDOW_MS;
 
   // Apply user remaps at read time so clear-remap restores auto-matched ids from MEM.
   const remapped = withManualRemaps(parsed.channels);
-  // One all-date snapshot is shared by every visible date/window selection.
-  const cacheKey = `${FULL_FEED_START_MS}|${FULL_FEED_END_MS}|${parsed.guideEpoch || 0}`;
+  // One bounded snapshot contains every channel, but never every programme date.
+  const cacheKey = `${activeStartMs}|${activeEndMs}|${parsed.guideEpoch || 0}`;
   if (programmeWindowCacheKey !== cacheKey) {
     clearProgrammeWindowCache();
     programmeWindowCacheKey = cacheKey;
   }
 
   const allPlaylistIds = remapped.map((channel) => channel.id).filter(Boolean);
-  // Full-guide experiment: one native query and one bridge response populate
-  // every playlist channel before scrolling begins.
+  // One native query and one bridge response populate every playlist channel
+  // for the active 12-hour slice before scrolling begins.
   const playlistIds = Array.from(new Set(allPlaylistIds));
 
-  await loadProgrammeCacheMisses(remapped, playlistIds, FULL_FEED_START_MS, FULL_FEED_END_MS);
-  // Keep the complete window resident; scrolling performs no follow-up query.
+  await loadProgrammeCacheMisses(remapped, playlistIds, activeStartMs, activeEndMs);
+  // Keep the complete all-channel slice resident; vertical scrolling performs
+  // no follow-up EPG query.
 
   // Shared empty list — avoid allocating tens of thousands of `[]` on big playlists.
   // Never mutate EMPTY_PROGRAMS.
@@ -1190,3 +1195,8 @@ export async function clearGuideCache(): Promise<void> {
   emit();
 }
 
+/** Release only disposable Guide programme objects; SQLite and channel metadata survive. */
+export function releaseGuideProgrammeMemory(): void {
+  clearProgrammeWindowCache();
+  clearGuidePrograms();
+}

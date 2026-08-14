@@ -42,7 +42,7 @@ test("source loadGuide uses one complete all-channel SQL join response", async (
   assert.match(native, /nativePlaylistIsCurrent/);
   assert.match(native, /syncMatchesToNative/);
   assert.match(native, /programsByChannelId/);
-  assert.match(native, /now\.startOf\("minute"\)\.subtract\(1, "hour"\)/);
+  assert.match(native, /now\.startOf\("hour"\)\.subtract\(1, "hour"\)/);
   assert.match(native, /programmeWindowEmptyKeys/);
   assert.match(native, /loadProgrammeCacheMisses/);
   assert.match(native, /const playlistIds = Array\.from\(new Set\(allPlaylistIds\)\)/);
@@ -93,7 +93,8 @@ test("complete guide keeps explicit empty rows and has no viewport slice", async
   ]);
   assert.match(bridge, /: EMPTY_NATIVE_PROGRAMS/);
   assert.match(native, /programsByChannelId\[channel\.id\] = emptyPrograms/);
-  assert.match(native, /loadProgrammeCacheMisses\(remapped, playlistIds, FULL_FEED_START_MS, FULL_FEED_END_MS\)/);
+  assert.match(native, /ACTIVE_GUIDE_WINDOW_MS = 12 \* 60 \* 60 \* 1000/);
+  assert.match(native, /loadProgrammeCacheMisses\(remapped, playlistIds, activeStartMs, activeEndMs\)/);
   assert.match(native, /programSnapshotKey: cacheKey/);
   assert.doesNotMatch(native, /buildFocusRing|PROGRAMME_WARM_RING_ROWS/);
   assert.match(policy, /GUIDE_PREFETCH_PAGES_AHEAD = 8/);
@@ -144,7 +145,10 @@ test("experimental EPG downloads first, parses locally, and hands finalized data
   assert.doesNotMatch(mod, /BATCH_SIZE|yield\(ArrayList\(batch\)\)/);
   assert.match(mod, /channelIdsWithPrograms = retainedPrograms\.mapTo/);
   assert.match(mod, /normalizeStopsAndRetain\(parsed, minStop, maxStart\)/);
-  assert.match(mod, /ramRuntime\.engine\.replacePrograms\(retainedPrograms, minStop, maxStart\)/);
+  assert.match(mod, /database\.replaceBatches\(sequenceOf\(retainedPrograms\)\)/);
+  assert.match(mod, /ramRuntime\.engine\.replacePrograms\(activeRamPrograms, activeRamStart, activeRamEnd\)/);
+  assert.match(mod, /activeRamEnd = activeRamStart \+ ACTIVE_GUIDE_WINDOW_MS/);
+  assert.doesNotMatch(mod, /SharedParsedEpgSnapshot/);
   assert.match(mod, /ramRuntime\.warmGuideEpoch = guideEpoch/);
   assert.match(db, /SELECT DISTINCT channel_id FROM \$LIVE_TABLE/);
   assert.match(mod, /File\.createTempFile\("xmltv-", "\.download"/);
@@ -180,4 +184,3 @@ test("Media3 silent audio soft-fails into VLC engine swap", async () => {
   assert.match(player, /reason === "silent-audio"/);
   assert.match(ui, /no supported Media3 audio track/);
 });
-

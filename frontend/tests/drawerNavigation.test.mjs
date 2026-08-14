@@ -108,8 +108,7 @@ test("guide tabs reclaim the left edge and top-row Up restores the active tab", 
   assert.match(guide, /GuidePreviewRail/);
   assert.match(guide, /onOpenReminders=/);
   assert.match(guide, /setPreviewId\(null\)/);
-  assert.match(guide, /useTvBackHandler/);
-  assert.match(guide, /onBackTargetChange/);
+  assert.doesNotMatch(guide, /channelLogoNodeRef|guideFocusRegionRef/);
   assert.match(guide, /guideSessionGroup/);
   assert.match(guide, /restoreChannelId=\{guideSessionChannelId\}/);
   assert.doesNotMatch(guide, /openDrawer\(\);\s*\n\s*return true/);
@@ -121,7 +120,9 @@ test("grids never open the drawer from D-pad Left", async () => {
     readFile(join(root, "src/components/BoxGrid.tsx"), "utf8"),
   ]);
   assert.match(timeline, /armGuideLeftFocusLock/);
-  assert.match(timeline, /applyLeftFocusLock\(node, lockFocusLeft\)/);
+  assert.match(timeline, /focusable=\{false\}/);
+  assert.match(timeline, /registerFocusCandidate\(index, null, "channel"\)/);
+  assert.match(timeline, /: selfHandle;/);
   assert.match(box, /armGuideLeftFocusLock/);
   assert.match(box, /lockFocusLeft/);
   assert.doesNotMatch(timeline, /mountedBandRef|viewPosition: 0\.12/);
@@ -162,4 +163,3 @@ test("APK install artifact is separate from diagnostics evidence", async () => {
   assert.match(workflow, /path: frontend\/artifact\/install\/CharmIPTV-Purple-Next\.apk/);
   assert.match(workflow, /name: CharmIPTV-Purple-Next-Evidence-/);
 });
-

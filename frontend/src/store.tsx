@@ -8,6 +8,7 @@ import {
   refreshEpgOnly,
   refreshEpgIfDue,
   refreshSource,
+  releaseGuideProgrammeMemory,
   setManualEpgRemaps,
   setEpgRefreshIntervalHours,
   setPreferTvgIdOnlyMatching,
@@ -77,7 +78,10 @@ const DEFAULT_GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.EXPO_PUBLIC_
 
 function readGuideWindowHours(value: string | number | null | undefined, fallback: GuideWindowHours): GuideWindowHours {
   const n = Number(value || fallback);
-  if (n === 6 || n === 8 || n === 12 || n === 24) return n;
+  if (n === 6 || n === 8 || n === 12) return n;
+  // Migrate the previous 24-hour choice without making an existing install
+  // fall back to the much narrower default.
+  if (n === 24) return 12;
   return fallback;
 }
 
@@ -97,7 +101,7 @@ export type GuideDensity = "large" | "normal" | "compact" | "extra_compact";
 export type SafePreviewMode = "on" | "delayed" | "surf" | "off";
 export type DeviceLayoutMode = "auto" | "tv" | "mobile";
 export type PlayerControlsTimeoutMs = 8000 | 15000 | 30000 | 60000;
-export type GuideWindowHours = 6 | 8 | 12 | 24;
+export type GuideWindowHours = 6 | 8 | 12;
 export type EpgRefreshIntervalHours = number;
 export type StartScreen = "home" | "guide" | "last_channel";
 export type SleepTimerMinutes = 0 | 15 | 30 | 60 | 90;
@@ -266,9 +270,9 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   }, [powerProfile]);
   useEffect(
     () => subscribeAndroidMemoryPressure((pressure) => {
-      // Preserve the complete JS guide snapshot. Native RAM may be released by
-      // the centralized listener, but scrolling remains query-free from JS.
-      void pressure;
+      // Under critical pressure, release both owners of the same programme
+      // arrays. SQLite and channel metadata remain available for the next load.
+      if (pressure === "critical") void releaseGuideProgrammeMemory();
       clearChannelLogoMemory();
     }),
     [powerProfile],
@@ -759,7 +763,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
 
   const patchProgramsForChannelIds = useCallback(async (channelIds: string[], priorityIds: string[] = []) => {
     // Kept as a compatibility API for grid callers outside the native build.
-    // Native full-guide delivery never schedules viewport SQL/bridge work.
+    // Native all-channel delivery never schedules viewport SQL/bridge work.
     void channelIds;
     void priorityIds;
   }, []);
@@ -769,7 +773,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
    * left the hysteresis band so held surfing cannot accumulate the playlist.
    */
   const retainGuideSlidingCache = useCallback((keepIds: Iterable<string>) => {
-    // Full-guide delivery keeps all rows resident.
+    // All-channel 12-hour delivery keeps every row resident.
     void keepIds;
   }, []);
 
@@ -1156,4 +1160,3 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
-

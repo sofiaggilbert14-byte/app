@@ -63,7 +63,6 @@ import {
   registerGuideTopEntry,
 } from "@/src/utils/tvGuideFocusLock";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
-import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
 import type { StreamStatus } from "@/src/components/StreamPlayer";
 import { subscribeAndroidMemoryPressure } from "@/src/utils/androidMemoryPressure";
 import { setGuideNavigationActive, setGuideRepeatInterval } from "@/src/utils/tvRemote";
@@ -437,27 +436,6 @@ export default function PurpleGuideScreen() {
     return cancelGuideFocusRestore;
   }, [activeProgram, guideLayout]);
 
-  const guideFocusRegionRef = useRef<"channel" | "program">("program");
-  const channelLogoNodeRef = useRef<unknown>(null);
-  const onGuideBackTarget = useCallback((region: "channel" | "program", logoNode: unknown) => {
-    guideFocusRegionRef.current = region;
-    if (logoNode) channelLogoNodeRef.current = logoNode;
-  }, []);
-
-  // Back in the guide: step to the channel logo first. Only at the left edge does
-  // Back defer to the shell double-Back drawer arm — never opens on a single press.
-  useTvBackHandler(
-    useCallback(() => {
-      if (drawerOpen || activeProgram) return false;
-      if (guideFocusRegionRef.current === "program" && channelLogoNodeRef.current) {
-        requestNativeFocus(channelLogoNodeRef.current);
-        guideFocusRegionRef.current = "channel";
-        return true;
-      }
-      return false;
-    }, [activeProgram, drawerOpen]),
-  );
-
   useEffect(() => {
     if (loading || refreshing || channels.length > 0) return;
     if (bootRetryRef.current >= 1) return;
@@ -505,7 +483,8 @@ export default function PurpleGuideScreen() {
           surfReleaseTimer.current = null;
         }
         // A real route blur must unmount preview playback. The complete guide
-        // snapshot remains resident so returning never starts EPG work.
+        // 12-hour all-channel snapshot remains resident unless Android reports
+        // critical memory pressure.
         setPreviewId(null);
       };
     }, []),
@@ -1071,7 +1050,6 @@ export default function PurpleGuideScreen() {
                   onUpBoundary={onGuideUpBoundary}
                   onLeftBoundary={onGuideLeftBoundary}
                   onFocusedRowChange={onFocusedGuideRow}
-                  onBackTargetChange={onGuideBackTarget}
                   reduceMotion={instantGuide}
                 />
               )}
@@ -1339,4 +1317,3 @@ const styles = StyleSheet.create({
   retryText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 9 },
   focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
 });
-

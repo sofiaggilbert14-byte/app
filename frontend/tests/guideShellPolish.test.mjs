@@ -142,4 +142,3 @@ test("guide.tsx routes its left boundary without viewport EPG work", async () =>
   assert.doesNotMatch(guide, /NowPlayingBar/);
   assert.doesNotMatch(guide, /focusPurpleIconRail/);
 });
-

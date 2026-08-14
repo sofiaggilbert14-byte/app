@@ -119,17 +119,22 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         database.setMeta(HTTP_ETAG_KEY, httpValidators.etag)
         database.setMeta(HTTP_LAST_MODIFIED_KEY, httpValidators.lastModified)
 
-        // Replace RAM with this exact retained collection before reporting the
-        // new epoch. If the heap budget cannot admit it while the full parsed
-        // source is still in scope, keep a short one-shot handoff for the worker
-        // after these parser temporaries are released. RAM never claims the new
-        // epoch while it still contains the old programme collection.
+        // SQLite retains the complete provider feed. RAM receives only today's
+        // active 12-hour slice so the parsed multi-day collection is not pinned
+        // on the heap after refresh. Every channel is included in this slice.
+        val activeRamStart = now - (now % HOUR_MS) - ACTIVE_GUIDE_HISTORY_MS
+        val activeRamEnd = activeRamStart + ACTIVE_GUIDE_WINDOW_MS
+        val activeRamPrograms = retainedPrograms.filter {
+          it.stopMs > activeRamStart && it.startMs < activeRamEnd
+        }
         val ramRuntime = EpgRamRuntime.get(reactContext)
-        if (ramRuntime.engine.replacePrograms(retainedPrograms, minStop, maxStart)) {
+        if (ramRuntime.engine.replacePrograms(activeRamPrograms, activeRamStart, activeRamEnd)) {
           ramRuntime.warmGuideEpoch = guideEpoch
-          SharedParsedEpgSnapshot.clear()
         } else {
-          SharedParsedEpgSnapshot.publish(retainedPrograms, minStop, maxStart)
+          // Do not retain parser objects after a budget rejection. The RAM
+          // module can rebuild the same bounded slice from authoritative SQLite.
+          ramRuntime.engine.clear(0L)
+          ramRuntime.warmGuideEpoch = -1L
         }
 
         val deleted = database.deleteExpired(minStop)
@@ -162,7 +167,6 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         }
         promise.resolve(result)
       } catch (t: Throwable) {
-        SharedParsedEpgSnapshot.clear()
         promise.reject("EPG_REFRESH_FAILED", t.message ?: "Native EPG refresh failed", t)
       }
     }
@@ -287,7 +291,9 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   fun clear(promise: Promise) {
     refreshExecutor.execute {
       try {
-        SharedParsedEpgSnapshot.clear()
+        val ramRuntime = EpgRamRuntime.get(reactContext)
+        ramRuntime.engine.clear(0L)
+        ramRuntime.warmGuideEpoch = -1L
         database.clear()
         synchronized(currentCacheLock) {
           currentCache.clear()
@@ -647,7 +653,6 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   }
 
   override fun invalidate() {
-    SharedParsedEpgSnapshot.clear()
     synchronized(currentCacheLock) {
       currentCache.clear()
       currentCacheValidUntilMs = 0L
@@ -715,10 +720,12 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     private const val GUIDE_HISTORY_MS = 3_153_600_000_000L
     private const val GUIDE_WINDOW_MS = 3_153_600_000_000L
     private const val MAX_QUERY_WINDOW_MS = 6_307_200_000_000L
+    private const val ACTIVE_GUIDE_HISTORY_MS = 3_600_000L
+    private const val ACTIVE_GUIDE_WINDOW_MS = 43_200_000L
+    private const val HOUR_MS = 3_600_000L
     private const val CURRENT_CACHE_REFRESH_MS = 30_000L
     private const val DEFAULT_PROGRAMME_DURATION_MS = 30L * 60L * 1000L
     private const val MAX_PROGRAMME_DURATION_MS = 24L * 60L * 60L * 1000L
     private const val MIN_VACUUM_DELETED_ROWS = 5_000
   }
 }
-

@@ -27,7 +27,6 @@ import {
   focusGuideSurfaceWhenMounted,
   noteGuideProgramFocus,
   registerGuideProgramNode,
-  noteGuideChannelFocus,
   registerGuideChannelNode,
   wireGuideTopBoundary,
 } from "@/src/utils/tvGuideFocusLock";
@@ -147,6 +146,7 @@ type ProgramCellProps = {
   programIndex: number;
   channel: Channel;
   isPreferred: boolean;
+  preferInitialFocus: boolean;
   hasReminder: boolean;
   tvFocusable: boolean;
   extraCompact: boolean;
@@ -183,6 +183,7 @@ const ProgramCell = memo(function ProgramCell({
   programIndex,
   channel,
   isPreferred,
+  preferInitialFocus,
   hasReminder,
   tvFocusable,
   extraCompact,
@@ -247,7 +248,7 @@ const ProgramCell = memo(function ProgramCell({
       onLongPress={handleChannelLongPress}
       delayLongPress={450}
       focusable={tvFocusable}
-      hasTVPreferredFocus={false}
+      hasTVPreferredFocus={preferInitialFocus && isPreferred}
       style={({ focused }: any) => [
         styles.progCell,
         { left: prepared.left, width: prepared.width },
@@ -301,7 +302,6 @@ const TimelineRow = memo(function TimelineRow({
   onChannelLongPress,
   onProgramPress,
   onProgramFocus,
-  onRowChannelFocus,
   onRowPendingFocus,
   onFocusNode,
   registerFocusCandidate,
@@ -418,27 +418,13 @@ const TimelineRow = memo(function TimelineRow({
 
   const setLogoRef = useCallback(
     (node: any) => {
-      const previous = logoPressableRef.current;
-      if (previous && previous !== node) registerFocusCandidate(index, null, "channel");
       logoPressableRef.current = node;
-      // When unlocked, Left from the logo column must hand off to Play/actions.
-      registerGuideChannelNode(item.id, node, { handOffLeftToPreview: !lockFocusLeft });
-      // Proactive self-target means the very first Left cannot escape into the
-      // closed drawer before the JS boundary handler runs.
-      applyLeftFocusLock(node, lockFocusLeft);
-      applyDownFocusLock(node, lockFocusDown);
-      registerFocusCandidate(
-        index,
-        node ? { key: "channel", node, kind: "channel", left: -logoWidth, width: logoWidth } : null,
-        "channel",
-      );
-      if (preferredHandleRef.current) {
-        try {
-          node?.setNativeProps?.({ nextFocusRight: preferredHandleRef.current });
-        } catch {}
-      }
+      // The channel rail is display-only. Never register it in Android's focus
+      // graph; all D-pad navigation remains in programme cells.
+      registerGuideChannelNode(item.id, null, { handOffLeftToPreview: false });
+      registerFocusCandidate(index, null, "channel");
     },
-    [index, item.id, lockFocusDown, lockFocusLeft, logoWidth, registerFocusCandidate],
+    [index, item.id, registerFocusCandidate],
   );
 
   useEffect(() => {
@@ -448,14 +434,6 @@ const TimelineRow = memo(function TimelineRow({
   }, [lockFocusDown, lockFocusLeft]);
 
   const handleChannelPress = useCallback(() => onChannelPress(item), [onChannelPress, item]);
-  const handleChannelFocus = useCallback(() => {
-    noteGuideChannelFocus(item.id, logoPressableRef.current);
-    // Re-wire Left → preview after recycle; Play may have mounted after this row.
-    if (!lockFocusLeft) applyLeftFocusLock(logoPressableRef.current, false);
-    onFocusNode?.(logoPressableRef.current);
-    onRowChannelFocus(item, index, logoPressableRef.current);
-    wireFocusCandidate(index, "channel", logoPressableRef.current);
-  }, [index, item, lockFocusLeft, onFocusNode, onRowChannelFocus, wireFocusCandidate]);
   const handleChannelLongPress = useCallback(() => onChannelLongPress?.(item), [onChannelLongPress, item]);
   const handleProgramFocus = useCallback(
     (prepared: PreparedProgram, channel: Channel) => onProgramFocus(prepared, channel, index),
@@ -521,9 +499,8 @@ const TimelineRow = memo(function TimelineRow({
                 { paddingHorizontal: horizontalPadding, gap: itemGap },
                 focused && styles.logoCellFocused,
               ]}
-              focusable
-              hasTVPreferredFocus={preferInitialFocus}
-              onFocus={handleChannelFocus}
+              focusable={false}
+              hasTVPreferredFocus={false}
               onPress={handleChannelPress}
               onLongPress={handleChannelLongPress}
               delayLongPress={450}
@@ -549,6 +526,7 @@ const TimelineRow = memo(function TimelineRow({
               const keepFocused = getFocusedProgramKey?.() === prepared.key;
               return <ProgramCell key={prepared.key} prepared={prepared} rowIndex={index} programIndex={programIndex}
                 channel={item} isPreferred={isPreferred}
+                preferInitialFocus={preferInitialFocus}
                 hasReminder={!!reminderKeys?.has(reminderKey(item.id, prepared.program.start))}
                 tvFocusable={near || keepFocused} extraCompact={nameMaxLines === 1}
                 lockFocusDown={lockFocusDown} capturePreferred={capturePreferred}
@@ -558,7 +536,7 @@ const TimelineRow = memo(function TimelineRow({
                 onChannelLongPress={onChannelLongPress} />;
             })}
             {(preparedPrograms.length === 0 || preservePendingFocus) && (
-              <Pressable ref={setPendingRef} focusable onFocus={handlePendingFocus}
+              <Pressable ref={setPendingRef} focusable hasTVPreferredFocus={preferInitialFocus} onFocus={handlePendingFocus}
                 onBlur={handlePendingBlur} onPress={handleChannelPress}
                 onLongPress={handleChannelLongPress} delayLongPress={450}
                 style={({ focused }: any) => [styles.progCell, styles.pendingProgramCell,
@@ -799,7 +777,7 @@ export const TimelineGrid = memo(function TimelineGrid({
     if (current.kind === "program") {
       props.nextFocusLeft = currentIndex > 0
         ? findNodeHandle(candidates[currentIndex - 1]?.node) || -1
-        : -1;
+        : selfHandle;
       props.nextFocusRight = currentIndex >= 0 && currentIndex < candidates.length - 1
         ? findNodeHandle(candidates[currentIndex + 1]?.node) || -1
         : -1;
@@ -1530,4 +1508,3 @@ const styles = StyleSheet.create({
     borderTopColor: "#F472B6",
   },
 });
-

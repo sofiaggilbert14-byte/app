@@ -4,10 +4,10 @@ import type { Program } from "@/src/api";
 /**
  * TV guide programme cache deliberately lives outside the app-wide React context.
  *
- * A viewport EPG response may update one channel while a 2,000-row guide is
- * mounted. Putting that map in GuideProvider makes every consumer render and
- * makes FlashList receive a new data array. This store lets a row subscribe to
- * its own programme pointer only.
+ * The all-channel 12-hour response may update thousands of rows at once.
+ * Putting that map in GuideProvider makes every consumer render and makes
+ * FlashList receive a new data array. This store lets each mounted row
+ * subscribe to its own programme pointer only.
  *
  * SQLite/native EPG storage is authoritative. This JS layer is only a bounded,
  * row-local pointer cache so guide focus never depends on an all-channel React
@@ -189,4 +189,3 @@ export function useGuidePrograms(channelId: string | null | undefined): Program[
   const getSnapshot = useCallback(() => getGuidePrograms(channelId), [channelId]);
   return useSyncExternalStore(subscribeForChannel, getSnapshot, getSnapshot);
 }
-

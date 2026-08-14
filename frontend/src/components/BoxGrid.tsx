@@ -638,4 +638,3 @@ const styles = StyleSheet.create({
   progressFill: { height: 4, backgroundColor: ACCENT },
   nextLine: { color: "rgba(233,213,255,0.78)", fontFamily: fonts.regular, fontSize: 11, marginTop: 6 },
 });
-
