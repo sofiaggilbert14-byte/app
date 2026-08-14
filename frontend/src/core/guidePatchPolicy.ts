@@ -1,4 +1,5 @@
 import type { Program } from "@/src/api";
+import { isDrawerActivitySuspended } from "@/src/core/drawerActivityGate";
 
 /** Build small ordered native-query batches: focused/visible rows first. */
 export function buildGuidePatchTiers(
@@ -7,6 +8,10 @@ export function buildGuidePatchTiers(
   leadingLimit = 12,
   tailChunkSize = 24,
 ): string[][] {
+  // The drawer is the exclusive UI owner. Keep the mounted Guide/cache intact,
+  // but do not launch new hidden SQLite/RAM/bridge work underneath it.
+  if (isDrawerActivitySuspended()) return [];
+
   const ids = Array.from(new Set(channelIds.filter(Boolean)));
   if (!ids.length) return [];
   const idSet = new Set(ids);
@@ -31,6 +36,12 @@ export function keepUsefulGuidePatch(
   delta: Readonly<Record<string, Program[]>>,
   keepIds: Iterable<string>,
 ): Record<string, Program[]> {
+  // A read that began immediately before drawer-open may finish afterward. Its
+  // native transaction is safe to complete, but it must not churn Guide rows or
+  // React state while the drawer owns focus. The next post-drawer runway request
+  // will reuse whatever remains cached and fill any misses.
+  if (isDrawerActivitySuspended()) return {};
+
   const keep = new Set(Array.from(keepIds).filter(Boolean));
   const useful: Record<string, Program[]> = {};
   for (const [channelId, programs] of Object.entries(delta || {})) {
