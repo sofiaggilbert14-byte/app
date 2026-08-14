@@ -75,3 +75,14 @@ test("guide focus does not rewarm or schedule guide data work", async () => {
   assert.match(sliding, /export function buildChannelIndexMap/);
   assert.match(sliding, /indexById\?: ReadonlyMap/);
 });
+
+test("all-channel data does not mount the entire playlist as native views", async () => {
+  const [timeline, box] = await Promise.all([
+    readFile(join(root, "src/components/TimelineGrid.tsx"), "utf8"),
+    readFile(join(root, "src/components/BoxGrid.tsx"), "utf8"),
+  ]);
+  assert.match(timeline, /renderViewport \* renderScreens/);
+  assert.match(box, /renderViewport \* renderScreens/);
+  assert.doesNotMatch(timeline, /renderDrawDistance = Math\.max\(1, channels\.length \* ROW_H\)/);
+  assert.doesNotMatch(box, /renderDrawDistance = Math\.max\(148, Math\.ceil\(channels\.length \/ numColumns\) \* 148\)/);
+});

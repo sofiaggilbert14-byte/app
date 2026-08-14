@@ -39,11 +39,12 @@ test("favorite storage remains ID-only and bounded", async () => {
   assert.doesNotMatch(store, /storage\.setItem\(RECENT_KEY, next\)/);
 });
 
-test("all channel rows mount without focus-time React state churn", async () => {
+test("guide keeps a deep bounded row runway without focus-time React state churn", async () => {
   const grid = await source("src/components/TimelineGrid.tsx");
   assert.doesNotMatch(grid, /cullDisabledRef|setDisableProgramCull/);
   assert.match(grid, /drawDistance=\{renderDrawDistance\}/);
-  assert.match(grid, /channels\.length \* ROW_H/);
+  assert.match(grid, /Math\.min\(channels\.length \* ROW_H, renderViewport \* renderScreens\)/);
+  assert.doesNotMatch(grid, /renderDrawDistance = Math\.max\(1, channels\.length \* ROW_H\)/);
   assert.doesNotMatch(grid, /\[currentTimeMs, item\.id, programs/);
 });
 

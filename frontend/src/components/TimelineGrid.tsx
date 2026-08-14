@@ -1199,9 +1199,15 @@ export const TimelineGrid = memo(function TimelineGrid({
     [onBackTargetChange, onChannelFocus, reportFocusedRow],
   );
 
-  // Full-mount experiment: keep every channel row inside FlashList's render
-  // window so held native focus never waits for a recycled row to mount.
-  const renderDrawDistance = Math.max(1, channels.length * ROW_H);
+  // Keep a deep focus runway, but never turn the entire playlist into native
+  // views. The 12-hour programme data is already resident; rows beyond this
+  // bounded pixel window can recycle without another EPG query.
+  const renderScreens = cacheProfile === "weak" ? 4 : cacheProfile === "max_preview" ? 8 : 6;
+  const renderViewport = Math.max(ROW_H * 6, bodyH || 0);
+  const renderDrawDistance = Math.max(
+    ROW_H * 6,
+    Math.min(channels.length * ROW_H, renderViewport * renderScreens),
+  );
 
   const lastRowIndex = Math.max(0, channels.length - 1);
   lastRowIndexRef.current = lastRowIndex;

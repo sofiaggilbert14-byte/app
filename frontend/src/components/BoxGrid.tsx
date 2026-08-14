@@ -479,8 +479,15 @@ export function BoxGrid({
 
   const lastRowIndex = Math.max(0, Math.floor((Math.max(channels.length, 1) - 1) / Math.max(1, numColumns)));
   lastRowIndexRef.current = lastRowIndex;
-  // Full-mount experiment: cover every card row instead of recycling vertically.
-  const renderDrawDistance = Math.max(148, Math.ceil(channels.length / numColumns) * 148);
+  // Programme data for all channels is resident, but native cards must remain
+  // bounded or a large playlist can exhaust the Android view/heap budget.
+  const renderScreens = cacheProfile === "weak" ? 4 : cacheProfile === "max_preview" ? 8 : 6;
+  const renderViewport = Math.max(148 * 3, height - 110);
+  const renderContentHeight = Math.ceil(channels.length / numColumns) * 148;
+  const renderDrawDistance = Math.max(
+    148 * 4,
+    Math.min(renderContentHeight, renderViewport * renderScreens),
+  );
 
   useTVEventHandler(
     useCallback(

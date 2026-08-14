@@ -95,7 +95,8 @@ test("grids virtualize rendering while EPG data remains a complete snapshot", as
   assert.doesNotMatch(store, /buildGuidePatchTiers|keepUsefulGuidePatch|flushProgramPatchQueue/);
   assert.match(timeline, /visiblePageIds/);
   assert.match(box, /visiblePageIds/);
-  assert.match(box, /Math\.ceil\(channels\.length \/ numColumns\) \* 148/);
+  assert.match(box, /Math\.min\(renderContentHeight, renderViewport \* renderScreens\)/);
+  assert.doesNotMatch(box, /renderDrawDistance = Math\.max\(148, Math\.ceil\(channels\.length \/ numColumns\) \* 148\)/);
   assert.match(box, /drawDistance=\{renderDrawDistance\}/);
   assert.doesNotMatch(guide, /buildGuideRunwayIds|onViewportChannelIds=/);
 });
