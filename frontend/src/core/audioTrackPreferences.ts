@@ -8,7 +8,34 @@ const MAX_CHANNELS = 128;
 type TrackId = string | number;
 type Snapshot = { defaultLanguage: string; byChannel: Record<string, TrackId> };
 let cached: Snapshot = { defaultLanguage: "", byChannel: {} };
+let loaded = false;
+let loadPromise: Promise<Snapshot> | null = null;
+let mutationVersion = 0;
 const listeners = new Set<(snapshot: Snapshot) => void>();
+
+async function load(): Promise<Snapshot> {
+  if (loaded) return cached;
+  if (loadPromise) return loadPromise;
+  const versionAtStart = mutationVersion;
+  loadPromise = Promise.all([
+    storage.getItem<string>(LANG_KEY, ""),
+    storage.getItem<Record<string, TrackId>>(CHANNEL_KEY, {}),
+  ]).then(([defaultLanguage, byChannel]) => {
+    if (versionAtStart !== mutationVersion) return cached;
+    cached = {
+      defaultLanguage: normalizePreferredAudioLanguage(defaultLanguage),
+      byChannel: byChannel && typeof byChannel === "object" ? byChannel : {},
+    };
+    loaded = true;
+    emit();
+    return cached;
+  });
+  try {
+    return await loadPromise;
+  } finally {
+    loadPromise = null;
+  }
+}
 
 function emit() {
   for (const listener of Array.from(listeners)) {
@@ -23,20 +50,20 @@ function emit() {
 
 export function useAudioTrackPreferences() {
   const [snapshot, setSnapshot] = useState(cached);
+  const [ready, setReady] = useState(loaded);
   useEffect(() => {
     let mounted = true;
-    void Promise.all([
-      storage.getItem<string>(LANG_KEY, ""),
-      storage.getItem<Record<string, TrackId>>(CHANNEL_KEY, {}),
-    ]).then(([defaultLanguage, byChannel]) => {
-      cached = {
-        defaultLanguage: normalizePreferredAudioLanguage(defaultLanguage),
-        byChannel: byChannel && typeof byChannel === "object" ? byChannel : {},
-      };
-      if (mounted) setSnapshot(cached);
-      emit();
+    void load().then((next) => {
+      if (mounted) {
+        setSnapshot(next);
+        setReady(true);
+      }
     });
-    const listener = (next: Snapshot) => mounted && setSnapshot(next);
+    const listener = (next: Snapshot) => {
+      if (!mounted) return;
+      setSnapshot(next);
+      setReady(true);
+    };
     listeners.add(listener);
     return () => {
       mounted = false;
@@ -45,13 +72,18 @@ export function useAudioTrackPreferences() {
   }, []);
   return {
     ...snapshot,
+    ready,
     setDefaultLanguage: useCallback((raw: string) => {
+      mutationVersion += 1;
+      loaded = true;
       cached = { ...cached, defaultLanguage: normalizePreferredAudioLanguage(raw) };
       emit();
       void storage.setItem(LANG_KEY, cached.defaultLanguage);
     }, []),
     rememberChannelTrack: useCallback((channelId: string, trackId: TrackId) => {
       if (!channelId || trackId == null) return;
+      mutationVersion += 1;
+      loaded = true;
       const entries = Object.entries(cached.byChannel).filter(([id]) => id !== channelId);
       entries.push([channelId, trackId]);
       cached = { ...cached, byChannel: Object.fromEntries(entries.slice(-MAX_CHANNELS)) };

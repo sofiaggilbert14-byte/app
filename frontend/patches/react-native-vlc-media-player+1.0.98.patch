@@ -1,8 +1,32 @@
 diff --git a/node_modules/react-native-vlc-media-player/android/src/main/java/com/yuanzhou/vlc/vlcplayer/ReactVlcPlayerView.java b/node_modules/react-native-vlc-media-player/android/src/main/java/com/yuanzhou/vlc/vlcplayer/ReactVlcPlayerView.java
-index 8c7acdf..d8c5e61 100755
+index 8c7acdf..3cba239 100644
 --- a/node_modules/react-native-vlc-media-player/android/src/main/java/com/yuanzhou/vlc/vlcplayer/ReactVlcPlayerView.java
 +++ b/node_modules/react-native-vlc-media-player/android/src/main/java/com/yuanzhou/vlc/vlcplayer/ReactVlcPlayerView.java
-@@ -125,6 +125,7 @@ class ReactVlcPlayerView extends TextureView implements
+@@ -10,7 +10,6 @@ import android.os.Handler;
+ import android.os.Looper;
+ import android.util.DisplayMetrics;
+ import android.util.Log;
+-import android.view.Surface;
+ import android.view.TextureView;
+ import android.view.View;
+ import com.facebook.react.bridge.Arguments;
+@@ -47,6 +46,7 @@ class ReactVlcPlayerView extends TextureView implements
+     private LibVLC libvlc;
+     private MediaPlayer mMediaPlayer = null;
+     private boolean mMuted = false;
++    private boolean mDisableAudioFocus = false;
+     private boolean isSurfaceViewDestory;
+     private String src;
+     private String _subtitleUri;
+@@ -54,7 +54,6 @@ class ReactVlcPlayerView extends TextureView implements
+     private ReadableMap srcMap;
+     private int mVideoHeight = 0;
+     private TextureView surfaceView;
+-    private Surface surfaceVideo;
+     private int mVideoWidth = 0;
+     private int mVideoVisibleHeight = 0;
+     private int mVideoVisibleWidth = 0;
+@@ -125,6 +124,7 @@ class ReactVlcPlayerView extends TextureView implements
                  isSurfaceViewDestory = false;
                  isPaused = false;
                  // this.getHolder().setKeepScreenOn(true);
@@ -10,11 +34,14 @@ index 8c7acdf..d8c5e61 100755
                  mMediaPlayer.play();
              }
          }
-@@ -157,6 +158,14 @@ class ReactVlcPlayerView extends TextureView implements
+@@ -157,40 +157,47 @@ class ReactVlcPlayerView extends TextureView implements
      public void onAudioFocusChange(int focusChange) {
      }
  
 +    private void requestPlaybackAudioFocus() {
++        if (mMuted || mDisableAudioFocus) {
++            return;
++        }
 +        audioManager.requestAudioFocus(
 +                this,
 +                AudioManager.STREAM_MUSIC,
@@ -23,9 +50,99 @@ index 8c7acdf..d8c5e61 100755
 +    }
 +
      private void setProgressUpdateRunnable() {
++        if (mProgressUpdateRunnable != null) {
++            mProgressUpdateHandler.removeCallbacks(mProgressUpdateRunnable);
++            mProgressUpdateRunnable = null;
++        }
          if (mMediaPlayer != null && mProgressUpdateInterval > 0){
-             new Thread() {
-@@ -363,7 +372,7 @@ class ReactVlcPlayerView extends TextureView implements
+-            new Thread() {
++            mProgressUpdateRunnable = new Runnable() {
+                 @Override
+                 public void run() {
+-                    super.run();
+-
+-                    mProgressUpdateRunnable = new Runnable() {
+-                        @Override
+-                        public void run() {
+-                            if (mMediaPlayer != null && !isPaused) {
+-                                long currentTime = 0;
+-                                long totalLength = 0;
+-                                WritableMap event = Arguments.createMap();
+-                                boolean isPlaying = mMediaPlayer.isPlaying();
+-                                currentTime = mMediaPlayer.getTime();
+-                                float position = mMediaPlayer.getPosition();
+-                                totalLength = mMediaPlayer.getLength();
+-                                WritableMap map = Arguments.createMap();
+-                                map.putBoolean("isPlaying", isPlaying);
+-                                map.putDouble("position", position);
+-                                map.putDouble("currentTime", currentTime);
+-                                map.putDouble("duration", totalLength);
+-                                updateVideoInfo();
+-                                eventEmitter.sendEvent(map, VideoEventEmitter.EVENT_PROGRESS);
+-                            }
+-
+-                            mProgressUpdateHandler.postDelayed(mProgressUpdateRunnable, Math.round(mProgressUpdateInterval));
++                    if (mProgressUpdateRunnable != this) return;
++                    final MediaPlayer player = mMediaPlayer;
++                    if (player != null && !isPaused) {
++                        try {
++                            WritableMap map = Arguments.createMap();
++                            map.putBoolean("isPlaying", player.isPlaying());
++                            map.putDouble("position", player.getPosition());
++                            map.putDouble("currentTime", player.getTime());
++                            map.putDouble("duration", player.getLength());
++                            updateVideoInfo();
++                            eventEmitter.sendEvent(map, VideoEventEmitter.EVENT_PROGRESS);
++                        } catch (RuntimeException ignored) {
++                            // A queued progress callback may race native teardown.
+                         }
+-                    };
+-
+-                    mProgressUpdateHandler.postDelayed(mProgressUpdateRunnable, 0);
++                    }
++                    if (mProgressUpdateRunnable == this) {
++                        mProgressUpdateHandler.postDelayed(this, Math.round(mProgressUpdateInterval));
++                    }
+                 }
+-            }.start();
++            };
++            mProgressUpdateHandler.post(mProgressUpdateRunnable);
+         }
+     }
+ 
+@@ -226,10 +233,19 @@ class ReactVlcPlayerView extends TextureView implements
+ 
+         @Override
+         public void onEvent(MediaPlayer.Event event) {
+-            boolean isPlaying = mMediaPlayer.isPlaying();
+-            currentTime = mMediaPlayer.getTime();
+-            float position = mMediaPlayer.getPosition();
+-            totalLength = mMediaPlayer.getLength();
++            final MediaPlayer player = mMediaPlayer;
++            if (player == null) return;
++            final boolean isPlaying;
++            final float position;
++            try {
++                isPlaying = player.isPlaying();
++                currentTime = player.getTime();
++                position = player.getPosition();
++                totalLength = player.getLength();
++            } catch (RuntimeException ignored) {
++                // LibVLC may deliver a final queued event after releasePlayer().
++                return;
++            }
+             WritableMap map = Arguments.createMap();
+             map.putBoolean("isPlaying", isPlaying);
+             map.putDouble("position", position);
+@@ -355,6 +371,7 @@ class ReactVlcPlayerView extends TextureView implements
+             //String extension = srcMap.hasKey("type") ? srcMap.getString("type") : null;
+             boolean isNetwork = srcMap.hasKey("isNetwork") ? srcMap.getBoolean("isNetwork") : false;
+             boolean autoplay = srcMap.hasKey("autoplay") ? srcMap.getBoolean("autoplay") : true;
++            mDisableAudioFocus = srcMap.hasKey("disableAudioFocus") && srcMap.getBoolean("disableAudioFocus");
+             int initType = srcMap.hasKey("initType") ? srcMap.getInt("initType") : 1;
+             ReadableArray mediaOptions = srcMap.hasKey("mediaOptions") ? srcMap.getArray("mediaOptions") : null;
+             ReadableArray initOptions = srcMap.hasKey("initOptions") ? srcMap.getArray("initOptions") : null;
+@@ -363,7 +380,7 @@ class ReactVlcPlayerView extends TextureView implements
  
              if (initOptions != null) {
                  ArrayList options = initOptions.toArrayList();
@@ -34,7 +151,7 @@ index 8c7acdf..d8c5e61 100755
                      String option = (String) options.get(i);
                      cOptions.add(option);
                  }
-@@ -443,7 +452,7 @@ class ReactVlcPlayerView extends TextureView implements
+@@ -443,7 +460,7 @@ class ReactVlcPlayerView extends TextureView implements
              //添加media  option
              if (mediaOptions != null) {
                  ArrayList options = mediaOptions.toArrayList();
@@ -43,7 +160,7 @@ index 8c7acdf..d8c5e61 100755
                      String option = (String) options.get(i);
                      m.addOption(option);
                  }
-@@ -470,11 +479,13 @@ class ReactVlcPlayerView extends TextureView implements
+@@ -470,11 +487,13 @@ class ReactVlcPlayerView extends TextureView implements
              }
              if (isResume) {
                  if (autoplayResume) {
@@ -57,7 +174,7 @@ index 8c7acdf..d8c5e61 100755
                      mMediaPlayer.play();
                  }
              }
-@@ -491,16 +502,20 @@ class ReactVlcPlayerView extends TextureView implements
+@@ -491,16 +510,20 @@ class ReactVlcPlayerView extends TextureView implements
          if (libvlc == null)
              return;
  
@@ -83,7 +200,16 @@ index 8c7acdf..d8c5e61 100755
          }
      }
  
-@@ -599,6 +614,7 @@ class ReactVlcPlayerView extends TextureView implements
+@@ -554,7 +577,7 @@ class ReactVlcPlayerView extends TextureView implements
+ 
+     public void setmProgressUpdateInterval(float interval) {
+         mProgressUpdateInterval = interval;
+-        createPlayer(true, false);
++        setProgressUpdateRunnable();
+     }
+ 
+ 
+@@ -599,6 +622,7 @@ class ReactVlcPlayerView extends TextureView implements
                  mMediaPlayer.pause();
              } else {
                  isPaused = false;
@@ -91,7 +217,17 @@ index 8c7acdf..d8c5e61 100755
                  mMediaPlayer.play();
                  Log.i("do play:", true + "");
              }
-@@ -758,6 +774,10 @@ class ReactVlcPlayerView extends TextureView implements
+@@ -718,8 +742,7 @@ class ReactVlcPlayerView extends TextureView implements
+     }
+ 
+     public void stopPlayer() {
+-        if(mMediaPlayer == null) return;
+-        mMediaPlayer.stop();
++        stopPlayback();
+     }
+ 
+     private void handleCertificateDialog(Dialog.QuestionDialog dialog) {
+@@ -758,12 +781,17 @@ class ReactVlcPlayerView extends TextureView implements
          stopPlayback();
      }
  
@@ -102,8 +238,17 @@ index 8c7acdf..d8c5e61 100755
      @Override
      public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
          mVideoWidth = width;
+         mVideoHeight = height;
+-        surfaceVideo = new Surface(surface);
+-        createPlayer(true, false);
++        if (mMediaPlayer == null && srcMap != null) {
++            createPlayer(true, false);
++        }
+     }
+ 
+     @Override
 diff --git a/node_modules/react-native-vlc-media-player/android/src/main/java/com/yuanzhou/vlc/vlcplayer/ReactVlcPlayerViewManager.java b/node_modules/react-native-vlc-media-player/android/src/main/java/com/yuanzhou/vlc/vlcplayer/ReactVlcPlayerViewManager.java
-index b935a4d..c6cf57c 100755
+index b935a4d..c6cf57c 100644
 --- a/node_modules/react-native-vlc-media-player/android/src/main/java/com/yuanzhou/vlc/vlcplayer/ReactVlcPlayerViewManager.java
 +++ b/node_modules/react-native-vlc-media-player/android/src/main/java/com/yuanzhou/vlc/vlcplayer/ReactVlcPlayerViewManager.java
 @@ -54,6 +54,7 @@ public class ReactVlcPlayerViewManager extends SimpleViewManager<ReactVlcPlayerV

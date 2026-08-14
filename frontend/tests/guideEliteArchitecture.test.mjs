@@ -201,7 +201,7 @@ test("hidden tabs stop Guide input, clocks, and decoded-logo work", async () => 
     readFile(join(root, "app/(tabs)/search.tsx"), "utf8"),
   ]);
   assert.match(guide, /active=\{isFocused && !activeProgram && !drawerOpen\}/);
-  assert.match(guide, /if \(!isFocused\) return;[\s\S]*setInterval\(\(\) => setNow/);
+  assert.match(guide, /if \(!isFocused\) return;[\s\S]*setInterval\(\(\) => \{[\s\S]*setNow/);
   assert.match(guide, /showChannelLogos=\{isFocused && channelLogos/);
   assert.match(channels, /if \(!isFocused\) return;[\s\S]*setInterval\(\(\) => setNow/);
   assert.match(channels, /logos=\{isFocused && channelLogos\}/);

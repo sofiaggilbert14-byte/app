@@ -42,6 +42,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   @ReactMethod
   fun refresh(url: String, allowNotModified: Boolean, promise: Promise) {
     refreshExecutor.execute {
+      android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
       try {
         database.ensureHealthy()
         database.assertRefreshStorageAvailable()
@@ -84,9 +85,6 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
           // preserves the previous last-good guide if anything fails.
           database.replaceBatches(sequenceOf(retainedPrograms))
 
-          // One-shot native handoff: the RAM engine can consume these exact
-          // objects after the durable SQLite commit instead of rereading disk.
-          SharedParsedEpgSnapshot.publish(retainedPrograms, minStop, maxStart)
         } catch (_: EpgNotModifiedException) {
           val guideEpoch = database.getMeta("guide_epoch")?.toLongOrNull() ?: 0L
           val result = Arguments.createMap().apply {
@@ -120,6 +118,19 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         database.setMeta(HTTP_SOURCE_HASH_KEY, httpValidators.sourceHash)
         database.setMeta(HTTP_ETAG_KEY, httpValidators.etag)
         database.setMeta(HTTP_LAST_MODIFIED_KEY, httpValidators.lastModified)
+
+        // Replace RAM with this exact retained collection before reporting the
+        // new epoch. If the heap budget cannot admit it while the full parsed
+        // source is still in scope, keep a short one-shot handoff for the worker
+        // after these parser temporaries are released. RAM never claims the new
+        // epoch while it still contains the old programme collection.
+        val ramRuntime = EpgRamRuntime.get(reactContext)
+        if (ramRuntime.engine.replacePrograms(retainedPrograms, minStop, maxStart)) {
+          ramRuntime.warmGuideEpoch = guideEpoch
+          SharedParsedEpgSnapshot.clear()
+        } else {
+          SharedParsedEpgSnapshot.publish(retainedPrograms, minStop, maxStart)
+        }
 
         val deleted = database.deleteExpired(minStop)
         database.maybeIncrementalVacuum(MIN_VACUUM_DELETED_ROWS, deleted)
@@ -461,6 +472,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         if ((usedDefault || overlapsNext) && nextDuration in 1..MAX_PROGRAMME_DURATION_MS) end = next.startMs
       }
       if (end > minStop && current.startMs < maxStart) {
+        // Reusing unchanged objects avoids retaining one extra NativeEpgProgram per channel.
         retained.add(if (end == current.endMs) current else current.copy(endMs = end))
       }
     }

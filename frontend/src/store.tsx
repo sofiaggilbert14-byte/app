@@ -1,5 +1,6 @@
 import React, { createContext, startTransition, useCallback, useContext, useEffect, useRef, useState, useMemo } from "react";
-import { Platform } from "react-native";
+import { AppState, Platform } from "react-native";
+import { usePathname } from "expo-router";
 import dayjs from "dayjs";
 import { storage } from "@/src/utils/storage";
 import { Channel, Program } from "@/src/api";
@@ -18,6 +19,9 @@ import {
   subscribeSource,
 } from "@/src/source";
 import { isGuideSurfing, onGuideSurfSettled } from "@/src/utils/guideSurfGate";
+import { isDrawerActivitySuspended, subscribeDrawerActivity } from "@/src/core/drawerActivityGate";
+import { isPlaybackSessionActive } from "@/src/core/playbackSession";
+import { getGuideSelection } from "@/src/core/guideSelectionStore";
 import {
   applyGuidePrograms,
   getGuidePrograms,
@@ -225,6 +229,20 @@ export function useStore(): Store {
 }
 
 export function GuideProvider({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
+  const automaticMaintenanceBlocked = useCallback(() => {
+    const route = pathnameRef.current || "";
+    return (
+      AppState.currentState !== "active" ||
+      route.startsWith("/guide") ||
+      route.startsWith("/player") ||
+      isDrawerActivitySuspended() ||
+      isPlaybackSessionActive() ||
+      isGuideSurfing()
+    );
+  }, []);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [windowStart, setWindowStart] = useState("");
   const [windowEnd, setWindowEnd] = useState("");
@@ -294,7 +312,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       const keepLimit = critical
         ? powerProfile === "weak" ? 8 : powerProfile === "max_preview" ? 16 : 12
         : powerProfile === "weak" ? 16 : powerProfile === "max_preview" ? 48 : 32;
-      const keep = pickKeepIdsAroundFocus(source, keepLimit, lastChannelIdRef.current);
+      const focusChannelId = getGuideSelection().channelId || lastChannelIdRef.current;
+      const keep = pickKeepIdsAroundFocus(source, keepLimit, focusChannelId);
       if (critical) {
         // Replace both source runways before strict eviction. An in-flight SQL
         // result is filtered against these refs when it returns, so it cannot
@@ -914,7 +933,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     const source = lastKeepIdsRef.current.length
       ? lastKeepIdsRef.current
       : lastPatchRunwayIdsRef.current;
-    const keep = pickKeepIdsAroundFocus(source, keepLimit, lastChannelId);
+    const focusChannelId = getGuideSelection().channelId || lastChannelId;
+    const keep = pickKeepIdsAroundFocus(source, keepLimit, focusChannelId);
     lastPatchRunwayIdsRef.current = keep;
     lastKeepIdsRef.current = keep;
     pendingPatchIdsRef.current.clear();
@@ -946,6 +966,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     try {
       await refreshSource(true);
       await refresh(true);
+      pendingSilentRefreshRef.current = false;
     } catch (e) {
       console.warn("hardRefresh error:", e);
     }
@@ -1050,8 +1071,12 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       if (disposed) return;
 
       // Health check after the UI can accept D-pad input.
-      healthTimer = setTimeout(() => {
+      const runHealthCheck = () => {
         if (disposed) return;
+        if (automaticMaintenanceBlocked()) {
+          healthTimer = setTimeout(runHealthCheck, 30_000);
+          return;
+        }
         void (async () => {
           try {
             const status = await refreshSource(false);
@@ -1063,14 +1088,14 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
             // Leave the cached guide up; user can Retry from the guide screen.
           }
         })();
-      }, 4500);
+      };
+      healthTimer = setTimeout(runHealthCheck, 4500);
     })();
     return () => {
       disposed = true;
       if (healthTimer) clearTimeout(healthTimer);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [automaticMaintenanceBlocked, refresh]);
 
   useEffect(() => {
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1082,7 +1107,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       refreshTimer = setTimeout(() => {
         refreshTimer = null;
         if (disposed) return;
-        if (isGuideSurfing()) {
+        if (automaticMaintenanceBlocked()) {
           pendingSilentRefreshRef.current = true;
           return;
         }
@@ -1090,17 +1115,35 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       }, 500);
     });
     const unsubSettle = onGuideSurfSettled(() => {
-      if (disposed || !pendingSilentRefreshRef.current) return;
+      if (disposed || !pendingSilentRefreshRef.current || automaticMaintenanceBlocked()) return;
       pendingSilentRefreshRef.current = false;
       void refresh(true);
     });
+    const flushDeferredRefresh = () => {
+      if (disposed || !pendingSilentRefreshRef.current || automaticMaintenanceBlocked()) return;
+      pendingSilentRefreshRef.current = false;
+      void refresh(true);
+    };
+    const unsubDrawer = subscribeDrawerActivity(flushDeferredRefresh);
+    const appStateSub = AppState.addEventListener("change", flushDeferredRefresh);
     return () => {
       disposed = true;
       if (refreshTimer) clearTimeout(refreshTimer);
       unsubscribe();
       unsubSettle();
+      unsubDrawer();
+      appStateSub.remove();
     };
-  }, [refresh]);
+  }, [automaticMaintenanceBlocked, refresh]);
+
+  // A refresh that completed while Guide/player owned the device stays
+  // invisible until navigation reaches a safe page, avoiding context/grid and
+  // player rerenders in the middle of focus or playback.
+  useEffect(() => {
+    if (!pendingSilentRefreshRef.current || automaticMaintenanceBlocked()) return;
+    pendingSilentRefreshRef.current = false;
+    void refresh(true);
+  }, [automaticMaintenanceBlocked, pathname, refresh]);
 
   useEffect(
     () => () => {
@@ -1121,19 +1164,19 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
-  // Keep the guide window rolling while the app stays open (silent, low frequency).
-  // Skip while a refresh is already running so weak Fire TVs don't hitch mid-surf.
+  // Check the user-selected EPG cadence while the app stays open. Never start
+  // download/parse/SQLite work under Guide focus, playback, drawer, or background.
   const busyRef = useRef(false);
   useEffect(() => {
     busyRef.current = loading || refreshing;
   }, [loading, refreshing]);
   useEffect(() => {
     const timer = setInterval(() => {
-      if (busyRef.current || isGuideSurfing()) return;
+      if (busyRef.current || automaticMaintenanceBlocked()) return;
       void refreshEpgIfDue().catch(() => undefined);
-    }, 60 * 60 * 1000);
+    }, 5 * 60 * 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [automaticMaintenanceBlocked]);
 
   const openProgram = useCallback((program: Program, channel: Channel) => {
     if (!program || !channel || !channel.id || !program.start || Number.isNaN(Date.parse(program.start))) {

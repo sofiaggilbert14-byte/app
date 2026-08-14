@@ -40,5 +40,7 @@ internal object SharedParsedEpgSnapshot {
     synchronized(lock) { snapshot = null }
   }
 
-  private const val MAX_AGE_MS = 2L * 60L * 1000L
+  // Do not pin a large retained feed beside video buffers if no worker consumes
+  // it promptly; SQLite remains the safe cold fallback.
+  private const val MAX_AGE_MS = 30_000L
 }

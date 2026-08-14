@@ -1,5 +1,5 @@
-import type { Program } from "@/src/api";
-import { isDrawerActivitySuspended } from "@/src/core/drawerActivityGate";
+import type { Program } from "../api.ts";
+import { isDrawerActivitySuspended } from "./drawerActivityGate.ts";
 
 /** Build small ordered native-query batches: focused/visible rows first. */
 export function buildGuidePatchTiers(

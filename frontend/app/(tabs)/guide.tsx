@@ -160,7 +160,6 @@ function GuideSelectionPreview({
   muted,
   onToggleMute,
   previewId,
-  previewStatus,
   previewEpoch,
   onPreviewStatus,
   onPreviewErrorRemount,
@@ -182,7 +181,6 @@ function GuideSelectionPreview({
   muted: boolean;
   onToggleMute: () => void;
   previewId: string | null;
-  previewStatus: StreamStatus;
   previewEpoch: number;
   onPreviewStatus: (status: StreamStatus) => void;
   onPreviewErrorRemount: () => void;
@@ -192,6 +190,7 @@ function GuideSelectionPreview({
   onHideToggle: () => void;
   onOpenDrawer: () => void;
 }) {
+  const [previewStatus, setPreviewStatus] = useState<StreamStatus>("loading");
   const selection = useGuideSelection();
   const channel = (selection.channelId ? channelById.get(selection.channelId) : null) || fallbackChannel;
   const programs = useGuidePrograms(channel?.id);
@@ -219,6 +218,15 @@ function GuideSelectionPreview({
     previewStatus !== "error";
 
   useEffect(() => {
+    setPreviewStatus("loading");
+  }, [previewEpoch, previewId]);
+
+  const handlePreviewStatus = useCallback((status: StreamStatus) => {
+    setPreviewStatus(status);
+    onPreviewStatus(status);
+  }, [onPreviewStatus]);
+
+  useEffect(() => {
     if (!channel?.id) return;
     if (previewStatus === "error") noteStreamFailure(channel.id);
     if (previewStatus === "playing") clearStreamFailure(channel.id);
@@ -240,7 +248,7 @@ function GuideSelectionPreview({
       onToggleMute={onToggleMute}
       previewVisible={previewVisible}
       previewEpoch={previewEpoch}
-      onPreviewStatus={onPreviewStatus}
+      onPreviewStatus={handlePreviewStatus}
       onPreviewErrorRemount={onPreviewErrorRemount}
       onPlay={() => channel && onPlay(channel)}
       onFavorite={() => channel && onFavorite(channel.id)}
@@ -304,10 +312,12 @@ export default function PurpleGuideScreen() {
     setPinnedGroups,
     setHidePreview,
     setMutePreview,
+    ready: guideUiReady,
   } = useGuideUiPreferences();
-  const { hiddenIds, customOrder, customNumbers } = useChannelCustomize();
+  const { hiddenIds, customOrder, customNumbers, ready: channelCustomizeReady } = useChannelCustomize();
   const hiddenIdSet = useMemo(() => new Set(hiddenIds), [hiddenIds]);
-  const { isGroupLocked, unlockGroup, verifyPin, hasPin } = useParentalPin();
+  const { isGroupLocked, unlockGroup, verifyPin, hasPin, ready: parentalPinReady } = useParentalPin();
+  const guideInteractionReady = guideUiReady && channelCustomizeReady && parentalPinReady;
 
   const powerTuning = useMemo(() => getPowerProfileTuning(powerProfile), [powerProfile]);
   useEffect(() => {
@@ -318,7 +328,7 @@ export default function PurpleGuideScreen() {
   const [now, setNow] = useState(() => new Date().toISOString());
   const [group, setGroup] = useState(() => guideSessionGroup);
   const [previewId, setPreviewId] = useState<string | null>(null);
-  const [previewStatus, setPreviewStatus] = useState<StreamStatus>("loading");
+  const previewStatusRef = useRef<StreamStatus>("loading");
   const [resetToken, setResetToken] = useState(0);
   const [moreGroupsOpen, setMoreGroupsOpen] = useState(false);
   const [pinPromptGroup, setPinPromptGroup] = useState<string | null>(null);
@@ -487,8 +497,10 @@ export default function PurpleGuideScreen() {
   // rebuilding guide geometry (TimelineGrid keeps layout independent of now).
   useEffect(() => {
     if (!isFocused) return;
-    setNow(new Date().toISOString());
-    const timer = setInterval(() => setNow(new Date().toISOString()), 30_000);
+    React.startTransition(() => setNow(new Date().toISOString()));
+    const timer = setInterval(() => {
+      React.startTransition(() => setNow(new Date().toISOString()));
+    }, 30_000);
     return () => clearInterval(timer);
   }, [isFocused]);
 
@@ -588,6 +600,7 @@ export default function PurpleGuideScreen() {
   );
 
   const filteredMeta = useMemo(() => {
+    if (!guideInteractionReady) return [];
     let list = filterChannelsByGroup(channels, group, {
       favoriteSet,
       recent,
@@ -602,7 +615,7 @@ export default function PurpleGuideScreen() {
       return list.filter(channelHasEpgMatch);
     }
     return list.filter((c) => !channelHasEpgMatch(c));
-  }, [channels, customOrder, epgGuideFilter, favoriteSet, group, hiddenIdSet, recent, recentIdSet]);
+  }, [channels, customOrder, epgGuideFilter, favoriteSet, group, guideInteractionReady, hiddenIdSet, recent, recentIdSet]);
 
   // Keep the complete selected group identity stable.
   const filtered = filteredMeta;
@@ -771,7 +784,7 @@ export default function PurpleGuideScreen() {
     previewTimer.current = setTimeout(() => {
       previewTimer.current = null;
       // Break the sticky error latch â€” always remount the decoder for this tune.
-      setPreviewStatus("loading");
+      previewStatusRef.current = "loading";
       setPreviewEpoch((value) => value + 1);
       setPreviewId(requestedId);
       setSurfLogosSuppressed(false);
@@ -791,7 +804,7 @@ export default function PurpleGuideScreen() {
 
       // Moving left/right across programmes on the same channel updates details
       // immediately but must not tear down and re-arm an unchanged decoder.
-      if (previewId === requestedId && previewStatus !== "error") return;
+      if (previewId === requestedId && previewStatusRef.current !== "error") return;
 
       const nowTs = Date.now();
       const rapid = nowTs - lastFocusAtRef.current < 240;
@@ -831,7 +844,7 @@ export default function PurpleGuideScreen() {
         : previewDelay;
       schedulePreview(requestedId, delay, !!channel.url);
     },
-    [logosOffWhileSurfing, powerTuning, previewDelay, previewId, previewStatus, schedulePreview, surfSettleExtraMs],
+    [logosOffWhileSurfing, powerTuning, previewDelay, previewId, schedulePreview, surfSettleExtraMs],
   );
 
   const onFocusChannel = useCallback((channel: Channel) => {
@@ -969,14 +982,14 @@ export default function PurpleGuideScreen() {
   );
 
   const onPreviewStatus = useCallback((status: StreamStatus) => {
-    setPreviewStatus(status);
+    previewStatusRef.current = status;
   }, []);
 
   const onPreviewErrorRemount = useCallback(() => {
     if (previewRecoverTimer.current) clearTimeout(previewRecoverTimer.current);
     previewRecoverTimer.current = setTimeout(() => {
       previewRecoverTimer.current = null;
-      setPreviewStatus("loading");
+      previewStatusRef.current = "loading";
       setPreviewEpoch((value) => value + 1);
     }, 700);
   }, []);
@@ -1024,8 +1037,7 @@ export default function PurpleGuideScreen() {
             // The drawer and page are mutually exclusive playback owners. This
             // unmounts the decoder while the overlay owns focus, then lets the
             // same preview resume only after the drawer closes.
-            previewId={safePreviewMode === "off" || drawerOpen || !isFocused ? null : previewId}
-            previewStatus={previewStatus}
+            previewId={!guideInteractionReady || safePreviewMode === "off" || drawerOpen || !isFocused ? null : previewId}
             previewEpoch={previewEpoch}
             onPreviewStatus={onPreviewStatus}
             onPreviewErrorRemount={onPreviewErrorRemount}

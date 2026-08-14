@@ -585,9 +585,8 @@ async function ensureLoaded(): Promise<NativeMeta> {
       if (!cached.epgError) {
         setProgress({ phase: "update_available", ratio: 0, etaSeconds: null, message: null }, true);
       }
-      void refreshInternal(false);
     } else if (guideAgeBase <= 0 || Date.now() - guideAgeBase >= epgRefreshIntervalMs) {
-      void refreshEpgOnly();
+      setProgress({ phase: "update_available", ratio: 0, etaSeconds: null, message: null }, true);
     }
     return cached;
   }
@@ -599,7 +598,7 @@ async function ensureLoaded(): Promise<NativeMeta> {
     }
     MEM = { ...legacy, ts: 0 };
     await persistMeta(MEM).catch(() => undefined);
-    void refreshInternal(false);
+    setProgress({ phase: "update_available", ratio: 0, etaSeconds: null, message: null }, true);
     return MEM;
   }
 

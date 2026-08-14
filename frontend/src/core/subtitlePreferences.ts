@@ -17,6 +17,7 @@ const BG_KEY = "gs_subtitle_bg";
 let cached: Snapshot = { defaultLanguage: "", size: "normal", background: "dim" };
 let loaded = false;
 let loadPromise: Promise<Snapshot> | null = null;
+let mutationVersion = 0;
 const listeners = new Set<(value: Snapshot) => void>();
 
 function emit() {
@@ -31,11 +32,13 @@ async function load(): Promise<Snapshot> {
   if (loaded) return cached;
   if (loadPromise) return loadPromise;
   loadPromise = (async () => {
+    const versionAtStart = mutationVersion;
     const [lang, size, bg] = await Promise.all([
       storage.getItem<string>(LANG_KEY, ""),
       storage.getItem<SubtitleSize>(SIZE_KEY, "normal"),
       storage.getItem<SubtitleBg>(BG_KEY, "dim"),
     ]);
+    if (versionAtStart !== mutationVersion) return cached;
     cached = {
       defaultLanguage: typeof lang === "string" ? lang.slice(0, 16) : "",
       size: size === "small" || size === "large" ? size : "normal",
@@ -53,13 +56,20 @@ async function load(): Promise<Snapshot> {
 
 export function useSubtitlePreferences() {
   const [value, setValue] = useState(cached);
+  const [ready, setReady] = useState(loaded);
   useEffect(() => {
     let mounted = true;
     void load().then((next) => {
-      if (mounted) setValue(next);
+      if (mounted) {
+        setValue(next);
+        setReady(true);
+      }
     });
     const listener = (next: Snapshot) => {
-      if (mounted) setValue(next);
+      if (mounted) {
+        setValue(next);
+        setReady(true);
+      }
     };
     listeners.add(listener);
     return () => {
@@ -70,28 +80,35 @@ export function useSubtitlePreferences() {
 
   return {
     ...value,
+    ready,
     setDefaultLanguage: useCallback((next: string) => {
+      mutationVersion += 1;
       const defaultLanguage = String(next || "").slice(0, 16);
       const snap = { ...cached, defaultLanguage };
       cached = snap;
       loaded = true;
       setValue(snap);
+      setReady(true);
       emit();
       void storage.setItem(LANG_KEY, defaultLanguage);
     }, []),
     setSize: useCallback((size: SubtitleSize) => {
+      mutationVersion += 1;
       const snap = { ...cached, size };
       cached = snap;
       loaded = true;
       setValue(snap);
+      setReady(true);
       emit();
       void storage.setItem(SIZE_KEY, size);
     }, []),
     setBackground: useCallback((background: SubtitleBg) => {
+      mutationVersion += 1;
       const snap = { ...cached, background };
       cached = snap;
       loaded = true;
       setValue(snap);
+      setReady(true);
       emit();
       void storage.setItem(BG_KEY, background);
     }, []),

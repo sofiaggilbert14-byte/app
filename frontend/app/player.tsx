@@ -32,6 +32,7 @@ import { addTvKeyListener } from "@/src/utils/tvRemote";
 import { getTvSafeInsets } from "@/src/utils/tvLayout";
 import { requestNativeFocus } from "@/src/utils/tvFocus";
 import { stopFullscreenSession, stopAllPlaybackSessions, pauseSessionDecoders, type SessionFailReason } from "@/src/core/playbackSession";
+import { afterFullscreenRelease } from "@/src/utils/openFullscreenPlayer";
 import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
 import { useGuidePrograms } from "@/src/core/guideProgramsStore";
 import {
@@ -106,8 +107,9 @@ export default function PlayerScreen() {
   const [audioTrackId, setAudioTrackId] = useState<string | number | undefined>(undefined);
   const [textTrackId, setTextTrackId] = useState<string | number | undefined>(undefined);
   const [tracksOpen, setTracksOpen] = useState(false);
-  const { defaultLanguage: subtitleDefaultLanguage } = useSubtitlePreferences();
+  const { defaultLanguage: subtitleDefaultLanguage, ready: subtitlePreferencesReady } = useSubtitlePreferences();
   const audioPreferences = useAudioTrackPreferences();
+  const trackPreferencesReady = subtitlePreferencesReady && audioPreferences.ready;
 
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -457,7 +459,7 @@ export default function PlayerScreen() {
     generationRef.current += 1;
     setDecoderArmed(false);
     stopFullscreenSession();
-    router.back();
+    afterFullscreenRelease(() => router.back());
   }, [router]);
 
   const handleStreamStatus = useCallback(
@@ -521,7 +523,7 @@ export default function PlayerScreen() {
     generationRef.current += 1;
     setDecoderArmed(false);
     stopFullscreenSession();
-    router.replace("/guide" as any);
+    afterFullscreenRelease(() => router.replace("/guide" as any));
   }, [router]);
 
   useEffect(() => {
@@ -554,7 +556,7 @@ export default function PlayerScreen() {
   return (
     <View style={styles.root}>
       <RNStatusBar hidden />
-      {hasStream && decoderArmed ? (
+      {hasStream && decoderArmed && trackPreferencesReady ? (
         <ErrorBoundary
           onReset={() => {
             stopAllPlaybackSessions("crashed");

@@ -21,8 +21,8 @@ test("local-file RAM EPG is full-download/full-parse, bounded, and SQLite-fallba
 
   // Download must finish to a local file before XML parsing starts.
   assert.match(nativeModule, /downloaded = downloadEpg\(/);
-  assert.match(nativeModule, /parseCompleteLocalFile\(downloaded\.file/);
-  assert.ok(nativeModule.indexOf("downloaded = downloadEpg(") < nativeModule.indexOf("parseCompleteLocalFile(downloaded.file"));
+  assert.match(nativeModule, /parseCompleteLocalFile\(\s*downloaded\.file/);
+  assert.ok(nativeModule.indexOf("downloaded = downloadEpg(") < nativeModule.indexOf("parseCompleteLocalFile("));
   assert.match(nativeModule, /fileOutput\.fd\.sync\(\)/);
   assert.match(nativeModule, /openDownloadedFile\(file\)/);
   assert.match(nativeModule, /GZIPInputStream/);
@@ -36,6 +36,8 @@ test("local-file RAM EPG is full-download/full-parse, bounded, and SQLite-fallba
   assert.doesNotMatch(nativeModule, /BATCH_SIZE\s*=\s*1000/);
   assert.doesNotMatch(nativeModule, /yield\(ArrayList\(batch\)\)/);
   assert.match(nativeModule, /SharedParsedEpgSnapshot\.publish/);
+  assert.match(nativeModule, /ramRuntime\.engine\.replacePrograms\(retainedPrograms, minStop, maxStart\)/);
+  assert.match(nativeModule, /ramRuntime\.warmGuideEpoch = guideEpoch/);
   assert.match(handoff, /takeIfCovers/);
 
   // SQLite remains durable/atomic even though parsing is now full-file in RAM.
@@ -61,6 +63,8 @@ test("local-file RAM EPG is full-download/full-parse, bounded, and SQLite-fallba
   // return null immediately so the existing SQLite runway can answer.
   assert.match(ramModule, /scheduleWarmForCurrentEpoch/);
   assert.match(ramModule, /currentGuideEpoch/);
+  assert.match(ramModule, /runtime\.warmGuideEpoch != guideEpoch/);
+  assert.match(ramModule, /engine\.rebuild\(now - GUIDE_HISTORY_MS, now \+ GUIDE_WINDOW_MS\)/);
   assert.match(ramModule, /promise\.resolve\(null\)/);
   assert.match(ramModule, /sqliteFallbackCount/);
   assert.doesNotMatch(ramModule, /EPG_RAM_GUIDE_FAILED/);

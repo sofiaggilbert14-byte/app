@@ -259,7 +259,7 @@ function useCircuitCooldown(
   return { blocked, setBlocked };
 }
 
-function VlcStream({
+const VlcStream = React.memo(function VlcStream({
   uri: rawUri,
   onStatus: setStatus,
   style,
@@ -283,18 +283,21 @@ function VlcStream({
   const userAgent = headers["User-Agent"] || headers["user-agent"] || "VLC/3.0.20 LibVLC/3.0.20";
   const playerCompat = usePlayerCompatibilityPreferences();
   const initOptions = useMemo(() => {
-    const fullMs = bufferProfile === "low_latency" ? 900 : bufferProfile === "stable" ? 3200 : 1800;
-    const networkCaching = mode === "preview" ? 1000 : fullMs;
-    const liveCaching = mode === "preview" ? 1000 : fullMs;
-    const fileCaching = mode === "preview" ? 700 : Math.round(fullMs * 0.62);
+    // IPTV transport streams commonly arrive with bursty packets and imperfect
+    // timestamps. Keep VLC near Media3's proven buffer envelope instead of the
+    // former sub-two-second defaults that repeatedly starved on weak sticks.
+    const fullMs = bufferProfile === "low_latency" ? 1800 : bufferProfile === "stable" ? 6000 : 3500;
+    const networkCaching = mode === "preview" ? 1600 : fullMs;
+    const liveCaching = mode === "preview" ? 1600 : fullMs;
+    const fileCaching = mode === "preview" ? 1200 : Math.max(1500, Math.round(fullMs * 0.72));
     const audioOutput = playerCompat.vlcAudioOutput;
     const hardwareDecode = playerCompat.vlcHardwareDecode;
     const options = [
       `--network-caching=${networkCaching}`,
       `--live-caching=${liveCaching}`,
       `--file-caching=${fileCaching}`,
-      "--clock-jitter=0",
-      "--clock-synchro=0",
+      // Leave LibVLC clock synchronization and jitter correction enabled. IPTV
+      // feeds with discontinuous PTS/DTS otherwise freeze instead of recovering.
       "--http-reconnect",
       "--adaptive-logic=rate",
       `--http-user-agent=${userAgent}`,
@@ -324,6 +327,24 @@ function VlcStream({
         .map(([key, value]) => `:http-header=${key}: ${value}`),
     [headers],
   );
+  // Keep the native source identity stable across unrelated parent renders
+  // (clock, controls, EPG metadata, focus status). The VLC wrapper forwards a
+  // changed source prop to setSrc(), which recreates LibVLC even when the URL
+  // and options are unchanged.
+  const nativeSource = useMemo(
+    () => ({
+      uri,
+      initType: 2,
+      initOptions,
+      mediaOptions,
+      disableAudioFocus: mode === "preview" || muted,
+      // The VLC wrapper forwards decoder flags only when they live inside its
+      // source map; top-level React props are not copied into native setSrc().
+      hwDecoderEnabled: playerCompat.vlcHardwareDecode ? 1 : 0,
+      hwDecoderForced: 0,
+    }),
+    [initOptions, mediaOptions, mode, muted, playerCompat.vlcHardwareDecode, uri],
+  );
 
   const emit = useCallback(
     (status: StreamStatus, reason?: SessionFailReason | null) => {
@@ -338,9 +359,6 @@ function VlcStream({
     activeRef.current = false;
     try {
       playerRef.current?.stopPlayer?.();
-    } catch {}
-    try {
-      playerRef.current?.setNativeProps?.({ paused: true });
     } catch {}
   }, []);
 
@@ -378,12 +396,15 @@ function VlcStream({
     <VLCPlayer
       ref={playerRef}
       style={style}
-      source={{ uri, initType: 2, initOptions, mediaOptions }}
+      source={nativeSource}
       paused={false}
       autoplay
       autoAspectRatio
       resizeMode="contain"
       acceptInvalidCertificates
+      disableFocus={mode === "preview" || muted}
+      hwDecoderEnabled={playerCompat.vlcHardwareDecode}
+      hwDecoderForced={false}
       muted={muted}
       volume={muted ? 0 : 100}
       audioTrack={typeof audioTrack === "number" ? audioTrack : undefined}
@@ -408,7 +429,7 @@ function VlcStream({
       onError={fail}
     />
   );
-}
+});
 
 function ExpoStream({
   uri: rawUri,
@@ -538,6 +559,7 @@ function ExpoStream({
       }
 
       if (selectedAudio && selectedAudio.isSupported === false && automaticSupported) {
+        // Displace an unsupported selection when Android exposes a playable one.
         selectedAudio = automaticSupported;
         selectedBy = "auto-supported";
       }
@@ -829,14 +851,20 @@ export function StreamPlayer({
   const [appActive, setAppActive] = useState(
     () => AppState.currentState !== "background" && AppState.currentState !== "inactive",
   );
-  const playbackFocused = isFocused && appActive && !drawerSuspended;
-  const [playerEnginePreference] = usePlayerEnginePreference();
-  const [savedBufferProfile] = usePlaybackBufferProfile();
+  const [playerEnginePreference, , enginePreferenceReady] = usePlayerEnginePreference();
+  const [savedBufferProfile, , bufferPreferenceReady] = usePlaybackBufferProfile();
   const playerCompat = usePlayerCompatibilityPreferences();
+  const preferencesReady = enginePreferenceReady && bufferPreferenceReady && playerCompat.ready;
+  const playbackFocused = isFocused && appActive && !drawerSuspended && preferencesReady;
+  const tracksAvailableRef = useRef(onTracksAvailable);
+  tracksAvailableRef.current = onTracksAvailable;
+  const emitTracksAvailable = useCallback((tracks: { audio: StreamTrack[]; text: StreamTrack[] }) => {
+    tracksAvailableRef.current?.(tracks);
+  }, []);
   const effectiveBufferProfile = bufferProfile || savedBufferProfile;
   const vlcEngineKey = `vlc:${uri}:${playerCompat.vlcAudioOutput}:${playerCompat.vlcHardwareDecode ? 1 : 0}:${effectiveBufferProfile}`;
   const media3EngineKey = `media3:${uri}:${playerCompat.media3AudioMode}:${playerCompat.media3Tunneling ? 1 : 0}:${effectiveBufferProfile}`;
-  const forceVlc = playerEnginePreference === "vlc" && vlcAvailable && role !== "preview";
+  const forceVlc = (playerEnginePreference === "vlc" || playerEnginePreference === "default") && vlcAvailable && role !== "preview";
   const forceMedia3 = playerEnginePreference === "media3" && role !== "preview";
   const [session, setSession] = useState({ key: "", generation: 0 });
 
@@ -968,7 +996,7 @@ export function StreamPlayer({
         muted={muted}
         audioTrack={audioTrack}
         textTrack={textTrack}
-        onTracksAvailable={onTracksAvailable}
+        onTracksAvailable={emitTracksAvailable}
         bufferProfile={effectiveBufferProfile}
       />
     );
@@ -987,7 +1015,7 @@ export function StreamPlayer({
       muted={muted}
       audioTrack={audioTrack}
       textTrack={textTrack}
-      onTracksAvailable={onTracksAvailable}
+      onTracksAvailable={emitTracksAvailable}
       bufferProfile={effectiveBufferProfile}
     />
   );

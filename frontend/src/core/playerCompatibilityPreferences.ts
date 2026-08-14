@@ -27,6 +27,7 @@ let cached: Snapshot = {
 };
 let loaded = false;
 let loadPromise: Promise<Snapshot> | null = null;
+let mutationVersion = 0;
 const listeners = new Set<(next: Snapshot) => void>();
 
 function emit() {
@@ -51,6 +52,7 @@ async function load(): Promise<Snapshot> {
   if (loaded) return cached;
   if (loadPromise) return loadPromise;
   loadPromise = (async () => {
+    const versionAtStart = mutationVersion;
     const [silent, vlcAudio, vlcHw, media3Audio, media3Tunnel] = await Promise.all([
       storage.getItem<boolean>(SILENT_KEY, true),
       storage.getItem<VlcAudioOutput>(VLC_AUDIO_KEY, "auto"),
@@ -58,6 +60,7 @@ async function load(): Promise<Snapshot> {
       storage.getItem<Media3AudioMode>(MEDIA3_AUDIO_KEY, "auto"),
       storage.getItem<boolean>(MEDIA3_TUNNEL_KEY, false),
     ]);
+    if (versionAtStart !== mutationVersion) return cached;
     cached = {
       silentAudioFallback: silent !== false,
       vlcAudioOutput: normalizeVlcAudio(vlcAudio),
@@ -96,6 +99,7 @@ export function getMedia3Tunneling(): boolean {
 }
 
 export function usePlayerCompatibilityPreferences(): Snapshot & {
+  ready: boolean;
   setSilentAudioFallback: (next: boolean) => void;
   setVlcAudioOutput: (next: VlcAudioOutput) => void;
   setVlcHardwareDecode: (next: boolean) => void;
@@ -103,13 +107,20 @@ export function usePlayerCompatibilityPreferences(): Snapshot & {
   setMedia3Tunneling: (next: boolean) => void;
 } {
   const [value, setValue] = useState(cached);
+  const [ready, setReady] = useState(loaded);
   useEffect(() => {
     let mounted = true;
     void load().then((next) => {
-      if (mounted) setValue(next);
+      if (mounted) {
+        setValue(next);
+        setReady(true);
+      }
     });
     const listener = (next: Snapshot) => {
-      if (mounted) setValue(next);
+      if (mounted) {
+        setValue(next);
+        setReady(true);
+      }
     };
     listeners.add(listener);
     return () => {
@@ -120,38 +131,49 @@ export function usePlayerCompatibilityPreferences(): Snapshot & {
 
   return {
     ...value,
+    ready,
     setSilentAudioFallback: useCallback((next: boolean) => {
+      mutationVersion += 1;
       cached = { ...cached, silentAudioFallback: next };
       loaded = true;
       setValue(cached);
+      setReady(true);
       emit();
       void storage.setItem(SILENT_KEY, next);
     }, []),
     setVlcAudioOutput: useCallback((next: VlcAudioOutput) => {
+      mutationVersion += 1;
       cached = { ...cached, vlcAudioOutput: normalizeVlcAudio(next) };
       loaded = true;
       setValue(cached);
+      setReady(true);
       emit();
       void storage.setItem(VLC_AUDIO_KEY, cached.vlcAudioOutput);
     }, []),
     setVlcHardwareDecode: useCallback((next: boolean) => {
+      mutationVersion += 1;
       cached = { ...cached, vlcHardwareDecode: next };
       loaded = true;
       setValue(cached);
+      setReady(true);
       emit();
       void storage.setItem(VLC_HW_KEY, next);
     }, []),
     setMedia3AudioMode: useCallback((next: Media3AudioMode) => {
+      mutationVersion += 1;
       cached = { ...cached, media3AudioMode: normalizeMedia3Audio(next) };
       loaded = true;
       setValue(cached);
+      setReady(true);
       emit();
       void storage.setItem(MEDIA3_AUDIO_KEY, cached.media3AudioMode);
     }, []),
     setMedia3Tunneling: useCallback((next: boolean) => {
+      mutationVersion += 1;
       cached = { ...cached, media3Tunneling: next };
       loaded = true;
       setValue(cached);
+      setReady(true);
       emit();
       void storage.setItem(MEDIA3_TUNNEL_KEY, next);
     }, []),

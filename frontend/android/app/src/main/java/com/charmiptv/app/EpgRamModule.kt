@@ -31,6 +31,7 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
   @ReactMethod
   fun warm(startMs: Double, endMs: Double, promise: Promise) {
     worker.execute {
+      android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
       try {
         if (isWarmForCurrentEpoch()) {
           promise.resolve(true)
@@ -48,6 +49,7 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
   @ReactMethod
   fun replaceMatches(matches: ReadableArray, promise: Promise) {
     worker.execute {
+      android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
       try {
         val rows = ArrayList<PlaylistEpgMatchRow>(matches.size())
         for (i in 0 until matches.size()) {
@@ -65,8 +67,19 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
             )
           )
         }
+        val guideEpoch = currentGuideEpoch()
         engine.replaceMatches(rows)
-        if (engine.isWarm()) runtime.warmGuideEpoch = currentGuideEpoch()
+        if (engine.isWarm() && runtime.warmGuideEpoch != guideEpoch) {
+          // A match-table update must never bless programme objects from the
+          // previous guide epoch. Consume the fresh parse handoff (or SQLite)
+          // first; queries use SQLite fallback until that replacement succeeds.
+          val now = System.currentTimeMillis()
+          if (engine.rebuild(now - GUIDE_HISTORY_MS, now + GUIDE_WINDOW_MS)) {
+            runtime.warmGuideEpoch = guideEpoch
+          }
+        } else if (engine.isWarm()) {
+          runtime.warmGuideEpoch = guideEpoch
+        }
         promise.resolve(true)
       } catch (_: Throwable) {
         promise.resolve(false)
@@ -149,6 +162,7 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
   private fun scheduleWarmForCurrentEpoch() {
     if (!warmQueued.compareAndSet(false, true)) return
     worker.execute {
+      android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
       try {
         val epoch = currentGuideEpoch()
         if (engine.isWarm() && runtime.warmGuideEpoch == epoch) return@execute

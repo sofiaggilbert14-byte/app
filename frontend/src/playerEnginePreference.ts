@@ -10,6 +10,7 @@ const PLAYER_ENGINE_KEY = "gs_player_engine_preference";
 let cachedPreference: PlayerEnginePreference = "vlc";
 let loaded = false;
 let loadPromise: Promise<PlayerEnginePreference> | null = null;
+let mutationVersion = 0;
 const listeners = new Set<(value: PlayerEnginePreference) => void>();
 
 async function loadPreference(): Promise<PlayerEnginePreference> {
@@ -17,7 +18,9 @@ async function loadPreference(): Promise<PlayerEnginePreference> {
   if (loadPromise) return loadPromise;
 
   loadPromise = (async () => {
+    const versionAtStart = mutationVersion;
     const stored = await storage.getItem<PlayerEnginePreference>(PLAYER_ENGINE_KEY, "vlc");
+    if (versionAtStart !== mutationVersion) return cachedPreference;
     cachedPreference = stored === "media3" ? "media3" : "vlc";
     loaded = true;
     return cachedPreference;
@@ -31,6 +34,7 @@ async function loadPreference(): Promise<PlayerEnginePreference> {
 }
 
 export async function setPlayerEnginePreference(value: PlayerEnginePreference): Promise<void> {
+  mutationVersion += 1;
   cachedPreference = value;
   loaded = true;
   await storage.setItem(PLAYER_ENGINE_KEY, value);
@@ -42,16 +46,23 @@ export async function setPlayerEnginePreference(value: PlayerEnginePreference): 
   }
 }
 
-export function usePlayerEnginePreference(): [PlayerEnginePreference, (value: PlayerEnginePreference) => void] {
+export function usePlayerEnginePreference(): [PlayerEnginePreference, (value: PlayerEnginePreference) => void, boolean] {
   const [value, setValue] = useState<PlayerEnginePreference>(cachedPreference);
+  const [ready, setReady] = useState(loaded);
 
   useEffect(() => {
     let mounted = true;
     void loadPreference().then((next) => {
-      if (mounted) setValue(next);
+      if (mounted) {
+        setValue(next);
+        setReady(true);
+      }
     });
     const listener = (next: PlayerEnginePreference) => {
-      if (mounted) setValue(next);
+      if (mounted) {
+        setValue(next);
+        setReady(true);
+      }
     };
     listeners.add(listener);
     return () => {
@@ -62,8 +73,9 @@ export function usePlayerEnginePreference(): [PlayerEnginePreference, (value: Pl
 
   const update = useCallback((next: PlayerEnginePreference) => {
     setValue(next);
+    setReady(true);
     void setPlayerEnginePreference(next);
   }, []);
 
-  return [value, update];
+  return [value, update, ready];
 }

@@ -272,7 +272,7 @@ internal class EpgRamEngine(private val database: EpgDatabase) {
 
   companion object {
     private const val MIB = 1024L * 1024L
-    private const val CLEAR_REBUILD_COOLDOWN_MS = 15_000L
+    private const val CLEAR_REBUILD_COOLDOWN_MS = 60_000L
     private const val FAILED_REBUILD_COOLDOWN_MS = 60_000L
     private const val PREBUILD_PRESSURE_FRACTION = 0.72
     private val EMPTY = Snapshot(emptyMap(), emptyMap(), 0L, 0L, 0, 0L)

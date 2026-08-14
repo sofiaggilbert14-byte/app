@@ -53,7 +53,7 @@ test("focus metadata is immediate while decoder tune stays delayed and restores 
   assert.match(guide, /setGuideFocusedProgram\(channel\.id, program\)/);
   assert.match(guide, /useGuideSelection\(\)/);
   assert.match(guide, /schedulePreview\(/);
-  assert.match(guide, /previewId === requestedId && previewStatus !== "error"/);
+  assert.match(guide, /previewId === requestedId && previewStatusRef\.current !== "error"/);
   assert.match(guide, /focusGuideProgramCell\(origin\.channelId, origin\.programStart\)/);
   assert.match(timeline, /noteGuideChannelFocus\(item\.id/);
   assert.match(box, /noteGuideChannelFocus\(item\.id/);

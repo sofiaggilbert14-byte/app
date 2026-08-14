@@ -132,14 +132,12 @@ test("experimental EPG downloads first, parses locally, and hands finalized data
     source("src/nativeEpg.ts"),
   ]);
   assert.match(mod, /downloadEpg\(url, httpValidators, allowNotModified\)/);
-  assert.match(mod, /parseRetainedPrograms\(\s*downloaded\.file/);
-  assert.match(mod, /database\.replacePrograms\(retainedPrograms\)/);
+  assert.match(mod, /parseCompleteLocalFile\(\s*downloaded\.file/);
+  assert.match(mod, /database\.replaceBatches\(sequenceOf\(retainedPrograms\)\)/);
   assert.doesNotMatch(mod, /BATCH_SIZE|yield\(ArrayList\(batch\)\)/);
-  assert.match(mod, /database\.readChannelIdsWithPrograms\(\)/);
-  assert.match(mod, /finalizeRetainedPrograms\(parsedPrograms, minStop\)/);
-  assert.match(mod, /runtime\.engine\.replacePrograms\(finalRetainedPrograms, minStop, maxStart\)/);
-  assert.match(mod, /runtime\.warmGuideEpoch = -1L/);
-  assert.match(db, /SELECT DISTINCT channel_id FROM \$LIVE_TABLE/);
+  assert.match(mod, /channelIdsWithPrograms = retainedPrograms\.mapTo/);
+  assert.match(mod, /normalizeStopsAndRetain\(parsed, minStop, maxStart\)/);
+  assert.match(mod, /SharedParsedEpgSnapshot\.publish\(retainedPrograms, minStop, maxStart\)/);
   assert.match(mod, /File\.createTempFile\("xmltv-", "\.download"/);
   assert.match(mod, /downloaded\?\.file\?\.delete\(\)/);
   assert.match(mod, /GZIPInputStream\(buffered, FILE_BUFFER_SIZE\)/);
@@ -156,7 +154,8 @@ test("experimental EPG downloads first, parses locally, and hands finalized data
   assert.match(ramModule, /groupProgramsByOutput/);
   assert.match(ramModule, /sqliteFallbackCount/);
   assert.match(ramModule, /guideQueryDurationMs/);
-  assert.match(ramModule, /if \(engine\.isWarm\(\)\) runtime\.warmGuideEpoch = currentGuideEpoch\(\)/);
+  assert.match(ramModule, /runtime\.warmGuideEpoch != guideEpoch/);
+  assert.match(ramModule, /runtime\.warmGuideEpoch = guideEpoch/);
   assert.doesNotMatch(bridge, /void ramModule\.warm\(result\.windowStartMs/);
 });
 

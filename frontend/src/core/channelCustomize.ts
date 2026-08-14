@@ -17,6 +17,7 @@ type Snapshot = {
 let cached: Snapshot = { hiddenIds: [], customOrder: [], customNumbers: {} };
 let loaded = false;
 let loadPromise: Promise<Snapshot> | null = null;
+let mutationVersion = 0;
 const listeners = new Set<(value: Snapshot) => void>();
 
 function emit() {
@@ -61,11 +62,13 @@ async function load(): Promise<Snapshot> {
   if (loaded) return cached;
   if (loadPromise) return loadPromise;
   loadPromise = (async () => {
+    const versionAtStart = mutationVersion;
     const [hidden, order, numbers] = await Promise.all([
       storage.getItem<unknown>(HIDDEN_KEY, []),
       storage.getItem<unknown>(ORDER_KEY, []),
       storage.getItem<unknown>(NUMBERS_KEY, {}),
     ]);
+    if (versionAtStart !== mutationVersion) return cached;
     cached = {
       hiddenIds: sanitizeIds(hidden, MAX_HIDDEN),
       customOrder: sanitizeIds(order, MAX_ORDER),
@@ -82,6 +85,7 @@ async function load(): Promise<Snapshot> {
 }
 
 async function persist(next: Snapshot): Promise<void> {
+  mutationVersion += 1;
   cached = next;
   loaded = true;
   emit();
@@ -94,13 +98,14 @@ async function persist(next: Snapshot): Promise<void> {
 
 export function useChannelCustomize() {
   const [value, setValue] = useState(cached);
+  const [ready, setReady] = useState(loaded);
   useEffect(() => {
     let mounted = true;
     void load().then((next) => {
-      if (mounted) setValue(next);
+      if (mounted) { setValue(next); setReady(true); }
     });
     const listener = (next: Snapshot) => {
-      if (mounted) setValue(next);
+      if (mounted) { setValue(next); setReady(true); }
     };
     listeners.add(listener);
     return () => {
@@ -165,6 +170,7 @@ export function useChannelCustomize() {
     hiddenIds: value.hiddenIds,
     customOrder: value.customOrder,
     customNumbers: value.customNumbers,
+    ready,
     hiddenSet,
     toggleHidden,
     setCustomNumber,

@@ -25,6 +25,7 @@ let cached: Snapshot = {
 };
 let loaded = false;
 let loadPromise: Promise<Snapshot> | null = null;
+let mutationVersion = 0;
 const listeners = new Set<(value: Snapshot) => void>();
 
 function emit() {
@@ -39,10 +40,12 @@ async function load(): Promise<Snapshot> {
   if (loaded) return cached;
   if (loadPromise) return loadPromise;
   loadPromise = (async () => {
+    const versionAtStart = mutationVersion;
     const pinned = await storage.getItem<string[]>(PINNED_KEY, DEFAULT_PINNED);
     const layout = await storage.getItem<GuideGroupLayout>(LAYOUT_KEY, "horizontal");
     const hidePreview = await storage.getItem<boolean>(HIDE_PREVIEW_KEY, false);
     const mutePreview = await storage.getItem<boolean>(MUTE_PREVIEW_KEY, true);
+    if (versionAtStart !== mutationVersion) return cached;
     cached = {
       pinnedGroups: Array.isArray(pinned) ? pinned.filter((item) => typeof item === "string").slice(0, 24) : DEFAULT_PINNED,
       groupLayout: layout === "vertical" ? "vertical" : "horizontal",
@@ -60,6 +63,7 @@ async function load(): Promise<Snapshot> {
 }
 
 export async function setPinnedGroups(next: string[]): Promise<void> {
+  mutationVersion += 1;
   cached = { ...cached, pinnedGroups: next.slice(0, 24) };
   loaded = true;
   emit();
@@ -67,6 +71,7 @@ export async function setPinnedGroups(next: string[]): Promise<void> {
 }
 
 export async function setGuideGroupLayout(next: GuideGroupLayout): Promise<void> {
+  mutationVersion += 1;
   cached = { ...cached, groupLayout: next };
   loaded = true;
   emit();
@@ -74,6 +79,7 @@ export async function setGuideGroupLayout(next: GuideGroupLayout): Promise<void>
 }
 
 export async function setHideGuidePreview(next: boolean): Promise<void> {
+  mutationVersion += 1;
   cached = { ...cached, hidePreview: next };
   loaded = true;
   emit();
@@ -81,6 +87,7 @@ export async function setHideGuidePreview(next: boolean): Promise<void> {
 }
 
 export async function setMuteGuidePreview(next: boolean): Promise<void> {
+  mutationVersion += 1;
   cached = { ...cached, mutePreview: next };
   loaded = true;
   emit();
@@ -88,19 +95,21 @@ export async function setMuteGuidePreview(next: boolean): Promise<void> {
 }
 
 export function useGuideUiPreferences(): Snapshot & {
+  ready: boolean;
   setPinnedGroups: (next: string[]) => void;
   setGroupLayout: (next: GuideGroupLayout) => void;
   setHidePreview: (next: boolean) => void;
   setMutePreview: (next: boolean) => void;
 } {
   const [value, setValue] = useState(cached);
+  const [ready, setReady] = useState(loaded);
   useEffect(() => {
     let mounted = true;
     void load().then((next) => {
-      if (mounted) setValue(next);
+      if (mounted) { setValue(next); setReady(true); }
     });
     const listener = (next: Snapshot) => {
-      if (mounted) setValue(next);
+      if (mounted) { setValue(next); setReady(true); }
     };
     listeners.add(listener);
     return () => {
@@ -111,6 +120,7 @@ export function useGuideUiPreferences(): Snapshot & {
 
   return {
     ...value,
+    ready,
     setPinnedGroups: useCallback((next: string[]) => {
       setValue((prev) => ({ ...prev, pinnedGroups: next.slice(0, 24) }));
       void setPinnedGroups(next);

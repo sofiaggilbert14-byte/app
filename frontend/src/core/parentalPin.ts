@@ -20,6 +20,7 @@ type Snapshot = {
 let cached: Snapshot = { pin: null, lockedGroups: [] };
 let loaded = false;
 let loadPromise: Promise<Snapshot> | null = null;
+let mutationVersion = 0;
 const listeners = new Set<(value: Snapshot) => void>();
 
 function emit() {
@@ -34,9 +35,11 @@ async function load(): Promise<Snapshot> {
   if (loaded) return cached;
   if (loadPromise) return loadPromise;
   loadPromise = (async () => {
+    const versionAtStart = mutationVersion;
     const securePin = normalizeParentalPin(await storage.secureGet<string>(PIN_KEY, ""));
     const plainPin = normalizeParentalPin(await storage.getItem<string>(PIN_KEY, ""));
     const locked = await storage.getItem<string[]>(LOCKED_GROUPS_KEY, []);
+    if (versionAtStart !== mutationVersion) return cached;
     const pin = securePin || plainPin;
     setParentalPinMemory(pin);
     cached = {
@@ -58,6 +61,7 @@ export function verifyParentalPin(candidate: string): boolean {
 }
 
 export async function setParentalPin(pin: string | null): Promise<void> {
+  mutationVersion += 1;
   const next = setParentalPinMemory(pin);
   cached = { ...cached, pin: next };
   loaded = true;
@@ -73,6 +77,7 @@ export async function setParentalPin(pin: string | null): Promise<void> {
 }
 
 export async function setLockedGroups(groups: string[]): Promise<void> {
+  mutationVersion += 1;
   cached = { ...cached, lockedGroups: groups.slice(0, 40) };
   loaded = true;
   emit();
@@ -81,15 +86,17 @@ export async function setLockedGroups(groups: string[]): Promise<void> {
 
 export function useParentalPin() {
   const [value, setValue] = useState(cached);
+  const [ready, setReady] = useState(loaded);
   const [, setTick] = useState(0);
   useEffect(() => {
     let mounted = true;
     void load().then((next) => {
-      if (mounted) setValue(next);
+      if (mounted) { setValue(next); setReady(true); }
     });
     const listener = (next: Snapshot) => {
       if (mounted) {
         setValue(next);
+        setReady(true);
         setTick((n) => n + 1);
       }
     };
@@ -102,6 +109,7 @@ export function useParentalPin() {
 
   return {
     hasPin: !!value.pin,
+    ready,
     lockedGroups: value.lockedGroups,
     isGroupLocked: useCallback(
       (group: string) => {

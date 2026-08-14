@@ -154,6 +154,9 @@ test("StreamPlayer and player route use role-scoped session teardown", async () 
   assert.match(playerComp, /onStatusRef\.current/);
   assert.match(playerComp, /surfaceType=\{Platform\.OS === "android" \? "textureView"/);
   assert.match(playerComp, /player\.muted = muted/);
+  assert.match(playerComp, /preferencesReady = enginePreferenceReady && bufferPreferenceReady && playerCompat\.ready/);
+  assert.match(playerComp, /disableAudioFocus: mode === "preview" \|\| muted/);
+  assert.match(playerComp, /hwDecoderEnabled: playerCompat\.vlcHardwareDecode \? 1 : 0/);
   assert.match(playerRoute, /onStatus=\{handleStreamStatus\}/);
   assert.doesNotMatch(playerRoute, /onStatus=\{\(next, reason\) =>/);
   assert.doesNotMatch(playerComp, /key=\{`vlc:\$\{uri\}:\$\{sessionGeneration\}`\}/);
@@ -161,6 +164,7 @@ test("StreamPlayer and player route use role-scoped session teardown", async () 
   assert.match(playerRoute, /pauseSessionDecoders\("fullscreen"\)/);
   assert.match(playerRoute, /stopFullscreenSession/);
   assert.match(playerRoute, /sessionRole="fullscreen"/);
+  assert.match(playerRoute, /decoderArmed && trackPreferencesReady/);
   assert.match(playerRoute, /clearFullscreenCircuit/);
   assert.match(playerRoute, /MAX_AUTO_STREAM_RETRIES/);
   assert.match(playerRoute, /isFullscreenCircuitOpen/);
@@ -171,9 +175,13 @@ test("StreamPlayer and player route use role-scoped session teardown", async () 
     /if \(next === "error" \|\| reason === "silent-audio"\) \{\s*noteStreamFailure/,
   );
   assert.match(playerRoute, /restartStream\(false\)/);
-  assert.match(handoff, /FULLSCREEN_HANDOFF_SETTLE_MS = 90/);
+  assert.match(handoff, /FULLSCREEN_HANDOFF_SETTLE_MS = 250/);
+  assert.match(handoff, /FULLSCREEN_RELEASE_SETTLE_MS = 180/);
   assert.match(vlcPatch, /removeLifecycleEventListener/);
   assert.match(vlcPatch, /requestPlaybackAudioFocus/);
   assert.match(vlcPatch, /mMediaPlayer = null/);
+  assert.match(vlcPatch, /setProgressUpdateRunnable\(\)/);
+  assert.match(vlcPatch, /if \(mMediaPlayer == null && srcMap != null\)/);
+  assert.match(vlcPatch, /stopPlayback\(\)/);
   assert.match(packageJson, /"postinstall": "patch-package"/);
 });

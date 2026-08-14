@@ -76,6 +76,14 @@ export function getSessionReason(role: SessionRole): SessionFailReason | null {
   return roles[role].reason;
 }
 
+/** True while either native decoder role is allocated or being prepared. */
+export function isPlaybackSessionActive(): boolean {
+  return (Object.keys(roles) as SessionRole[]).some((role) => {
+    const state = roles[role];
+    return state.phase !== "idle" || state.stops.size > 0;
+  });
+}
+
 export function isSessionCurrent(role: SessionRole, generation: number): boolean {
   return roles[role].generation === generation;
 }
