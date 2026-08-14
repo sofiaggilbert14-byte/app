@@ -45,8 +45,6 @@ function ReminderCleanup() {
 
   useEffect(() => {
     if (reminders.length === 0) return;
-    // Expire due reminders without hijacking an active player session.
-    // Notification tap handling (NotificationRouter) is the user-driven switch path.
     const check = () => {
       const now = Date.now();
       for (const reminder of reminders) {
@@ -59,7 +57,6 @@ function ReminderCleanup() {
       }
     };
     check();
-    // Slow interval — reminders are sparse; avoid wakeups on weak boxes.
     const timer = setInterval(check, pathname?.startsWith("/player") ? 60000 : 30000);
     return () => clearInterval(timer);
   }, [pathname, reminders, removeReminder]);
@@ -67,11 +64,6 @@ function ReminderCleanup() {
   return null;
 }
 
-/**
- * One process-wide overlay gate decides whether the focused Guide route is
- * allowed to own Android's native repeat/focus path. The Guide route registers
- * only its route intent; drawer/modal state can never race it back on.
- */
 function TvFocusOwnershipCoordinator() {
   const pathname = usePathname();
   const { activeProgram } = useStore();
