@@ -19,6 +19,7 @@ import { reclaimGuideBottomFocusIfArmed } from "@/src/utils/tvGuideFocusLock";
 import { requestNativeFocusWithRetry } from "@/src/utils/tvFocus";
 import { useStore } from "@/src/store";
 import { evaluateDrawerBack } from "@/src/core/drawerNavigationPolicy";
+import { setDrawerActivitySuspended } from "@/src/core/drawerActivityGate";
 import { isGuideSurfing } from "@/src/utils/guideSurfGate";
 import { useTvCalibration } from "@/src/tvCalibration";
 
@@ -111,6 +112,15 @@ export function PurpleTvDrawerProvider({ children }: { children: React.ReactNode
     setDrawerOpen(false);
   }, []);
   const consumeFocusDrawerTop = useCallback(() => setFocusDrawerTop(false), []);
+
+  useEffect(() => {
+    // The drawer is a process-wide UI ownership boundary. Pages remain mounted
+    // so their state/scroll position survive, but playback and background work
+    // that subscribes to drawerActivityGate must stop while the drawer is open.
+    setDrawerActivitySuspended(drawerOpen);
+    return () => setDrawerActivitySuspended(false);
+  }, [drawerOpen]);
+
   useEffect(() => {
     const animation = Animated.timing(drawerProgress, {
       toValue: drawerOpen ? 1 : 0,
