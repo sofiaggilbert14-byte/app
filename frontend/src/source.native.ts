@@ -483,6 +483,13 @@ function providerHttpUrls(url: string, label: "playlist" | "EPG"): string[] {
   return [`https://${value.slice(7)}`, value];
 }
 
+function isProviderTransportFailure(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return /\bhttp\s+\d{3}\b|network|timeout|timed out|failed to connect|unable to resolve|unknown host|connection|socket|ssl|handshake|cleartext/i.test(
+    message,
+  );
+}
+
 async function refreshConfiguredNativeEpg(allowNotModified: boolean) {
   const candidates = providerHttpUrls(SOURCE_EPG, "EPG");
   let firstError: unknown = null;
@@ -491,6 +498,9 @@ async function refreshConfiguredNativeEpg(allowNotModified: boolean) {
       return await refreshNativeEpg(candidate, allowNotModified);
     } catch (error) {
       if (firstError == null) firstError = error;
+      // Retry only transport failures. A parse, storage, or SQLite failure must
+      // retain the last-good guide and surface immediately, not download again.
+      if (!isProviderTransportFailure(error)) throw error;
     }
   }
   throw firstError || new Error("Could not download the TV guide");
@@ -583,6 +593,7 @@ async function fetchPlaylist(): Promise<Channel[]> {
       break;
     } catch (error) {
       if (firstError == null) firstError = error;
+      if (!isProviderTransportFailure(error)) throw error;
     }
   }
   if (!response) throw firstError || new Error("Could not download playlist");

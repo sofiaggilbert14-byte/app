@@ -129,6 +129,7 @@ test("native provider configuration preserves PR23 HTTPS-first behavior with HTT
   assert.match(native, /return \[`https:\/\/\$\{value\.slice\(7\)\}`, value\]/);
   assert.match(native, /refreshNativeEpg\(candidate, allowNotModified\)/);
   assert.match(native, /const candidates = providerHttpUrls\(SOURCE_M3U, "playlist"\)/);
+  assert.match(native, /if \(!isProviderTransportFailure\(error\)\) throw error/);
 });
 
 test("experimental EPG downloads first, parses locally, and hands finalized data directly to RAM", async () => {

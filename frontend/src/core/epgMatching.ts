@@ -279,7 +279,8 @@ export function formatNativeEpgError(raw: unknown): string {
     return "TV guide engine unavailable on this build. Channels still work; programme times cannot load.";
   }
   if (lower.includes("epg http") || lower.includes("failed to connect") || lower.includes("network")) {
-    return "Could not download the TV guide. Check the network and try Refresh.";
+    const httpStatus = message.match(/EPG HTTP\s+(\d{3})/i)?.[1];
+    return `Could not download the TV guide${httpStatus ? ` (HTTP ${httpStatus})` : ""}. Check the network and try Refresh.`;
   }
   if (lower.includes("did not match") || lower.includes("channel ids")) {
     return "Guide downloaded, but channel IDs did not match the playlist.";
