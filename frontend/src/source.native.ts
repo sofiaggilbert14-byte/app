@@ -38,6 +38,10 @@ export const SOURCE_EPG = (process.env.EXPO_PUBLIC_EPG_URL || "").trim();
 
 /** Shared empty programmes array — reused for channels with no EPG in-window. Never mutate. */
 const EMPTY_PROGRAMS: Program[] = [];
+const FULL_FEED_SPAN_MS = 99 * 365 * 24 * 60 * 60 * 1000;
+const FULL_FEED_ANCHOR_MS = Date.now();
+const FULL_FEED_START_MS = FULL_FEED_ANCHOR_MS - FULL_FEED_SPAN_MS;
+const FULL_FEED_END_MS = FULL_FEED_ANCHOR_MS + FULL_FEED_SPAN_MS;
 
 const DEFAULT_EPG_REFRESH_HOURS = 24;
 const SOURCE_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -920,7 +924,8 @@ export async function loadGuide(startISO?: string, hours = 6, force = false): Pr
 
   // Apply user remaps at read time so clear-remap restores auto-matched ids from MEM.
   const remapped = withManualRemaps(parsed.channels);
-  const cacheKey = `${startMs}|${endMs}|${parsed.guideEpoch || 0}`;
+  // One all-date snapshot is shared by every visible date/window selection.
+  const cacheKey = `${FULL_FEED_START_MS}|${FULL_FEED_END_MS}|${parsed.guideEpoch || 0}`;
   if (programmeWindowCacheKey !== cacheKey) {
     clearProgrammeWindowCache();
     programmeWindowCacheKey = cacheKey;
@@ -931,7 +936,7 @@ export async function loadGuide(startISO?: string, hours = 6, force = false): Pr
   // every playlist channel before scrolling begins.
   const playlistIds = Array.from(new Set(allPlaylistIds));
 
-  await loadProgrammeCacheMisses(remapped, playlistIds, startMs, endMs);
+  await loadProgrammeCacheMisses(remapped, playlistIds, FULL_FEED_START_MS, FULL_FEED_END_MS);
   // Keep the complete window resident; scrolling performs no follow-up query.
 
   // Shared empty list — avoid allocating tens of thousands of `[]` on big playlists.
@@ -957,6 +962,7 @@ export async function loadGuide(startISO?: string, hours = 6, force = false): Pr
     channels,
     programsByChannelId,
     guideEpoch: parsed.guideEpoch || 0,
+    programSnapshotKey: cacheKey,
   };
 }
 

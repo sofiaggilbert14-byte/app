@@ -7,6 +7,7 @@ import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.ReadableArray
+import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.WritableArray
 import com.facebook.react.bridge.WritableMap
 import org.xmlpull.v1.XmlPullParser
@@ -27,9 +28,9 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
 
   private val database = EpgDatabase(reactContext)
 
-  // Refresh/network/XML work is isolated from guide reads. A slow download or
-  // parse never queues getWindow/queryGuideWindow behind it; WAL keeps the
-  // last-good LIVE table readable until the final replacement succeeds.
+  // Refresh/network/XML work is intentionally isolated from guide reads. A slow
+  // EPG download must never queue getWindow/getCurrent behind it; WAL lets the
+  // query executor keep serving the last-good live table until the final swap.
   private val refreshExecutor = Executors.newSingleThreadExecutor()
   private val queryExecutor = Executors.newFixedThreadPool(2)
 
@@ -42,7 +43,6 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   @ReactMethod
   fun refresh(url: String, allowNotModified: Boolean, promise: Promise) {
     refreshExecutor.execute {
-      android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
       try {
         database.ensureHealthy()
         database.assertRefreshStorageAvailable()
@@ -51,49 +51,29 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         val maxStart = now + GUIDE_WINDOW_MS
         val channelLogos = LinkedHashMap<String, String>()
         val channelNames = LinkedHashMap<String, String>()
-        var channelIdsWithPrograms = LinkedHashSet<String>()
         val httpValidators = EpgHttpValidators()
         var downloaded: DownloadedEpg? = null
-        var parsedSourceCount = 0
-        var retainedPrograms: List<NativeEpgProgram> = emptyList()
-
+        var finalRetainedPrograms: List<NativeEpgProgram> = emptyList()
         try {
-          // Phase 1: finish the complete HTTP download and fsync the local file.
-          // No XML parsing begins while the network connection is still active.
           downloaded = downloadEpg(url, httpValidators, allowNotModified)
-
-          // Phase 2: parse the completed local XML/XML.GZ from beginning to end
-          // into one validated collection. There is deliberately no 1,000-row
-          // yield/batch pipeline in this experimental branch.
-          val parsed = parseCompleteLocalFile(
+          val parsedPrograms = parseRetainedPrograms(
             downloaded.file,
+            minStop,
+            maxStart,
             channelLogos,
             channelNames,
           )
-          parsedSourceCount = parsed.size
-
-          // Correct missing/overlapping stops while the full source ordering is
-          // available, then keep the app's bounded guide window for SQLite/RAM.
-          retainedPrograms = normalizeStopsAndRetain(parsed, minStop, maxStart)
-          if (retainedPrograms.isEmpty()) {
-            throw IllegalStateException("Refusing to replace live EPG with an empty retained guide")
-          }
-          channelIdsWithPrograms = retainedPrograms.mapTo(LinkedHashSet()) { it.channelId }
-
-          // One complete collection enters staging as one transaction-sized
-          // input. EpgDatabase still performs its atomic staging→LIVE swap and
-          // preserves the previous last-good guide if anything fails.
-          database.replaceBatches(sequenceOf(retainedPrograms))
-
+          val retainedPrograms = finalizeRetainedPrograms(parsedPrograms, minStop)
+          database.replacePrograms(retainedPrograms)
+          finalRetainedPrograms = retainedPrograms
         } catch (_: EpgNotModifiedException) {
           val guideEpoch = database.getMeta("guide_epoch")?.toLongOrNull() ?: 0L
           val result = Arguments.createMap().apply {
             putDouble("count", database.count().toDouble())
-            putDouble("windowStartMs", minStop.toDouble())
+            putDouble("windowStartMs", (now - GUIDE_HISTORY_MS).toDouble())
             putDouble("windowEndMs", maxStart.toDouble())
             putDouble("guideEpoch", guideEpoch.toDouble())
             putBoolean("notModified", true)
-            putString("ingestMode", "download-complete-then-full-local-parse")
           }
           promise.resolve(result)
           return@execute
@@ -101,6 +81,13 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
           downloaded?.file?.delete()
         }
 
+        // Expiry is part of final retention. Derive every has-programs signal
+        // from the finalized LIVE collection, never from source-feed sightings.
+        val deleted = database.deleteExpired(now - GUIDE_HISTORY_MS)
+        val channelIdsWithPrograms = database.readChannelIdsWithPrograms()
+
+        // Soft guide epoch — independent of playlist last-good (no joint snapshot).
+        // Persist aliases for SQL joins / future native rematch; JS still owns match policy.
         val aliases = ArrayList<Triple<String, String, String>>(channelNames.size + channelIdsWithPrograms.size)
         for ((channelId, displayName) in channelNames) {
           aliases.add(Triple(channelId, "display_name", displayName))
@@ -108,7 +95,9 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         }
         for (channelId in channelIdsWithPrograms) {
           aliases.add(Triple(channelId, "has_programs", channelId))
-          if (!channelNames.containsKey(channelId)) aliases.add(Triple(channelId, "xmltv_id", channelId))
+          if (!channelNames.containsKey(channelId)) {
+            aliases.add(Triple(channelId, "xmltv_id", channelId))
+          }
         }
         database.replaceChannelAliases(aliases)
 
@@ -119,50 +108,52 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         database.setMeta(HTTP_ETAG_KEY, httpValidators.etag)
         database.setMeta(HTTP_LAST_MODIFIED_KEY, httpValidators.lastModified)
 
-        // Replace RAM with this exact retained collection before reporting the
-        // new epoch. If the heap budget cannot admit it while the full parsed
-        // source is still in scope, keep a short one-shot handoff for the worker
-        // after these parser temporaries are released. RAM never claims the new
-        // epoch while it still contains the old programme collection.
-        val ramRuntime = EpgRamRuntime.get(reactContext)
-        if (ramRuntime.engine.replacePrograms(retainedPrograms, minStop, maxStart)) {
-          ramRuntime.warmGuideEpoch = guideEpoch
-          SharedParsedEpgSnapshot.clear()
-        } else {
-          SharedParsedEpgSnapshot.publish(retainedPrograms, minStop, maxStart)
+        // Publish the same finalized objects directly into RAM after SQLite is
+        // durable. No full SQLite reread or duplicate programme object graph.
+        val runtime = EpgRamRuntime.get(reactContext)
+        if (runtime.engine.replacePrograms(finalRetainedPrograms, minStop, maxStart)) {
+          // The programme snapshot is ready, but it must not serve joined Guide
+          // queries until JS has published the matches for this same epoch.
+          runtime.warmGuideEpoch = -1L
         }
 
-        val deleted = database.deleteExpired(minStop)
+        // Rare idle reclaim only after a large expiry — never every refresh.
         database.maybeIncrementalVacuum(MIN_VACUUM_DELETED_ROWS, deleted)
-
+        // The Guide reads bounded channel windows and never consumes getCurrent.
+        // Invalidate this optional compatibility cache after refresh and rebuild
+        // it lazily only if a caller actually asks for the all-current snapshot.
+        // This avoids retaining one extra NativeEpgProgram per channel all day.
         synchronized(currentCacheLock) {
           currentCache.clear()
           currentCacheValidUntilMs = 0L
         }
 
         val logos = Arguments.createMap()
-        for ((channelId, logoUrl) in channelLogos) logos.putString(channelId, logoUrl)
+        for ((channelId, logoUrl) in channelLogos) {
+          logos.putString(channelId, logoUrl)
+        }
         val names = Arguments.createMap()
-        for ((channelId, channelName) in channelNames) names.putString(channelId, channelName)
+        for ((channelId, channelName) in channelNames) {
+          names.putString(channelId, channelName)
+        }
         val programIds = Arguments.createArray()
-        for (channelId in channelIdsWithPrograms) programIds.pushString(channelId)
+        for (channelId in channelIdsWithPrograms) {
+          programIds.pushString(channelId)
+        }
 
         val result = Arguments.createMap().apply {
           putDouble("count", database.count().toDouble())
-          putDouble("windowStartMs", minStop.toDouble())
+          putDouble("windowStartMs", (now - GUIDE_HISTORY_MS).toDouble())
           putDouble("windowEndMs", maxStart.toDouble())
           putDouble("guideEpoch", guideEpoch.toDouble())
-          putString("ingestMode", "download-complete-then-full-local-parse")
+          putString("ingestMode", "downloaded-local-file")
           putDouble("downloadedBytes", (downloaded?.bytes ?: 0L).toDouble())
-          putDouble("parsedSourceCount", parsedSourceCount.toDouble())
-          putDouble("retainedProgramCount", retainedPrograms.size.toDouble())
           putMap("channelLogos", logos)
           putMap("channelNames", names)
           putArray("channelIdsWithPrograms", programIds)
         }
         promise.resolve(result)
       } catch (t: Throwable) {
-        SharedParsedEpgSnapshot.clear()
         promise.reject("EPG_REFRESH_FAILED", t.message ?: "Native EPG refresh failed", t)
       }
     }
@@ -174,24 +165,42 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
       try {
         val start = startMs.toLong()
         val end = endMs.toLong()
-        validateWindow(start, end)
-        val ids = readIds(channelIds)
-        promise.resolve(groupPrograms(database.queryWindow(start, end, ids)))
+        if (end <= start || end - start > MAX_QUERY_WINDOW_MS) {
+          throw IllegalArgumentException("Invalid EPG query window")
+        }
+        val ids = ArrayList<String>(channelIds.size())
+        for (i in 0 until channelIds.size()) {
+          val id = channelIds.getString(i)?.trim()
+          if (!id.isNullOrEmpty()) ids.add(id)
+        }
+        val programmes = database.queryWindow(start, end, ids)
+        promise.resolve(groupPrograms(programmes))
       } catch (t: Throwable) {
         promise.reject("EPG_WINDOW_FAILED", t.message ?: "Could not read native EPG window", t)
       }
     }
   }
 
+  /**
+   * Fast path for the TV guide: JOIN playlist_epg_matches → epg_programmes and
+   * return programmes keyed by playlist channel id (not XMLTV id).
+   */
   @ReactMethod
   fun queryGuideWindow(startMs: Double, endMs: Double, playlistChannelIds: ReadableArray, promise: Promise) {
     queryExecutor.execute {
       try {
         val start = startMs.toLong()
         val end = endMs.toLong()
-        validateWindow(start, end)
-        val ids = readIds(playlistChannelIds)
-        promise.resolve(groupPrograms(database.queryGuideWindow(start, end, ids)))
+        if (end <= start || end - start > MAX_QUERY_WINDOW_MS) {
+          throw IllegalArgumentException("Invalid EPG query window")
+        }
+        val ids = ArrayList<String>(playlistChannelIds.size())
+        for (i in 0 until playlistChannelIds.size()) {
+          val id = playlistChannelIds.getString(i)?.trim()
+          if (!id.isNullOrEmpty()) ids.add(id)
+        }
+        val programmes = database.queryGuideWindow(start, end, ids)
+        promise.resolve(groupPrograms(programmes))
       } catch (t: Throwable) {
         promise.reject("EPG_GUIDE_WINDOW_FAILED", t.message ?: "Could not read joined EPG window", t)
       }
@@ -233,7 +242,9 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
             )
           )
         }
-        promise.resolve(database.replacePlaylistChannels(rows, playlistEpoch.toLong(), contentFingerprint.trim()))
+        promise.resolve(
+          database.replacePlaylistChannels(rows, playlistEpoch.toLong(), contentFingerprint.trim())
+        )
       } catch (t: Throwable) {
         promise.reject("EPG_PLAYLIST_UPSERT_FAILED", t.message ?: "Could not upsert playlist channels", t)
       }
@@ -275,7 +286,9 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         if (now >= currentCacheValidUntilMs) rebuildCurrentCache(now)
         val snapshot = synchronized(currentCacheLock) { HashMap(currentCache) }
         val result = Arguments.createMap()
-        for ((channelId, program) in snapshot) result.putMap(channelId, programToMap(program))
+        for ((channelId, program) in snapshot) {
+          result.putMap(channelId, programToMap(program))
+        }
         promise.resolve(result)
       } catch (t: Throwable) {
         promise.reject("EPG_CURRENT_FAILED", t.message ?: "Could not read current EPG", t)
@@ -287,7 +300,6 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   fun clear(promise: Promise) {
     refreshExecutor.execute {
       try {
-        SharedParsedEpgSnapshot.clear()
         database.clear()
         synchronized(currentCacheLock) {
           currentCache.clear()
@@ -300,19 +312,6 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     }
   }
 
-  private fun validateWindow(start: Long, end: Long) {
-    if (end <= start || end - start > MAX_QUERY_WINDOW_MS) throw IllegalArgumentException("Invalid EPG query window")
-  }
-
-  private fun readIds(array: ReadableArray): List<String> {
-    val ids = ArrayList<String>(array.size())
-    for (i in 0 until array.size()) {
-      val id = array.getString(i)?.trim()
-      if (!id.isNullOrEmpty()) ids.add(id)
-    }
-    return ids
-  }
-
   private fun rebuildCurrentCache(nowMs: Long) {
     val programmes = database.queryCurrent(nowMs)
     var earliestEnd = Long.MAX_VALUE
@@ -322,8 +321,11 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
       if (program.endMs < earliestEnd) earliestEnd = program.endMs
     }
     val normalRefresh = nowMs + CURRENT_CACHE_REFRESH_MS
-    val validUntil = if (earliestEnd == Long.MAX_VALUE) normalRefresh
-    else minOf(normalRefresh, maxOf(nowMs + 1_000L, earliestEnd))
+    val validUntil = if (earliestEnd == Long.MAX_VALUE) {
+      normalRefresh
+    } else {
+      minOf(normalRefresh, maxOf(nowMs + 1_000L, earliestEnd))
+    }
     synchronized(currentCacheLock) {
       currentCache.clear()
       currentCache.putAll(replacement)
@@ -334,8 +336,10 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   private fun programToMap(program: NativeEpgProgram) = Arguments.createMap().apply {
     putString("channelId", program.channelId)
     putString("title", program.title)
-    if (program.description != null) putString("description", program.description) else putNull("description")
-    if (!program.category.isNullOrBlank()) putString("category", program.category) else putNull("category")
+    if (program.description != null) putString("description", program.description)
+    else putNull("description")
+    if (!program.category.isNullOrBlank()) putString("category", program.category)
+    else putNull("category")
     putDouble("startMs", program.startMs.toDouble())
     putDouble("endMs", program.endMs.toDouble())
   }
@@ -347,34 +351,26 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
       val array = channelArrays.getOrPut(program.channelId) { Arguments.createArray() }
       array.pushMap(programToMap(program))
     }
-    for ((channelId, array) in channelArrays) grouped.putArray(channelId, array)
+    for ((channelId, array) in channelArrays) {
+      grouped.putArray(channelId, array)
+    }
     return grouped
   }
 
-  /**
-   * Parse the entire completed local source into one collection. The parser
-   * still uses XmlPullParser (constant XML tokenizer memory), but programme
-   * objects are not yielded to SQLite in chunks. A hard heap-aware admission
-   * limit protects Fire TV/Android TV if the provider feed unexpectedly grows.
-   */
-  private fun parseCompleteLocalFile(
+  private fun parseRetainedPrograms(
     file: File,
+    minStop: Long,
+    maxStart: Long,
     channelLogos: MutableMap<String, String>,
     channelNames: MutableMap<String, String>,
   ): List<NativeEpgProgram> {
+    val retained = ArrayList<NativeEpgProgram>()
     val runtime = Runtime.getRuntime()
-    val usedBefore = heapUsed(runtime)
-    val reserve = maxOf(48L * MIB, (runtime.maxMemory() * 0.24).toLong())
-    val availableBudget = maxOf(16L * MIB, runtime.maxMemory() - usedBefore - reserve)
-    val parseBudget = minOf(MAX_PARSED_PROGRAM_BYTES, availableBudget)
-    if (usedBefore >= (runtime.maxMemory() * PARSE_REFUSE_FRACTION).toLong()) {
-      throw IllegalStateException("Not enough free heap to parse the complete local EPG safely")
-    }
-
-    val programs = ArrayList<NativeEpgProgram>()
-    var estimatedBytes = 0L
-    var rawProgrammeCount = 0L
-
+    val retainedBudget = minOf(
+      MAX_RETAINED_PROGRAMME_BYTES,
+      maxOf(MIN_RETAINED_PROGRAMME_BYTES, runtime.maxMemory() - (runtime.totalMemory() - runtime.freeMemory()) - PARSE_HEAP_RESERVE_BYTES),
+    )
+    var retainedBytes = 0L
     openDownloadedFile(file).use { input ->
       val parser = Xml.newPullParser()
       parser.setInput(input, "UTF-8")
@@ -384,14 +380,18 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
       var channelId: String? = null
       var startMs = 0L
       var endMs = 0L
+      var keepProgram = false
       var title = ""
       var description: String? = null
       var category: String? = null
+      var rawProgrammeCount = 0L
 
       while (event != XmlPullParser.END_DOCUMENT) {
         when (event) {
           XmlPullParser.START_TAG -> when (parser.name) {
-            "channel" -> metadataChannelId = parser.getAttributeValue(null, "id")?.trim()?.takeIf { it.isNotEmpty() }
+            "channel" -> {
+              metadataChannelId = parser.getAttributeValue(null, "id")?.trim()?.takeIf { it.isNotEmpty() }
+            }
             "display-name" -> {
               val id = metadataChannelId
               if (!id.isNullOrBlank() && !channelNames.containsKey(id)) {
@@ -402,24 +402,36 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
             "icon" -> {
               val id = metadataChannelId
               val src = parser.getAttributeValue(null, "src")?.trim()
-              if (!id.isNullOrBlank() && !src.isNullOrBlank() && !channelLogos.containsKey(id)) channelLogos[id] = src
+              if (!id.isNullOrBlank() && !src.isNullOrBlank() && !channelLogos.containsKey(id)) {
+                channelLogos[id] = src
+              }
             }
             "programme" -> {
               rawProgrammeCount += 1L
               if (rawProgrammeCount > MAX_PROGRAMME_COUNT) {
-                throw IllegalStateException("EPG contains more than $MAX_PROGRAMME_COUNT programmes; keeping last-good guide")
+                throw IllegalStateException(
+                  "EPG contains more than $MAX_PROGRAMME_COUNT programmes; keeping last-good guide"
+                )
               }
               channelId = parser.getAttributeValue(null, "channel")?.trim()
               startMs = parseXmltvTime(parser.getAttributeValue(null, "start"))
+              // Match JS resolveXmltvStop: missing/invalid/absurd stop → +30 minutes.
+              // Next-program inference runs once on staging after ingest.
               val parsedStop = parseXmltvTime(parser.getAttributeValue(null, "stop"))
               endMs = resolveProgrammeStop(startMs, parsedStop)
+              keepProgram =
+                !channelId.isNullOrBlank() &&
+                  startMs > 0L &&
+                  endMs > startMs &&
+                  endMs >= minStop &&
+                  startMs <= maxStart
               title = ""
               description = null
               category = null
             }
-            "title" -> if (!channelId.isNullOrBlank()) title = parser.nextText().trim()
-            "desc" -> if (!channelId.isNullOrBlank()) description = parser.nextText().trim().ifEmpty { null }
-            "category" -> if (!channelId.isNullOrBlank() && category.isNullOrBlank()) {
+            "title" -> if (keepProgram) title = parser.nextText().trim()
+            "desc" -> if (keepProgram) description = parser.nextText().trim().ifEmpty { null }
+            "category" -> if (keepProgram && category.isNullOrBlank()) {
               category = parser.nextText().trim().ifEmpty { null }
             }
           }
@@ -427,59 +439,66 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
             "channel" -> metadataChannelId = null
             "programme" -> {
               val id = channelId
-              if (!id.isNullOrBlank() && startMs > 0L && endMs > startMs) {
-                val program = NativeEpgProgram(
-                  channelId = id,
-                  title = title.ifBlank { "No Information" },
-                  description = description,
-                  category = category,
-                  startMs = startMs,
-                  endMs = endMs,
-                )
-                estimatedBytes += estimateProgramBytes(program)
-                if (estimatedBytes > parseBudget) {
-                  throw IllegalStateException("Complete EPG parse exceeds the safe in-memory budget")
+              if (keepProgram && !id.isNullOrBlank()) {
+                if (retained.size >= MAX_RETAINED_PROGRAMME_COUNT) {
+                  throw IllegalStateException(
+                    "Retained EPG exceeds $MAX_RETAINED_PROGRAMME_COUNT programmes; keeping last-good guide"
+                  )
                 }
-                programs.add(program)
+                val program = NativeEpgProgram(
+                    channelId = id,
+                    title = title.ifBlank { "No Information" },
+                    description = description,
+                    category = category,
+                    startMs = startMs,
+                    endMs = endMs,
+                  )
+                retainedBytes += estimateRetainedProgramBytes(program)
+                val heapUsed = runtime.totalMemory() - runtime.freeMemory()
+                if (retainedBytes > retainedBudget || heapUsed >= (runtime.maxMemory() * MAX_PARSE_HEAP_FRACTION).toLong()) {
+                  throw IllegalStateException("Retained EPG exceeds the safe memory budget; keeping last-good guide")
+                }
+                retained.add(program)
               }
               channelId = null
+              keepProgram = false
             }
           }
         }
         event = parser.next()
       }
     }
-
-    if (programs.isEmpty()) throw IllegalStateException("EPG contained no valid programmes")
-    programs.sortWith(compareBy<NativeEpgProgram> { it.channelId }.thenBy { it.startMs }.thenBy { it.endMs })
-    return programs
-  }
-
-  private fun normalizeStopsAndRetain(
-    source: List<NativeEpgProgram>,
-    minStop: Long,
-    maxStart: Long,
-  ): List<NativeEpgProgram> {
-    val retained = ArrayList<NativeEpgProgram>()
-    for (index in source.indices) {
-      val current = source[index]
-      var end = current.endMs
-      val next = source.getOrNull(index + 1)
-      if (next != null && next.channelId == current.channelId && next.startMs > current.startMs) {
-        val usedDefault = end == current.startMs + DEFAULT_PROGRAMME_DURATION_MS
-        val overlapsNext = end > next.startMs
-        val nextDuration = next.startMs - current.startMs
-        if ((usedDefault || overlapsNext) && nextDuration in 1..MAX_PROGRAMME_DURATION_MS) end = next.startMs
-      }
-      if (end > minStop && current.startMs < maxStart) {
-        // Reusing unchanged objects avoids retaining one extra NativeEpgProgram per channel.
-        retained.add(if (end == current.endMs) current else current.copy(endMs = end))
-      }
-    }
     return retained
   }
 
-  /** Download completes, flushes, fsyncs, and closes HTTP before parsing starts. */
+  private fun estimateRetainedProgramBytes(program: NativeEpgProgram): Long {
+    fun stringBytes(value: String?) = if (value == null) 0L else 40L + value.length.toLong() * 2L
+    return 56L + stringBytes(program.channelId) + stringBytes(program.title) +
+      stringBytes(program.description) + stringBytes(program.category)
+  }
+
+  private fun finalizeRetainedPrograms(
+    parsed: MutableList<NativeEpgProgram>,
+    minStop: Long,
+  ): List<NativeEpgProgram> {
+    parsed.sortWith(compareBy<NativeEpgProgram> { it.channelId }.thenBy { it.startMs })
+    var previous: NativeEpgProgram? = null
+    for (program in parsed) {
+      val prior = previous
+      if (prior != null && prior.channelId == program.channelId && program.startMs > prior.startMs) {
+        val usedDefault = prior.endMs == prior.startMs + DEFAULT_PROGRAMME_DURATION_MS
+        val overlapsNext = prior.endMs > program.startMs
+        val duration = program.startMs - prior.startMs
+        if ((usedDefault || overlapsNext) && duration in 1..MAX_PROGRAMME_DURATION_MS) {
+          prior.endMs = program.startMs
+        }
+      }
+      previous = program
+    }
+    return parsed.filter { it.endMs >= minStop }
+  }
+
+  /** Download completes and the HTTP connection closes before XML parsing starts. */
   private fun downloadEpg(
     urlString: String,
     validators: EpgHttpValidators,
@@ -493,13 +512,16 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     connection.instanceFollowRedirects = true
     connection.setRequestProperty("User-Agent", "CharmIPTV/Experimental-v3")
     connection.setRequestProperty("Accept-Encoding", "gzip")
-
-    val canUseValidators = allowNotModified && database.count() > 0L && database.getMeta(HTTP_SOURCE_HASH_KEY) == sourceHash
+    val canUseValidators =
+      allowNotModified && database.count() > 0L && database.getMeta(HTTP_SOURCE_HASH_KEY) == sourceHash
     if (canUseValidators) {
-      database.getMeta(HTTP_ETAG_KEY)?.takeIf { it.isNotBlank() }?.let { connection.setRequestProperty("If-None-Match", it) }
-      database.getMeta(HTTP_LAST_MODIFIED_KEY)?.takeIf { it.isNotBlank() }?.let { connection.setRequestProperty("If-Modified-Since", it) }
+      database.getMeta(HTTP_ETAG_KEY)?.takeIf { it.isNotBlank() }?.let {
+        connection.setRequestProperty("If-None-Match", it)
+      }
+      database.getMeta(HTTP_LAST_MODIFIED_KEY)?.takeIf { it.isNotBlank() }?.let {
+        connection.setRequestProperty("If-Modified-Since", it)
+      }
     }
-
     connection.connect()
     val status = connection.responseCode
     if (status == HttpURLConnection.HTTP_NOT_MODIFIED && canUseValidators) {
@@ -510,13 +532,14 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
       connection.disconnect()
       throw IllegalStateException("EPG HTTP $status")
     }
-
     validators.etag = connection.getHeaderField("ETag")?.trim().orEmpty()
     validators.lastModified = connection.getHeaderField("Last-Modified")?.trim().orEmpty()
     val declaredLength = connection.contentLengthLong
     if (declaredLength > MAX_COMPRESSED_EPG_BYTES) {
       connection.disconnect()
-      throw IllegalStateException("EPG download exceeds the ${MAX_COMPRESSED_EPG_BYTES / MIB} MiB compressed safety limit")
+      throw IllegalStateException(
+        "EPG download exceeds the ${MAX_COMPRESSED_EPG_BYTES / (1024L * 1024L)} MiB compressed safety limit"
+      )
     }
     database.assertRefreshStorageAvailable(declaredLength)
 
@@ -527,14 +550,21 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     }
     cleanupAbandonedDownloads(downloadDir)
     val target = File.createTempFile("xmltv-", ".download", downloadDir)
-
     try {
       val connectionStream = object : FilterInputStream(connection.inputStream) {
         override fun close() {
-          try { super.close() } finally { connection.disconnect() }
+          try {
+            super.close()
+          } finally {
+            connection.disconnect()
+          }
         }
       }
-      val networkStream = BoundedInputStream(connectionStream, MAX_COMPRESSED_EPG_BYTES, "compressed EPG download")
+      val networkStream = BoundedInputStream(
+        connectionStream,
+        MAX_COMPRESSED_EPG_BYTES,
+        "compressed EPG download",
+      )
       var copied = 0L
       FileOutputStream(target).use { fileOutput ->
         fileOutput.buffered(NETWORK_BUFFER_SIZE).use { output ->
@@ -566,7 +596,11 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     val b1 = buffered.read()
     val b2 = buffered.read()
     buffered.reset()
-    val decoded = if (b1 == 0x1f && b2 == 0x8b) GZIPInputStream(buffered, FILE_BUFFER_SIZE) else buffered
+    val decoded = if (b1 == 0x1f && b2 == 0x8b) {
+      GZIPInputStream(buffered, FILE_BUFFER_SIZE)
+    } else {
+      buffered
+    }
     return BoundedInputStream(decoded, MAX_DECOMPRESSED_EPG_BYTES, "decompressed EPG data")
   }
 
@@ -577,21 +611,20 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     }
   }
 
-  private fun estimateProgramBytes(program: NativeEpgProgram): Long {
-    fun stringBytes(value: String?) = if (value == null) 0L else 40L + value.length.toLong() * 2L
-    return 56L + stringBytes(program.channelId) + stringBytes(program.title) +
-      stringBytes(program.description) + stringBytes(program.category)
+  private fun sha256(value: String): String {
+    return MessageDigest.getInstance("SHA-256")
+      .digest(value.toByteArray(Charsets.UTF_8))
+      .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
   }
-
-  private fun heapUsed(runtime: Runtime) = runtime.totalMemory() - runtime.freeMemory()
-
-  private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
-    .digest(value.toByteArray(Charsets.UTF_8))
-    .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
 
   private fun resolveProgrammeStop(startMs: Long, parsedStopMs: Long): Long {
     if (startMs <= 0L) return 0L
-    if (parsedStopMs > startMs && parsedStopMs - startMs <= MAX_PROGRAMME_DURATION_MS) return parsedStopMs
+    if (
+      parsedStopMs > startMs &&
+      parsedStopMs - startMs <= MAX_PROGRAMME_DURATION_MS
+    ) {
+      return parsedStopMs
+    }
     return startMs + DEFAULT_PROGRAMME_DURATION_MS
   }
 
@@ -616,7 +649,9 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
       val hour = digits(8, 2)
       val minute = digits(10, 2)
       val second = digits(12, 2)
-      if (month !in 1..12 || day !in 1..31 || hour !in 0..23 || minute !in 0..59 || second !in 0..59) return 0L
+      if (month !in 1..12 || day !in 1..31 || hour !in 0..23 || minute !in 0..59 || second !in 0..59) {
+        return 0L
+      }
 
       var y = year.toLong()
       val m = month.toLong()
@@ -628,7 +663,11 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
       val doy = (153L * mp + 2L) / 5L + d - 1L
       val doe = yoe * 365L + yoe / 4L - yoe / 100L + doy
       val epochDay = era * 146097L + doe - 719468L
-      var millis = epochDay * 86_400_000L + hour * 3_600_000L + minute * 60_000L + second * 1_000L
+      var millis =
+        epochDay * 86_400_000L +
+          hour * 3_600_000L +
+          minute * 60_000L +
+          second * 1_000L
 
       var i = 14
       while (i < value.length && value[i].isWhitespace()) i++
@@ -647,7 +686,6 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   }
 
   override fun invalidate() {
-    SharedParsedEpgSnapshot.clear()
     synchronized(currentCacheLock) {
       currentCache.clear()
       currentCacheValidUntilMs = 0L
@@ -670,7 +708,11 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
       private fun account(count: Int): Int {
         if (count <= 0) return count
         bytesRead += count.toLong()
-        if (bytesRead > maxBytes) throw IllegalStateException("$label exceeds the ${maxBytes / MIB} MiB safety limit")
+        if (bytesRead > maxBytes) {
+          throw IllegalStateException(
+            "$label exceeds the ${maxBytes / (1024L * 1024L)} MiB safety limit"
+          )
+        }
         return count
       }
 
@@ -680,13 +722,19 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         return value
       }
 
-      override fun read(buffer: ByteArray, offset: Int, length: Int): Int = account(super.read(buffer, offset, length))
+      override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+        return account(super.read(buffer, offset, length))
+      }
 
       override fun skip(count: Long): Long {
         val skipped = super.skip(count)
         if (skipped > 0L) {
           bytesRead += skipped
-          if (bytesRead > maxBytes) throw IllegalStateException("$label exceeds the ${maxBytes / MIB} MiB safety limit")
+          if (bytesRead > maxBytes) {
+            throw IllegalStateException(
+              "$label exceeds the ${maxBytes / (1024L * 1024L)} MiB safety limit"
+            )
+          }
         }
         return skipped
       }
@@ -699,7 +747,6 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
       var lastModified: String = "",
     )
 
-    private const val MIB = 1024L * 1024L
     private const val HTTP_SOURCE_HASH_KEY = "epg_http_source_hash"
     private const val HTTP_ETAG_KEY = "epg_http_etag"
     private const val HTTP_LAST_MODIFIED_KEY = "epg_http_last_modified"
@@ -707,17 +754,26 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     private const val FILE_BUFFER_SIZE = 64 * 1024
     private const val DOWNLOAD_DIRECTORY = "epg-downloads"
     private const val ABANDONED_DOWNLOAD_MAX_AGE_MS = 6L * 60L * 60L * 1000L
-    private const val MAX_COMPRESSED_EPG_BYTES = 256L * MIB
-    private const val MAX_DECOMPRESSED_EPG_BYTES = 1024L * MIB
-    private const val MAX_PARSED_PROGRAM_BYTES = 96L * MIB
+    private const val MAX_COMPRESSED_EPG_BYTES = 256L * 1024L * 1024L
+    private const val MAX_DECOMPRESSED_EPG_BYTES = 1024L * 1024L * 1024L
     private const val MAX_PROGRAMME_COUNT = 2_000_000L
-    private const val PARSE_REFUSE_FRACTION = 0.72
-    private const val GUIDE_HISTORY_MS = 6L * 60L * 60L * 1000L
-    private const val GUIDE_WINDOW_MS = 24L * 60L * 60L * 1000L
-    private const val MAX_QUERY_WINDOW_MS = 24L * 60L * 60L * 1000L
+    private const val MAX_RETAINED_PROGRAMME_COUNT = 250_000
+    private const val MIN_RETAINED_PROGRAMME_BYTES = 16L * 1024L * 1024L
+    private const val MAX_RETAINED_PROGRAMME_BYTES = 96L * 1024L * 1024L
+    private const val PARSE_HEAP_RESERVE_BYTES = 64L * 1024L * 1024L
+    private const val MAX_PARSE_HEAP_FRACTION = 0.72
+    private const val DEFAULT_PROGRAMME_DURATION_MS = 30L * 60L * 1000L
+    private const val MAX_PROGRAMME_DURATION_MS = 12L * 60L * 60L * 1000L
+    // Full-feed experiment: retain any sane XMLTV date instead of clipping ingest
+    // to the former 6-hour history + 24-hour future window.
+    private const val GUIDE_HISTORY_MS = 100L * 365L * 24L * 60L * 60L * 1000L
+    private const val GUIDE_WINDOW_MS = 100L * 365L * 24L * 60L * 60L * 1000L
+    private const val MAX_QUERY_WINDOW_MS = 200L * 365L * 24L * 60L * 60L * 1000L
     private const val CURRENT_CACHE_REFRESH_MS = 30_000L
     private const val DEFAULT_PROGRAMME_DURATION_MS = 30L * 60L * 1000L
     private const val MAX_PROGRAMME_DURATION_MS = 24L * 60L * 60L * 1000L
+    /** Only vacuum after a large expiry purge — never on every refresh. */
     private const val MIN_VACUUM_DELETED_ROWS = 5_000
   }
 }
+

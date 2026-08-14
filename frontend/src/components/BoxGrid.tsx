@@ -479,11 +479,8 @@ export function BoxGrid({
 
   const lastRowIndex = Math.max(0, Math.floor((Math.max(channels.length, 1) - 1) / Math.max(1, numColumns)));
   lastRowIndexRef.current = lastRowIndex;
-  const renderDrawDistance = cacheProfile === "weak"
-    ? 320
-    : cacheProfile === "max_preview"
-      ? 720
-      : 480;
+  // Full-mount experiment: cover every card row instead of recycling vertically.
+  const renderDrawDistance = Math.max(148, Math.ceil(channels.length / numColumns) * 148);
 
   useTVEventHandler(
     useCallback(
@@ -641,3 +638,4 @@ const styles = StyleSheet.create({
   progressFill: { height: 4, backgroundColor: ACCENT },
   nextLine: { color: "rgba(233,213,255,0.78)", fontFamily: fonts.regular, fontSize: 11, marginTop: 6 },
 });
+

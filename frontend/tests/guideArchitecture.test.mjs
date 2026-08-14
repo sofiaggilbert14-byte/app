@@ -110,6 +110,7 @@ test("EPG screen delivery publishes one bounded complete guide snapshot", async 
   assert.match(native, /hours = 6/);
   assert.match(programStore, /setGuideProgramRowLimit/);
   assert.match(store, /EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 6/);
+  assert.match(store, /data\.programSnapshotKey \|\| makeGuideProgramWindowKey/);
 });
 
 test("EPG finalization reports truthful late phases and skips identical match writes", async () => {

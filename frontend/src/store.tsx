@@ -691,7 +691,10 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
                 .map((channel) => [channel.id, channel.programs as Program[]]),
             );
       guideEpochRef.current = data.guideEpoch || 0;
-      applyGuidePrograms(makeGuideProgramWindowKey(data.start, data.end, guideEpochRef.current), nextPrograms);
+      applyGuidePrograms(
+        data.programSnapshotKey || makeGuideProgramWindowKey(data.start, data.end, guideEpochRef.current),
+        nextPrograms,
+      );
       setChannels((prev) => {
         if (
           prev.length === nextChannels.length &&

@@ -31,7 +31,6 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
   @ReactMethod
   fun warm(startMs: Double, endMs: Double, promise: Promise) {
     worker.execute {
-      android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
       try {
         if (isWarmForCurrentEpoch()) {
           promise.resolve(true)
@@ -41,6 +40,7 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
         if (warmed) runtime.warmGuideEpoch = currentGuideEpoch()
         promise.resolve(warmed)
       } catch (_: Throwable) {
+        // RAM acceleration must never turn a healthy persisted guide into a failure.
         promise.resolve(false)
       }
     }
@@ -49,7 +49,6 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
   @ReactMethod
   fun replaceMatches(matches: ReadableArray, promise: Promise) {
     worker.execute {
-      android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
       try {
         val rows = ArrayList<PlaylistEpgMatchRow>(matches.size())
         for (i in 0 until matches.size()) {
@@ -67,19 +66,8 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
             )
           )
         }
-        val guideEpoch = currentGuideEpoch()
         engine.replaceMatches(rows)
-        if (engine.isWarm() && runtime.warmGuideEpoch != guideEpoch) {
-          // A match-table update must never bless programme objects from the
-          // previous guide epoch. Consume the fresh parse handoff (or SQLite)
-          // first; queries use SQLite fallback until that replacement succeeds.
-          val now = System.currentTimeMillis()
-          if (engine.rebuild(now - GUIDE_HISTORY_MS, now + GUIDE_WINDOW_MS)) {
-            runtime.warmGuideEpoch = guideEpoch
-          }
-        } else if (engine.isWarm()) {
-          runtime.warmGuideEpoch = guideEpoch
-        }
+        if (engine.isWarm()) runtime.warmGuideEpoch = currentGuideEpoch()
         promise.resolve(true)
       } catch (_: Throwable) {
         promise.resolve(false)
@@ -103,11 +91,9 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
         if (programmes == null) {
           sqliteFallbackCount.incrementAndGet()
           promise.resolve(null)
-        } else {
-          promise.resolve(groupProgramsByOutput(programmes))
-        }
+        } else promise.resolve(groupProgramsByOutput(programmes))
       } catch (_: Throwable) {
-        sqliteFallbackCount.incrementAndGet()
+        // null explicitly tells JS to use the existing SQLite Guide path.
         promise.resolve(null)
       } finally {
         guideQueryCount.incrementAndGet()
@@ -136,7 +122,6 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
 
   @ReactMethod
   fun clearMemory(promise: Promise) {
-    SharedParsedEpgSnapshot.clear()
     engine.clear()
     runtime.warmGuideEpoch = -1L
     promise.resolve(true)
@@ -162,7 +147,6 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
   private fun scheduleWarmForCurrentEpoch() {
     if (!warmQueued.compareAndSet(false, true)) return
     worker.execute {
-      android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
       try {
         val epoch = currentGuideEpoch()
         if (engine.isWarm() && runtime.warmGuideEpoch == epoch) return@execute
@@ -226,7 +210,6 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
   }
 
   override fun invalidate() {
-    SharedParsedEpgSnapshot.clear()
     engine.clear(0L)
     worker.shutdownNow()
     queryPool.shutdownNow()
@@ -234,7 +217,8 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
   }
 
   companion object {
-    private const val GUIDE_HISTORY_MS = 6L * 60L * 60L * 1000L
-    private const val GUIDE_WINDOW_MS = 24L * 60L * 60L * 1000L
+    private const val GUIDE_HISTORY_MS = 100L * 365L * 24L * 60L * 60L * 1000L
+    private const val GUIDE_WINDOW_MS = 100L * 365L * 24L * 60L * 60L * 1000L
   }
 }
+

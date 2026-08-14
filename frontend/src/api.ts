@@ -30,6 +30,8 @@ export type GuideResponse = {
   programsByChannelId?: Record<string, Program[]>;
   /** Native XMLTV epoch so programme rows never survive a fresh guide swap. */
   guideEpoch?: number;
+  /** Stable identity for an all-date programme snapshot across visible date changes. */
+  programSnapshotKey?: string;
 };
 
 export type SourceStatus = {
@@ -41,3 +43,4 @@ export type SourceStatus = {
   refreshing: boolean;
   error: string | null;
 };
+

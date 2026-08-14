@@ -93,7 +93,8 @@ test("complete guide keeps explicit empty rows and has no viewport slice", async
   ]);
   assert.match(bridge, /: EMPTY_NATIVE_PROGRAMS/);
   assert.match(native, /programsByChannelId\[channel\.id\] = emptyPrograms/);
-  assert.match(native, /loadProgrammeCacheMisses\(remapped, playlistIds, startMs, endMs\)/);
+  assert.match(native, /loadProgrammeCacheMisses\(remapped, playlistIds, FULL_FEED_START_MS, FULL_FEED_END_MS\)/);
+  assert.match(native, /programSnapshotKey: cacheKey/);
   assert.doesNotMatch(native, /buildFocusRing|PROGRAMME_WARM_RING_ROWS/);
   assert.match(policy, /GUIDE_PREFETCH_PAGES_AHEAD = 8/);
   assert.match(native, /const playlistIds = Array\.from\(new Set\(allPlaylistIds\)\)/);

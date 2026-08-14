@@ -39,11 +39,12 @@ test("favorite storage remains ID-only and bounded", async () => {
   assert.doesNotMatch(store, /storage\.setItem\(RECENT_KEY, next\)/);
 });
 
-test("program runway stays wide without focus-time React state churn", async () => {
+test("all channel rows mount without focus-time React state churn", async () => {
   const grid = await source("src/components/TimelineGrid.tsx");
   assert.doesNotMatch(grid, /cullDisabledRef|setDisableProgramCull/);
   assert.match(grid, /drawDistance=\{renderDrawDistance\}/);
-  assert.match(grid, /cacheProfile === "weak"/);
+  assert.match(grid, /channels\.length \* ROW_H/);
+  assert.doesNotMatch(grid, /\[currentTimeMs, item\.id, programs/);
 });
 
 test("guide preview uses lighter stream buffers", async () => {
@@ -56,3 +57,4 @@ test("guide preview uses lighter stream buffers", async () => {
   assert.match(guide, /GuidePreviewRail/);
   assert.match(previewRail, /mode="preview"/);
 });
+

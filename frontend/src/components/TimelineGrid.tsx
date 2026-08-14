@@ -114,7 +114,6 @@ type TimelineRowProps = {
   timelineWidth: number;
   windowStartMs: number;
   windowEndMs: number;
-  currentTimeMs: number;
   pxPerMinute: number;
   /** Negated horizontal pan shared by channel identity and programme cells. */
   negScrollX: Animated.AnimatedMultiplication<number> | Animated.AnimatedInterpolation<number>;
@@ -290,7 +289,6 @@ const TimelineRow = memo(function TimelineRow({
   timelineWidth,
   windowStartMs,
   windowEndMs,
-  currentTimeMs,
   pxPerMinute,
   negScrollX,
   panBucket,
@@ -317,7 +315,10 @@ const TimelineRow = memo(function TimelineRow({
   const programRowState = getGuideProgramRowState(item.id);
   const preparedPrograms = useMemo<PreparedProgram[]>(() => {
     if (!Number.isFinite(windowStartMs) || !Number.isFinite(windowEndMs)) return [];
-    const liveNow = currentTimeMs;
+    // Snapshot live decoration when row geometry is built. The global Now line
+    // may tick, but it must not make every fully mounted row rescan a multi-day
+    // programme array every 30 seconds.
+    const liveNow = Date.now();
     const result: PreparedProgram[] = [];
     for (const program of programs) {
       const startMs = Date.parse(program.start);
@@ -342,7 +343,7 @@ const TimelineRow = memo(function TimelineRow({
       });
     }
     return result;
-  }, [currentTimeMs, item.id, programs, pxPerMinute, windowEndMs, windowStartMs]);
+  }, [item.id, programs, pxPerMinute, windowEndMs, windowStartMs]);
   const focusedProgramKey = getFocusedProgramKey?.() || null;
   const previousPreparedByKeyRef = useRef(new Map<string, PreparedProgram>());
   const releasedOrphanKeyRef = useRef<string | null>(null);
@@ -1220,11 +1221,9 @@ export const TimelineGrid = memo(function TimelineGrid({
     [onBackTargetChange, onChannelFocus, reportFocusedRow],
   );
 
-  const renderDrawDistance = cacheProfile === "weak"
-    ? Math.max(240, ROW_H * 4)
-    : cacheProfile === "max_preview"
-      ? Math.max(480, ROW_H * 8)
-      : Math.max(360, ROW_H * 6);
+  // Full-mount experiment: keep every channel row inside FlashList's render
+  // window so held native focus never waits for a recycled row to mount.
+  const renderDrawDistance = Math.max(1, channels.length * ROW_H);
 
   const lastRowIndex = Math.max(0, channels.length - 1);
   lastRowIndexRef.current = lastRowIndex;
@@ -1248,7 +1247,6 @@ export const TimelineGrid = memo(function TimelineGrid({
         timelineWidth={timelineWidth}
         windowStartMs={windowStartMs}
         windowEndMs={windowEndMs}
-        currentTimeMs={nowMs}
         pxPerMinute={PX_PER_MIN}
         negScrollX={negScrollX}
         panBucket={panBucket}
@@ -1275,7 +1273,7 @@ export const TimelineGrid = memo(function TimelineGrid({
         getFocusedProgramKey={getFocusedProgramKey}
       />
     ),
-    [ROW_H, LOGO_W, LOGO_SIZE, railMetrics.numberWidth, railMetrics.nameFontSize, railMetrics.nameLineHeight, railMetrics.channelNameMaxLines, railMetrics.horizontalPadding, railMetrics.itemGap, timelineWidth, windowStartMs, windowEndMs, nowMs, PX_PER_MIN, negScrollX, panBucket, programViewportW, showChannelNumbers, channelNumberById, showChannelLogos, channelRailVisible, reminderKeys, onChannelPress, onChannelLongPress, onProgramPress, onRowProgramFocus, onRowChannelFocus, onRowPendingFocus, preferFirstRow, rememberFocusNode, registerFocusCandidate, wireFocusCandidate, lastRowIndex, lockLeftEdge, getFocusedProgramKey, restoreChannelId],
+    [ROW_H, LOGO_W, LOGO_SIZE, railMetrics.numberWidth, railMetrics.nameFontSize, railMetrics.nameLineHeight, railMetrics.channelNameMaxLines, railMetrics.horizontalPadding, railMetrics.itemGap, timelineWidth, windowStartMs, windowEndMs, PX_PER_MIN, negScrollX, panBucket, programViewportW, showChannelNumbers, channelNumberById, showChannelLogos, channelRailVisible, reminderKeys, onChannelPress, onChannelLongPress, onProgramPress, onRowProgramFocus, onRowChannelFocus, onRowPendingFocus, preferFirstRow, rememberFocusNode, registerFocusCandidate, wireFocusCandidate, lastRowIndex, lockLeftEdge, getFocusedProgramKey, restoreChannelId],
   );
 
   return (
@@ -1532,3 +1530,4 @@ const styles = StyleSheet.create({
     borderTopColor: "#F472B6",
   },
 });
+
