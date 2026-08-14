@@ -50,7 +50,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         val maxStart = now + GUIDE_WINDOW_MS
         val channelLogos = LinkedHashMap<String, String>()
         val channelNames = LinkedHashMap<String, String>()
-        val channelIdsWithPrograms = LinkedHashSet<String>()
+        var channelIdsWithPrograms = LinkedHashSet<String>()
         val httpValidators = EpgHttpValidators()
         var downloaded: DownloadedEpg? = null
         var parsedSourceCount = 0
@@ -68,7 +68,6 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
             downloaded.file,
             channelLogos,
             channelNames,
-            channelIdsWithPrograms,
           )
           parsedSourceCount = parsed.size
 
@@ -78,6 +77,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
           if (retainedPrograms.isEmpty()) {
             throw IllegalStateException("Refusing to replace live EPG with an empty retained guide")
           }
+          channelIdsWithPrograms = retainedPrograms.mapTo(LinkedHashSet()) { it.channelId }
 
           // One complete collection enters staging as one transaction-sized
           // input. EpgDatabase still performs its atomic staging→LIVE swap and
@@ -350,7 +350,6 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     file: File,
     channelLogos: MutableMap<String, String>,
     channelNames: MutableMap<String, String>,
-    channelIdsWithPrograms: MutableSet<String>,
   ): List<NativeEpgProgram> {
     val runtime = Runtime.getRuntime()
     val usedBefore = heapUsed(runtime)
@@ -418,7 +417,6 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
             "programme" -> {
               val id = channelId
               if (!id.isNullOrBlank() && startMs > 0L && endMs > startMs) {
-                channelIdsWithPrograms.add(id)
                 val program = NativeEpgProgram(
                   channelId = id,
                   title = title.ifBlank { "No Information" },

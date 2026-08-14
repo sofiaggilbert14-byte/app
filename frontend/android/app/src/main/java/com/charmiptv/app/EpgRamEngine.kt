@@ -17,6 +17,7 @@ internal class EpgRamEngine(private val database: EpgDatabase) {
   @Volatile private var snapshot = EMPTY
   @Volatile private var rebuildAllowedAtMs = 0L
   private val rebuilding = AtomicBoolean(false)
+  private val generation = AtomicLong(0L)
   private val hitCount = AtomicLong(0L)
   private val missCount = AtomicLong(0L)
   @Volatile private var lastWarmDurationMs = 0L
@@ -27,7 +28,8 @@ internal class EpgRamEngine(private val database: EpgDatabase) {
    * the match map across a pressure clear prevents a later warm snapshot from
    * becoming unusable until JS happens to resynchronise matches again.
    */
-  fun clear(cooldownMs: Long = CLEAR_REBUILD_COOLDOWN_MS) {
+  @Synchronized fun clear(cooldownMs: Long = CLEAR_REBUILD_COOLDOWN_MS) {
+    generation.incrementAndGet()
     val current = snapshot
     snapshot = EMPTY.copy(playlistToXmltv = current.playlistToXmltv)
     rebuildAllowedAtMs = maxOf(rebuildAllowedAtMs, System.currentTimeMillis() + maxOf(0L, cooldownMs))
@@ -36,7 +38,7 @@ internal class EpgRamEngine(private val database: EpgDatabase) {
   fun isWarm(): Boolean = snapshot.programCount > 0
   fun hasMatches(): Boolean = snapshot.playlistToXmltv.isNotEmpty()
 
-  fun replaceMatches(rows: Collection<PlaylistEpgMatchRow>) {
+  @Synchronized fun replaceMatches(rows: Collection<PlaylistEpgMatchRow>) {
     val matches = HashMap<String, String>(rows.size * 2)
     for (row in rows) {
       if (row.playlistId.isNotBlank() && row.xmltvId.isNotBlank()) {
@@ -57,6 +59,7 @@ internal class EpgRamEngine(private val database: EpgDatabase) {
     if (endMs <= startMs || now < rebuildAllowedAtMs || !rebuilding.compareAndSet(false, true)) return false
     val warmStartedAt = System.currentTimeMillis()
     try {
+      val buildGeneration = generation.get()
       val runtime = Runtime.getRuntime()
       val usedBeforeBuild = heapUsed(runtime)
       if (usedBeforeBuild >= (runtime.maxMemory() * PREBUILD_PRESSURE_FRACTION).toLong()) {
@@ -101,15 +104,18 @@ internal class EpgRamEngine(private val database: EpgDatabase) {
         if (row.playlistId.isNotBlank() && row.xmltvId.isNotBlank()) matches[row.playlistId] = row.xmltvId
       }
 
-      snapshot = Snapshot(
-        byXmltvChannel = frozen,
-        playlistToXmltv = matches,
-        startMs = startMs,
-        endMs = endMs,
-        programCount = programCount,
-        estimatedBytes = estimated,
-      )
-      rebuildAllowedAtMs = 0L
+      synchronized(this) {
+        if (generation.get() != buildGeneration) return false
+        snapshot = Snapshot(
+          byXmltvChannel = frozen,
+          playlistToXmltv = matches,
+          startMs = startMs,
+          endMs = endMs,
+          programCount = programCount,
+          estimatedBytes = estimated,
+        )
+        rebuildAllowedAtMs = 0L
+      }
       lastWarmDurationMs = System.currentTimeMillis() - warmStartedAt
       return true
     } catch (_: RamBudgetExceeded) {
