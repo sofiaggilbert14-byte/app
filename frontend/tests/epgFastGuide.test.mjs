@@ -123,15 +123,23 @@ test("native EPG uses HTTP validators and skips all rematch work on 304", async 
   assert.match(native, /return MEM;/);
 });
 
-test("experimental EPG downloads first, parses locally, and warms RAM without blocking Guide", async () => {
-  const [mod, db, ram, ramModule] = await Promise.all([
+test("experimental EPG downloads first, parses locally, and hands finalized data directly to RAM", async () => {
+  const [mod, db, ram, ramModule, bridge] = await Promise.all([
     source("android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt"),
     source("android/app/src/main/java/com/charmiptv/app/EpgDatabase.kt"),
     source("android/app/src/main/java/com/charmiptv/app/EpgRamEngine.kt"),
     source("android/app/src/main/java/com/charmiptv/app/EpgRamModule.kt"),
+    source("src/nativeEpg.ts"),
   ]);
   assert.match(mod, /downloadEpg\(url, httpValidators, allowNotModified\)/);
-  assert.match(mod, /parseProgramBatches\(\s*downloaded\.file/);
+  assert.match(mod, /parseRetainedPrograms\(\s*downloaded\.file/);
+  assert.match(mod, /database\.replacePrograms\(retainedPrograms\)/);
+  assert.doesNotMatch(mod, /BATCH_SIZE|yield\(ArrayList\(batch\)\)/);
+  assert.match(mod, /database\.readChannelIdsWithPrograms\(\)/);
+  assert.match(mod, /finalizeRetainedPrograms\(parsedPrograms, minStop\)/);
+  assert.match(mod, /runtime\.engine\.replacePrograms\(finalRetainedPrograms, minStop, maxStart\)/);
+  assert.match(mod, /runtime\.warmGuideEpoch = -1L/);
+  assert.match(db, /SELECT DISTINCT channel_id FROM \$LIVE_TABLE/);
   assert.match(mod, /File\.createTempFile\("xmltv-", "\.download"/);
   assert.match(mod, /downloaded\?\.file\?\.delete\(\)/);
   assert.match(mod, /GZIPInputStream\(buffered, FILE_BUFFER_SIZE\)/);
@@ -140,12 +148,16 @@ test("experimental EPG downloads first, parses locally, and warms RAM without bl
   assert.match(db, /fun readPlaylistEpgMatches/);
   assert.match(ram, /database\.forEachProgramInWindow/);
   assert.match(ram, /database\.readPlaylistEpgMatches/);
+  assert.match(ram, /generation\.incrementAndGet\(\)/);
+  assert.match(ram, /fun replacePrograms\(programs: List<NativeEpgProgram>/);
   assert.match(ram, /EMPTY\.copy\(playlistToXmltv = current\.playlistToXmltv\)/);
   assert.match(ramModule, /scheduleWarmForCurrentEpoch\(\)/);
   assert.match(ramModule, /promise\.resolve\(null\)\s*return@execute/);
   assert.match(ramModule, /groupProgramsByOutput/);
   assert.match(ramModule, /sqliteFallbackCount/);
   assert.match(ramModule, /guideQueryDurationMs/);
+  assert.match(ramModule, /if \(engine\.isWarm\(\)\) runtime\.warmGuideEpoch = currentGuideEpoch\(\)/);
+  assert.doesNotMatch(bridge, /void ramModule\.warm\(result\.windowStartMs/);
 });
 
 test("Media3 silent audio soft-fails into VLC engine swap", async () => {

@@ -72,9 +72,10 @@ test("local-file RAM EPG is full-download/full-parse, bounded, and SQLite-fallba
   assert.match(memory, /One global native clear per Android event/);
   assert.match(app, /add\(EpgRamPackage\(\)\)/);
 
-  // Normal startup/source refresh remains cache-first for 24 hours.
-  assert.match(source, /const TTL_MS = 24 \* 60 \* 60 \* 1000/);
-  assert.match(source, /Date\.now\(\) - cached\.ts < TTL_MS/);
+  // Normal startup/source refresh remains cache-first for the user's bounded interval.
+  assert.match(source, /DEFAULT_EPG_REFRESH_HOURS = 24/);
+  assert.match(source, /Math\.min\(48, Math\.max\(1/);
+  assert.match(source, /Date\.now\(\) - guideAgeBase < epgRefreshIntervalMs/);
   assert.match(source, /return cached/);
 });
 

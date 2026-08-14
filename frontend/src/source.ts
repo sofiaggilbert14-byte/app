@@ -42,7 +42,14 @@ export const SOURCE_M3U = (process.env.EXPO_PUBLIC_M3U_URL || "").trim();
 /** XMLTV URL — set via EXPO_PUBLIC_EPG_URL at build time. Never hardcode provider URLs. */
 export const SOURCE_EPG = (process.env.EXPO_PUBLIC_EPG_URL || "").trim();
 
-const TTL_MS = 24 * 60 * 60 * 1000; // refresh at most once a day
+const DEFAULT_EPG_REFRESH_HOURS = 24;
+const SOURCE_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
+let epgRefreshIntervalMs = DEFAULT_EPG_REFRESH_HOURS * 60 * 60 * 1000;
+
+export function setEpgRefreshIntervalHours(hours: number): void {
+  const boundedHours = Math.min(48, Math.max(1, Math.round(Number(hours) || DEFAULT_EPG_REFRESH_HOURS)));
+  epgRefreshIntervalMs = boundedHours * 60 * 60 * 1000;
+}
 // Channel metadata stays in one tiny atomic file. Programme rows live in the
 // indexed SQLite database so startup and guide-window reads never parse a
 // multi-megabyte JSON cache.
@@ -103,6 +110,13 @@ export async function loadGuideProgramsForChannelIds(
 }
 export async function refreshEpgOnly(): Promise<SourceStatus> {
   return refreshSource(true);
+}
+
+export async function refreshEpgIfDue(): Promise<boolean> {
+  const guideAgeBase = MEM?.guideRefreshedAt || MEM?.ts || 0;
+  if (!MEM?.channels?.length || (guideAgeBase > 0 && Date.now() - guideAgeBase < epgRefreshIntervalMs)) return false;
+  await refreshEpgOnly();
+  return true;
 }
 
 function sortChannelsAlphabetically(channels: Channel[]): Channel[] {
@@ -841,7 +855,7 @@ function loadEpg(channels: Channel[], force = false): Promise<void> {
     Object.keys(MEM.programs).length > 0 ||
     (MEM.epgProgramCount || 0) > 0
   );
-  if (!force && !hasPrograms && lastAttempt > 0 && Date.now() - lastAttempt < TTL_MS) {
+  if (!force && !hasPrograms && lastAttempt > 0 && Date.now() - lastAttempt < epgRefreshIntervalMs) {
     if (MEM?.epgError) setProgress({ phase: "error", ratio: 0, etaSeconds: null }, true);
     return Promise.resolve();
   }
@@ -1039,7 +1053,7 @@ async function fetchParseOnce(): Promise<Parsed> {
 }
 
 async function ensureParsed(force: boolean): Promise<Parsed> {
-  if (!force && MEM && Date.now() - MEM.ts < TTL_MS) {
+  if (!force && MEM && Date.now() - MEM.ts < SOURCE_REFRESH_INTERVAL_MS) {
     maybeLoadEpg();
     return MEM;
   }
@@ -1048,7 +1062,7 @@ async function ensureParsed(force: boolean): Promise<Parsed> {
     if (cached) {
       MEM = cached;
       maybeLoadEpg();
-      if (Date.now() - cached.ts < TTL_MS) return cached;
+      if (Date.now() - cached.ts < SOURCE_REFRESH_INTERVAL_MS) return cached;
     }
   }
   try {
@@ -1171,7 +1185,7 @@ export async function sourceDiagnostics(): Promise<SourceDiagnostics> {
     programs: programCount,
     refreshInFlight: !!fetchPromise || epgLoading,
     epgError: MEM?.epgError || lastSourceError,
-    nextAutoRefresh: MEM ? new Date(MEM.ts + TTL_MS).toISOString() : null,
+    nextAutoRefresh: MEM ? new Date(MEM.ts + epgRefreshIntervalMs).toISOString() : null,
     matchQuality: MEM?.matchQuality || emptyMatchQuality(),
     playlistRefreshedAt:
       MEM?.playlistRefreshedAt && MEM.playlistRefreshedAt > 0

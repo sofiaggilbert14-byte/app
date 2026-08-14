@@ -1021,7 +1021,10 @@ export default function PurpleGuideScreen() {
             hidePreview={hidePreview}
             muted={mutePreview}
             onToggleMute={() => setMutePreview(!mutePreview)}
-            previewId={safePreviewMode === "off" ? null : previewId}
+            // The drawer and page are mutually exclusive playback owners. This
+            // unmounts the decoder while the overlay owns focus, then lets the
+            // same preview resume only after the drawer closes.
+            previewId={safePreviewMode === "off" || drawerOpen || !isFocused ? null : previewId}
             previewStatus={previewStatus}
             previewEpoch={previewEpoch}
             onPreviewStatus={onPreviewStatus}

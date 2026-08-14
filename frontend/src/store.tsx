@@ -7,9 +7,11 @@ import {
   loadGuide,
   loadGuideProgramsForChannelIds,
   refreshEpgOnly,
+  refreshEpgIfDue,
   refreshSource,
   retainProgrammeWindowCache,
   setManualEpgRemaps,
+  setEpgRefreshIntervalHours,
   setPreferTvgIdOnlyMatching,
   setProgrammeWindowCacheLimit,
   trimProgrammeWindowCacheForMemoryPressure,
@@ -72,6 +74,7 @@ const EPG_MANUAL_REMAPS_KEY = "gs_epg_manual_remaps";
 const FAVORITE_FOLDERS_KEY = "gs_favorite_folders";
 const FAVORITE_FOLDERS_SEEDED_KEY = "gs_favorite_folders_seeded";
 const GUIDE_WINDOW_HOURS_KEY = "gs_guide_window_hours";
+const EPG_REFRESH_INTERVAL_HOURS_KEY = "gs_epg_refresh_interval_hours";
 const CLOCK_24H_KEY = "gs_clock_24h";
 const START_SCREEN_KEY = "gs_start_screen";
 const SLEEP_TIMER_MINUTES_KEY = "gs_sleep_timer_minutes";
@@ -102,6 +105,7 @@ export type SafePreviewMode = "on" | "delayed" | "surf" | "off";
 export type DeviceLayoutMode = "auto" | "tv" | "mobile";
 export type PlayerControlsTimeoutMs = 8000 | 15000 | 30000 | 60000;
 export type GuideWindowHours = 6 | 8 | 12 | 24;
+export type EpgRefreshIntervalHours = number;
 export type StartScreen = "home" | "guide" | "last_channel";
 export type SleepTimerMinutes = 0 | 15 | 30 | 60 | 90;
 export type { EpgGuideFilter, FavoriteFolder, PowerProfile };
@@ -202,6 +206,8 @@ export type Store = {
   removeFavoriteFolder: (id: string) => void;
   guideWindowHours: GuideWindowHours;
   setGuideWindowHours: (v: GuideWindowHours) => void;
+  epgRefreshIntervalHours: EpgRefreshIntervalHours;
+  setEpgRefreshIntervalHours: (v: EpgRefreshIntervalHours) => void;
   clock24h: boolean;
   setClock24h: (v: boolean) => void;
   startScreen: StartScreen;
@@ -317,6 +323,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [favoriteFolders, setFavoriteFoldersState] = useState<FavoriteFolder[]>([]);
   const [guideWindowHours, setGuideWindowHoursState] = useState<GuideWindowHours>(DEFAULT_GUIDE_WINDOW_HOURS);
   const guideWindowHoursRef = useRef<GuideWindowHours>(DEFAULT_GUIDE_WINDOW_HOURS);
+  const [epgRefreshIntervalHours, setEpgRefreshIntervalHoursState] = useState<EpgRefreshIntervalHours>(24);
   const [clock24h, setClock24hState] = useState(false);
   const [startScreen, setStartScreenState] = useState<StartScreen>("home");
   const [sleepTimerMinutes, setSleepTimerMinutesState] = useState<SleepTimerMinutes>(0);
@@ -481,6 +488,13 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     setGuideWindowHoursState(next);
     storage.setItem(GUIDE_WINDOW_HOURS_KEY, next);
     void refreshSilentRef.current(true);
+  }, []);
+
+  const updateEpgRefreshIntervalHours = useCallback((v: EpgRefreshIntervalHours) => {
+    const next = Math.min(48, Math.max(1, Math.round(Number(v) || 24)));
+    setEpgRefreshIntervalHoursState(next);
+    setEpgRefreshIntervalHours(next);
+    storage.setItem(EPG_REFRESH_INTERVAL_HOURS_KEY, next);
   }, []);
 
   const setClock24h = useCallback((v: boolean) => {
@@ -1018,6 +1032,12 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       );
       guideWindowHoursRef.current = storedGuideWindowHours;
       setGuideWindowHoursState(storedGuideWindowHours);
+      const storedEpgRefreshHours = Math.min(
+        48,
+        Math.max(1, Math.round(Number(await storage.getItem<number>(EPG_REFRESH_INTERVAL_HOURS_KEY, 24)) || 24)),
+      );
+      setEpgRefreshIntervalHoursState(storedEpgRefreshHours);
+      setEpgRefreshIntervalHours(storedEpgRefreshHours);
       const storedClock24h = (await storage.getItem<boolean>(CLOCK_24H_KEY, false)) || false;
       setClock24hState(storedClock24h);
       setTimeFormat24h(storedClock24h);
@@ -1110,10 +1130,10 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const timer = setInterval(() => {
       if (busyRef.current || isGuideSurfing()) return;
-      void refresh(true);
+      void refreshEpgIfDue().catch(() => undefined);
     }, 60 * 60 * 1000);
     return () => clearInterval(timer);
-  }, [refresh]);
+  }, []);
 
   const openProgram = useCallback((program: Program, channel: Channel) => {
     if (!program || !channel || !channel.id || !program.start || Number.isNaN(Date.parse(program.start))) {
@@ -1203,6 +1223,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       removeFavoriteFolder,
       guideWindowHours,
       setGuideWindowHours,
+      epgRefreshIntervalHours,
+      setEpgRefreshIntervalHours: updateEpgRefreshIntervalHours,
       clock24h,
       setClock24h,
       startScreen,
@@ -1279,6 +1301,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       removeFavoriteFolder,
       guideWindowHours,
       setGuideWindowHours,
+      epgRefreshIntervalHours,
+      updateEpgRefreshIntervalHours,
       clock24h,
       setClock24h,
       startScreen,

@@ -1,7 +1,21 @@
 package com.charmiptv.app
 
+import android.content.Context
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+
+internal class EpgRamRuntime private constructor(context: Context) {
+  val database = EpgDatabase(context.applicationContext)
+  val engine = EpgRamEngine(database)
+  @Volatile var warmGuideEpoch = -1L
+
+  companion object {
+    @Volatile private var instance: EpgRamRuntime? = null
+    fun get(context: Context): EpgRamRuntime = instance ?: synchronized(this) {
+      instance ?: EpgRamRuntime(context).also { instance = it }
+    }
+  }
+}
 
 /** Full retained EPG window in native RAM; SQLite remains durable fallback. */
 internal class EpgRamEngine(private val database: EpgDatabase) {
@@ -46,6 +60,32 @@ internal class EpgRamEngine(private val database: EpgDatabase) {
       }
     }
     snapshot = snapshot.copy(playlistToXmltv = matches)
+  }
+
+  /** Reuse finalized parser objects; SQLite is already durable at this point. */
+  fun replacePrograms(programs: List<NativeEpgProgram>, startMs: Long, endMs: Long): Boolean {
+    if (programs.isEmpty() || endMs <= startMs) return false
+    val buildGeneration = generation.get()
+    val runtime = Runtime.getRuntime()
+    val usedBeforeBuild = heapUsed(runtime)
+    val reserve = maxOf(48L * MIB, (runtime.maxMemory() * 0.22).toLong())
+    val hardBudget = (runtime.maxMemory() * 0.52).toLong()
+    val budget = minOf(hardBudget, maxOf(16L * MIB, runtime.maxMemory() - usedBeforeBuild - reserve))
+    val grouped = LinkedHashMap<String, MutableList<NativeEpgProgram>>()
+    var estimated = 0L
+    for (program in programs) {
+      estimated += estimateProgramBytes(program)
+      if (estimated > budget || heapPressureCritical()) return false
+      grouped.getOrPut(program.channelId) { ArrayList() }.add(program)
+    }
+    val frozen = HashMap<String, Array<NativeEpgProgram>>(grouped.size * 2)
+    for ((channel, rows) in grouped) frozen[channel] = rows.toTypedArray()
+    synchronized(this) {
+      if (generation.get() != buildGeneration) return false
+      snapshot = Snapshot(frozen, snapshot.playlistToXmltv, startMs, endMs, programs.size, estimated)
+      rebuildAllowedAtMs = 0L
+    }
+    return true
   }
 
   /**
@@ -225,6 +265,9 @@ internal class EpgRamEngine(private val database: EpgDatabase) {
 
   private fun heapUsed(runtime: Runtime) = runtime.totalMemory() - runtime.freeMemory()
   private fun estimateStringBytes(value: String?) = if (value == null) 0L else 40L + value.length.toLong() * 2L
+  private fun estimateProgramBytes(program: NativeEpgProgram) =
+    56L + estimateStringBytes(program.channelId) + estimateStringBytes(program.title) +
+      estimateStringBytes(program.description) + estimateStringBytes(program.category)
   private class RamBudgetExceeded : RuntimeException()
 
   companion object {

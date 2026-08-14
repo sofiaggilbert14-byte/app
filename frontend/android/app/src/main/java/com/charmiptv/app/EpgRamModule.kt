@@ -16,11 +16,11 @@ import java.util.concurrent.atomic.AtomicLong
 class EpgRamModule(private val reactContext: ReactApplicationContext) :
   ReactContextBaseJavaModule(reactContext) {
 
-  private val database = EpgDatabase(reactContext)
-  private val engine = EpgRamEngine(database)
+  private val runtime = EpgRamRuntime.get(reactContext)
+  private val database = runtime.database
+  private val engine = runtime.engine
   private val worker = Executors.newSingleThreadExecutor()
   private val queryPool = Executors.newFixedThreadPool(2)
-  @Volatile private var warmGuideEpoch = -1L
   private val warmQueued = AtomicBoolean(false)
   private val sqliteFallbackCount = AtomicLong(0L)
   private val guideQueryCount = AtomicLong(0L)
@@ -32,8 +32,12 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
   fun warm(startMs: Double, endMs: Double, promise: Promise) {
     worker.execute {
       try {
+        if (isWarmForCurrentEpoch()) {
+          promise.resolve(true)
+          return@execute
+        }
         val warmed = engine.rebuild(startMs.toLong(), endMs.toLong())
-        if (warmed) warmGuideEpoch = currentGuideEpoch()
+        if (warmed) runtime.warmGuideEpoch = currentGuideEpoch()
         promise.resolve(warmed)
       } catch (_: Throwable) {
         promise.resolve(false)
@@ -62,6 +66,7 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
           )
         }
         engine.replaceMatches(rows)
+        if (engine.isWarm()) runtime.warmGuideEpoch = currentGuideEpoch()
         promise.resolve(true)
       } catch (_: Throwable) {
         promise.resolve(false)
@@ -120,7 +125,7 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
   fun clearMemory(promise: Promise) {
     SharedParsedEpgSnapshot.clear()
     engine.clear()
-    warmGuideEpoch = -1L
+    runtime.warmGuideEpoch = -1L
     promise.resolve(true)
   }
 
@@ -129,7 +134,7 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
     val result = Arguments.createMap()
     for ((key, value) in engine.stats()) result.putDouble(key, value.toDouble())
     result.putBoolean("warm", engine.isWarm())
-    result.putDouble("guideEpoch", warmGuideEpoch.toDouble())
+    result.putDouble("guideEpoch", runtime.warmGuideEpoch.toDouble())
     result.putDouble("sqliteFallbackCount", sqliteFallbackCount.get().toDouble())
     result.putDouble("guideQueryCount", guideQueryCount.get().toDouble())
     result.putDouble("guideQueryDurationMs", guideQueryDurationMs.get().toDouble())
@@ -138,7 +143,7 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
 
   private fun isWarmForCurrentEpoch(): Boolean {
     val epoch = currentGuideEpoch()
-    return engine.isWarm() && warmGuideEpoch == epoch
+    return engine.isWarm() && runtime.warmGuideEpoch == epoch
   }
 
   private fun scheduleWarmForCurrentEpoch() {
@@ -146,10 +151,10 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
     worker.execute {
       try {
         val epoch = currentGuideEpoch()
-        if (engine.isWarm() && warmGuideEpoch == epoch) return@execute
+        if (engine.isWarm() && runtime.warmGuideEpoch == epoch) return@execute
         val now = System.currentTimeMillis()
         if (engine.rebuild(now - GUIDE_HISTORY_MS, now + GUIDE_WINDOW_MS)) {
-          warmGuideEpoch = epoch
+          runtime.warmGuideEpoch = epoch
         }
       } finally {
         warmQueued.set(false)
@@ -211,7 +216,6 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
     engine.clear(0L)
     worker.shutdownNow()
     queryPool.shutdownNow()
-    database.close()
     super.invalidate()
   }
 

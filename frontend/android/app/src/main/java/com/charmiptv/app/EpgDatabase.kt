@@ -750,6 +750,18 @@ internal class EpgDatabase(context: Context) :
     }
   }
 
+  /** IDs represented by the final retained LIVE collection. */
+  fun readChannelIdsWithPrograms(): LinkedHashSet<String> {
+    val result = LinkedHashSet<String>()
+    readableDatabase.rawQuery(
+      "SELECT DISTINCT channel_id FROM $LIVE_TABLE ORDER BY channel_id ASC",
+      null,
+    ).use { cursor ->
+      while (cursor.moveToNext()) result.add(cursor.getString(0))
+    }
+    return result
+  }
+
   private fun programFromCursor(
     cursor: android.database.Cursor,
     channelColumn: Int = 0,
