@@ -29,7 +29,6 @@ type Route =
   | "/channels"
   | "/movies"
   | "/series"
-  | "/catchup"
   | "/favorites"
   | "/reminders"
   | "/search"
@@ -79,7 +78,6 @@ const NAV: NavItem[] = [
   { route: "/channels", label: "Channels", icon: "list-outline" },
   { route: "/movies", label: "Movies", icon: "film-outline" },
   { route: "/series", label: "Series", icon: "albums-outline" },
-  { route: "/catchup", label: "Catch Up", icon: "time-outline" },
   { route: "/search", label: "Search", icon: "search-outline" },
   { route: "/settings", label: "Settings", icon: "settings-outline" },
 ];

@@ -115,7 +115,6 @@ test("play entry points hand off through openFullscreenPlayer", async () => {
     "app/(tabs)/favorites.tsx",
     "app/(tabs)/channels.tsx",
     "app/(tabs)/search.tsx",
-    "app/(tabs)/catchup.tsx",
     "src/components/ProgramModal.tsx",
     "src/components/PurpleChannelCollection.tsx",
     "app/_layout.tsx",

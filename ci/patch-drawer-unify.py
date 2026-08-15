@@ -30,7 +30,6 @@ replace_once(
 
 const SECONDARY_NAV: NavItem[] = [
   { route: "/series", label: "Series", icon: "albums-outline" },
-  { route: "/catchup", label: "Catch Up", icon: "time-outline" },
   { route: "/search", label: "Search", icon: "search-outline" },
   { route: "/settings", label: "Settings", icon: "settings-outline" },
 ];
@@ -44,7 +43,6 @@ const NAV = [...PRIMARY_NAV, ...SECONDARY_NAV];''',
   { route: "/channels", label: "Channels", icon: "list-outline" },
   { route: "/movies", label: "Movies", icon: "film-outline" },
   { route: "/series", label: "Series", icon: "albums-outline" },
-  { route: "/catchup", label: "Catch Up", icon: "time-outline" },
   { route: "/search", label: "Search", icon: "search-outline" },
   { route: "/settings", label: "Settings", icon: "settings-outline" },
 ];''',

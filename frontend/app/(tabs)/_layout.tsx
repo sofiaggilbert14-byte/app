@@ -15,7 +15,6 @@ export default function TabsLayout() {
       <Tabs.Screen name="channels" options={{ title: "Channels" }} />
       <Tabs.Screen name="movies" options={{ title: "Movies" }} />
       <Tabs.Screen name="series" options={{ title: "Series" }} />
-      <Tabs.Screen name="catchup" options={{ title: "Catch Up" }} />
       <Tabs.Screen name="favorites" options={{ title: "Favorites" }} />
       <Tabs.Screen name="reminders" options={{ title: "Reminders" }} />
       <Tabs.Screen name="search" options={{ title: "Search" }} />

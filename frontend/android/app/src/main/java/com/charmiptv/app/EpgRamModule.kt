@@ -166,7 +166,7 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
 
   companion object {
     // Keep RAM intentionally smaller than persisted EPG. Six hours of history
-    // supports recent-program context/catch-up while twelve hours ahead gives
+    // supports recent-program context while twelve hours ahead gives
     // the guide a generous runway. Requests outside this range fall back to
     // SQLite rather than expanding the heap snapshot.
     private const val RAM_HISTORY_MS = 6L * 60L * 60L * 1000L

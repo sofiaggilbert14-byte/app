@@ -44,3 +44,15 @@ test("settings recovery and drawer transition guard are wired", async () => {
   assert.match(shell, /openedAtRef/);
   assert.match(shell, /PURPLE_DRAWER_ANIMATION_MS \+ 70/);
 });
+
+test("retired Catch Up feature cannot return through navigation or routing", async () => {
+  const [tabs, shell, playback] = await Promise.all([
+    source("app/(tabs)/_layout.tsx"),
+    source("src/components/PurpleTvShell.tsx"),
+    source("tests/playbackSession.test.mjs"),
+  ]);
+  for (const body of [tabs, shell, playback]) {
+    assert.doesNotMatch(body, /catch[ -]?up|\/catchup/i);
+  }
+  await assert.rejects(source("app/(tabs)/catchup.tsx"), { code: "ENOENT" });
+});
