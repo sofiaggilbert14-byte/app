@@ -1,0 +1,100 @@
+name: Apply Guide Top Preview Layout
+
+on:
+  push:
+    branches:
+      - experiment/full-ram-epg-engine
+    paths:
+      - .github/workflows/apply-guide-top-layout.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: experiment/full-ram-epg-engine
+      - name: Patch Guide top preview layout and lifecycle
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          guide = Path('frontend/app/(tabs)/guide.tsx')
+          text = guide.read_text()
+
+          old_import = '''  cancelGuideFocusRestore,\n  focusGuideProgramCell,\n  focusGuideSurface,\n} from "@/src/utils/tvGuideFocusLock";'''
+          new_import = '''  cancelGuideFocusRestore,\n  focusGuidePreviewSurface,\n  focusGuideProgramCell,\n  focusGuideSurface,\n} from "@/src/utils/tvGuideFocusLock";'''
+          if old_import not in text:
+              raise SystemExit('guide focus import anchor missing')
+          text = text.replace(old_import, new_import, 1)
+
+          old_pressure = '''      setPreviewId(null);\n      setSurfLogosSuppressed(true);\n      // Drop decoded logo memory immediately, then permit near-size disk-cached'''
+          new_pressure = '''      // Moderate pressure should shed disposable image/cache work without\n      // killing a healthy settled preview. Only critical pressure releases\n      // the decoder; this avoids the live preview disappearing a few seconds\n      // after tune on memory-constrained Android TV devices.\n      if (pressure === "critical") setPreviewId(null);\n      setSurfLogosSuppressed(true);\n      // Drop decoded logo memory immediately, then permit near-size disk-cached'''
+          if old_pressure not in text:
+              raise SystemExit('memory pressure anchor missing')
+          text = text.replace(old_pressure, new_pressure, 1)
+
+          old_width = '''  const detailsRailWidth = useMemo(() => {\n    // Fixed left details panel sized for readable descriptions/actions on modern\n    // Android TV hardware. The guide owns all remaining width to the right.\n    // Twenty-five percent smaller than the original 260-360px / 24% rail.\n    return Math.round(Math.min(270, Math.max(195, screenWidth * 0.18)));\n  }, [screenWidth]);\n'''
+          new_width = '''  const guideTopPanelWidth = useMemo(\n    () => Math.max(0, screenWidth - 24),\n    [screenWidth],\n  );\n'''
+          if old_width not in text:
+              raise SystemExit('details width anchor missing')
+          text = text.replace(old_width, new_width, 1)
+
+          old_up = '''  const onGuideUpBoundary = useCallback(() => {\n    // No top group bar anymore; keep focus in the guide instead of jumping upward.\n  }, []);'''
+          new_up = '''  const onGuideUpBoundary = useCallback(() => {\n    // The preview/actions surface now lives above the Guide. Up from the top\n    // Guide row enters its preferred Play action; Down returns to the exact\n    // active Guide row through the native focus graph.\n    focusGuidePreviewSurface();\n  }, []);'''
+          if old_up not in text:
+              raise SystemExit('up boundary anchor missing')
+          text = text.replace(old_up, new_up, 1)
+
+          text = text.replace('''              width={detailsRailWidth}''', '''              width={guideTopPanelWidth}''', 1)
+          text = text.replace('''            {/* The preview/details/actions rail is a fixed left sibling. The Guide\n                owns the remaining width on the right; neither panel overlaps the other. */}''', '''            {/* Preview + six actions + description form one compact top strip.\n                The Guide owns the full width below it. */}''', 1)
+
+          old_body = '''  body: { flex: 1, minHeight: 0, flexDirection: "row", gap: 8 },'''
+          new_body = '''  body: { flex: 1, minHeight: 0, flexDirection: "column", gap: 6 },'''
+          if old_body not in text:
+              raise SystemExit('body style anchor missing')
+          text = text.replace(old_body, new_body, 1)
+          guide.write_text(text)
+
+          focus = Path('frontend/src/utils/tvGuideFocusLock.ts')
+          f = focus.read_text()
+          old_wire = '''  for (const node of guidePreviewNodes.values()) {\n    try {\n      (node as any)?.setNativeProps?.({ nextFocusRight: targetHandle });\n    } catch {}\n  }'''
+          new_wire = '''  for (const node of guidePreviewNodes.values()) {\n    try {\n      // Preview actions sit above the Guide. Preserve natural Left/Right focus\n      // between the two button columns and make Down the deterministic return\n      // path to the exact active Guide cell.\n      (node as any)?.setNativeProps?.({ nextFocusDown: targetHandle });\n    } catch {}\n  }'''
+          if old_wire not in f:
+              raise SystemExit('focus wiring anchor missing')
+          f = f.replace(old_wire, new_wire, 1)
+          f = f.replace('''/** Register every preview action so Right returns directly to the active Guide cell. */''', '''/** Register every preview action so Down returns directly to the active Guide cell. */''', 1)
+          focus.write_text(f)
+
+          rail = Path('frontend/src/components/GuidePreviewRail.tsx')
+          r = rail.read_text()
+          start_marker = '  return (\n    <View style={[styles.panel, { width }]} testID="guide-preview-rail">'
+          start = r.find(start_marker)
+          if start < 0:
+              raise SystemExit('preview return anchor missing')
+          end = r.find('\n  );\n}\n\nconst styles = StyleSheet.create({', start)
+          if end < 0:
+              raise SystemExit('preview return end missing')
+
+          jsx = '''  return (\n    <View style={[styles.panel, { width }]} testID="guide-preview-rail">\n      <View style={styles.previewColumn}>\n        {!hidePreview ? (\n          <View style={styles.preview}>\n            {previewVisible && channel?.url ? (\n              <ErrorBoundary\n                onError={onPreviewErrorRemount}\n                fallback={() => (\n                  <View style={styles.fallback}>\n                    <ChannelLogo name={channel.name} logo={channel.logo} disabled={!showLogos} size={52} />\n                    <Text style={styles.fallbackHint}>Preview unavailable</Text>\n                  </View>\n                )}\n              >\n                <StreamPlayer\n                  key={`guide-preview-${channel.id}-${previewEpoch}`}\n                  uri={channel.url}\n                  channelKey={channel.id}\n                  onStatus={onPreviewStatus}\n                  mode="preview"\n                  sessionRole="preview"\n                  muted={muted}\n                  style={StyleSheet.absoluteFill}\n                />\n              </ErrorBoundary>\n            ) : (\n              <View style={styles.fallback}>\n                {channel ? (\n                  <ChannelLogo name={channel.name} logo={channel.logo} disabled={!showLogos} size={52} />\n                ) : (\n                  <Ionicons name="tv-outline" size={34} color={tvColors.purpleSoft} />\n                )}\n                <Text style={styles.fallbackHint}>{channel ? "Tuning preview…" : "Select a channel"}</Text>\n              </View>\n            )}\n            <View style={styles.liveTag}>\n              <Text style={styles.liveTagText}>{muted ? "PREVIEW MUTED" : "LIVE PREVIEW"}</Text>\n            </View>\n            {codecChip ? (\n              <View style={styles.codecChip} pointerEvents="none">\n                <Text style={styles.codecText} numberOfLines={1}>{codecChip}</Text>\n              </View>\n            ) : null}\n          </View>\n        ) : (\n          <Pressable\n            ref={showFocus.setRef}\n            onPress={onHideToggle}\n            onFocus={showFocus.onFocus}\n            style={({ focused }: any) => [styles.hiddenPreview, focused && styles.focused]}\n            testID="guide-preview-show"\n          >\n            <Ionicons name="eye-outline" size={14} color={tvColors.purpleSoft} />\n            <Text style={styles.hiddenPreviewText}>Show preview</Text>\n          </Pressable>\n        )}\n      </View>\n\n      <View style={styles.actionGrid}>\n        <View style={styles.actionColumn}>\n          <Pressable\n            ref={playFocus.setRef}\n            disabled={!channel}\n            onPress={onPlay}\n            onFocus={playFocus.onFocus}\n            style={({ focused }: any) => [styles.watchButton, focused && styles.focused]}\n            testID="guide-preview-play"\n          >\n            <Ionicons name="play" size={12} color="#fff" />\n            <Text style={styles.watchText}>Play</Text>\n          </Pressable>\n          <Pressable\n            ref={favoriteFocus.setRef}\n            disabled={!channel}\n            onPress={onFavorite}\n            onFocus={favoriteFocus.onFocus}\n            style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}\n            testID="guide-preview-favorite"\n          >\n            <Ionicons name={isFavorite ? "heart" : "heart-outline"} size={12} color={tvColors.purpleSoft} />\n            <Text style={styles.secondaryText}>Favorite</Text>\n          </Pressable>\n          <Pressable\n            ref={remindersFocus.setRef}\n            onPress={onOpenReminders}\n            onFocus={remindersFocus.onFocus}\n            style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}\n            testID="guide-preview-remind"\n          >\n            <Ionicons name="notifications-outline" size={12} color={tvColors.purpleSoft} />\n            <Text style={styles.secondaryText}>Reminders</Text>\n          </Pressable>\n        </View>\n\n        <View style={styles.actionColumn}>\n          <Pressable\n            ref={drawerFocus.setRef}\n            onPress={onOpenDrawer}\n            onFocus={drawerFocus.onFocus}\n            style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}\n            testID="guide-preview-drawer"\n          >\n            <Ionicons name="menu-outline" size={12} color={tvColors.purpleSoft} />\n            <Text style={styles.secondaryText}>Drawer</Text>\n          </Pressable>\n          {!hidePreview ? (\n            <Pressable\n              ref={muteFocus.setRef}\n              onPress={onToggleMute}\n              onFocus={muteFocus.onFocus}\n              style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}\n              testID="guide-preview-mute"\n            >\n              <Ionicons name={muted ? "volume-mute-outline" : "volume-medium-outline"} size={12} color={tvColors.purpleSoft} />\n              <Text style={styles.secondaryText}>{muted ? "Unmute" : "Mute"}</Text>\n            </Pressable>\n          ) : (\n            <View style={styles.actionPlaceholder} />\n          )}\n          <Pressable\n            ref={hideFocus.setRef}\n            onPress={onHideToggle}\n            onFocus={hideFocus.onFocus}\n            style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}\n            testID="guide-preview-hide"\n          >\n            <Ionicons name={hidePreview ? "eye-outline" : "eye-off-outline"} size={12} color={tvColors.purpleSoft} />\n            <Text style={styles.secondaryText}>{hidePreview ? "Show" : "Hide"}</Text>\n          </Pressable>\n        </View>\n      </View>\n\n      <View style={styles.copy}>\n        <Text numberOfLines={1} style={styles.channelName}>\n          {channel\n            ? `${showChannelNumbers && channelNumber ? `${channelNumber}  ` : ""}${channel.name}`\n            : "Select a channel"}\n        </Text>\n        <Text numberOfLines={2} style={styles.programTitle}>\n          {current?.title || "No program information"}\n        </Text>\n        <View style={styles.nowNextRow}>\n          <Text numberOfLines={1} style={styles.timeText}>\n            {current\n              ? `${fmtTime(current.start)}${current.stop ? ` – ${fmtTime(current.stop)}` : ""}`\n              : "Guide information will appear here"}\n          </Text>\n          {endsIn != null ? <Text style={styles.endsIn}>{endsIn}m left</Text> : null}\n        </View>\n        <View style={styles.progressTrack}>\n          <View style={[styles.progressFill, { width: `${progress}%` }]} />\n        </View>\n        {next?.title ? (\n          <Text numberOfLines={1} style={styles.nextTitle}>\n            Next · {next.title}\n          </Text>\n        ) : null}\n        <Text style={styles.descLabel}>ABOUT</Text>\n        <Text accessibilityRole="text" accessibilityLabel={about} style={styles.description} numberOfLines={5}>\n          {about}\n        </Text>\n      </View>\n    </View>'''
+          r = r[:start] + jsx + r[end:]
+
+          style_start = r.find('const styles = StyleSheet.create({')
+          if style_start < 0:
+              raise SystemExit('styles anchor missing')
+          styles = '''const styles = StyleSheet.create({\n  panel: {\n    height: 174,\n    flexShrink: 0,\n    flexDirection: "row",\n    alignItems: "stretch",\n    backgroundColor: tvColors.panel,\n    borderRadius: radius.sm,\n    borderWidth: 1,\n    borderColor: tvColors.line,\n    overflow: "hidden",\n  },\n  previewColumn: {\n    width: 292,\n    flexShrink: 0,\n    padding: 7,\n    justifyContent: "center",\n    borderRightWidth: 1,\n    borderRightColor: tvColors.line,\n  },\n  preview: {\n    width: "100%",\n    aspectRatio: 16 / 9,\n    maxHeight: 158,\n    flexShrink: 0,\n    backgroundColor: "#05050B",\n    overflow: "hidden",\n    borderRadius: 5,\n  },\n  fallback: {\n    flex: 1,\n    alignItems: "center",\n    justifyContent: "center",\n    backgroundColor: tvColors.purpleDeep,\n    gap: 8,\n    paddingHorizontal: 8,\n  },\n  fallbackHint: { color: tvColors.textMuted, fontFamily: fonts.regular, fontSize: 9, textAlign: "center" },\n  liveTag: {\n    position: "absolute",\n    left: 6,\n    bottom: 6,\n    backgroundColor: "rgba(124,58,237,0.92)",\n    borderRadius: 4,\n    paddingHorizontal: 5,\n    paddingVertical: 2,\n  },\n  liveTagText: { color: "#fff", fontFamily: fonts.bold, fontSize: 6 },\n  codecChip: {\n    position: "absolute",\n    right: 6,\n    top: 6,\n    maxWidth: "70%",\n    backgroundColor: "rgba(0,0,0,0.72)",\n    borderRadius: 4,\n    paddingHorizontal: 5,\n    paddingVertical: 2,\n  },\n  codecText: { color: "#fff", fontFamily: fonts.medium, fontSize: 7 },\n  hiddenPreview: {\n    flex: 1,\n    minHeight: 80,\n    flexDirection: "row",\n    alignItems: "center",\n    justifyContent: "center",\n    gap: 6,\n    borderWidth: 2,\n    borderColor: "transparent",\n    borderRadius: 5,\n  },\n  hiddenPreviewText: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 9 },\n  actionGrid: {\n    width: 230,\n    flexShrink: 0,\n    flexDirection: "row",\n    gap: 6,\n    padding: 7,\n    borderRightWidth: 1,\n    borderRightColor: tvColors.line,\n  },\n  actionColumn: { flex: 1, minWidth: 0, gap: 6 },\n  actionPlaceholder: { flex: 1, minHeight: 0 },\n  copy: { flex: 1, minWidth: 0, paddingHorizontal: 12, paddingVertical: 9 },\n  channelName: { color: tvColors.purpleSoft, fontFamily: fonts.semibold, fontSize: 10 },\n  programTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 17, lineHeight: 21, marginTop: 3 },\n  nowNextRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 },\n  timeText: { flex: 1, minWidth: 0, color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 9 },\n  endsIn: { color: tvColors.purpleSoft, fontFamily: fonts.semibold, fontSize: 9 },\n  progressTrack: {\n    height: 4,\n    backgroundColor: "rgba(255,255,255,0.12)",\n    borderRadius: 2,\n    overflow: "hidden",\n    marginTop: 7,\n  },\n  progressFill: { height: 4, backgroundColor: tvColors.purpleBright },\n  nextTitle: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 9, marginTop: 5 },\n  descLabel: {\n    color: tvColors.purpleSoft,\n    fontFamily: fonts.semibold,\n    fontSize: 7.5,\n    letterSpacing: 0.7,\n    marginTop: 7,\n    marginBottom: 3,\n  },\n  description: { color: "rgba(255,255,255,0.86)", fontFamily: fonts.regular, fontSize: 9.5, lineHeight: 13 },\n  watchButton: {\n    flex: 1,\n    minWidth: 0,\n    minHeight: 0,\n    flexDirection: "row",\n    alignItems: "center",\n    justifyContent: "center",\n    gap: 4,\n    backgroundColor: tvColors.purple,\n    borderRadius: 5,\n    borderWidth: 2,\n    borderColor: "transparent",\n    paddingHorizontal: 4,\n  },\n  watchText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 8.5 },\n  secondaryButton: {\n    flex: 1,\n    minWidth: 0,\n    minHeight: 0,\n    flexDirection: "row",\n    alignItems: "center",\n    justifyContent: "center",\n    gap: 4,\n    backgroundColor: tvColors.panelRaised,\n    borderRadius: 5,\n    borderWidth: 2,\n    borderColor: "transparent",\n    paddingHorizontal: 3,\n  },\n  secondaryText: { color: "#fff", fontFamily: fonts.medium, fontSize: 8 },\n  focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },\n});\n'''
+          r = r[:style_start] + styles
+          rail.write_text(r)
+          PY
+
+          rm .github/workflows/apply-guide-top-layout.yml
+          git config user.name "CharmIPTV Build Bot"
+          git config user.email "actions@github.com"
+          git add frontend/app/'(tabs)'/guide.tsx frontend/src/components/GuidePreviewRail.tsx frontend/src/utils/tvGuideFocusLock.ts .github/workflows/apply-guide-top-layout.yml
+          git diff --cached --check
+          git commit -m "feat(guide): move preview controls above grid"
+          git push origin HEAD:experiment/full-ram-epg-engine
