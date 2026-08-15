@@ -211,19 +211,21 @@ test("Cloudflare builder and worker bound provider data and hide internal failur
   assert.doesNotMatch(worker, /allowed\.includes\("\*"\)/);
 });
 
-test("playlist ingest keeps last-good and enforces protocol/size guards", async () => {
+test("playlist ingest keeps last-good and streams Android M3U parsing natively", async () => {
   const [parsing, native, web] = await Promise.all([
     source("src/core/sourceParsing.ts"),
     source("src/source.native.ts"),
     source("src/source.ts"),
   ]);
+  // Shared/web parser remains bounded for non-Android use.
   assert.match(parsing, /MAX_PLAYLIST_BYTES/);
   assert.match(parsing, /MAX_PLAYLIST_CHANNELS/);
   assert.match(parsing, /isAllowedPlaylistUrl/);
   assert.match(parsing, /allocateChannelId/);
   assert.match(parsing, /parseM3UWithStats/);
-  assert.match(native, /parseM3UWithStats/);
-  assert.match(native, /enforcePlaylistTextLimit/);
+  // Android must not materialize the full M3U in JS; Kotlin streams it line by line.
+  assert.match(native, /fetchNativePlaylist/);
+  assert.doesNotMatch(native, /parseM3UWithStats|enforcePlaylistTextLimit/);
   assert.match(native, /Playlist contained no playable channels/);
   assert.match(native, /EMPTY_PROGRAMS/);
   assert.match(native, /matchQuality/);
