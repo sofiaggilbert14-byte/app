@@ -1014,7 +1014,7 @@ export async function refreshEpgOnly(): Promise<SourceStatus> {
           cached.channels;
         quality = cached.matchQuality || emptyMatchQuality();
       } else {
-        const applied = await matchChannelsWithPhases(cached.channels, indexes, epgLogos, getLogoPriority(), async (partial, partialQuality) => {
+        const applied = await matchChannelsWithPhases(cached.channels, indexes, epgLogos, await getLogoPriority(), async (partial, partialQuality) => {
           MEM = {
             ...cached,
             ...MEM,
