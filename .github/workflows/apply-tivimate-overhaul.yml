@@ -1,0 +1,66 @@
+name: Apply TiViMate Overhaul Patches
+
+on:
+  push:
+    branches:
+      - agent/tivimate-architecture-overhaul
+    paths:
+      - ci/apply-tivimate-overhaul.txt
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: agent/tivimate-architecture-overhaul
+          fetch-depth: 0
+      - name: Apply bounded architecture edits
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_exact(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f"Expected pattern not found in {path}: {old!r}")
+              p.write_text(text.replace(old, new))
+
+          # Persist a broad guide horizon on disk without widening individual UI queries.
+          replace_exact(
+              "frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt",
+              "private const val GUIDE_WINDOW_MS = 24L * 60L * 60L * 1000L",
+              "private const val GUIDE_WINDOW_MS = 72L * 60L * 60L * 1000L",
+          )
+
+          # Make the Settings wording match the actual player policy.
+          replace_exact(
+              "frontend/app/(tabs)/settings.tsx",
+              '{ label: "App Default", value: "default" },',
+              '{ label: "Expo / Media3 (Default)", value: "default" },',
+          )
+          replace_exact(
+              "frontend/app/(tabs)/settings.tsx",
+              '{ label: "Media3", value: "media3" },',
+              '{ label: "Expo / Media3 only", value: "media3" },',
+          )
+
+          # Keep the visible guide preference conservative even though SQLite retains 72h.
+          # The store already exposes bounded GuideWindowHours; do not couple it to retention.
+
+      - name: Commit patch results
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No patch changes needed"
+            exit 0
+          fi
+          git config user.name "Charm Architecture Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt frontend/app/'(tabs)'/settings.tsx
+          git commit -m "refactor(epg): retain 72h on disk and align player labels"
+          git push origin HEAD:agent/tivimate-architecture-overhaul
