@@ -18,8 +18,8 @@ jobs:
         with:
           ref: agent/tivimate-architecture-overhaul
           fetch-depth: 0
-      - name: Apply player OSD overflow/state cleanup
-        run: python ci/patch-player-osd-overflow.py
+      - name: Apply overhaul blocker cleanup
+        run: python ci/patch-overhaul-typecheck-blockers.py
       - name: Commit patch results
         shell: bash
         run: |
@@ -29,7 +29,9 @@ jobs:
           fi
           git config user.name "Charm Architecture Bot"
           git config user.email "actions@users.noreply.github.com"
-          git add frontend/app/player.tsx \
-                  frontend/scripts/verify-overhaul-architecture.mjs
-          git commit -m "feat(player): simplify live OSD and overflow actions"
+          git add frontend/app/'(tabs)'/guide.tsx \
+                  frontend/app/'(tabs)'/settings.tsx \
+                  frontend/app/player.tsx \
+                  frontend/src/source.native.ts
+          git commit -m "fix(overhaul): clear validation blockers"
           git push origin HEAD:agent/tivimate-architecture-overhaul
