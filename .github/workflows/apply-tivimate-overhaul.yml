@@ -18,8 +18,6 @@ jobs:
         with:
           ref: agent/tivimate-architecture-overhaul
           fetch-depth: 0
-      - name: Apply overhaul blocker cleanup
-        run: python ci/patch-overhaul-typecheck-blockers.py
       - name: Fix async logo priority call
         run: python ci/patch-await-logo-priority.py
       - name: Commit patch results
@@ -31,9 +29,6 @@ jobs:
           fi
           git config user.name "Charm Architecture Bot"
           git config user.email "actions@users.noreply.github.com"
-          git add frontend/app/'(tabs)'/guide.tsx \
-                  frontend/app/'(tabs)'/settings.tsx \
-                  frontend/app/player.tsx \
-                  frontend/src/source.native.ts
-          git commit -m "fix(overhaul): clear validation blockers"
+          git add frontend/src/source.native.ts
+          git commit -m "fix(epg): await logo priority during refresh"
           git push origin HEAD:agent/tivimate-architecture-overhaul
