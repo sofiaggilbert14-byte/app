@@ -1,1 +1,1 @@
-apply=native-streaming-playlist-2026-08-15
+apply=logo-pipeline-2026-08-15
