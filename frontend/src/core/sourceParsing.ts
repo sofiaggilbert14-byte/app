@@ -24,6 +24,82 @@ export type ParseM3UStats = {
   truncated: boolean;
 };
 
+type RawPlaylistEntry = {
+  tvgId: string;
+  name: string;
+  group: string;
+  logo: string;
+  url: string;
+};
+
+function parseExtinf(line: string): { attrs: Record<string, string>; name: string } {
+  const attrs: Record<string, string> = {};
+  EXTINF_ATTR.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = EXTINF_ATTR.exec(line))) attrs[match[1]] = match[2];
+  const name = line.includes(",")
+    ? line.slice(line.lastIndexOf(",") + 1).trim()
+    : attrs["tvg-name"] || "Channel";
+  return { attrs, name };
+}
+
+function buildChannelsFromEntries(
+  entries: RawPlaylistEntry[],
+  rejected: number,
+): ParseM3UStats {
+  const tvgCounts = new Map<string, number>();
+  for (const entry of entries) {
+    if (!entry.tvgId) continue;
+    tvgCounts.set(entry.tvgId, (tvgCounts.get(entry.tvgId) || 0) + 1);
+  }
+
+  const channels: Channel[] = [];
+  const used = new Set<string>();
+  let truncated = false;
+
+  for (const entry of entries) {
+    if (channels.length >= MAX_PLAYLIST_CHANNELS) {
+      truncated = true;
+      break;
+    }
+    const uniqueTvg = !!entry.tvgId && (tvgCounts.get(entry.tvgId) || 0) === 1;
+    const fp = fingerprintKey(streamIdentityUrl(entry.url));
+    const slug = slugify(`${entry.name} ${entry.group}`.trim()) || slugify(entry.name) || `ch-${fp}`;
+    let preferred = uniqueTvg
+      ? entry.tvgId
+      : entry.tvgId
+        ? `${entry.tvgId}~${fp}`
+        : slug;
+    preferred = clipId(preferred.trim() || `ch-${fp}`);
+
+    let id = preferred;
+    if (used.has(id)) {
+      id = allocateChannelId({
+        tvgId: "",
+        name: entry.name,
+        group: entry.group,
+        url: entry.url,
+        used,
+      });
+    } else {
+      used.add(id);
+    }
+
+    channels.push({
+      id,
+      raw_tvg_id: entry.tvgId,
+      tvg_id: entry.tvgId,
+      name: entry.name,
+      logo: entry.logo,
+      group: entry.group,
+      url: entry.url,
+      stream_type: streamType(entry.url),
+    });
+  }
+
+  return { channels, rejected, truncated };
+}
+
 export function streamType(url: string): string {
   const clean = url.toLowerCase().split("?")[0].split("|")[0];
   if (clean.endsWith(".m3u8")) return "hls";
@@ -118,14 +194,7 @@ export function parseM3UWithStats(
   onProgress?: (ratio: number) => void,
 ): ParseM3UStats {
   enforcePlaylistTextLimit(text);
-  type RawEntry = {
-    tvgId: string;
-    name: string;
-    group: string;
-    logo: string;
-    url: string;
-  };
-  const entries: RawEntry[] = [];
+  const entries: RawPlaylistEntry[] = [];
   let rejected = 0;
 
   // Walk lines without allocating a full string[] (large playlists on Fire TV).
@@ -152,13 +221,7 @@ export function parseM3UWithStats(
 
     if (line.startsWith("#EXTINF")) {
       if (pending) rejected += 1;
-      const attrs: Record<string, string> = {};
-      EXTINF_ATTR.lastIndex = 0;
-      let match: RegExpExecArray | null;
-      while ((match = EXTINF_ATTR.exec(line))) attrs[match[1]] = match[2];
-      const name = line.includes(",")
-        ? line.slice(line.lastIndexOf(",") + 1).trim()
-        : attrs["tvg-name"] || "Channel";
+      const { attrs, name } = parseExtinf(line);
       pending = { line, attrs, name };
       continue;
     }
@@ -184,58 +247,48 @@ export function parseM3UWithStats(
   }
   if (pending) rejected += 1;
   onProgress?.(1);
+  return buildChannelsFromEntries(entries, rejected);
+}
 
-  const tvgCounts = new Map<string, number>();
-  for (const entry of entries) {
-    if (!entry.tvgId) continue;
-    tvgCounts.set(entry.tvgId, (tvgCounts.get(entry.tvgId) || 0) + 1);
-  }
+/**
+ * File-friendly M3U parser. The caller supplies decoded lines from a bounded
+ * local file, so the complete playlist text is never duplicated in JS memory.
+ * Channel identity and validation intentionally share the same finalizer as
+ * the string parser used by web/tests.
+ */
+export async function parseM3ULinesWithStats(
+  lines: AsyncIterable<string>,
+  normalizeLogo: (url: string) => string = (url) => url,
+): Promise<ParseM3UStats> {
+  const entries: RawPlaylistEntry[] = [];
+  let rejected = 0;
+  let pending: { attrs: Record<string, string>; name: string } | null = null;
 
-  const channels: Channel[] = [];
-  const used = new Set<string>();
-  let truncated = false;
-
-  for (const entry of entries) {
-    if (channels.length >= MAX_PLAYLIST_CHANNELS) {
-      truncated = true;
-      break;
+  for await (const rawLine of lines) {
+    const line = rawLine.replace(/^\uFEFF/, "").trim();
+    if (line.startsWith("#EXTINF")) {
+      if (pending) rejected += 1;
+      pending = parseExtinf(line);
+      continue;
     }
-    const uniqueTvg = !!entry.tvgId && (tvgCounts.get(entry.tvgId) || 0) === 1;
-    const fp = fingerprintKey(streamIdentityUrl(entry.url));
-    const slug = slugify(`${entry.name} ${entry.group}`.trim()) || slugify(entry.name) || `ch-${fp}`;
-    let preferred = uniqueTvg
-      ? entry.tvgId
-      : entry.tvgId
-        ? `${entry.tvgId}~${fp}`
-        : slug;
-    preferred = clipId(preferred.trim() || `ch-${fp}`);
+    if (!pending || !line || line.startsWith("#")) continue;
 
-    let id = preferred;
-    if (used.has(id)) {
-      id = allocateChannelId({
-        tvgId: "",
-        name: entry.name,
-        group: entry.group,
-        url: entry.url,
-        used,
-      });
-    } else {
-      used.add(id);
+    const { attrs, name } = pending;
+    pending = null;
+    if (!isAllowedPlaylistUrl(line)) {
+      rejected += 1;
+      continue;
     }
-
-    channels.push({
-      id,
-      raw_tvg_id: entry.tvgId,
-      tvg_id: entry.tvgId,
-      name: entry.name,
-      logo: entry.logo,
-      group: entry.group,
-      url: entry.url,
-      stream_type: streamType(entry.url),
+    entries.push({
+      tvgId: (attrs["tvg-id"] || "").trim(),
+      name,
+      group: (attrs["group-title"] || "").trim(),
+      logo: normalizeLogo((attrs["tvg-logo"] || "").trim()),
+      url: line,
     });
   }
-
-  return { channels, rejected, truncated };
+  if (pending) rejected += 1;
+  return buildChannelsFromEntries(entries, rejected);
 }
 
 export function parseM3U(text: string, normalizeLogo: (url: string) => string = (url) => url): Channel[] {

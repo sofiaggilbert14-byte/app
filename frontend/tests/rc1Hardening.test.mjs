@@ -222,8 +222,10 @@ test("playlist ingest keeps last-good and enforces protocol/size guards", async 
   assert.match(parsing, /isAllowedPlaylistUrl/);
   assert.match(parsing, /allocateChannelId/);
   assert.match(parsing, /parseM3UWithStats/);
-  assert.match(native, /parseM3UWithStats/);
-  assert.match(native, /enforcePlaylistTextLimit/);
+  assert.match(native, /parseM3ULinesWithStats/);
+  assert.match(native, /enforcePlaylistByteLimit/);
+  assert.match(native, /File\.downloadFileAsync/);
+  assert.match(native, /readLocalPlaylistLines/);
   assert.match(native, /Playlist contained no playable channels/);
   assert.match(native, /EMPTY_PROGRAMS/);
   assert.match(native, /matchQuality/);

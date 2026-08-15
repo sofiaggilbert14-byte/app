@@ -69,7 +69,7 @@ test("preview default, ONN page keys, and cold-row focus anchor are hardened", a
   assert.match(epgNative, /avoids retaining one extra NativeEpgProgram per channel/);
   assert.doesNotMatch(epgNative, /maybeIncrementalVacuum\(MIN_VACUUM_DELETED_ROWS, deleted\)\s+rebuildCurrentCache\(now\)/);
   assert.match(timeline, /verticalFocusAnchorRef/);
-  assert.match(timeline, /current\.key === "pending"/);
+  assert.match(timeline, /verticalFocusAnchorRef\.current \?\?/);
   assert.match(timeline, /prepared\.left \+ prepared\.width \/ 2/);
   assert.match(timeline, /const movedVertically = gridOwnsFocusRef\.current && rowIndex !== focusedRowRef\.current/);
   assert.match(timeline, /if \(!movedVertically\) keepProgramVisible/);

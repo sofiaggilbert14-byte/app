@@ -74,10 +74,13 @@ test("native focus graph avoids dead tap events and wires every preview action",
   assert.match(timeline, /buildVisibleGuideCellSlice/);
   assert.match(timeline, /tvFocusable=\{near \|\| keepFocused\}/);
   assert.doesNotMatch(timeline, /pageJumpDetectorRef|subscribeVerticalDpadTaps/);
-  assert.match(timeline, /styles\.rowPanTrack/);
-  assert.match(timeline, /width: logoWidth \+ timelineWidth/);
-  assert.match(timeline, /showChannelLogos && channelRailVisible/);
-  assert.match(timeline, /const timelineOffset = Math\.max\(0, next - LOGO_W\)/);
+  assert.match(timeline, /styles\.logoCol/);
+  assert.match(timeline, /styles\.timelineClip/);
+  assert.doesNotMatch(timeline, /width: logoWidth \+ timelineWidth/);
+  assert.match(timeline, /showChannelLogos=\{showChannelLogos\}/);
+  assert.match(timeline, /Math\.floor\(next \/ PAN_BUCKET_PX\)/);
+  assert.match(timeline, /style=\{\[styles\.nowOverlay, \{ left: LOGO_W \}\]\}/);
+  assert.match(timeline, /Channel identity is pinned; only programme cells/);
   assert.match(shell, /sidebarOverlay/);
   assert.match(shell, /pointerEvents=\{drawerOpen \? "auto" : "none"\}/);
   // Shell never reaches behind the drawer to claim Guide focus.
@@ -132,6 +135,8 @@ test("Guide focus stays continuous in every direction and restores modal origin"
   assert.match(timeline, /commitViewport\(\)/);
   assert.match(timeline, /pendingViewportRef/);
   assert.match(focusLock, /registerGuideProgramNode/);
+  assert.match(focusLock, /firstGuideProgramNode\(preferredId\)/);
+  assert.match(focusLock, /activeGuideFocusNode === removed/);
   assert.match(focusLock, /focusGuideProgramCell/);
   assert.match(guide, /modalOriginRef/);
   assert.match(guide, /focusGuideProgramCell\(origin\.channelId, origin\.programStart\)/);
@@ -186,7 +191,9 @@ test("held Guide navigation uses bounded native cadence without a cross-thread p
   assert.match(module, /coerceIn\(60L, 120L\)/);
   assert.doesNotMatch(remote, /guideFocusSyncEnabled|acknowledgeGuideFocusAfterPaint/);
   assert.doesNotMatch(timeline, /acknowledgeGuideFocusAfterPaint|setGuideFocusSyncActive/);
-  assert.match(timeline, /verticalTargetOrSelf/);
+  assert.match(timeline, /requestVerticalProgramFocus/);
+  assert.match(timeline, /props\.nextFocusDown = selfHandle/);
+  assert.match(timeline, /cancelGuideFocusRestore\(\)/);
   assert.match(timeline, /scheduleFocusedCandidateRewire/);
   assert.doesNotMatch(box, /acknowledgeGuideFocusAfterPaint|setGuideFocusSyncActive/);
   assert.match(guide, /setGuideRepeatInterval\(powerTuning\.guideRepeatIntervalMs\)/);

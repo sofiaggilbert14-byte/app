@@ -24,6 +24,7 @@ import {
   applyLeftFocusLock,
   armGuideBottomFocusLock,
   armGuideLeftFocusLock,
+  cancelGuideFocusRestore,
   focusGuideSurfaceWhenMounted,
   noteGuideProgramFocus,
   registerGuideProgramNode,
@@ -114,7 +115,7 @@ type TimelineRowProps = {
   windowStartMs: number;
   windowEndMs: number;
   pxPerMinute: number;
-  /** Negated horizontal pan shared by channel identity and programme cells. */
+  /** Negated horizontal pan applied only to the programme timeline. */
   negScrollX: Animated.AnimatedMultiplication<number> | Animated.AnimatedInterpolation<number>;
   /** Coarse pan bucket (px) — limits which program cells are TV-focusable without per-frame re-renders. */
   panBucket: number;
@@ -128,7 +129,6 @@ type TimelineRowProps = {
   onChannelLongPress?: (channel: Channel) => void;
   onProgramPress: (program: Program, channel: Channel) => void;
   onProgramFocus: (program: PreparedProgram, channel: Channel, rowIndex: number) => void;
-  onRowChannelFocus: (channel: Channel, rowIndex: number, logoNode?: unknown) => void;
   onRowPendingFocus: (channel: Channel, rowIndex: number, node?: unknown) => void;
   onFocusNode?: (node: unknown) => void;
   registerFocusCandidate: (rowIndex: number, candidate: FocusCandidate | null, key: string) => void;
@@ -480,18 +480,7 @@ const TimelineRow = memo(function TimelineRow({
 
   return (
     <View style={[styles.row, { height: rowHeight }]}>
-      <View style={styles.rowViewport}>
-        <Animated.View
-          style={[
-            styles.rowPanTrack,
-            {
-              width: logoWidth + timelineWidth,
-              height: rowHeight,
-              transform: [{ translateX: negScrollX }],
-            },
-          ]}
-        >
-          <View style={[styles.logoCol, { width: logoWidth, height: rowHeight }]}>
+      <View style={[styles.logoCol, { width: logoWidth, height: rowHeight }]}>
             <Pressable
               ref={setLogoRef}
               style={({ focused }: any) => [
@@ -517,9 +506,18 @@ const TimelineRow = memo(function TimelineRow({
                 {item.name}
               </Text>
             </Pressable>
-          </View>
-
-          <View style={[styles.timelineTrack, { width: timelineWidth, height: rowHeight }]}>
+      </View>
+      <View style={styles.timelineClip}>
+        <Animated.View
+          style={[
+            styles.timelineTrack,
+            {
+              width: timelineWidth,
+              height: rowHeight,
+              transform: [{ translateX: negScrollX }],
+            },
+          ]}
+        >
             {renderedPrograms.map(({ item: prepared, sourceIndex: programIndex }) => {
               const near = programNearViewport(prepared, panBucket, programViewportW);
               const isPreferred = prepared.key === preferred?.key;
@@ -556,7 +554,6 @@ const TimelineRow = memo(function TimelineRow({
                 </Text> : null}
               </Pressable>
             )}
-          </View>
         </Animated.View>
       </View>
     </View>
@@ -649,9 +646,6 @@ export const TimelineGrid = memo(function TimelineGrid({
   channelsRef.current = channels;
   // Coarse pan bucket only — avoids re-rendering every row on each pixel of horizontal pan.
   const [panBucket, setPanBucket] = useState(0);
-  // Once the shared rail is fully off-screen, stop mounting decoded logos until
-  // navigation returns to the channel edge.
-  const [channelRailVisible, setChannelRailVisible] = useState(true);
   // Preferred focus is mount-once only. Group changes must NOT reclaim it (steals chip focus).
   const hasClaimedFocusRef = useRef(false);
   const [preferFirstRow, setPreferFirstRow] = useState(() => !hasClaimedFocusRef.current);
@@ -678,6 +672,9 @@ export const TimelineGrid = memo(function TimelineGrid({
   const verticalFocusAnchorRef = useRef<number | null>(null);
   const focusCandidatesByRowRef = useRef(new Map<number, Map<string, FocusCandidate>>());
   const focusedCandidateRef = useRef<{ rowIndex: number; key: string } | null>(null);
+  const requestedVerticalRowRef = useRef<number | null>(null);
+  const verticalMoveGenerationRef = useRef(0);
+  const verticalFocusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const focusRewireFrameRef = useRef<number | null>(null);
   const wireFocusCandidateRef = useRef<(rowIndex: number, key: string, node: unknown) => void>(() => {});
   const viewportDispatchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -741,38 +738,7 @@ export const TimelineGrid = memo(function TimelineGrid({
       .filter((candidate) => !!findNodeHandle(candidate.node))
       .sort((a, b) => a.left - b.left);
     const currentIndex = candidates.findIndex((candidate) => candidate.key === key);
-    const geometricCenter = current.left + current.width / 2;
-    const center = current.key === "pending" && verticalFocusAnchorRef.current != null
-      ? verticalFocusAnchorRef.current
-      : geometricCenter;
     const selfHandle = findNodeHandle(node as any) || -1;
-    const nearestVertical = (targetRowIndex: number): number => {
-      const targetRow = focusCandidatesByRowRef.current.get(targetRowIndex);
-      if (!targetRow?.size) return -1;
-      const pool = Array.from(targetRow.values()).filter((candidate) => {
-        if (!findNodeHandle(candidate.node)) return false;
-        return current.kind === "channel" ? candidate.kind === "channel" : candidate.kind === "program";
-      });
-      const fallback = pool.length ? pool : Array.from(targetRow.values());
-      let best: FocusCandidate | null = null;
-      let bestScore = Number.POSITIVE_INFINITY;
-      for (const candidate of fallback) {
-        const handle = findNodeHandle(candidate.node);
-        if (!handle) continue;
-        const candidateCenter = candidate.left + candidate.width / 2;
-        const overlaps = candidate.left <= center && candidate.left + candidate.width >= center;
-        const score = Math.abs(candidateCenter - center) + (overlaps ? -10_000 : 0);
-        if (score < bestScore) {
-          best = candidate;
-          bestScore = score;
-        }
-      }
-      return best ? findNodeHandle(best.node) || -1 : -1;
-    };
-    const verticalTargetOrSelf = (targetRowIndex: number) => {
-      const target = nearestVertical(targetRowIndex);
-      return target > 0 ? target : selfHandle;
-    };
     const props: Record<string, number> = {};
     if (current.kind === "program") {
       props.nextFocusLeft = currentIndex > 0
@@ -785,11 +751,13 @@ export const TimelineGrid = memo(function TimelineGrid({
       const firstProgram = candidates.find((candidate) => candidate.kind === "program");
       if (firstProgram) props.nextFocusRight = findNodeHandle(firstProgram.node) || -1;
     }
+    // Lock native vertical search to this exact cell. JS advances the logical
+    // row, scrolls it into the FlashList runway, then focuses a freshly mounted
+    // candidate at the same time anchor. This prevents held repeats from
+    // following stale native handles after row recycling.
     if (rowIndex === 0) wireGuideTopBoundary(node);
-    else props.nextFocusUp = verticalTargetOrSelf(rowIndex - 1);
-    props.nextFocusDown = rowIndex >= channelsRef.current.length - 1
-      ? selfHandle
-      : verticalTargetOrSelf(rowIndex + 1);
+    else props.nextFocusUp = selfHandle;
+    props.nextFocusDown = selfHandle;
     try {
       (node as any)?.setNativeProps?.(props);
     } catch {}
@@ -816,6 +784,70 @@ export const TimelineGrid = memo(function TimelineGrid({
       listRef.current?.scrollToOffset({ offset: target, animated: false });
     } catch {}
   }, [ROW_H]);
+
+  const requestVerticalProgramFocus = useCallback((direction: -1 | 1) => {
+    const rows = channelsRef.current;
+    if (!rows.length) return;
+    const baseRow = requestedVerticalRowRef.current ?? focusedRowRef.current;
+    const targetRow = Math.max(0, Math.min(rows.length - 1, baseRow + direction));
+    if (targetRow === baseRow) return;
+    // A previous mount fallback must not reclaim an older row after another
+    // held repeat advances the logical target.
+    cancelGuideFocusRestore();
+
+    const focused = focusedCandidateRef.current;
+    const focusedCandidate = focused
+      ? focusCandidatesByRowRef.current.get(focused.rowIndex)?.get(focused.key)
+      : null;
+    if (verticalFocusAnchorRef.current == null && focusedCandidate) {
+      const viewportLeft = scrollXRef.current + 18;
+      const viewportRight = scrollXRef.current + Math.max(36, programViewportW) - 18;
+      const center = focusedCandidate.left + focusedCandidate.width / 2;
+      verticalFocusAnchorRef.current = Math.max(viewportLeft, Math.min(viewportRight, center));
+    }
+
+    requestedVerticalRowRef.current = targetRow;
+    const generation = ++verticalMoveGenerationRef.current;
+    if (verticalFocusTimerRef.current) {
+      clearTimeout(verticalFocusTimerRef.current);
+      verticalFocusTimerRef.current = null;
+    }
+    keepFocusedRowVisible(targetRow);
+
+    const delays = [0, 16, 36, 72, 120, 180, 260];
+    const tryFocus = (attempt: number) => {
+      verticalFocusTimerRef.current = null;
+      if (
+        generation !== verticalMoveGenerationRef.current ||
+        requestedVerticalRowRef.current !== targetRow
+      ) return;
+      const rowCandidates = Array.from(focusCandidatesByRowRef.current.get(targetRow)?.values() || [])
+        .filter((candidate) => candidate.kind === "program" && !!findNodeHandle(candidate.node));
+      const anchor = verticalFocusAnchorRef.current ?? scrollXRef.current + programViewportW / 2;
+      let best: FocusCandidate | null = null;
+      let bestScore = Number.POSITIVE_INFINITY;
+      for (const candidate of rowCandidates) {
+        const center = candidate.left + candidate.width / 2;
+        const overlaps = candidate.left <= anchor && candidate.left + candidate.width >= anchor;
+        const score = Math.abs(center - anchor) + (overlaps ? -10_000 : 0);
+        if (score < bestScore) {
+          best = candidate;
+          bestScore = score;
+        }
+      }
+      if (best?.node) {
+        requestNativeFocus(best.node);
+        return;
+      }
+      if (attempt >= delays.length - 1) {
+        focusGuideSurfaceWhenMounted(rows[targetRow]?.id, [0, 40, 100, 200]);
+        return;
+      }
+      verticalFocusTimerRef.current = setTimeout(() => tryFocus(attempt + 1), delays[attempt + 1]);
+    };
+    tryFocus(0);
+  }, [keepFocusedRowVisible, programViewportW]);
+
   const onVerticalScroll = useCallback((event: any) => {
     verticalOffsetRef.current = clampGuideScrollOffset(
       event.nativeEvent.contentOffset.y,
@@ -827,6 +859,9 @@ export const TimelineGrid = memo(function TimelineGrid({
   const reportFocusedRow = useCallback(
     (index: number) => {
       focusedRowRef.current = index;
+      if (requestedVerticalRowRef.current == null || requestedVerticalRowRef.current === index) {
+        requestedVerticalRowRef.current = index;
+      }
       gridOwnsFocusRef.current = true;
       keepFocusedRowVisible(index);
       scheduleFocusedCandidateRewire();
@@ -922,19 +957,14 @@ export const TimelineGrid = memo(function TimelineGrid({
     (target: number, animated: boolean) => {
       const next = clampGuideScrollOffset(
         target,
-        LOGO_W + timelineWidth,
+        timelineWidth,
         programViewportW,
       );
       scrollXRef.current = next;
       const commitViewport = () => {
-        setChannelRailVisible((current) => {
-          const visible = next < Math.max(1, LOGO_W - 4);
-          return current === visible ? current : visible;
-        });
         // Cull only after the pixels reach their destination. Updating the
         // mounted slice before the pan completes can remove native focus.
-        const timelineOffset = Math.max(0, next - LOGO_W);
-        const bucket = Math.floor(timelineOffset / PAN_BUCKET_PX) * PAN_BUCKET_PX;
+        const bucket = Math.floor(next / PAN_BUCKET_PX) * PAN_BUCKET_PX;
         setPanBucket((prev) => (prev === bucket ? prev : bucket));
       };
       panAnimRef.current?.stop();
@@ -954,7 +984,7 @@ export const TimelineGrid = memo(function TimelineGrid({
         commitViewport();
       });
     },
-    [LOGO_W, programViewportW, reduceMotion, scrollX, timelineWidth],
+    [programViewportW, reduceMotion, scrollX, timelineWidth],
   );
 
   // Settings/date changes can shorten the rendered time window while this tab
@@ -1016,6 +1046,12 @@ export const TimelineGrid = memo(function TimelineGrid({
     lastPrefetchIndexRef.current = 0;
     scanDirectionRef.current = 1;
     focusedRowRef.current = 0;
+    requestedVerticalRowRef.current = 0;
+    verticalMoveGenerationRef.current += 1;
+    if (verticalFocusTimerRef.current) {
+      clearTimeout(verticalFocusTimerRef.current);
+      verticalFocusTimerRef.current = null;
+    }
     verticalFocusAnchorRef.current = null;
     try {
       setHorizontalOffset(0, false);
@@ -1028,6 +1064,8 @@ export const TimelineGrid = memo(function TimelineGrid({
       if (escapeTimer.current) clearTimeout(escapeTimer.current);
       if (viewportDispatchRef.current) clearTimeout(viewportDispatchRef.current);
       if (focusRewireFrameRef.current != null) cancelAnimationFrame(focusRewireFrameRef.current);
+      if (verticalFocusTimerRef.current) clearTimeout(verticalFocusTimerRef.current);
+      verticalMoveGenerationRef.current += 1;
       panAnimRef.current?.stop();
       focusCandidatesByRowRef.current.clear();
       focusedCandidateRef.current = null;
@@ -1038,6 +1076,12 @@ export const TimelineGrid = memo(function TimelineGrid({
   useEffect(() => {
     if (active) return;
     gridOwnsFocusRef.current = false;
+    verticalMoveGenerationRef.current += 1;
+    requestedVerticalRowRef.current = null;
+    if (verticalFocusTimerRef.current) {
+      clearTimeout(verticalFocusTimerRef.current);
+      verticalFocusTimerRef.current = null;
+    }
     pendingViewportRef.current = null;
     if (viewportDispatchRef.current) {
       clearTimeout(viewportDispatchRef.current);
@@ -1054,6 +1098,13 @@ export const TimelineGrid = memo(function TimelineGrid({
       0,
       Math.min(rows.length - 1, focusedRowRef.current + direction * visibleRows),
     );
+    verticalMoveGenerationRef.current += 1;
+    requestedVerticalRowRef.current = targetIndex;
+    if (verticalFocusTimerRef.current) {
+      clearTimeout(verticalFocusTimerRef.current);
+      verticalFocusTimerRef.current = null;
+    }
+    cancelGuideFocusRestore();
     focusedProgramKeyRef.current = null;
     reportFocusedRow(targetIndex);
     try {
@@ -1091,6 +1142,16 @@ export const TimelineGrid = memo(function TimelineGrid({
         } else if (decision.axis === "horizontal") {
           lastAxisRef.current = "h";
           lastAxisAtRef.current = Date.now();
+          // A direction change abandons any not-yet-mounted vertical target.
+          // Otherwise the next Down could continue from a stale requested row
+          // instead of the cell that still owns native focus.
+          verticalMoveGenerationRef.current += 1;
+          requestedVerticalRowRef.current = focusedRowRef.current;
+          if (verticalFocusTimerRef.current) {
+            clearTimeout(verticalFocusTimerRef.current);
+            verticalFocusTimerRef.current = null;
+          }
+          cancelGuideFocusRestore();
         }
         // Left edge: hand focus to the fixed preview/actions panel.
         if (decision.boundary === "left-boundary") {
@@ -1120,9 +1181,17 @@ export const TimelineGrid = memo(function TimelineGrid({
           escapeTimer.current = setTimeout(() => {
             guideEscapeInFlight.current = false;
           }, GUIDE_ESCAPE_GUARD_MS);
+          return;
+        }
+        if (
+          decision.axis === "vertical" &&
+          gridOwnsFocusRef.current &&
+          (type === "up" || type === "down")
+        ) {
+          requestVerticalProgramFocus(type === "up" ? -1 : 1);
         }
       },
-      [active, onLeftBoundary, onUpBoundary],
+      [active, onLeftBoundary, onUpBoundary, requestVerticalProgramFocus],
     ),
   );
 
@@ -1137,8 +1206,8 @@ export const TimelineGrid = memo(function TimelineGrid({
 
     const margin = 18;
     const currentX = scrollXRef.current;
-    const leftEdge = LOGO_W + prepared.left;
-    const rightEdge = LOGO_W + prepared.left + prepared.width;
+    const leftEdge = prepared.left;
+    const rightEdge = prepared.left + prepared.width;
     let target = currentX;
 
     if (leftEdge < currentX + margin) {
@@ -1147,7 +1216,7 @@ export const TimelineGrid = memo(function TimelineGrid({
       target = Math.max(0, rightEdge - programViewportW + margin);
     }
 
-    const maxX = Math.max(0, LOGO_W + timelineWidth - programViewportW);
+    const maxX = Math.max(0, timelineWidth - programViewportW);
     target = Math.min(maxX, target);
     if (Math.abs(target - currentX) <= 8) return;
 
@@ -1155,27 +1224,20 @@ export const TimelineGrid = memo(function TimelineGrid({
     // 110 ms animation every ~48 ms leaves the focused native cell off-screen
     // until the key is released, which looks like disappearing focus.
     setHorizontalOffset(target, false);
-  }, [LOGO_W, programViewportW, setHorizontalOffset, timelineWidth]);
-
-  const onRowChannelFocus = useCallback(
-    (channel: Channel, rowIndex: number, logoNode?: unknown) => {
-      focusRegionRef.current = "channel";
-      focusedProgramKeyRef.current = null;
-      verticalFocusAnchorRef.current = null;
-      // A channel node must never retain focus while translated off-screen.
-      if (scrollXRef.current > 4) setHorizontalOffset(0, false);
-      reportFocusedRow(rowIndex);
-      onChannelFocus?.(channel);
-      onBackTargetChange?.("channel", logoNode || focusedNodeRef.current);
-    },
-    [onBackTargetChange, onChannelFocus, reportFocusedRow, setHorizontalOffset],
-  );
+  }, [programViewportW, setHorizontalOffset, timelineWidth]);
 
   const onRowProgramFocus = useCallback(
     (prepared: PreparedProgram, channel: Channel, rowIndex: number) => {
       focusRegionRef.current = "program";
-      verticalFocusAnchorRef.current = prepared.left + prepared.width / 2;
       const movedVertically = gridOwnsFocusRef.current && rowIndex !== focusedRowRef.current;
+      if (!movedVertically || verticalFocusAnchorRef.current == null) {
+        const viewportLeft = scrollXRef.current + 18;
+        const viewportRight = scrollXRef.current + Math.max(36, programViewportW) - 18;
+        verticalFocusAnchorRef.current = Math.max(
+          viewportLeft,
+          Math.min(viewportRight, prepared.left + prepared.width / 2),
+        );
+      }
       reportFocusedRow(rowIndex);
       focusedProgramKeyRef.current = prepared.key;
       // A vertical focus move must preserve the shared time column exactly.
@@ -1185,7 +1247,7 @@ export const TimelineGrid = memo(function TimelineGrid({
       onProgramFocus?.(prepared.program, channel);
       onBackTargetChange?.("program", null);
     },
-    [keepProgramVisible, onBackTargetChange, onProgramFocus, reportFocusedRow],
+    [keepProgramVisible, onBackTargetChange, onProgramFocus, programViewportW, reportFocusedRow],
   );
 
   const onRowPendingFocus = useCallback(
@@ -1237,13 +1299,12 @@ export const TimelineGrid = memo(function TimelineGrid({
         programViewportW={programViewportW}
         showChannelNumbers={showChannelNumbers}
         channelNumberById={channelNumberById}
-        showChannelLogos={showChannelLogos && channelRailVisible}
+        showChannelLogos={showChannelLogos}
         reminderKeys={reminderKeys}
         onChannelPress={onChannelPress}
         onChannelLongPress={onChannelLongPress}
         onProgramPress={onProgramPress}
         onProgramFocus={onRowProgramFocus}
-        onRowChannelFocus={onRowChannelFocus}
         onRowPendingFocus={onRowPendingFocus}
         onFocusNode={rememberFocusNode}
         registerFocusCandidate={registerFocusCandidate}
@@ -1257,19 +1318,19 @@ export const TimelineGrid = memo(function TimelineGrid({
         getFocusedProgramKey={getFocusedProgramKey}
       />
     ),
-    [ROW_H, LOGO_W, LOGO_SIZE, railMetrics.numberWidth, railMetrics.nameFontSize, railMetrics.nameLineHeight, railMetrics.channelNameMaxLines, railMetrics.horizontalPadding, railMetrics.itemGap, timelineWidth, windowStartMs, windowEndMs, PX_PER_MIN, negScrollX, panBucket, programViewportW, showChannelNumbers, channelNumberById, showChannelLogos, channelRailVisible, reminderKeys, onChannelPress, onChannelLongPress, onProgramPress, onRowProgramFocus, onRowChannelFocus, onRowPendingFocus, preferFirstRow, rememberFocusNode, registerFocusCandidate, wireFocusCandidate, lastRowIndex, lockLeftEdge, getFocusedProgramKey, restoreChannelId],
+    [ROW_H, LOGO_W, LOGO_SIZE, railMetrics.numberWidth, railMetrics.nameFontSize, railMetrics.nameLineHeight, railMetrics.channelNameMaxLines, railMetrics.horizontalPadding, railMetrics.itemGap, timelineWidth, windowStartMs, windowEndMs, PX_PER_MIN, negScrollX, panBucket, programViewportW, showChannelNumbers, channelNumberById, showChannelLogos, reminderKeys, onChannelPress, onChannelLongPress, onProgramPress, onRowProgramFocus, onRowPendingFocus, preferFirstRow, rememberFocusNode, registerFocusCandidate, wireFocusCandidate, lastRowIndex, lockLeftEdge, getFocusedProgramKey, restoreChannelId],
   );
 
   return (
     <View style={styles.wrap} testID="epg-timeline-grid">
       <View style={styles.headerRow}>
+        <View style={[styles.corner, { width: LOGO_W }]}>
+          <Text style={styles.cornerText}>{dayjs(windowStart).format("MMM D")}</Text>
+        </View>
         <View style={styles.headerViewport}
           onLayout={(event) => setProgramViewportW(event.nativeEvent.layout.width)}>
           <Animated.View style={[styles.headerPanTrack,
-            { width: LOGO_W + timelineWidth, transform: [{ translateX: negScrollX }] }]}>
-            <View style={[styles.corner, { width: LOGO_W }]}>
-              <Text style={styles.cornerText}>{dayjs(windowStart).format("MMM D")}</Text>
-            </View>
+            { width: timelineWidth, transform: [{ translateX: negScrollX }] }]}>
             <View style={[styles.headerTrack, { width: timelineWidth }]}>
               {ticks.map((tick) => (
                 <Text key={tick.key} style={[styles.tickLabel, { left: tick.left }]}>{tick.label}</Text>
@@ -1285,7 +1346,7 @@ export const TimelineGrid = memo(function TimelineGrid({
         </View>
       </View>
 
-      {/* Channel identity and programme cells share one horizontal pan track. */}
+      {/* Channel identity is pinned; only programme cells share the horizontal time pan. */}
       <View
         style={styles.body}
         onLayout={(e: LayoutChangeEvent) => {
@@ -1315,19 +1376,19 @@ export const TimelineGrid = memo(function TimelineGrid({
         )}
         {showNow && bodyH > 0 && (
           <View
-            style={styles.nowOverlay}
+            style={[styles.nowOverlay, { left: LOGO_W }]}
             pointerEvents="none"
             testID="epg-timeline-now-indicator"
             accessibilityLabel="Guide timeline progress indicator"
           >
             <Animated.View
               style={{
-                width: LOGO_W + timelineWidth,
+                width: timelineWidth,
                 height: bodyH,
                 transform: [{ translateX: negScrollX }],
               }}
             >
-              <View style={[styles.nowLineTrack, { left: Math.max(0, LOGO_W + nowOffset - 1) }]}>
+              <View style={[styles.nowLineTrack, { left: Math.max(0, nowOffset - 1) }]}>
                 <View style={styles.nowLine} />
               </View>
             </Animated.View>
@@ -1372,8 +1433,6 @@ const styles = StyleSheet.create({
     width: 100,
   },
   row: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.055)", overflow: "hidden" },
-  rowViewport: { flex: 1, height: "100%", overflow: "hidden" },
-  rowPanTrack: { flexDirection: "row", flexShrink: 0 },
   logoCol: {
     zIndex: 20,
     elevation: 8,

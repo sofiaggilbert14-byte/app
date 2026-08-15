@@ -60,6 +60,15 @@ function activeGuideFocusHandle(): number | null {
   return null;
 }
 
+function firstGuideProgramNode(channelId?: string | null): unknown {
+  if (!channelId) return null;
+  const prefix = `${channelId}\u0000`;
+  for (const [key, node] of guideProgramNodes) {
+    if (key.startsWith(prefix) && findNodeHandle(node as any)) return node;
+  }
+  return null;
+}
+
 function wireAuxiliaryPanelsToGuide(): void {
   const targetHandle = activeGuideFocusHandle();
   if (!targetHandle) return;
@@ -195,7 +204,8 @@ export function focusGuideSurfaceWhenMounted(
       (guideChannelNodes.size ? guideChannelNodes.values().next().value : undefined);
     const target =
       (!channelId || channelId === focusedGuideChannelId ? activeGuideFocusNode : null) ||
-      entry?.node;
+      entry?.node ||
+      firstGuideProgramNode(preferredId);
     if (!target) return;
     found = requestNativeFocus(target) || found;
   };
@@ -335,8 +345,17 @@ export function registerGuideProgramNode(
 ): void {
   if (!channelId || !programStart) return;
   const key = guideProgramNodeKey(channelId, programStart);
-  if (node) guideProgramNodes.set(key, node);
-  else guideProgramNodes.delete(key);
+  if (node) {
+    guideProgramNodes.set(key, node);
+    return;
+  }
+  const removed = guideProgramNodes.get(key);
+  guideProgramNodes.delete(key);
+  if (activeGuideFocusNode === removed) {
+    activeGuideFocusNode = null;
+    armedNode = null;
+    armedUntil = 0;
+  }
 }
 
 /** Restore the exact programme cell, resolving its current recycled ref per retry. */

@@ -10,6 +10,7 @@ import {
   isAllowedPlaylistUrl,
   MAX_PLAYLIST_BYTES,
   parseM3U,
+  parseM3ULinesWithStats,
   parseM3UWithStats,
   parseXmltvTime,
   resolveXmltvStop,
@@ -52,6 +53,16 @@ test("M3U parser skips records without a playable URL and survives a BOM", async
   const channels = parseM3U(await fixture("playlist-malformed.m3u"));
   assert.equal(channels.length, 1);
   assert.equal(channels[0].name, "Playable After Bad Record");
+});
+
+test("local-file line parser matches the string parser without retaining full text", async () => {
+  const text = await fixture("playlist-valid.m3u");
+  async function* lines() {
+    for (const line of text.split(/\r?\n/)) yield line;
+  }
+  const streamed = await parseM3ULinesWithStats(lines());
+  const inMemory = parseM3UWithStats(text);
+  assert.deepEqual(streamed, inMemory);
 });
 
 test("M3U parser rejects disallowed protocols and reports stats", async () => {

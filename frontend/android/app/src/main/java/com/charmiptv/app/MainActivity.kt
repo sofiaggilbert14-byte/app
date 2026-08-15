@@ -23,7 +23,12 @@ class MainActivity : ReactActivity() {
   private fun hasSafeGuideVerticalTarget(direction: Int): Boolean {
     val source = currentFocus ?: return false
     val target = try { source.focusSearch(direction) } catch (_: Throwable) { null } ?: return false
-    if (target === source || !target.isShown || !target.isFocusable || !target.isEnabled) return false
+    // TimelineGrid deliberately points vertical native focus back to the
+    // current cell while JS scrolls/mounts the requested FlashList row. Treat
+    // that explicit self-lock as safe so held repeats still reach the TV event
+    // handler; rejecting it here makes a hold stop after the first channel.
+    if (target === source) return source.isShown && source.isFocusable && source.isEnabled
+    if (!target.isShown || !target.isFocusable || !target.isEnabled) return false
     return try {
       val sourceLoc = IntArray(2)
       val targetLoc = IntArray(2)
@@ -137,9 +142,9 @@ class MainActivity : ReactActivity() {
     } else null
     if (key != null && (!TvRemoteModule.guideNavigationActive || TvRemoteModule.pointerActive)) {
       emitRemoteEvent("TvRemoteKey", key)
-      // Pointer mode owns the D-pad entirely. Guide Up/Down must NOT be consumed â€”
+      // Pointer mode owns the D-pad entirely. Guide Up/Down must NOT be consumed —
       // Android's focus engine moves between guide cells; JS only handles boundaries
-      // (Up â†’ group tabs, bottom lock). Consuming Up/Down freezes guide surfing.
+      // (Up → group tabs, bottom lock). Consuming Up/Down freezes guide surfing.
       if (TvRemoteModule.pointerActive) return true
     }
     return super.dispatchKeyEvent(event)

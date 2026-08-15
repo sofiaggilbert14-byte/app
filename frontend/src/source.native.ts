@@ -1,11 +1,11 @@
 import dayjs from "dayjs";
+import { File, Paths } from "expo-file-system";
 import * as FileSystem from "expo-file-system/legacy";
 import type { Channel, GuideResponse, Program, SourceStatus } from "@/src/api";
 import { clearGuidePrograms } from "@/src/core/guideProgramsStore";
 import {
   enforcePlaylistByteLimit,
-  enforcePlaylistTextLimit,
-  parseM3UWithStats,
+  parseM3ULinesWithStats,
 } from "@/src/core/sourceParsing";
 import {
   clearNativeEpg,
@@ -493,7 +493,7 @@ function providerHttpUrls(url: string, label: "playlist" | "EPG"): string[] {
 
 function isProviderTransportFailure(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error || "");
-  return /\bhttp\s+\d{3}\b|network|timeout|timed out|failed to connect|unable to resolve|unknown host|connection|socket|ssl|handshake|cleartext/i.test(
+  return /\bhttp\s+\d{3}\b|network|timeout|timed out|failed to connect|unable to download|unable to resolve|unknown host|connection|socket|ssl|handshake|cleartext/i.test(
     message,
   );
 }
@@ -584,40 +584,74 @@ async function persistMeta(meta: NativeMeta): Promise<void> {
   }
 }
 
+async function* readLocalPlaylistLines(file: File): AsyncGenerator<string> {
+  const handle = file.open();
+  const decoder = new TextDecoder("utf-8", { fatal: false });
+  const chunkBytes = 128 * 1024;
+  const maximumLineChars = 1024 * 1024;
+  let carry = "";
+  let chunks = 0;
+  try {
+    while (handle.offset != null && handle.size != null && handle.offset < handle.size) {
+      const bytes = handle.readBytes(Math.min(chunkBytes, handle.size - handle.offset));
+      if (!bytes.length) break;
+      carry += decoder.decode(bytes, { stream: true });
+      let lineStart = 0;
+      let nextBreak = carry.indexOf("\n", lineStart);
+      while (nextBreak >= 0) {
+        yield carry.slice(lineStart, nextBreak).replace(/\r$/, "");
+        lineStart = nextBreak + 1;
+        nextBreak = carry.indexOf("\n", lineStart);
+      }
+      carry = carry.slice(lineStart);
+      if (carry.length > maximumLineChars) throw new Error("Playlist contains an invalid oversized line");
+      chunks += 1;
+      const ratio = file.size > 0 ? Math.min(1, (handle.offset || 0) / file.size) : 1;
+      setProgress({ phase: "channels", ratio: 0.05 + ratio * 0.12, etaSeconds: null });
+      // Parsing runs only after the network is closed. Yield between local-file
+      // chunks so startup/focus work is not monopolized by a large playlist.
+      if (chunks % 2 === 0) await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+    carry += decoder.decode();
+    if (carry) yield carry.replace(/\r$/, "");
+  } finally {
+    handle.close();
+  }
+}
+
 async function fetchPlaylist(): Promise<Channel[]> {
   if (!SOURCE_M3U) {
     throw new Error("Playlist is not configured for this build (missing EXPO_PUBLIC_M3U_URL).");
   }
   const candidates = providerHttpUrls(SOURCE_M3U, "playlist");
-  let response: Response | null = null;
   let firstError: unknown = null;
+  const localFile = new File(Paths.cache, "charm_playlist_download.m3u.tmp");
   for (const candidate of candidates) {
     try {
-      const attempt = await fetch(candidate, {
+      if (localFile.exists) localFile.delete();
+      await File.downloadFileAsync(candidate, localFile, {
         headers: { "User-Agent": "CharmIPTV/Experimental-v3" },
+        idempotent: true,
       });
-      if (!attempt.ok) throw new Error(`M3U HTTP ${attempt.status}`);
-      response = attempt;
-      break;
+      // File.downloadFileAsync resolves only after the HTTP body is complete;
+      // local parsing therefore never competes with an open provider socket.
+      enforcePlaylistByteLimit(localFile.size);
+      const { channels } = await parseM3ULinesWithStats(readLocalPlaylistLines(localFile));
+      const sorted = sortChannels(channels);
+      if (!sorted.length) throw new Error("Playlist contained no playable channels");
+      return sorted;
     } catch (error) {
       if (firstError == null) firstError = error;
       if (!isProviderTransportFailure(error)) throw error;
+    } finally {
+      if (localFile.exists) {
+        try {
+          localFile.delete();
+        } catch {}
+      }
     }
   }
-  if (!response) throw firstError || new Error("Could not download playlist");
-  const contentLength = Number(response.headers.get("content-length") || "");
-  if (Number.isFinite(contentLength) && contentLength > 0) {
-    enforcePlaylistByteLimit(contentLength);
-  }
-  const text = await response.text();
-  enforcePlaylistTextLimit(text);
-  const { channels } = parseM3UWithStats(text, (url) => url, (ratio) => {
-    setProgress({ phase: "channels", ratio: 0.05 + ratio * 0.12, etaSeconds: null });
-  });
-  const sorted = sortChannels(channels);
-  // Empty / unusable refresh must not wipe a last-good on-disk list (refreshInternal catch).
-  if (!sorted.length) throw new Error("Playlist contained no playable channels");
-  return sorted;
+  throw firstError || new Error("Could not download playlist");
 }
 
 async function ensureLoaded(): Promise<NativeMeta> {
