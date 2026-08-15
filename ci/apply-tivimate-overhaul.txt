@@ -1,1 +1,1 @@
-apply=guide-drawer-focus-followup-2026-08-15
+apply=source-refresh-settings-2026-08-15
