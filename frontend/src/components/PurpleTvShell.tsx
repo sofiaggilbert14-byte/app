@@ -71,23 +71,18 @@ export type PurpleRecentChannel = {
   logo?: string | null;
 };
 
-const PRIMARY_NAV: NavItem[] = [
+const NAV: NavItem[] = [
   { route: "/", label: "Live TV", icon: "tv-outline" },
   { route: "/guide", label: "TV Guide", icon: "calendar-outline" },
   { route: "/favorites", label: "Favorites", icon: "heart-outline" },
   { route: "/reminders", label: "My Reminders", icon: "notifications-outline" },
   { route: "/channels", label: "Channels", icon: "list-outline" },
   { route: "/movies", label: "Movies", icon: "film-outline" },
-];
-
-const SECONDARY_NAV: NavItem[] = [
   { route: "/series", label: "Series", icon: "albums-outline" },
   { route: "/catchup", label: "Catch Up", icon: "time-outline" },
   { route: "/search", label: "Search", icon: "search-outline" },
   { route: "/settings", label: "Settings", icon: "settings-outline" },
 ];
-
-const NAV = [...PRIMARY_NAV, ...SECONDARY_NAV];
 
 export const PURPLE_SIDEBAR_WIDTH = 156;
 export const PURPLE_DRAWER_ANIMATION_MS = 180;
@@ -234,7 +229,7 @@ export function PurpleTvShell({
     setContentAutoFocus(false);
     const preferredGuideGroup =
       !focusDrawerTop && active === "/guide" ? guideGroups?.find((item) => item.active) : undefined;
-    const preferredRoute: Route | null = preferredGuideGroup ? null : focusDrawerTop ? PRIMARY_NAV[0].route : active;
+    const preferredRoute: Route | null = preferredGuideGroup ? null : focusDrawerTop ? NAV[0].route : active;
     if (focusDrawerTop) consumeFocusDrawerTop();
     setDrawerPreferredRoute(preferredRoute);
     setDrawerAutoFocus(true);
@@ -459,16 +454,7 @@ export function PurpleTvShell({
                 contentContainerStyle={styles.navListContent}
                 showsVerticalScrollIndicator={false}
               >
-                {PRIMARY_NAV.map(renderNavItem)}
-              </ScrollView>
-            </View>
-            <View style={styles.secondaryNavSection}>
-              <ScrollView
-                style={styles.secondaryNavList}
-                contentContainerStyle={styles.navListContent}
-                showsVerticalScrollIndicator={false}
-              >
-                {SECONDARY_NAV.map(renderNavItem)}
+                {NAV.map(renderNavItem)}
               </ScrollView>
             </View>
           </View>
@@ -640,18 +626,8 @@ const styles = StyleSheet.create({
   recentAvatarText: { color: "#fff", fontFamily: fonts.bold, fontSize: 9 },
   recentName: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 9.5, flex: 1 },
   navSections: { flex: 1, minHeight: 0, overflow: "hidden" },
-  primaryNavSection: {
-    flexShrink: 1,
-    minHeight: 82,
-    maxHeight: 212,
-    overflow: "hidden",
-    borderBottomWidth: 1,
-    borderBottomColor: tvColors.line,
-    paddingBottom: 5,
-  },
-  primaryNavList: { minHeight: 0 },
-  secondaryNavSection: { flex: 1, minHeight: 58, overflow: "hidden", paddingTop: 5 },
-  secondaryNavList: { flex: 1, minHeight: 0 },
+  primaryNavSection: { flex: 1, minHeight: 0, overflow: "hidden" },
+  primaryNavList: { flex: 1, minHeight: 0 },
   navListContent: { gap: 2, paddingBottom: 2 },
   navRow: {
     minHeight: 34,

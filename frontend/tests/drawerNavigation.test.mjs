@@ -71,6 +71,11 @@ test("drawer uses bounded native motion and excludes hidden controls from TV foc
   assert.doesNotMatch(shell, /testID="purple-rail-open-drawer"/);
   assert.match(shell, /combineTvEdgeInsets/);
   assert.doesNotMatch(shell, /NAV\.slice\(0,\s*6\)/);
+  assert.match(shell, /const NAV: NavItem\[\] = \[/);
+  assert.match(shell, /\{NAV\.map\(renderNavItem\)\}/);
+  assert.doesNotMatch(shell, /SECONDARY_NAV/);
+  assert.match(shell, /testID="purple-nav-bounded-sections"/);
+  assert.match(shell, /testID="purple-nav-pinned-footer"/);
   assert.doesNotMatch(shell, /useNativeDriver: false/);
   assert.doesNotMatch(shell, /AsyncStorage|refreshSource|clearGuideCache|SQLite|database/i);
   assert.doesNotMatch(layout, /PurpleTvDrawerProvider/);

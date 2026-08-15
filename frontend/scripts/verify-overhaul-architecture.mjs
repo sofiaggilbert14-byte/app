@@ -57,10 +57,11 @@ requireText("app/(tabs)/guide.tsx", "focusGuidePreviewSurface();", "Guide cannot
 requireText("src/components/GuidePreviewRail.tsx", "styles.actionGrid", "six-button top action grid is missing");
 requireText("src/components/GuidePreviewRail.tsx", "styles.copy", "Guide description panel is missing from top strip");
 
-// Drawer must remain fully bounded with a pinned footer; overflowing routes scroll instead of covering Exit.
-requireText("src/components/PurpleTvShell.tsx", "PRIMARY_NAV", "bounded primary drawer navigation is missing");
-requireText("src/components/PurpleTvShell.tsx", "SECONDARY_NAV", "scrollable lower drawer navigation is missing");
-requireText("src/components/PurpleTvShell.tsx", 'testID="purple-nav-bounded-sections"', "drawer navigation sections are not contained");
+// Drawer must remain two bounded surfaces on Guide: Groups + one unified route list, with Exit pinned below.
+requireText("src/components/PurpleTvShell.tsx", "const NAV: NavItem[]", "unified drawer navigation list is missing");
+forbidText("src/components/PurpleTvShell.tsx", "SECONDARY_NAV", "separate lower drawer navigation box returned");
+requireText("src/components/PurpleTvShell.tsx", "{NAV.map(renderNavItem)}", "all drawer routes are not in the unified scrolling box");
+requireText("src/components/PurpleTvShell.tsx", 'testID="purple-nav-bounded-sections"', "drawer navigation box is not contained");
 requireText("src/components/PurpleTvShell.tsx", 'testID="purple-nav-pinned-footer"', "Exit/footer is not pinned outside scrolling drawer content");
 
 // Remote/focus and low-RAM architecture.
