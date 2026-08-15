@@ -1,1 +1,1 @@
-apply=remote-settings-2026-08-15
+apply=player-controls-memory-2026-08-15
