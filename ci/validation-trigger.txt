@@ -1,1 +1,1 @@
-validate=remote-memory-settings-2026-08-15
+validate=patched-overhaul-head-2026-08-15-0650
