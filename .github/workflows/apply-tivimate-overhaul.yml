@@ -18,8 +18,8 @@ jobs:
         with:
           ref: agent/tivimate-architecture-overhaul
           fetch-depth: 0
-      - name: Apply TiViMate-style logo priority and cache handling
-        run: python ci/patch-logo-pipeline.py
+      - name: Apply TiViMate-style Guide drawer remote navigation
+        run: python ci/patch-guide-drawer-remote.py
       - name: Commit patch results
         shell: bash
         run: |
@@ -29,11 +29,7 @@ jobs:
           fi
           git config user.name "Charm Architecture Bot"
           git config user.email "actions@users.noreply.github.com"
-          git add frontend/src/api.ts \
-                  frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt \
-                  frontend/src/core/epgMatching.ts \
-                  frontend/src/source.native.ts \
-                  frontend/src/components/ChannelLogo.tsx \
-                  frontend/app/'(tabs)'/settings.tsx
-          git commit -m "refactor(logos): retain sources and add bounded memory cache"
+          git add frontend/app/'(tabs)'/guide.tsx \
+                  frontend/scripts/verify-overhaul-architecture.mjs
+          git commit -m "feat(guide): open drawer from Back and left boundary"
           git push origin HEAD:agent/tivimate-architecture-overhaul
