@@ -34,6 +34,11 @@ export function clearChannelLogoMemory(): void {
   void (Image as any).clearMemoryCache?.().catch?.(() => undefined);
 }
 
+export async function clearChannelLogoCache(includeDisk = true): Promise<void> {
+  clearChannelLogoMemory();
+  if (includeDisk) await (Image as any).clearDiskCache?.().catch?.(() => undefined);
+}
+
 function remember(set: Set<string>, order: string[], uri: string): void {
   if (set.has(uri)) return;
   set.add(uri);
@@ -188,7 +193,7 @@ function ChannelLogoComponent({
         source={{ uri: currentUri }}
         style={{ width: size, height: size, borderRadius: radius.sm }}
         contentFit="contain"
-        cachePolicy="disk"
+        cachePolicy="memory-disk"
         priority="low"
         allowDownscaling
         autoplay={false}

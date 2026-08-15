@@ -51,6 +51,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
             putString("tvg_id", channel.rawTvgId)
             putString("name", channel.name)
             putString("logo", channel.logo)
+            putString("playlist_logo", channel.logo)
             putString("group", channel.group)
             putString("url", channel.url)
             putString("stream_type", channel.streamType)

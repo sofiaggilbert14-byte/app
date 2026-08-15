@@ -24,6 +24,8 @@ export type XmltvMatchIndexes = {
 export type EpgMatchOptions = {
   /** Messy providers: only exact/normalized tvg-id (and playlist id) — never name. */
   preferTvgIdOnly?: boolean;
+  /** Which available logo source wins; the other remains as fallback. */
+  logoPriority?: "playlist" | "epg";
 };
 
 export type PlaylistXmltvMatch = {
@@ -218,13 +220,16 @@ export function applyXmltvMatchesToChannels(
     else unmatched++;
 
     const xmltvLogo = result.logoId ? (logos[result.logoId] || "").trim() : "";
-    const nextLogo = xmltvLogo || channel.logo || "";
+    const playlistLogo = (channel.playlist_logo || (!channel.epg_logo ? channel.logo : "") || "").trim();
+    const nextLogo = options.logoPriority === "epg"
+      ? (xmltvLogo || playlistLogo || channel.logo || "")
+      : (playlistLogo || xmltvLogo || channel.logo || "");
     const nextGuideId = result.sourceId || channel.tvg_id;
 
-    if (nextLogo === channel.logo && nextGuideId === channel.tvg_id) {
+    if (nextLogo === channel.logo && nextGuideId === channel.tvg_id && playlistLogo === (channel.playlist_logo || "") && xmltvLogo === (channel.epg_logo || "")) {
       byId.set(channel.id, channel);
     } else {
-      byId.set(channel.id, { ...channel, tvg_id: nextGuideId, logo: nextLogo });
+      byId.set(channel.id, { ...channel, tvg_id: nextGuideId, logo: nextLogo, playlist_logo: playlistLogo, epg_logo: xmltvLogo });
     }
   }
 
@@ -260,9 +265,11 @@ export function applyLogoOnlyUpdates(
   const next = channels.map((channel) => {
     const key = (channel.tvg_id || "").trim();
     const xmltvLogo = (key && logos[key] ? logos[key] : logos[channel.id] || "").trim();
-    if (!xmltvLogo || xmltvLogo === channel.logo) return channel;
+    const playlistLogo = (channel.playlist_logo || (!channel.epg_logo ? channel.logo : "") || "").trim();
+    const nextLogo = playlistLogo || xmltvLogo || channel.logo || "";
+    if (nextLogo === channel.logo && playlistLogo === (channel.playlist_logo || "") && xmltvLogo === (channel.epg_logo || "")) return channel;
     changed = true;
-    return { ...channel, logo: xmltvLogo };
+    return { ...channel, logo: nextLogo, playlist_logo: playlistLogo, epg_logo: xmltvLogo };
   });
   return changed ? next : channels;
 }

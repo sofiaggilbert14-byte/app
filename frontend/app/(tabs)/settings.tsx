@@ -30,6 +30,8 @@ import {
   type SourceRefreshIntervalHours,
   useSourceRefreshPreferences,
 } from "@/src/core/sourceRefreshPreferences";
+import { type LogoPriority, useLogoPriority } from "@/src/core/logoPreferences";
+import { clearChannelLogoCache } from "@/src/components/ChannelLogo";
 import {
   readLatestFavoritesBackup,
   resolveFavoritesBackup,
@@ -154,6 +156,7 @@ export default function SettingsScreen() {
   } = useStore();
   const [playerEnginePreference, setPlayerEnginePreference] = usePlayerEnginePreference();
   const sourceRefresh = useSourceRefreshPreferences();
+  const [logoPriority, setLogoPriority] = useLogoPriority();
   const [playbackBufferProfile, setPlaybackBufferProfile] = usePlaybackBufferProfile();
   const channelCustomize = useChannelCustomize();
   const guideUi = useGuideUiPreferences();
@@ -601,6 +604,17 @@ export default function SettingsScreen() {
                   onChange={sourceRefresh.setEpgHours}
                 />
                 <Text style={styles.help}>Playlist and guide refresh independently. Defaults are 24h for channels and 6h for EPG; Manual only disables automatic checks for that source.</Text>
+                <ChoiceRow<LogoPriority>
+                  label="Channel logos priority"
+                  value={logoPriority}
+                  options={[
+                    { label: "Prefer playlist logos", value: "playlist" },
+                    { label: "Prefer EPG logos", value: "epg" },
+                  ]}
+                  onChange={setLogoPriority}
+                />
+                <Text style={styles.help}>Both playlist and EPG logo URLs are retained. The preferred source wins, with the other used as fallback.</Text>
+                <Action label="Clear channel logo cache" icon="image-outline" onPress={() => void clearChannelLogoCache(true)} />
                 <Action label={busy ? "Refreshing…" : "Refresh playlist & EPG"} icon="refresh" onPress={hardReload} disabled={busy} />
                 <Action label={busy ? "Working…" : "Refresh EPG only"} icon="calendar-outline" onPress={reloadEpgOnly} disabled={busy} />
                 <Action label={busy ? "Working…" : "Export diagnostics"} icon="document-text-outline" onPress={exportDiagnostics} disabled={busy} />

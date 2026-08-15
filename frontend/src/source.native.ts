@@ -30,6 +30,7 @@ import {
   isRefreshDue,
   nextRefreshAt,
 } from "@/src/core/sourceRefreshPreferences";
+import { getLogoPriority, type LogoPriority } from "@/src/core/logoPreferences";
 
 export const API_BASE = "";
 /** Playlist URL — set via EXPO_PUBLIC_M3U_URL at build time. Never hardcode provider URLs. */
@@ -322,6 +323,7 @@ async function matchChannelsWithPhases(
   channels: Channel[],
   indexes: ReturnType<typeof buildXmltvMatchIndexes>,
   epgLogos: Record<string, string>,
+  logoPriority: LogoPriority,
   onPartial?: (channels: Channel[], quality: EpgMatchQuality) => void | Promise<void>,
 ): Promise<{ channels: Channel[]; quality: EpgMatchQuality }> {
   const huge = channels.length >= HUGE_PLAYLIST_MATCH_THRESHOLD;
@@ -333,6 +335,7 @@ async function matchChannelsWithPhases(
   if (priority.length > 0 && onPartial) {
     const phase1 = applyXmltvMatchesToChannels(channels, indexes, epgLogos, {
       preferTvgIdOnly,
+      logoPriority,
       onlyChannelIds: priority,
     });
     await onPartial(phase1.channels, phase1.quality);
@@ -340,6 +343,7 @@ async function matchChannelsWithPhases(
     const restIds = channels.map((c) => c.id).filter((id) => !priority.includes(id));
     const phase2 = applyXmltvMatchesToChannels(phase1.channels, indexes, epgLogos, {
       preferTvgIdOnly,
+      logoPriority,
       onlyChannelIds: restIds,
     });
     return {
@@ -350,6 +354,7 @@ async function matchChannelsWithPhases(
 
   const applied = applyXmltvMatchesToChannels(channels, indexes, epgLogos, {
     preferTvgIdOnly,
+    logoPriority,
     priorityChannelIds: priority.length ? priority : undefined,
   });
   return { channels: applied.channels, quality: applied.quality };
@@ -464,9 +469,10 @@ async function readMetaFile(path: string): Promise<NativeMeta | null> {
     if (!info.exists) return null;
     const parsed = JSON.parse(await FileSystem.readAsStringAsync(path)) as NativeMeta;
     if (!Array.isArray(parsed.channels) || !parsed.channels.length || !Number.isFinite(parsed.ts)) return null;
+    const normalizedChannels = parsed.channels.map((channel) => ({ ...channel, playlist_logo: channel.playlist_logo || (!channel.epg_logo ? channel.logo : "") || "" }));
     return {
       ts: parsed.ts,
-      channels: sortChannels(parsed.channels),
+      channels: sortChannels(normalizedChannels),
       epgProgramCount: Number(parsed.epgProgramCount || 0),
       epgChannelCount: Number(parsed.epgChannelCount || 0),
       epgError: parsed.epgError,
@@ -622,6 +628,7 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
 
       const epgLogos = epg.channelLogos || {};
       const epgNames = epg.channelNames || {};
+      const logoPriority = await getLogoPriority();
       const indexes = buildXmltvMatchIndexes({
         channelIds: new Set([
           ...Object.keys(epgLogos),
@@ -641,7 +648,7 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
       let quality: EpgMatchQuality;
       setProgress({ phase: "matching", ratio: 0.94, etaSeconds: null }, true);
 
-      if (playlistUnchanged && policyUnchanged && epgUnchanged && cached?.channels?.length) {
+      if (logoPriority === "playlist" && playlistUnchanged && policyUnchanged && epgUnchanged && cached?.channels?.length) {
         // Same playlist identity + same EPG indexes: keep prior matches, logos only.
         // Do not run logo-only against freshly fetched raw rows (drops remapped tvg_ids).
         const logoOnly = applyLogoOnlyUpdates(
@@ -657,6 +664,7 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
           channels,
           indexes,
           epgLogos,
+          logoPriority,
           async (partialChannels, partialQuality) => {
             // Two-phase: paint priority/viewport matches without waiting for the full list.
             // Keep the same channel array length/order to reduce FlashList thrash.
