@@ -46,10 +46,9 @@ test("guideGroups buildGroupCounts / smart HD / pin", () => {
   assert.equal(counts.All, 3);
   assert.equal(counts.Favorites, 1);
   assert.equal(counts["Recently Watched"], 1);
-  assert.equal(counts["HD Only"], 2); // ESPN HD + News 4K (hidden excluded)
+  assert.equal(counts["HD Only"], 2);
   assert.equal(counts["Failed Streams"], 1);
   assert.equal(counts["Unmatched EPG"], 1);
-  // Curated + raw playlist group share the Sports key (counted once per matching pass).
   assert.ok(counts.Sports >= 1);
   assert.ok(channelMatchesSmart(channels[0], "HD Only", {
     hasEpgMatch: () => true,
@@ -109,7 +108,6 @@ test("streamFailureRegistry stays bounded", () => {
 });
 
 test("parental pin normalize via verify after set", async () => {
-  // Async-shaped set (storage-backed wrapper syncs this memory in parentalPin.ts).
   const set = async (pin) => setParentalPinMemory(pin);
   await set(null);
   assert.equal(verifyParentalPin("1234"), false);
@@ -131,17 +129,16 @@ test("drawer shell boots closed without an icon rail", async () => {
   assert.match(shell, /outputRange: \[-PURPLE_SIDEBAR_WIDTH, 0\]/);
 });
 
-test("guide.tsx routes its left boundary to GuidePreviewRail with conveyor retain", async () => {
+test("guide top strip is focusable while Left remains drawer-owned with conveyor retain", async () => {
   const guide = await source("app/(tabs)/guide.tsx");
   assert.match(guide, /GuidePreviewRail/);
   assert.match(guide, /another Left enters the drawer/);
   assert.match(guide, /openDrawer\(\)/);
-  assert.doesNotMatch(guide, /focusGuidePreviewSurface\(\)/);
+  assert.match(guide, /focusGuidePreviewSurface\(\)/);
   assert.match(guide, /onOpenReminders=/);
   assert.match(guide, /expandRunwayKeepSet/);
   assert.match(guide, /retainGuideSlidingCache/);
   assert.doesNotMatch(guide, /focusPurpleIconRail/);
   assert.match(guide, /buildVisibleGroups/);
   assert.doesNotMatch(guide, /NowPlayingBar/);
-  assert.doesNotMatch(guide, /focusPurpleIconRail/);
 });
