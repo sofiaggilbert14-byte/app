@@ -13,6 +13,8 @@ type NativeProgramme = {
 type NativeWindow = Record<string, NativeProgramme[]>;
 type NativeCurrent = Record<string, NativeProgramme>;
 const EMPTY_NATIVE_PROGRAMS: Program[] = [];
+const RAM_HISTORY_MS = 6 * 60 * 60 * 1000;
+const RAM_FUTURE_MS = 12 * 60 * 60 * 1000;
 
 type NativePlaylistResult = {
   channels: Channel[];
@@ -111,9 +113,8 @@ export async function fetchNativePlaylist(url: string): Promise<NativePlaylistRe
 export async function refreshNativeEpg(url: string, allowNotModified: boolean): Promise<NativeRefreshResult> {
   if (!nativeModule) throw new Error("Native EPG engine is unavailable");
   const result = await nativeModule.refresh(url, allowNotModified);
-  // The SQLite live-table swap is complete before refresh resolves. Warm the
-  // experimental RAM engine after that durable checkpoint, but do not await it:
-  // channel paint/matching can proceed while the dedicated RAM worker scans disk.
+  // SQLite retains the broad 72h guide. RAM intentionally keeps only a near-now
+  // runway so a larger disk horizon never turns into a larger heap snapshot.
   if (
     ramModule &&
     Number.isFinite(result.windowStartMs) &&
@@ -121,7 +122,12 @@ export async function refreshNativeEpg(url: string, allowNotModified: boolean): 
     result.windowEndMs > result.windowStartMs &&
     result.count > 0
   ) {
-    void ramModule.warm(result.windowStartMs, result.windowEndMs).catch(() => undefined);
+    const now = Date.now();
+    const warmStart = Math.max(result.windowStartMs, now - RAM_HISTORY_MS);
+    const warmEnd = Math.min(result.windowEndMs, now + RAM_FUTURE_MS);
+    if (warmEnd > warmStart) {
+      void ramModule.warm(warmStart, warmEnd).catch(() => undefined);
+    }
   }
   return result;
 }
