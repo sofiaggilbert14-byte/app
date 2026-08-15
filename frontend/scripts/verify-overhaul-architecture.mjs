@@ -49,11 +49,19 @@ requireText("app/(tabs)/settings.tsx", "Playlist auto refresh", "playlist refres
 requireText("app/(tabs)/settings.tsx", "EPG auto refresh", "EPG refresh interval setting is missing");
 requireText("src/components/SourceRefreshScheduler.tsx", "refreshSourcesIfDue", "source refresh scheduler is not active");
 
-// Guide remote navigation must expose the drawer predictably.
+// Guide remote navigation must expose the drawer predictably while allowing the new top action strip.
 requireText("app/(tabs)/guide.tsx", "one Back opens the group/navigation drawer immediately", "Guide single-Back drawer behavior is missing");
 requireText("app/(tabs)/guide.tsx", "another Left enters the drawer", "Guide left boundary no longer enters the drawer");
 forbidText("app/(tabs)/guide.tsx", "onBackTargetChange={onGuideBackTarget}", "obsolete Guide Back-target tracking returned");
-forbidText("app/(tabs)/guide.tsx", "focusGuidePreviewSurface();", "Guide left boundary detours through preview rail again");
+requireText("app/(tabs)/guide.tsx", "focusGuidePreviewSurface();", "Guide cannot move focus into the new preview/action strip");
+requireText("src/components/GuidePreviewRail.tsx", "styles.actionGrid", "six-button top action grid is missing");
+requireText("src/components/GuidePreviewRail.tsx", "styles.copy", "Guide description panel is missing from top strip");
+
+// Drawer must remain fully bounded with a pinned footer; overflowing routes scroll instead of covering Exit.
+requireText("src/components/PurpleTvShell.tsx", "PRIMARY_NAV", "bounded primary drawer navigation is missing");
+requireText("src/components/PurpleTvShell.tsx", "SECONDARY_NAV", "scrollable lower drawer navigation is missing");
+requireText("src/components/PurpleTvShell.tsx", 'testID="purple-nav-bounded-sections"', "drawer navigation sections are not contained");
+requireText("src/components/PurpleTvShell.tsx", 'testID="purple-nav-pinned-footer"', "Exit/footer is not pinned outside scrolling drawer content");
 
 // Remote/focus and low-RAM architecture.
 requireText("plugins/withTvRemote.js", "TvRemoteLongPress", "native semantic long-press routing is missing");
