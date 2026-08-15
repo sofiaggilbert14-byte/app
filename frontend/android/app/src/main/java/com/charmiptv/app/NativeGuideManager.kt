@@ -31,5 +31,6 @@ class NativeGuideManager : SimpleViewManager<NativeGuideView>() {
     .put("topNativeGuideSelection", MapBuilder.of("registrationName", "onSelectionChange"))
     .put("topNativeGuideActivate", MapBuilder.of("registrationName", "onActivate"))
     .put("topNativeGuideBoundary", MapBuilder.of("registrationName", "onBoundary"))
-    .build()
+    .build().toMutableMap()
 }
+
