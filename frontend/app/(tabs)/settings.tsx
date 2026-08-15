@@ -1103,15 +1103,6 @@ export default function SettingsScreen() {
                   options={[{ label: "Comfortable", value: "large" }, { label: "Normal", value: "normal" }, { label: "Compact", value: "compact" }, { label: "Extra compact", value: "extra_compact" }]}
                   onChange={setGuideDensity}
                 />
-                <ChoiceRow<"horizontal" | "vertical">
-                  label="Guide group layout"
-                  value={guideUi.groupLayout}
-                  options={[
-                    { label: "Horizontal", value: "horizontal" },
-                    { label: "Vertical", value: "vertical" },
-                  ]}
-                  onChange={guideUi.setGroupLayout}
-                />
                 <ToggleRow
                   label="Instant Guide / reduce motion"
                   value={instantGuide}

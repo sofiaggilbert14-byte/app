@@ -1086,6 +1086,10 @@ export default function PurpleGuideScreen() {
 
 const styles = StyleSheet.create({
   page: { flex: 1, paddingHorizontal: 12, paddingTop: 4, paddingBottom: 8, gap: 3 },
+  body: { flex: 1, minHeight: 0, flexDirection: "row", gap: 8 },
+  gridPanel: { flex: 1, minWidth: 0, minHeight: 0 },
+  pinCard: { width: 340, maxWidth: "100%", borderRadius: 10, backgroundColor: tvColors.panel, padding: 16, gap: 10 },
+  overlayTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 16, textAlign: "center" },
   watchButton: {
     flex: 1,
     minWidth: 0,

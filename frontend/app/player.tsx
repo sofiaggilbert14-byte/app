@@ -461,37 +461,6 @@ export default function PlayerScreen() {
     });
   }, [isTV, revealControls, scheduleHide]);
 
-  useEffect(() => {
-    if (!isTV) return;
-    // TiViMate-style semantic long presses, limited to actions Charm already owns.
-    // Long Down exposes channel browsing without triggering a stream reload;
-    // Long Select simply wakes the controls/quick-action surface.
-    return addTvLongPressListener((key) => {
-      if (key === "DOWN") {
-        if (remoteShortcuts.longDown === "guide") {
-          goGuide();
-          return;
-        }
-        if (remoteShortcuts.longDown === "channels") {
-          controlsRef.current = true;
-          setControls(true);
-          setMoreOpen(false);
-          setTracksOpen(false);
-          setChannelsOpen(true);
-          scheduleHide();
-        }
-        return;
-      }
-      if (key === "SELECT") {
-        if (remoteShortcuts.longSelect === "guide") {
-          goGuide();
-          return;
-        }
-        if (remoteShortcuts.longSelect === "controls") revealControls({ claimChannelsFocus: true });
-      }
-    });
-  }, [goGuide, isTV, remoteShortcuts.longDown, remoteShortcuts.longSelect, revealControls, scheduleHide]);
-
   useEffect(
     () => () => {
       if (noticeTimer.current) clearTimeout(noticeTimer.current);
@@ -573,6 +542,37 @@ export default function PlayerScreen() {
     stopFullscreenSession();
     router.replace("/guide" as any);
   }, [router]);
+
+  useEffect(() => {
+    if (!isTV) return;
+    // TiViMate-style semantic long presses, limited to actions Charm already owns.
+    // Long Down exposes channel browsing without triggering a stream reload;
+    // Long Select simply wakes the controls/quick-action surface.
+    return addTvLongPressListener((key) => {
+      if (key === "DOWN") {
+        if (remoteShortcuts.longDown === "guide") {
+          goGuide();
+          return;
+        }
+        if (remoteShortcuts.longDown === "channels") {
+          controlsRef.current = true;
+          setControls(true);
+          setMoreOpen(false);
+          setTracksOpen(false);
+          setChannelsOpen(true);
+          scheduleHide();
+        }
+        return;
+      }
+      if (key === "SELECT") {
+        if (remoteShortcuts.longSelect === "guide") {
+          goGuide();
+          return;
+        }
+        if (remoteShortcuts.longSelect === "controls") revealControls({ claimChannelsFocus: true });
+      }
+    });
+  }, [goGuide, isTV, remoteShortcuts.longDown, remoteShortcuts.longSelect, revealControls, scheduleHide]);
 
   useEffect(() => {
     if (!params.channelId || params.channelId === channelIdRef.current) return;
