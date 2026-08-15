@@ -31,6 +31,11 @@ import {
   useSourceRefreshPreferences,
 } from "@/src/core/sourceRefreshPreferences";
 import { type LogoPriority, useLogoPriority } from "@/src/core/logoPreferences";
+import {
+  type LongDownAction,
+  type LongSelectAction,
+  useRemoteShortcutPreferences,
+} from "@/src/core/remoteShortcutPreferences";
 import { clearChannelLogoCache } from "@/src/components/ChannelLogo";
 import {
   readLatestFavoritesBackup,
@@ -157,6 +162,7 @@ export default function SettingsScreen() {
   const [playerEnginePreference, setPlayerEnginePreference] = usePlayerEnginePreference();
   const sourceRefresh = useSourceRefreshPreferences();
   const [logoPriority, setLogoPriority] = useLogoPriority();
+  const remoteShortcuts = useRemoteShortcutPreferences();
   const [playbackBufferProfile, setPlaybackBufferProfile] = usePlaybackBufferProfile();
   const channelCustomize = useChannelCustomize();
   const guideUi = useGuideUiPreferences();
@@ -678,6 +684,27 @@ export default function SettingsScreen() {
                   options={[{ label: "8 sec", value: 8000 }, { label: "15 sec", value: 15000 }, { label: "30 sec", value: 30000 }, { label: "60 sec", value: 60000 }]}
                   onChange={setPlayerControlsTimeoutMs}
                 />
+                <ChoiceRow<LongDownAction>
+                  label="Remote · Long Down"
+                  value={remoteShortcuts.longDown}
+                  options={[
+                    { label: "Open channel bar", value: "channels" },
+                    { label: "Open TV Guide", value: "guide" },
+                    { label: "No shortcut", value: "none" },
+                  ]}
+                  onChange={remoteShortcuts.setLongDown}
+                />
+                <ChoiceRow<LongSelectAction>
+                  label="Remote · Long OK/Select"
+                  value={remoteShortcuts.longSelect}
+                  options={[
+                    { label: "Show player controls", value: "controls" },
+                    { label: "Open TV Guide", value: "guide" },
+                    { label: "No shortcut", value: "none" },
+                  ]}
+                  onChange={remoteShortcuts.setLongSelect}
+                />
+                <Text style={styles.help}>Directional D-pad keys stay reserved for deterministic focus/navigation. Only safe long-press shortcuts are remappable.</Text>
                 <ChoiceRow<PlaybackBufferProfile>
                   label="Playback buffer"
                   value={playbackBufferProfile}

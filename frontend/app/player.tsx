@@ -29,6 +29,7 @@ import {
 import { useStore } from "@/src/store";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { addTvKeyListener, addTvLongPressListener } from "@/src/utils/tvRemote";
+import { useRemoteShortcutPreferences } from "@/src/core/remoteShortcutPreferences";
 import { getTvSafeInsets } from "@/src/utils/tvLayout";
 import { requestNativeFocus } from "@/src/utils/tvFocus";
 import { stopFullscreenSession, stopAllPlaybackSessions, pauseSessionDecoders, type SessionFailReason } from "@/src/core/playbackSession";
@@ -108,6 +109,7 @@ export default function PlayerScreen() {
   const [tracksOpen, setTracksOpen] = useState(false);
   const { defaultLanguage: subtitleDefaultLanguage } = useSubtitlePreferences();
   const audioPreferences = useAudioTrackPreferences();
+  const remoteShortcuts = useRemoteShortcutPreferences();
 
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -449,15 +451,27 @@ export default function PlayerScreen() {
     // Long Select simply wakes the controls/quick-action surface.
     return addTvLongPressListener((key) => {
       if (key === "DOWN") {
-        controlsRef.current = true;
-        setControls(true);
-        setChannelsOpen(true);
-        scheduleHide();
+        if (remoteShortcuts.longDown === "guide") {
+          goGuide();
+          return;
+        }
+        if (remoteShortcuts.longDown === "channels") {
+          controlsRef.current = true;
+          setControls(true);
+          setChannelsOpen(true);
+          scheduleHide();
+        }
         return;
       }
-      if (key === "SELECT") revealControls({ claimChannelsFocus: true });
+      if (key === "SELECT") {
+        if (remoteShortcuts.longSelect === "guide") {
+          goGuide();
+          return;
+        }
+        if (remoteShortcuts.longSelect === "controls") revealControls({ claimChannelsFocus: true });
+      }
     });
-  }, [isTV, revealControls, scheduleHide]);
+  }, [goGuide, isTV, remoteShortcuts.longDown, remoteShortcuts.longSelect, revealControls, scheduleHide]);
 
   useEffect(
     () => () => {

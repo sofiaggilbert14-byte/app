@@ -63,4 +63,10 @@ requireText("src/utils/tvRemote.ts", "addTvLongPressListener", "JS long-press re
 requireText("app/player.tsx", 'key === "DOWN"', "player long-Down channel access is missing");
 requireText("app/(tabs)/guide.tsx", "shouldUseLowRamTuning", "Guide does not auto-tighten on low-RAM devices");
 
+
+requireText("src/core/remoteShortcutPreferences.ts", "LongDownAction", "remote shortcut preference file is malformed");
+requireText("app/(tabs)/settings.tsx", "Remote · Long Down", "long-Down mapping setting is missing");
+requireText("app/(tabs)/settings.tsx", "Remote · Long OK/Select", "long-Select mapping setting is missing");
+requireText("app/player.tsx", "remoteShortcuts.longDown", "player does not consume configured long-Down action");
+
 console.log("TiViMate architecture-overhaul conflict scan passed.");
