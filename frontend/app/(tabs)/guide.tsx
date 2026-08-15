@@ -194,7 +194,7 @@ function GuideSelectionPreview({
 export default function PurpleGuideScreen() {
   const router = useRouter();
   const isFocused = useIsFocused();
-  const { drawerOpen, openDrawer } = usePurpleTvDrawer();
+  const { drawerOpen, openDrawer, closeDrawer } = usePurpleTvDrawer();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   useFocusEffect(
     useCallback(() => {
@@ -774,7 +774,8 @@ export default function PurpleGuideScreen() {
     resetGuideSelection(rememberedChannelId);
     setPreviewId(null);
     setResetToken((value) => value + 1);
-  }, [group]);
+    closeDrawer();
+  }, [closeDrawer, group]);
 
   const chooseGroup = useCallback(
     (next: string) => {
@@ -844,6 +845,7 @@ export default function PurpleGuideScreen() {
       }
       guideSessionGroup = nextGroup;
       guideSessionChannelId = jump.channelId;
+      guideSessionChannelByGroup.set(nextGroup, jump.channelId);
       setGroup(nextGroup);
       resetGuideSelection(jump.channelId);
       setResetToken((value) => value + 1);
