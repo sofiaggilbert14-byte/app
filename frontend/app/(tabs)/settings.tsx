@@ -27,6 +27,17 @@ import {
   usePlayerEnginePreference,
 } from "@/src/playerEnginePreference";
 import {
+  type SourceRefreshIntervalHours,
+  useSourceRefreshPreferences,
+} from "@/src/core/sourceRefreshPreferences";
+import { type LogoPriority, useLogoPriority } from "@/src/core/logoPreferences";
+import {
+  type LongDownAction,
+  type LongSelectAction,
+  useRemoteShortcutPreferences,
+} from "@/src/core/remoteShortcutPreferences";
+import { clearChannelLogoCache } from "@/src/components/ChannelLogo";
+import {
   readLatestFavoritesBackup,
   resolveFavoritesBackup,
   serializeFavoritesBackup,
@@ -149,6 +160,9 @@ export default function SettingsScreen() {
     setSleepTimerMinutes,
   } = useStore();
   const [playerEnginePreference, setPlayerEnginePreference] = usePlayerEnginePreference();
+  const sourceRefresh = useSourceRefreshPreferences();
+  const [logoPriority, setLogoPriority] = useLogoPriority();
+  const remoteShortcuts = useRemoteShortcutPreferences();
   const [playbackBufferProfile, setPlaybackBufferProfile] = usePlaybackBufferProfile();
   const channelCustomize = useChannelCustomize();
   const guideUi = useGuideUiPreferences();
@@ -569,6 +583,44 @@ export default function SettingsScreen() {
                 <Text style={styles.help}>
                   For messy providers: match playlist channels by tvg-id only (never by display name). Ambiguous names never invent a match. Turn this off to allow conservative display-name matching.
                 </Text>
+                <ChoiceRow<SourceRefreshIntervalHours>
+                  label="Playlist auto refresh"
+                  value={sourceRefresh.playlistHours}
+                  options={[
+                    { label: "Manual only", value: 0 },
+                    { label: "Every 2 hours", value: 2 },
+                    { label: "Every 4 hours", value: 4 },
+                    { label: "Every 6 hours", value: 6 },
+                    { label: "Every 12 hours", value: 12 },
+                    { label: "Every 24 hours", value: 24 },
+                  ]}
+                  onChange={sourceRefresh.setPlaylistHours}
+                />
+                <ChoiceRow<SourceRefreshIntervalHours>
+                  label="EPG auto refresh"
+                  value={sourceRefresh.epgHours}
+                  options={[
+                    { label: "Manual only", value: 0 },
+                    { label: "Every 2 hours", value: 2 },
+                    { label: "Every 4 hours", value: 4 },
+                    { label: "Every 6 hours", value: 6 },
+                    { label: "Every 12 hours", value: 12 },
+                    { label: "Every 24 hours", value: 24 },
+                  ]}
+                  onChange={sourceRefresh.setEpgHours}
+                />
+                <Text style={styles.help}>Playlist and guide refresh independently. Defaults are 24h for channels and 6h for EPG; Manual only disables automatic checks for that source.</Text>
+                <ChoiceRow<LogoPriority>
+                  label="Channel logos priority"
+                  value={logoPriority}
+                  options={[
+                    { label: "Prefer playlist logos", value: "playlist" },
+                    { label: "Prefer EPG logos", value: "epg" },
+                  ]}
+                  onChange={setLogoPriority}
+                />
+                <Text style={styles.help}>Both playlist and EPG logo URLs are retained. The preferred source wins, with the other used as fallback.</Text>
+                <Action label="Clear channel logo cache" icon="image-outline" onPress={() => void clearChannelLogoCache(true)} />
                 <Action label={busy ? "Refreshing…" : "Refresh playlist & EPG"} icon="refresh" onPress={hardReload} disabled={busy} />
                 <Action label={busy ? "Working…" : "Refresh EPG only"} icon="calendar-outline" onPress={reloadEpgOnly} disabled={busy} />
                 <Action label={busy ? "Working…" : "Export diagnostics"} icon="document-text-outline" onPress={exportDiagnostics} disabled={busy} />
@@ -620,8 +672,8 @@ export default function SettingsScreen() {
                   label="Video player"
                   value={playerEnginePreference}
                   options={[
-                    { label: "App Default", value: "default" },
-                    { label: "Media3", value: "media3" },
+                    { label: "Expo / Media3 (Default)", value: "default" },
+                    { label: "Expo / Media3 only", value: "media3" },
                     { label: "VLC", value: "vlc" },
                   ]}
                   onChange={setPlayerEnginePreference}
@@ -632,6 +684,27 @@ export default function SettingsScreen() {
                   options={[{ label: "8 sec", value: 8000 }, { label: "15 sec", value: 15000 }, { label: "30 sec", value: 30000 }, { label: "60 sec", value: 60000 }]}
                   onChange={setPlayerControlsTimeoutMs}
                 />
+                <ChoiceRow<LongDownAction>
+                  label="Remote · Long Down"
+                  value={remoteShortcuts.longDown}
+                  options={[
+                    { label: "Open channel bar", value: "channels" },
+                    { label: "Open TV Guide", value: "guide" },
+                    { label: "No shortcut", value: "none" },
+                  ]}
+                  onChange={remoteShortcuts.setLongDown}
+                />
+                <ChoiceRow<LongSelectAction>
+                  label="Remote · Long OK/Select"
+                  value={remoteShortcuts.longSelect}
+                  options={[
+                    { label: "Show player controls", value: "controls" },
+                    { label: "Open TV Guide", value: "guide" },
+                    { label: "No shortcut", value: "none" },
+                  ]}
+                  onChange={remoteShortcuts.setLongSelect}
+                />
+                <Text style={styles.help}>Directional D-pad keys stay reserved for deterministic focus/navigation. Only safe long-press shortcuts are remappable.</Text>
                 <ChoiceRow<PlaybackBufferProfile>
                   label="Playback buffer"
                   value={playbackBufferProfile}
@@ -760,15 +833,6 @@ export default function SettingsScreen() {
                 />
                 <View style={styles.divider} />
                 <Text style={styles.settingLabel}>Guide preview</Text>
-                <ChoiceRow<"horizontal" | "vertical">
-                  label="Group layout"
-                  value={guideUi.groupLayout}
-                  options={[
-                    { label: "Horizontal", value: "horizontal" },
-                    { label: "Vertical", value: "vertical" },
-                  ]}
-                  onChange={guideUi.setGroupLayout}
-                />
                 <ToggleRow label="Mute preview by default" value={guideUi.mutePreview} onChange={guideUi.setMutePreview} />
                 <ToggleRow label="Hide preview by default" value={guideUi.hidePreview} onChange={guideUi.setHidePreview} />
               </SettingsCard>
@@ -1038,15 +1102,6 @@ export default function SettingsScreen() {
                   value={guideDensity}
                   options={[{ label: "Comfortable", value: "large" }, { label: "Normal", value: "normal" }, { label: "Compact", value: "compact" }, { label: "Extra compact", value: "extra_compact" }]}
                   onChange={setGuideDensity}
-                />
-                <ChoiceRow<"horizontal" | "vertical">
-                  label="Guide group layout"
-                  value={guideUi.groupLayout}
-                  options={[
-                    { label: "Horizontal", value: "horizontal" },
-                    { label: "Vertical", value: "vertical" },
-                  ]}
-                  onChange={guideUi.setGroupLayout}
                 />
                 <ToggleRow
                   label="Instant Guide / reduce motion"

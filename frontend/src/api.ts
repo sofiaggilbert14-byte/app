@@ -15,6 +15,10 @@ export type Channel = {
   tvg_id: string;
   name: string;
   logo: string;
+  /** Original #EXTINF tvg-logo from the playlist. */
+  playlist_logo?: string;
+  /** Matched XMLTV <icon> logo, kept separately for priority/fallback changes. */
+  epg_logo?: string;
   group: string;
   url: string;
   stream_type: string;
