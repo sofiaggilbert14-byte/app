@@ -1,1 +1,1 @@
-apply=overhaul-typecheck-blockers-2026-08-15
+apply=await-logo-priority-2026-08-15
