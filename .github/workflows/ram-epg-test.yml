@@ -39,9 +39,13 @@ jobs:
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
       - run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006" "cmake;3.22.1"
       - run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Verify TiViMate/RAM architecture invariants
+        run: node scripts/verify-overhaul-architecture.mjs
       - run: npm run verify:native-config
       - run: npm run typecheck
       - run: npm run lint
+      - name: Run frontend regression tests
+        run: npm test -- --runInBand
       - name: Build pinned LGPL FFmpeg audio extension
         run: |
           chmod +x scripts/build-media3-ffmpeg-audio.sh
@@ -73,6 +77,7 @@ jobs:
           unzip -l "$APK" | grep -Eq "(assets/index\.android\.bundle|assets/.*\.bundle)"
           unzip -l "$APK" | grep -q "lib/armeabi-v7a/"
           unzip -l "$APK" | grep -q "lib/arm64-v8a/"
+          unzip -l "$APK" | grep -Eq "lib/(armeabi-v7a|arm64-v8a)/.*ffmpeg"
           mkdir -p artifacts
           cp "$APK" "artifacts/CharmIPTV-RAM-Experiment-Universal-${GITHUB_RUN_NUMBER}.apk"
           sha256sum "artifacts/CharmIPTV-RAM-Experiment-Universal-${GITHUB_RUN_NUMBER}.apk" > artifacts/SHA256SUMS.txt
