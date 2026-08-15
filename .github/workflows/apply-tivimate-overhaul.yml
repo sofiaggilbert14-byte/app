@@ -18,8 +18,8 @@ jobs:
         with:
           ref: agent/tivimate-architecture-overhaul
           fetch-depth: 0
-      - name: Apply TiViMate-style Guide drawer remote navigation
-        run: python ci/patch-guide-drawer-remote.py
+      - name: Apply remote/focus and low-memory optimizations
+        run: python ci/patch-remote-memory.py
       - name: Commit patch results
         shell: bash
         run: |
@@ -29,7 +29,11 @@ jobs:
           fi
           git config user.name "Charm Architecture Bot"
           git config user.email "actions@users.noreply.github.com"
-          git add frontend/app/'(tabs)'/guide.tsx \
+          git add frontend/plugins/withTvRemote.js \
+                  frontend/src/utils/tvRemote.ts \
+                  frontend/src/core/deviceMemoryProfile.ts \
+                  frontend/app/'(tabs)'/guide.tsx \
+                  frontend/app/player.tsx \
                   frontend/scripts/verify-overhaul-architecture.mjs
-          git commit -m "feat(guide): open drawer from Back and left boundary"
+          git commit -m "feat(tv): add long-press routing and low-RAM tuning"
           git push origin HEAD:agent/tivimate-architecture-overhaul
