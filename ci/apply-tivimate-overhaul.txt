@@ -1,1 +1,1 @@
-apply=logo-pipeline-retry-2026-08-15
+apply=guide-drawer-remote-2026-08-15
