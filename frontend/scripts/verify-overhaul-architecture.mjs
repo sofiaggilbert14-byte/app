@@ -75,7 +75,13 @@ requireText("src/components/StreamPlayer.tsx", "paused?: boolean", "player pause
 requireText("src/components/StreamPlayer.tsx", "mode === \"preview\" ? \"textureView\" : \"surfaceView\"", "fullscreen Media3 is not using SurfaceView");
 requireText("src/components/StreamPlayer.tsx", "shouldUseLowRamTuning", "player buffers are not low-RAM adaptive");
 requireText("app/player.tsx", "Pause stream", "real play/pause player control is missing");
-requireText("app/player.tsx", ">Stop<", "explicit player Stop control is missing");
+requireText("app/player.tsx", "<Text style={styles.controlLabel}>Stop</Text>", "explicit player Stop control is missing");
 requireText("app/player.tsx", "cycleScaleMode", "aspect-ratio cycling is missing");
+
+// OSD state/overflow architecture.
+requireText("app/player.tsx", "setMoreOpen", "player overflow state is missing");
+requireText("app/player.tsx", ">More<", "player More action is missing");
+requireText("app/player.tsx", "Sleep Timer ·", "player sleep-timer quick action is missing");
+requireText("app/player.tsx", "setTracksOpen(false);\n      setMoreOpen(false);", "auto-hide does not release secondary OSD state");
 
 console.log("TiViMate architecture-overhaul conflict scan passed.");

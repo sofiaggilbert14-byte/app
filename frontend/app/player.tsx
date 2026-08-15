@@ -110,6 +110,7 @@ export default function PlayerScreen() {
   const [audioTrackId, setAudioTrackId] = useState<string | number | undefined>(undefined);
   const [textTrackId, setTextTrackId] = useState<string | number | undefined>(undefined);
   const [tracksOpen, setTracksOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const { defaultLanguage: subtitleDefaultLanguage } = useSubtitlePreferences();
   const audioPreferences = useAudioTrackPreferences();
   const remoteShortcuts = useRemoteShortcutPreferences();
@@ -212,6 +213,8 @@ export default function PlayerScreen() {
       controlsRef.current = false;
       setControls(false);
       setChannelsOpen(false);
+      setTracksOpen(false);
+      setMoreOpen(false);
     }, overlayHideMs);
   }, [overlayHideMs]);
 
@@ -472,6 +475,8 @@ export default function PlayerScreen() {
         if (remoteShortcuts.longDown === "channels") {
           controlsRef.current = true;
           setControls(true);
+          setMoreOpen(false);
+          setTracksOpen(false);
           setChannelsOpen(true);
           scheduleHide();
         }
@@ -585,6 +590,11 @@ export default function PlayerScreen() {
         scheduleHide();
         return true;
       }
+      if (moreOpen) {
+        setMoreOpen(false);
+        scheduleHide();
+        return true;
+      }
       if (channelsOpen) {
         setChannelsOpen(false);
         scheduleHide();
@@ -594,7 +604,7 @@ export default function PlayerScreen() {
       return true;
     });
     return () => sub.remove();
-  }, [channelsOpen, revealControls, scheduleHide, stopAndExit, tracksOpen]);
+  }, [channelsOpen, moreOpen, revealControls, scheduleHide, stopAndExit, tracksOpen]);
 
   return (
     <View style={styles.root}>
@@ -675,6 +685,8 @@ export default function PlayerScreen() {
             controlsRef.current = false;
             setControls(false);
             setChannelsOpen(false);
+            setTracksOpen(false);
+            setMoreOpen(false);
           } else {
             revealControls();
           }
@@ -786,32 +798,16 @@ export default function PlayerScreen() {
               </Pressable>
               <Pressable
                 ref={channelsButtonRef}
-                onPress={() => setChannelsOpen((value) => !value)}
+                onPress={() => {
+                  setTracksOpen(false);
+                  setMoreOpen(false);
+                  setChannelsOpen((value) => !value);
+                  scheduleHide();
+                }}
                 style={({ focused }: any) => [styles.textControl, channelsOpen && styles.controlActive, focused && styles.focused]}
               >
                 <Ionicons name="list" size={15} color="#fff" />
                 <Text style={styles.controlLabel}>Channels</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => setTracksOpen((value) => !value)}
-                style={({ focused }: any) => [styles.textControl, tracksOpen && styles.controlActive, focused && styles.focused]}
-              >
-                <Ionicons name="musical-notes-outline" size={15} color="#fff" />
-                <Text style={styles.controlLabel}>Audio/CC</Text>
-              </Pressable>
-              <Pressable onPress={cycleScaleMode} style={({ focused }: any) => [styles.textControl, focused && styles.focused]}>
-                <Ionicons name="resize-outline" size={15} color="#fff" />
-                <Text style={styles.controlLabel}>{scaleMode === "fit" ? "Fit" : scaleMode === "zoom" ? "Zoom" : "Stretch"}</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  void saveAudioReport();
-                }}
-                style={({ focused }: any) => [styles.textControl, focused && styles.focused]}
-                testID="player-report-audio"
-              >
-                <Ionicons name="bug-outline" size={15} color="#fff" />
-                <Text style={styles.controlLabel}>Report</Text>
               </Pressable>
               <View style={styles.controlsSpacer} />
               <Pressable
@@ -841,14 +837,59 @@ export default function PlayerScreen() {
                 <Ionicons name="play-skip-forward" size={18} color="#fff" />
               </Pressable>
               <View style={styles.controlsSpacer} />
-              <Pressable onPress={() => router.replace("/settings" as any)} style={({ focused }: any) => [styles.iconControl, focused && styles.focused]}>
-                <Ionicons name="settings-outline" size={16} color="#fff" />
+              <Pressable
+                onPress={() => {
+                  setChannelsOpen(false);
+                  setTracksOpen(false);
+                  setMoreOpen((value) => !value);
+                  scheduleHide();
+                }}
+                style={({ focused }: any) => [styles.textControl, moreOpen && styles.controlActive, focused && styles.focused]}
+              >
+                <Ionicons name="ellipsis-horizontal" size={15} color="#fff" />
+                <Text style={styles.controlLabel}>More</Text>
               </Pressable>
               <Pressable onPress={stopAndExit} style={({ focused }: any) => [styles.textControl, focused && styles.focused]}>
                 <Ionicons name="stop" size={15} color="#fff" />
                 <Text style={styles.controlLabel}>Stop</Text>
               </Pressable>
             </View>
+
+            {moreOpen ? (
+              <View style={styles.tracksPanel}>
+                <Pressable
+                  onPress={() => { setMoreOpen(false); setTracksOpen(true); scheduleHide(); }}
+                  style={({ focused }: any) => [styles.trackRow, focused && styles.focused]}
+                >
+                  <Ionicons name="musical-notes-outline" size={15} color="#fff" />
+                  <Text style={styles.controlLabel}>Audio / Subtitles</Text>
+                </Pressable>
+                <Pressable onPress={cycleScaleMode} style={({ focused }: any) => [styles.trackRow, focused && styles.focused]}>
+                  <Ionicons name="resize-outline" size={15} color="#fff" />
+                  <Text style={styles.controlLabel}>Aspect · {scaleMode === "fit" ? "Fit" : scaleMode === "zoom" ? "Zoom" : "Stretch"}</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    const next = sleepTimerMinutes === 0 ? 15 : sleepTimerMinutes === 15 ? 30 : sleepTimerMinutes === 30 ? 60 : sleepTimerMinutes === 60 ? 90 : 0;
+                    setSleepTimerMinutes(next);
+                    showNotice(next ? `Sleep timer: ${next} min` : "Sleep timer: Off");
+                    scheduleHide();
+                  }}
+                  style={({ focused }: any) => [styles.trackRow, focused && styles.focused]}
+                >
+                  <Ionicons name="moon-outline" size={15} color="#fff" />
+                  <Text style={styles.controlLabel}>Sleep Timer · {sleepTimerMinutes ? `${sleepTimerMinutes}m` : "Off"}</Text>
+                </Pressable>
+                <Pressable onPress={() => router.replace("/settings" as any)} style={({ focused }: any) => [styles.trackRow, focused && styles.focused]}>
+                  <Ionicons name="settings-outline" size={15} color="#fff" />
+                  <Text style={styles.controlLabel}>Settings</Text>
+                </Pressable>
+                <Pressable onPress={() => void saveAudioReport()} style={({ focused }: any) => [styles.trackRow, focused && styles.focused]} testID="player-report-audio">
+                  <Ionicons name="bug-outline" size={15} color="#fff" />
+                  <Text style={styles.controlLabel}>Diagnostics</Text>
+                </Pressable>
+              </View>
+            ) : null}
 
             {tracksOpen ? (
               <View style={styles.tracksPanel}>
