@@ -18,8 +18,8 @@ jobs:
         with:
           ref: agent/tivimate-architecture-overhaul
           fetch-depth: 0
-      - name: Finish Guide drawer focus behavior
-        run: python ci/patch-guide-drawer-followup.py
+      - name: Add independent playlist and EPG refresh controls
+        run: python ci/patch-refresh-settings.py
       - name: Commit patch results
         shell: bash
         run: |
@@ -29,6 +29,9 @@ jobs:
           fi
           git config user.name "Charm Architecture Bot"
           git config user.email "actions@users.noreply.github.com"
-          git add frontend/app/'(tabs)'/guide.tsx
-          git commit -m "fix(guide): close drawer on group selection and restore focus"
+          git add frontend/src/source.native.ts \
+                  frontend/src/source.ts \
+                  frontend/app/_layout.tsx \
+                  frontend/app/'(tabs)'/settings.tsx
+          git commit -m "feat(source): add independent playlist and EPG refresh scheduling"
           git push origin HEAD:agent/tivimate-architecture-overhaul
