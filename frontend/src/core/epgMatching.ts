@@ -266,10 +266,15 @@ export function applyLogoOnlyUpdates(
   const next = channels.map((channel) => {
     const key = (channel.tvg_id || "").trim();
     const xmltvLogo = (key && logos[key] ? logos[key] : logos[channel.id] || "").trim();
-    const playlistLogo = (channel.playlist_logo || (!channel.epg_logo ? channel.logo : "") || "").trim();
+    // Logo-only refresh must not infer provenance from the legacy `logo` field.
+    // Before playlist_logo/epg_logo were stored separately, `logo` may have been
+    // the previous XMLTV image. Treating it as a playlist logo would permanently
+    // block fresh EPG logos under the default playlist-first policy.
+    const playlistLogo = (channel.playlist_logo || "").trim();
+    const legacyLogo = (channel.logo || "").trim();
     const nextLogo = logoPriority === "epg"
-      ? (xmltvLogo || playlistLogo || channel.logo || "")
-      : (playlistLogo || xmltvLogo || channel.logo || "");
+      ? (xmltvLogo || playlistLogo || legacyLogo)
+      : (playlistLogo || xmltvLogo || legacyLogo);
     if (nextLogo === channel.logo && playlistLogo === (channel.playlist_logo || "") && xmltvLogo === (channel.epg_logo || "")) return channel;
     changed = true;
     return { ...channel, logo: nextLogo, playlist_logo: playlistLogo, epg_logo: xmltvLogo };
