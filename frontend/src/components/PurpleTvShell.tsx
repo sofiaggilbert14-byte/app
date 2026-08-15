@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import {
   Animated,
   BackHandler,
+  DeviceEventEmitter,
   Platform,
   Pressable,
   ScrollView,
@@ -16,7 +17,6 @@ import * as Haptics from "expo-haptics";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { fonts, radius, spacing, tvColors } from "@/src/theme";
 import { combineTvEdgeInsets, getTvSafeInsets } from "@/src/utils/tvLayout";
-import { reclaimGuideBottomFocusIfArmed } from "@/src/utils/tvGuideFocusLock";
 import { requestNativeFocusWithRetry } from "@/src/utils/tvFocus";
 import { useStore } from "@/src/store";
 import { evaluateDrawerBack } from "@/src/core/drawerNavigationPolicy";
@@ -106,14 +106,24 @@ export function PurpleTvDrawerProvider({ children }: { children: React.ReactNode
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [focusDrawerTop, setFocusDrawerTop] = useState(false);
   const drawerProgress = useRef(new Animated.Value(0)).current;
+  const drawerOpenRef = useRef(false);
+  const openedAtRef = useRef(0);
 
   const openDrawer = useCallback((options?: OpenDrawerOptions) => {
     if (isGuideSurfing()) return;
+    if (drawerOpenRef.current) return;
+    drawerOpenRef.current = true;
+    openedAtRef.current = Date.now();
     setFocusDrawerTop(!!options?.focusTop);
     setDrawerOpen(true);
   }, []);
 
   const closeDrawer = useCallback(() => {
+    if (!drawerOpenRef.current) return;
+    // Some Android TV firmwares deliver the opening Back/Left key to two
+    // listeners. Do not let the duplicate edge close an animating drawer.
+    if (Date.now() - openedAtRef.current < PURPLE_DRAWER_ANIMATION_MS + 70) return;
+    drawerOpenRef.current = false;
     setFocusDrawerTop(false);
     setDrawerOpen(false);
   }, []);
@@ -292,7 +302,11 @@ export function PurpleTvShell({
   const navigate = useCallback(
     (route: Route) => {
       void Haptics.selectionAsync().catch(() => undefined);
+      if (route === "/settings") DeviceEventEmitter.emit("CharmShowAllSettings");
       closeDrawer();
+      // If a very fast selection lands during the open-transition guard, close
+      // once that guard expires instead of leaving the drawer over the new page.
+      setTimeout(closeDrawer, PURPLE_DRAWER_ANIMATION_MS + 80);
       if (route !== active) router.replace(route as any);
     },
     [active, closeDrawer, router],
@@ -466,7 +480,6 @@ export function PurpleTvShell({
                 disabled={footerAction.disabled}
                 onPress={footerAction.onPress}
                 onFocus={() => {
-                  if (active === "/guide") reclaimGuideBottomFocusIfArmed();
                 }}
                 style={({ focused }: any) => [
                   styles.footerCompact,
@@ -485,7 +498,6 @@ export function PurpleTvShell({
               onLongPress={exit}
               delayLongPress={650}
               onFocus={() => {
-                if (active === "/guide") reclaimGuideBottomFocusIfArmed();
               }}
               style={({ focused }: any) => [footerAction ? styles.footerCompact : styles.power, focused && styles.navRowFocused]}
               testID="purple-nav-power"

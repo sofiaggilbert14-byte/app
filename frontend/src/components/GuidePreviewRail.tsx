@@ -10,7 +10,7 @@ import { getLastAudioDiagnostics } from "@/src/core/audioDiagnostics";
 import {
   noteGuidePreviewFocus,
   registerGuidePreviewNode,
-} from "@/src/utils/tvGuideFocusLock";
+} from "@/src/utils/guidePreviewFocus";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { fmtTime, progressPct } from "@/src/utils/time";
 

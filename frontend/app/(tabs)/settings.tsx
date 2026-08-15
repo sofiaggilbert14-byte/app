@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { DeviceEventEmitter, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -206,6 +206,16 @@ export default function SettingsScreen() {
     const timer = setTimeout(() => setPreferBackFocus(false), 700);
     return () => clearTimeout(timer);
   }, [section]);
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener("CharmShowAllSettings", () => {
+      setBackupStatus(null);
+      setClearFavoritesArmed(false);
+      setPreferTileFocus(true);
+      setSection(null);
+    });
+    return () => sub.remove();
+  }, []);
 
   useEffect(
     () => () => {
@@ -480,7 +490,6 @@ export default function SettingsScreen() {
           </FocusGuide>
         ) : (
           <FocusGuide style={styles.detailsWrap}>
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.details}>
             <Pressable
               hasTVPreferredFocus={preferBackFocus}
               onPress={() => {
@@ -496,6 +505,8 @@ export default function SettingsScreen() {
               <Ionicons name="arrow-up" size={14} color="#fff" />
               <Text style={styles.backText}>All Settings</Text>
             </Pressable>
+
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.details}>
 
             {section === "general" ? (
               <SettingsCard title="Guide & channels" icon="list-outline">

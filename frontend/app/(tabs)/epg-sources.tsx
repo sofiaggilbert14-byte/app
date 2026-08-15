@@ -58,7 +58,7 @@ export default function EpgSourcesScreen() {
           </View>
           <Pressable onPress={() => router.replace("/settings" as any)} style={({ focused }: any) => [styles.back, focused && styles.focused]}>
             <Ionicons name="arrow-back" size={14} color="#fff" />
-            <Text style={styles.backText}>Settings</Text>
+            <Text style={styles.backText}>All Settings</Text>
           </Pressable>
         </View>
 

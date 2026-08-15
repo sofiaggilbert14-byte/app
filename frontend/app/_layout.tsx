@@ -19,6 +19,7 @@ import { clearChannelLogoMemory } from "@/src/components/ChannelLogo";
 import { TvCalibrationFrame, TvCalibrationProvider } from "@/src/tvCalibration";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 import { subscribeAndroidMemoryPressure } from "@/src/utils/androidMemoryPressure";
+import { StartupVersion4 } from "@/src/components/StartupVersion4";
 
 // Keep real errors visible for TV QA; only silence known noisy module warnings.
 LogBox.ignoreLogs([
@@ -136,6 +137,7 @@ export default function RootLayout() {
                   <ProgramModal />
                 </ErrorBoundary>
                 <PointerOverlay />
+                <StartupVersion4 />
               </PurpleTvDrawerProvider>
             </GuideProvider>
           </TvCalibrationFrame>

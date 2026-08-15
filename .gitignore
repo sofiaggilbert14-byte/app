@@ -84,3 +84,4 @@ android-sdk/cloudflare-backend/worker/node_modules/@cloudflare/workerd-linux-arm
 .env
 .env.*
 !.env.example
+work/
