@@ -49,4 +49,10 @@ requireText("app/(tabs)/settings.tsx", "Playlist auto refresh", "playlist refres
 requireText("app/(tabs)/settings.tsx", "EPG auto refresh", "EPG refresh interval setting is missing");
 requireText("src/components/SourceRefreshScheduler.tsx", "refreshSourcesIfDue", "source refresh scheduler is not active");
 
+// Guide remote navigation must expose the drawer predictably.
+requireText("app/(tabs)/guide.tsx", "one Back opens the group/navigation drawer immediately", "Guide single-Back drawer behavior is missing");
+requireText("app/(tabs)/guide.tsx", "another Left enters the drawer", "Guide left boundary no longer enters the drawer");
+forbidText("app/(tabs)/guide.tsx", "onBackTargetChange={onGuideBackTarget}", "obsolete Guide Back-target tracking returned");
+forbidText("app/(tabs)/guide.tsx", "focusGuidePreviewSurface();", "Guide left boundary detours through preview rail again");
+
 console.log("TiViMate architecture-overhaul conflict scan passed.");

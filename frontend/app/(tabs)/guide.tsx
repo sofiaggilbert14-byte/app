@@ -59,11 +59,9 @@ import {
 import { consumeGuideJump } from "@/src/core/guideSearchJump";
 import { fonts, radius, spacing, tvColors } from "@/src/theme";
 import { nowNext } from "@/src/utils/time";
-import { requestNativeFocus } from "@/src/utils/tvFocus";
 import {
   cancelGuideFocusRestore,
   focusGuideProgramCell,
-  focusGuidePreviewSurface,
   focusGuideSurface,
 } from "@/src/utils/tvGuideFocusLock";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
@@ -359,25 +357,16 @@ export default function PurpleGuideScreen() {
     return cancelGuideFocusRestore;
   }, [activeProgram, guideLayout]);
 
-  const guideFocusRegionRef = useRef<"channel" | "program">("program");
-  const channelLogoNodeRef = useRef<unknown>(null);
-  const onGuideBackTarget = useCallback((region: "channel" | "program", logoNode: unknown) => {
-    guideFocusRegionRef.current = region;
-    if (logoNode) channelLogoNodeRef.current = logoNode;
-  }, []);
-
-  // Back in the guide: step to the channel logo first. Only at the left edge does
-  // Back defer to the shell double-Back drawer arm — never opens on a single press.
+  // TiViMate-style Guide Back behavior: when the Guide owns the remote and no
+  // modal is blocking, one Back opens the group/navigation drawer immediately.
+  // The drawer itself consumes the next Back to close and Guide focus is restored
+  // through the existing focusClaimNonce/session-channel path.
   useTvBackHandler(
     useCallback(() => {
       if (drawerOpen || activeProgram) return false;
-      if (guideFocusRegionRef.current === "program" && channelLogoNodeRef.current) {
-        requestNativeFocus(channelLogoNodeRef.current);
-        guideFocusRegionRef.current = "channel";
-        return true;
-      }
-      return false;
-    }, [activeProgram, drawerOpen]),
+      openDrawer();
+      return true;
+    }, [activeProgram, drawerOpen, openDrawer]),
   );
 
   useEffect(() => {
@@ -826,9 +815,11 @@ export default function PurpleGuideScreen() {
   }, []);
 
   const onGuideLeftBoundary = useCallback(() => {
-    // The preview/details/actions panel is the Guide's only left neighbor.
-    focusGuidePreviewSurface();
-  }, []);
+    // From the left-most channel/logo column, another Left enters the drawer.
+    // Do not focus the preview rail first: group navigation is the Guide's
+    // deterministic left boundary and the active group receives drawer focus.
+    if (!drawerOpen && !activeProgram) openDrawer();
+  }, [activeProgram, drawerOpen, openDrawer]);
 
   // One-shot Search/Health jump — apply on focus/mount only.
   useFocusEffect(
@@ -988,8 +979,8 @@ export default function PurpleGuideScreen() {
                   reminderKeys={gridReminderKeys}
                   resetToken={resetToken}
                   active={isFocused && !activeProgram && !drawerOpen}
-                  // Preview is the native Left neighbor; the closed drawer has
-                  // no mounted focus tree and therefore needs no self-lock.
+                  // Left from the channel boundary opens the drawer; keep the
+                  // row edge unlocked so the boundary callback owns navigation.
                   lockLeftEdge={false}
                   restoreChannelId={guideSessionChannelId}
                   focusClaimNonce={focusClaimNonce}
@@ -1019,8 +1010,8 @@ export default function PurpleGuideScreen() {
                   reminderKeys={gridReminderKeys}
                   resetToken={resetToken}
                   active={isFocused && !activeProgram && !drawerOpen}
-                  // Preview is the native Left neighbor; the closed drawer has
-                  // no mounted focus tree and therefore needs no self-lock.
+                  // Left from the channel boundary opens the drawer; keep the
+                  // row edge unlocked so the boundary callback owns navigation.
                   lockLeftEdge={false}
                   restoreChannelId={guideSessionChannelId}
                   focusClaimNonce={focusClaimNonce}
@@ -1029,7 +1020,6 @@ export default function PurpleGuideScreen() {
                   onLeftBoundary={onGuideLeftBoundary}
                   onFocusedRowChange={onFocusedGuideRow}
                   onViewportChannelIds={onViewportChannelIds}
-                  onBackTargetChange={onGuideBackTarget}
                   reduceMotion={instantGuide}
                 />
               )}
