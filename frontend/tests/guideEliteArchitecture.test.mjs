@@ -40,7 +40,7 @@ test("extra compact density fits thinner rows and one-line names", () => {
   assert.equal(metrics.channelNameMaxLines, 1);
 });
 
-test("native focus graph avoids dead tap events and wires every preview action", async () => {
+test("native focus graph routes Guide left boundary to the groups drawer", async () => {
   const [activity, preview, guide, timeline, shell, focusLock] = await Promise.all([
     readFile(join(root, "android/app/src/main/java/com/charmiptv/app/MainActivity.kt"), "utf8"),
     readFile(join(root, "src/components/GuidePreviewRail.tsx"), "utf8"),
@@ -58,12 +58,13 @@ test("native focus graph avoids dead tap events and wires every preview action",
   assert.match(guide, /lockLeftEdge=\{false\}/);
   assert.match(guide, /focusClaimNonce/);
   assert.match(guide, /openDrawer\(\{ focusTop: true \}\)/);
+  assert.match(guide, /const onGuideLeftBoundary/);
+  assert.match(guide, /if \(!drawerOpen && !activeProgram\) openDrawer\(\)/);
   assert.doesNotMatch(guide, /guide-more-groups-overlay/);
   assert.match(guide, /type PurpleGuideGroup/);
   assert.match(guide, /guide-pin-overlay/);
   assert.match(guide, /trapFocusUp trapFocusDown trapFocusLeft trapFocusRight/);
-  assert.match(guide, /pointerEvents="none"/);
-  assert.doesNotMatch(guide, /pointerEvents=\{drawerOpen \? "auto" : "none"\}/);
+  assert.match(guide, /active=\{isFocused && !activeProgram && !drawerOpen\}/);
   assert.match(guide, /clearStreamFailure\(channel\.id\)/);
   // Drawer-close reclaim is nonce-only — no parallel focusGuideSurface race.
   assert.match(guide, /setFocusClaimNonce\(\(value\) => value \+ 1\)/);
