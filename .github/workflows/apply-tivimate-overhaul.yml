@@ -18,8 +18,8 @@ jobs:
         with:
           ref: agent/tivimate-architecture-overhaul
           fetch-depth: 0
-      - name: Move M3U ingestion to native streaming parser
-        run: python ci/patch-native-playlist.py
+      - name: Apply TiViMate-style logo priority and cache handling
+        run: python ci/patch-logo-pipeline.py
       - name: Commit patch results
         shell: bash
         run: |
@@ -29,8 +29,11 @@ jobs:
           fi
           git config user.name "Charm Architecture Bot"
           git config user.email "actions@users.noreply.github.com"
-          git add frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt \
-                  frontend/src/nativeEpg.ts \
-                  frontend/src/source.native.ts
-          git commit -m "refactor(playlist): stream M3U parsing natively"
+          git add frontend/src/api.ts \
+                  frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt \
+                  frontend/src/core/epgMatching.ts \
+                  frontend/src/source.native.ts \
+                  frontend/src/components/ChannelLogo.tsx \
+                  frontend/app/'(tabs)'/settings.tsx
+          git commit -m "refactor(logos): retain sources and add bounded memory cache"
           git push origin HEAD:agent/tivimate-architecture-overhaul
