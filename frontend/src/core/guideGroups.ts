@@ -4,7 +4,6 @@ import type { Channel } from "@/src/api";
 export const SYSTEM_GROUPS = [
   "All",
   "Favorites",
-  "Recently Watched",
 ] as const;
 
 export const SMART_GROUPS = [

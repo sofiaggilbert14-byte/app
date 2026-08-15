@@ -760,15 +760,6 @@ export default function SettingsScreen() {
                 />
                 <View style={styles.divider} />
                 <Text style={styles.settingLabel}>Guide preview</Text>
-                <ChoiceRow<"horizontal" | "vertical">
-                  label="Group layout"
-                  value={guideUi.groupLayout}
-                  options={[
-                    { label: "Horizontal", value: "horizontal" },
-                    { label: "Vertical", value: "vertical" },
-                  ]}
-                  onChange={guideUi.setGroupLayout}
-                />
                 <ToggleRow label="Mute preview by default" value={guideUi.mutePreview} onChange={guideUi.setMutePreview} />
                 <ToggleRow label="Hide preview by default" value={guideUi.hidePreview} onChange={guideUi.setHidePreview} />
               </SettingsCard>

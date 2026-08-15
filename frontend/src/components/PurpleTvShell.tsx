@@ -4,6 +4,7 @@ import {
   BackHandler,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -53,6 +54,15 @@ export type PurpleContextAction = {
   icon: React.ComponentProps<typeof Ionicons>["name"];
   onPress: () => void;
   testID?: string;
+};
+
+export type PurpleGuideGroup = {
+  name: string;
+  count?: number;
+  active?: boolean;
+  pinned?: boolean;
+  onPress: () => void;
+  onLongPress?: () => void;
 };
 
 export type PurpleRecentChannel = {
@@ -174,6 +184,7 @@ export function PurpleTvShell({
   contentStyle,
   footerAction,
   contextActions,
+  guideGroups,
   watchingChannelId,
   recentChannels,
   onRecentPress,
@@ -184,6 +195,7 @@ export function PurpleTvShell({
   contentStyle?: any;
   footerAction?: FooterAction;
   contextActions?: PurpleContextAction[];
+  guideGroups?: PurpleGuideGroup[];
   watchingChannelId?: string | null;
   recentChannels?: PurpleRecentChannel[];
   onRecentPress?: (channelId: string) => void;
@@ -205,6 +217,7 @@ export function PurpleTvShell({
     return combineTvEdgeInsets(safe, calibration);
   }, [calibration, deviceLayoutMode, height, width]);
   const navRefs = useRef(new Map<Route, unknown>());
+  const guideGroupRefs = useRef(new Map<string, unknown>());
   const isWatching = !!watchingChannelId;
   const recentStrip = useMemo(
     () => (recentChannels ?? []).slice(0, 5),
@@ -235,7 +248,13 @@ export function PurpleTvShell({
     }
 
     setContentAutoFocus(false);
-    const preferredRoute: Route = focusDrawerTop ? NAV[0].route : active;
+    const preferredGuideGroup =
+      !focusDrawerTop && active === "/guide" ? guideGroups?.find((item) => item.active) : undefined;
+    const preferredRoute: Route | null = preferredGuideGroup
+      ? null
+      : focusDrawerTop
+        ? NAV[0].route
+        : active;
     if (focusDrawerTop) consumeFocusDrawerTop();
     setDrawerPreferredRoute(preferredRoute);
     setDrawerAutoFocus(true);
@@ -243,15 +262,20 @@ export function PurpleTvShell({
       setDrawerAutoFocus(false);
       setDrawerPreferredRoute(null);
     }, 700);
+    const preferredNode = preferredGuideGroup
+      ? guideGroupRefs.current.get(preferredGuideGroup.name)
+      : preferredRoute
+        ? navRefs.current.get(preferredRoute)
+        : null;
     const cancelFocus = requestNativeFocusWithRetry(
-      navRefs.current.get(preferredRoute),
+      preferredNode,
       [0, PURPLE_DRAWER_ANIMATION_MS, 280, 420, 650],
     );
     return () => {
       clearTimeout(clearPreferred);
       cancelFocus?.();
     };
-  }, [active, activeProgram, consumeFocusDrawerTop, drawerOpen, focusDrawerTop]);
+  }, [active, activeProgram, consumeFocusDrawerTop, drawerOpen, focusDrawerTop, guideGroups]);
 
   const reopenArmedAtRef = useRef(0);
 
@@ -374,6 +398,43 @@ export function PurpleTvShell({
                   </Text>
                 </Pressable>
               ))}
+            </View>
+          ) : null}
+          {active === "/guide" && guideGroups?.length ? (
+            <View style={styles.guideGroupSection}>
+              <Text style={styles.guideGroupLabel}>Groups</Text>
+              <ScrollView
+                style={styles.guideGroupList}
+                contentContainerStyle={styles.guideGroupListContent}
+                showsVerticalScrollIndicator={false}
+              >
+                {guideGroups.map((item) => (
+                  <Pressable
+                    key={item.name}
+                    ref={(node) => {
+                      if (node) guideGroupRefs.current.set(item.name, node);
+                      else guideGroupRefs.current.delete(item.name);
+                    }}
+                    focusable={drawerOpen}
+                    hasTVPreferredFocus={drawerAutoFocus && drawerPreferredRoute === null && !!item.active}
+                    onPress={item.onPress}
+                    onLongPress={item.onLongPress}
+                    delayLongPress={420}
+                    style={({ focused }: any) => [
+                      styles.guideGroupRow,
+                      item.active && styles.guideGroupRowActive,
+                      item.pinned && styles.guideGroupRowPinned,
+                      focused && styles.navRowFocused,
+                    ]}
+                    testID={`purple-guide-group-${item.name.toLowerCase().replace(/\s+/g, "-")}`}
+                  >
+                    <Text numberOfLines={1} style={[styles.guideGroupText, item.active && styles.guideGroupTextActive]}>
+                      {item.name}
+                    </Text>
+                    {item.count ? <Text style={styles.guideGroupCount}>{item.count}</Text> : null}
+                  </Pressable>
+                ))}
+              </ScrollView>
             </View>
           ) : null}
           {recentStrip.length > 0 ? (
@@ -575,6 +636,39 @@ const styles = StyleSheet.create({
     fontSize: 10,
     flex: 1,
   },
+  guideGroupSection: {
+    maxHeight: "38%",
+    marginBottom: 8,
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: tvColors.line,
+  },
+  guideGroupLabel: {
+    color: tvColors.textMuted,
+    fontFamily: fonts.semibold,
+    fontSize: 8,
+    letterSpacing: 0.6,
+    paddingHorizontal: 6,
+    paddingBottom: 4,
+    textTransform: "uppercase",
+  },
+  guideGroupList: { maxHeight: 190 },
+  guideGroupListContent: { gap: 2 },
+  guideGroupRow: {
+    minHeight: 30,
+    borderRadius: radius.sm,
+    borderWidth: 2,
+    borderColor: "transparent",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 9,
+  },
+  guideGroupRowActive: { backgroundColor: tvColors.purple },
+  guideGroupRowPinned: { borderLeftColor: tvColors.purpleBright },
+  guideGroupText: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 10, flex: 1 },
+  guideGroupTextActive: { color: "#fff", fontFamily: fonts.semibold },
+  guideGroupCount: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 8 },
   recentStrip: {
     marginBottom: 8,
     paddingBottom: 6,
