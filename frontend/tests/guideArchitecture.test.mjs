@@ -26,19 +26,26 @@ test("ProgramModal owns reminder toggling and Guide preview opens My Reminders",
   assert.doesNotMatch(preview, /clock24h|onInfo|onRemind/);
 });
 
-test("guide is a fixed left details panel plus right grid without drawer extras", async () => {
-  const [guide, shell] = await Promise.all([
+test("guide uses a top preview/actions/details strip above the full-width grid", async () => {
+  const [guide, shell, preview] = await Promise.all([
     source("app/(tabs)/guide.tsx"),
     source("src/components/PurpleTvShell.tsx"),
+    source("src/components/GuidePreviewRail.tsx"),
   ]);
   const railPosition = guide.indexOf("<GuidePreviewRail");
   const gridPosition = guide.indexOf("<TimelineGrid");
   assert.ok(railPosition >= 0 && gridPosition > railPosition);
-  assert.match(guide, /const detailsRailWidth = useMemo/);
-  assert.match(guide, /flex: 1/);
+  assert.match(guide, /const guideTopPanelWidth = useMemo/);
+  assert.match(preview, /styles\.previewColumn/);
+  assert.match(preview, /styles\.actionGrid/);
+  assert.match(preview, /styles\.copy/);
+  assert.match(preview, /styles\.actionColumn/);
+  assert.doesNotMatch(guide, /const detailsRailWidth = useMemo/);
   assert.doesNotMatch(guide, /NowPlayingBar|guide-now-playing/);
   assert.doesNotMatch(guide, /footerAction|purple-guide-reset/);
-  assert.match(shell, /recentChannels|recentStrip|focusable=\{drawerOpen\}/);
+  assert.match(shell, /PRIMARY_NAV|SECONDARY_NAV/);
+  assert.match(shell, /purple-nav-bounded-sections/);
+  assert.match(shell, /purple-nav-pinned-footer/);
 });
 
 test("focus metadata is immediate while decoder tune stays delayed and restores by channel id", async () => {
