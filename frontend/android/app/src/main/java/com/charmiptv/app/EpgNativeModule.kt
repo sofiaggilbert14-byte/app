@@ -29,6 +29,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   // EPG download must never queue getWindow/getCurrent behind it; WAL lets the
   // query executor keep serving the last-good live table until the final swap.
   private val refreshExecutor = Executors.newSingleThreadExecutor()
+  private val playlistExecutor = Executors.newSingleThreadExecutor()
   private val queryExecutor = Executors.newFixedThreadPool(2)
 
   private val currentCacheLock = Any()
@@ -36,6 +37,35 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   @Volatile private var currentCacheValidUntilMs = 0L
 
   override fun getName(): String = "CharmEpg"
+
+  @ReactMethod
+  fun fetchPlaylist(url: String, promise: Promise) {
+    playlistExecutor.execute {
+      try {
+        val parsed = NativePlaylistParser.fetch(url)
+        val channels = Arguments.createArray()
+        for (channel in parsed.channels) {
+          channels.pushMap(Arguments.createMap().apply {
+            putString("id", channel.id)
+            putString("raw_tvg_id", channel.rawTvgId)
+            putString("tvg_id", channel.rawTvgId)
+            putString("name", channel.name)
+            putString("logo", channel.logo)
+            putString("group", channel.group)
+            putString("url", channel.url)
+            putString("stream_type", channel.streamType)
+          })
+        }
+        promise.resolve(Arguments.createMap().apply {
+          putArray("channels", channels)
+          putInt("rejected", parsed.rejected)
+          putBoolean("truncated", parsed.truncated)
+        })
+      } catch (t: Throwable) {
+        promise.reject("PLAYLIST_FETCH_FAILED", t.message ?: "Native playlist refresh failed", t)
+      }
+    }
+  }
 
   @ReactMethod
   fun refresh(url: String, allowNotModified: Boolean, promise: Promise) {
@@ -600,6 +630,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
       currentCacheValidUntilMs = 0L
     }
     refreshExecutor.shutdownNow()
+    playlistExecutor.shutdownNow()
     queryExecutor.shutdownNow()
     database.close()
     super.invalidate()

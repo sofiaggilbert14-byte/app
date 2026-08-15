@@ -3,12 +3,8 @@ import * as FileSystem from "expo-file-system/legacy";
 import type { Channel, GuideResponse, Program, SourceStatus } from "@/src/api";
 import { clearGuidePrograms } from "@/src/core/guideProgramsStore";
 import {
-  enforcePlaylistByteLimit,
-  enforcePlaylistTextLimit,
-  parseM3UWithStats,
-} from "@/src/core/sourceParsing";
-import {
   clearNativeEpg,
+  fetchNativePlaylist,
   loadNativeEpgWindow,
   nativeEpgAvailable,
   nativePlaylistIsCurrent,
@@ -529,21 +525,10 @@ async function fetchPlaylist(): Promise<Channel[]> {
   if (!SOURCE_M3U) {
     throw new Error("Playlist is not configured for this build (missing EXPO_PUBLIC_M3U_URL).");
   }
-  const response = await fetch(https(SOURCE_M3U), {
-    headers: { "User-Agent": "CharmIPTV/Experimental-v3" },
-  });
-  if (!response.ok) throw new Error(`M3U HTTP ${response.status}`);
-  const contentLength = Number(response.headers.get("content-length") || "");
-  if (Number.isFinite(contentLength) && contentLength > 0) {
-    enforcePlaylistByteLimit(contentLength);
-  }
-  const text = await response.text();
-  enforcePlaylistTextLimit(text);
-  const { channels } = parseM3UWithStats(text, (url) => url, (ratio) => {
-    setProgress({ phase: "channels", ratio: 0.05 + ratio * 0.12, etaSeconds: null });
-  });
-  const sorted = sortChannels(channels);
-  // Empty / unusable refresh must not wipe a last-good on-disk list (refreshInternal catch).
+  setProgress({ phase: "channels", ratio: 0.06, etaSeconds: null });
+  const parsed = await fetchNativePlaylist(https(SOURCE_M3U));
+  setProgress({ phase: "channels", ratio: 0.17, etaSeconds: null });
+  const sorted = sortChannels(Array.isArray(parsed.channels) ? parsed.channels : []);
   if (!sorted.length) throw new Error("Playlist contained no playable channels");
   return sorted;
 }
