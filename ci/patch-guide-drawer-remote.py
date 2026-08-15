@@ -33,10 +33,10 @@ path.write_text(text)
 # Extend architecture verification so this behavior cannot regress quietly.
 path = Path("frontend/scripts/verify-overhaul-architecture.mjs")
 text = path.read_text()
-anchor = 'const guide = read("app/(tabs)/guide.tsx");\n'
-if anchor not in text:
-    raise SystemExit("architecture guide anchor not found")
-checks = '''\nassert(guide.includes("one Back opens the group/navigation drawer immediately"), "Guide must keep single-Back drawer behavior");\nassert(guide.includes("another Left enters the drawer"), "Guide left boundary must enter drawer");\nassert(!guide.includes("onBackTargetChange={onGuideBackTarget}"), "obsolete Guide Back target tracking must stay removed");\nassert(!guide.includes("focusGuidePreviewSurface();"), "Guide left boundary must not detour through preview rail");\n'''
-if 'Guide must keep single-Back drawer behavior' not in text:
-    text = text.replace(anchor, anchor + checks, 1)
+checks = '''\n// Guide remote navigation must expose the drawer predictably.\nrequireText("app/(tabs)/guide.tsx", "one Back opens the group/navigation drawer immediately", "Guide single-Back drawer behavior is missing");\nrequireText("app/(tabs)/guide.tsx", "another Left enters the drawer", "Guide left boundary no longer enters the drawer");\nforbidText("app/(tabs)/guide.tsx", "onBackTargetChange={onGuideBackTarget}", "obsolete Guide Back-target tracking returned");\nforbidText("app/(tabs)/guide.tsx", "focusGuidePreviewSurface();", "Guide left boundary detours through preview rail again");\n'''
+if 'Guide single-Back drawer behavior is missing' not in text:
+    marker = '\nconsole.log("TiViMate architecture-overhaul conflict scan passed.");\n'
+    if marker not in text:
+        raise SystemExit("architecture verifier console marker not found")
+    text = text.replace(marker, checks + marker, 1)
 path.write_text(text)
