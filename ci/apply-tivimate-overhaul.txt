@@ -1,1 +1,1 @@
-apply=remote-memory-2026-08-15
+apply=remote-settings-2026-08-15
