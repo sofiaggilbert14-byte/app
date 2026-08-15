@@ -98,9 +98,9 @@ function windowToPrograms(window: NativeWindow, channelIds: string[]): Record<st
 
 export async function refreshNativeEpg(url: string, allowNotModified: boolean): Promise<NativeRefreshResult> {
   if (!nativeModule) throw new Error("Native EPG engine is unavailable");
-  // The shared parse handoff remains pending until JS publishes matches for the
-  // same guide epoch. A Guide query can then warm RAM without pairing new
-  // programmes with stale playlist mappings.
+  // Refresh publishes the finalized feed to authoritative SQLite. The Guide
+  // later reads only its bounded runway, so this call must not queue a second
+  // all-channel native-RAM copy.
   return nativeModule.refresh(url, allowNotModified);
 }
 
@@ -122,15 +122,15 @@ export async function loadNativeEpgWindow(
   const uniqueIds = Array.from(new Set(channelIds.filter(Boolean)));
   if (!uniqueIds.length) return {};
 
-  if (ramModule) {
-    const ramWindow = await ramModule.getWindow(startMs, endMs, uniqueIds);
-    if (ramWindow) return windowToPrograms(ramWindow, uniqueIds);
-  }
   const window = await nativeModule.getWindow(startMs, endMs, uniqueIds);
   return windowToPrograms(window, uniqueIds);
 }
 
-/** Joined guide window keyed by playlist channel id. RAM is preferred; SQLite is fallback. */
+/**
+ * Joined guide window keyed by playlist channel id. The UI owns a strict 7/7
+ * sliding RAM runway, so read that bounded set directly from indexed SQLite
+ * instead of warming a duplicate all-channel native object graph.
+ */
 export async function queryNativeGuideWindow(
   playlistChannelIds: string[],
   startMs: number,
@@ -140,10 +140,6 @@ export async function queryNativeGuideWindow(
   const uniqueIds = Array.from(new Set(playlistChannelIds.filter(Boolean)));
   if (!uniqueIds.length) return {};
 
-  if (ramModule) {
-    const ramWindow = await ramModule.queryGuideWindow(startMs, endMs, uniqueIds);
-    if (ramWindow) return windowToPrograms(ramWindow, uniqueIds);
-  }
   if (typeof nativeModule.queryGuideWindow === "function") {
     const window = await nativeModule.queryGuideWindow(startMs, endMs, uniqueIds);
     return windowToPrograms(window, uniqueIds);

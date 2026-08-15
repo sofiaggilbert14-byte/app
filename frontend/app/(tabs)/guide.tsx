@@ -25,8 +25,15 @@ import { GuidePreviewRail } from "@/src/components/GuidePreviewRail";
 import { EpgProgressBar } from "@/src/components/EpgProgressBar";
 import { Channel, Program } from "@/src/api";
 import { useStore } from "@/src/store";
+import { setPriorityMatchChannelIds, setViewportGuideChannelIds } from "@/src/source";
 import { markGuideSurfing } from "@/src/utils/guideSurfGate";
 import { useGuidePrograms } from "@/src/core/guideProgramsStore";
+import { getGuideRailMetrics } from "@/src/core/guideLayoutPolicy";
+import { buildGuideRunwayIds } from "@/src/core/guideRunwayPolicy";
+import {
+  buildChannelIndexMap,
+  expandRunwayKeepSet,
+} from "@/src/core/guideSlidingCache";
 import {
   resetGuideSelection,
   setGuideFocusedProgram,
@@ -247,7 +254,7 @@ export default function PurpleGuideScreen() {
   const router = useRouter();
   const isFocused = useIsFocused();
   const { drawerOpen, openDrawer } = usePurpleTvDrawer();
-  const { width: screenWidth } = useWindowDimensions();
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   useFocusEffect(
     useCallback(() => {
       setGuideNavigationActive(true);
@@ -264,6 +271,7 @@ export default function PurpleGuideScreen() {
     refreshing,
     error,
     hardRefresh,
+    patchProgramsForChannelIds,
     addRecent,
     openProgram,
     activeProgram,
@@ -283,6 +291,8 @@ export default function PurpleGuideScreen() {
     logosOffWhileSurfing,
     instantGuide,
     epgGuideFilter,
+    retainGuideSlidingCache,
+    releaseGuideSlidingCache,
   } = useStore();
 
   const {
@@ -334,6 +344,13 @@ export default function PurpleGuideScreen() {
   const previousDrawerOpenRef = useRef(drawerOpen);
   const headerTitleProgress = useRef(new Animated.Value(drawerOpen ? 1 : 0)).current;
   const groupSlideX = useRef(new Animated.Value(0)).current;
+  const orderedFilteredIdsRef = useRef<string[]>([]);
+  const filteredIdIndexRef = useRef<Map<string, number>>(new Map());
+  const lastRunwayRef = useRef<{ ids: string[]; priority: string[]; pageSize: number }>({
+    ids: [],
+    priority: [],
+    pageSize: 8,
+  });
   const [previewEpoch, setPreviewEpoch] = useState(0);
   useEffect(() => {
     resetGuideSelection(guideSessionChannelId);
@@ -469,6 +486,19 @@ export default function PurpleGuideScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      // Returning from fullscreen restores the most recent bounded runway
+      // before the first repeated D-pad event arrives.
+      const last = lastRunwayRef.current;
+      if (last.ids.length) {
+        setViewportGuideChannelIds(last.ids);
+        setPriorityMatchChannelIds(
+          channels.length >= 400
+            ? Array.from(new Set([...last.priority, ...last.ids])).slice(0, 400)
+            : [],
+        );
+        retainGuideSlidingCache(last.ids);
+        void patchProgramsForChannelIds(last.ids, last.priority);
+      }
       return () => {
         if (previewTimer.current) {
           clearTimeout(previewTimer.current);
@@ -482,12 +512,14 @@ export default function PurpleGuideScreen() {
           clearTimeout(surfReleaseTimer.current);
           surfReleaseTimer.current = null;
         }
-        // A real route blur must unmount preview playback. The complete guide
-        // 12-hour all-channel snapshot remains resident unless Android reports
-        // critical memory pressure.
+        // A real route blur unmounts playback and strictly releases programme
+        // rows outside the small focus-centred return runway.
         setPreviewId(null);
+        setViewportGuideChannelIds(null);
+        setPriorityMatchChannelIds([]);
+        releaseGuideSlidingCache();
       };
-    }, []),
+    }, [channels.length, patchProgramsForChannelIds, releaseGuideSlidingCache, retainGuideSlidingCache]),
   );
 
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
@@ -543,6 +575,87 @@ export default function PurpleGuideScreen() {
 
   // Keep the complete selected group identity stable.
   const filtered = filteredMeta;
+
+  const orderedFilteredIds = useMemo(
+    () => filtered.map((channel) => channel.id).filter(Boolean),
+    [filtered],
+  );
+  const filteredIdIndex = useMemo(
+    () => buildChannelIndexMap(orderedFilteredIds),
+    [orderedFilteredIds],
+  );
+  orderedFilteredIdsRef.current = orderedFilteredIds;
+  filteredIdIndexRef.current = filteredIdIndex;
+
+  const onViewportChannelIds = useCallback((ids: string[], priorityIds: string[] = [], pageSize = 8) => {
+    // TimelineGrid/BoxGrid already return the exact current page plus seven
+    // pages in both directions. This same set is fetched and retained; no
+    // all-channel programme snapshot survives behind the visible conveyor.
+    const runway = Array.from(new Set(ids.filter(Boolean)));
+    lastRunwayRef.current = { ids: runway, priority: priorityIds, pageSize };
+    setViewportGuideChannelIds(runway);
+    setPriorityMatchChannelIds(
+      channels.length >= 400
+        ? Array.from(new Set([...priorityIds, ...runway])).slice(0, 400)
+        : [],
+    );
+    retainGuideSlidingCache(
+      expandRunwayKeepSet(orderedFilteredIds, runway, pageSize, 0, filteredIdIndex),
+    );
+    void patchProgramsForChannelIds(runway, priorityIds);
+  }, [
+    channels.length,
+    filteredIdIndex,
+    orderedFilteredIds,
+    patchProgramsForChannelIds,
+    retainGuideSlidingCache,
+  ]);
+
+  const viewportSeedKeyRef = useRef("");
+  useEffect(() => {
+    if (!isFocused || !filtered.length) return;
+    const key = `${group}:${resetToken}:${powerProfile}`;
+    if (viewportSeedKeyRef.current === key) return;
+    viewportSeedKeyRef.current = key;
+    const rowHeight = getGuideRailMetrics(
+      screenWidth,
+      guideDensity,
+      channelNumbers,
+      channelLogos,
+    ).rowHeight;
+    const visibleRows = Math.max(6, Math.min(24, Math.ceil(screenHeight / rowHeight)));
+    const ids = buildGuideRunwayIds(filtered, 0, visibleRows, 1, powerProfile);
+    const priority = [ids[0], ids[1], ids[2], ...ids.slice(0, visibleRows)].filter(
+      (id): id is string => !!id,
+    );
+    lastRunwayRef.current = { ids, priority, pageSize: visibleRows };
+    setViewportGuideChannelIds(ids);
+    setPriorityMatchChannelIds(
+      channels.length >= 400
+        ? Array.from(new Set([...priority, ...ids])).slice(0, 400)
+        : [],
+    );
+    retainGuideSlidingCache(
+      expandRunwayKeepSet(orderedFilteredIds, ids, visibleRows, 0, filteredIdIndex),
+    );
+    void patchProgramsForChannelIds(ids, priority);
+  }, [
+    channelLogos,
+    channelNumbers,
+    channels.length,
+    filtered,
+    filteredIdIndex,
+    group,
+    guideDensity,
+    isFocused,
+    orderedFilteredIds,
+    patchProgramsForChannelIds,
+    powerProfile,
+    retainGuideSlidingCache,
+    resetToken,
+    screenHeight,
+    screenWidth,
+  ]);
 
   const onChannelLongPress = useCallback(
     (channel: Channel) => {
@@ -1020,6 +1133,7 @@ export default function PurpleGuideScreen() {
                   onUpBoundary={onGuideUpBoundary}
                   onLeftBoundary={onGuideLeftBoundary}
                   onFocusedRowChange={onFocusedGuideRow}
+                  onViewportChannelIds={onViewportChannelIds}
                 />
               ) : (
                 <TimelineGrid
@@ -1050,6 +1164,7 @@ export default function PurpleGuideScreen() {
                   onUpBoundary={onGuideUpBoundary}
                   onLeftBoundary={onGuideLeftBoundary}
                   onFocusedRowChange={onFocusedGuideRow}
+                  onViewportChannelIds={onViewportChannelIds}
                   reduceMotion={instantGuide}
                 />
               )}

@@ -5,14 +5,16 @@ import { storage } from "@/src/utils/storage";
 import { Channel, Program } from "@/src/api";
 import {
   loadGuide,
+  loadGuideProgramsForChannelIds,
   refreshEpgOnly,
   refreshEpgIfDue,
   refreshSource,
-  releaseGuideProgrammeMemory,
+  retainProgrammeWindowCache,
   setManualEpgRemaps,
   setEpgRefreshIntervalHours,
   setPreferTvgIdOnlyMatching,
   setProgrammeWindowCacheLimit,
+  trimProgrammeWindowCacheForMemoryPressure,
   subscribeSource,
 } from "@/src/source";
 import { isGuideSurfing, onGuideSurfSettled } from "@/src/utils/guideSurfGate";
@@ -20,8 +22,12 @@ import {
   applyGuidePrograms,
   getGuidePrograms,
   makeGuideProgramWindowKey,
+  retainGuidePrograms,
   setGuideProgramRowLimit,
+  trimGuideProgramRows,
 } from "@/src/core/guideProgramsStore";
+import { pickKeepIdsAroundFocus } from "@/src/core/guideSlidingCache";
+import { buildGuidePatchTiers, keepUsefulGuidePatch } from "@/src/core/guidePatchPolicy";
 import { reminderKey, setTimeFormat24h } from "@/src/utils/time";
 import { subscribeAndroidMemoryPressure } from "@/src/utils/androidMemoryPressure";
 import { clearChannelLogoMemory } from "@/src/components/ChannelLogo";
@@ -30,6 +36,11 @@ import { pushRecentId, sanitizeRecentIds } from "@/src/utils/recentIds";
 import { sanitizeReminders } from "@/src/utils/reminderIds";
 import { remapStoredChannelIds } from "@/src/utils/channelIdentityMigrate";
 import { getPowerProfileTuning, resolvePowerProfile, type PowerProfile } from "@/src/core/devicePowerProfile";
+import {
+  DEFAULT_GUIDE_WINDOW_HOURS as GUIDE_WINDOW_DEFAULT,
+  resolveGuideWindowHours,
+  type GuideWindowHours,
+} from "@/src/core/guideWindowPolicy";
 import { resolveStoredGuideLayout } from "@/src/core/guideLayoutDefault";
 import { applyManualEpgRemaps, resolveEpgGuideFilter, sanitizeEpgManualRemap, type EpgGuideFilter } from "@/src/core/epgUserOverrides";
 import {
@@ -74,16 +85,10 @@ const START_SCREEN_KEY = "gs_start_screen";
 const SLEEP_TIMER_MINUTES_KEY = "gs_sleep_timer_minutes";
 const INSTANT_GUIDE_KEY = "gs_instant_guide";
 
-const DEFAULT_GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 6);
-
-function readGuideWindowHours(value: string | number | null | undefined, fallback: GuideWindowHours): GuideWindowHours {
-  const n = Number(value || fallback);
-  if (n === 6 || n === 8 || n === 12) return n;
-  // Migrate the previous 24-hour choice without making an existing install
-  // fall back to the much narrower default.
-  if (n === 24) return 12;
-  return fallback;
-}
+const DEFAULT_GUIDE_WINDOW_HOURS = resolveGuideWindowHours(
+  process.env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS,
+  GUIDE_WINDOW_DEFAULT,
+);
 
 function resolveStartScreen(value: string | null | undefined): StartScreen {
   if (value === "guide" || value === "last_channel" || value === "home") return value;
@@ -101,11 +106,10 @@ export type GuideDensity = "large" | "normal" | "compact" | "extra_compact";
 export type SafePreviewMode = "on" | "delayed" | "surf" | "off";
 export type DeviceLayoutMode = "auto" | "tv" | "mobile";
 export type PlayerControlsTimeoutMs = 8000 | 15000 | 30000 | 60000;
-export type GuideWindowHours = 6 | 8 | 12;
 export type EpgRefreshIntervalHours = number;
 export type StartScreen = "home" | "guide" | "last_channel";
 export type SleepTimerMinutes = 0 | 15 | 30 | 60 | 90;
-export type { EpgGuideFilter, FavoriteFolder, PowerProfile };
+export type { EpgGuideFilter, FavoriteFolder, GuideWindowHours, PowerProfile };
 
 export type Reminder = {
   key: string;
@@ -134,7 +138,7 @@ export type Store = {
   hardRefresh: () => Promise<void>;
   /** Fetch/attach programmes for a viewport ring without a full guide rebuild. */
   patchProgramsForChannelIds: (channelIds: string[], priorityIds?: string[]) => Promise<void>;
-  /** Conveyor-belt eviction — keep only the hysteresis band around the runway. */
+  /** Conveyor-belt eviction — keep only the exact seven-page runway. */
   retainGuideSlidingCache: (keepIds: Iterable<string>) => void;
   /** Release off-screen Guide rows before fullscreen playback keeps decoders alive. */
   releaseGuideSlidingCache: () => void;
@@ -233,11 +237,22 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const refreshRequestRef = useRef(0);
   const refreshSilentRef = useRef<(silent?: boolean) => Promise<void>>(async () => undefined);
   const pendingSilentRefreshRef = useRef(false);
+  const patchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const patchInFlightRef = useRef(false);
+  const pendingPatchIdsRef = useRef(new Set<string>());
+  const pendingPatchPriorityIdsRef = useRef<string[]>([]);
+  const lastPatchRunwayIdsRef = useRef<string[]>([]);
+  /** Exact seven-page conveyor keep set. */
+  const lastKeepIdsRef = useRef<string[]>([]);
+  const windowStartRef = useRef("");
+  const windowEndRef = useRef("");
   const guideEpochRef = useRef(0);
 
   const [favorites, setFavorites] = useState<string[]>([]);
   const [recentIds, setRecentIds] = useState<string[]>([]);
   const [lastChannelId, setLastChannelId] = useState<string | null>(null);
+  const lastChannelIdRef = useRef<string | null>(null);
+  lastChannelIdRef.current = lastChannelId;
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const remindersRef = useRef<Reminder[]>([]);
   const reminderDesiredStateRef = useRef(new Map<string, boolean>());
@@ -264,15 +279,40 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [logosOffWhileSurfing, setLogosOffWhileSurfingState] = useState(getPowerProfileTuning("normal").logosOffWhileSurfingDefault);
   const [instantGuide, setInstantGuideState] = useState(true);
   useEffect(() => {
-    const limit = 20_000;
+    const limit = getPowerProfileTuning(powerProfile).programmeRowCacheLimit;
     setGuideProgramRowLimit(limit);
     setProgrammeWindowCacheLimit(limit);
   }, [powerProfile]);
   useEffect(
     () => subscribeAndroidMemoryPressure((pressure) => {
-      // Under critical pressure, release both owners of the same programme
-      // arrays. SQLite and channel metadata remain available for the next load.
-      if (pressure === "critical") void releaseGuideProgrammeMemory();
+      const critical = pressure === "critical";
+      // Mounted Guide rows are protected by subscriptions; SQLite/user data are
+      // never touched by Android memory-pressure cleanup. Prefer the expanded
+      // hysteresis keep set (focus-centered) over the raw runway head.
+      const source = lastKeepIdsRef.current.length
+        ? lastKeepIdsRef.current
+        : lastPatchRunwayIdsRef.current;
+      const keepLimit = critical
+        ? powerProfile === "weak" ? 8 : powerProfile === "max_preview" ? 16 : 12
+        : powerProfile === "weak" ? 16 : powerProfile === "max_preview" ? 48 : 32;
+      const keep = pickKeepIdsAroundFocus(source, keepLimit, lastChannelIdRef.current);
+      if (critical) {
+        // Replace both source runways before strict eviction. An in-flight SQL
+        // result is filtered against these refs when it returns, so it cannot
+        // repopulate the larger pre-pressure window.
+        lastPatchRunwayIdsRef.current = keep;
+        lastKeepIdsRef.current = keep;
+        pendingPatchIdsRef.current.clear();
+        pendingPatchPriorityIdsRef.current = [];
+        if (patchTimerRef.current) {
+          clearTimeout(patchTimerRef.current);
+          patchTimerRef.current = null;
+        }
+        retainGuidePrograms(keep, { force: true });
+        retainProgrammeWindowCache(keep);
+      }
+      trimGuideProgramRows(keep, critical);
+      trimProgrammeWindowCacheForMemoryPressure(keep, critical);
       clearChannelLogoMemory();
     }),
     [powerProfile],
@@ -444,7 +484,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const setGuideWindowHours = useCallback((v: GuideWindowHours) => {
-    const next = readGuideWindowHours(v, DEFAULT_GUIDE_WINDOW_HOURS);
+    const next = resolveGuideWindowHours(v, DEFAULT_GUIDE_WINDOW_HOURS);
     guideWindowHoursRef.current = next;
     setGuideWindowHoursState(next);
     storage.setItem(GUIDE_WINDOW_HOURS_KEY, next);
@@ -671,10 +711,9 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     if (!silent) setLoading(true);
     setError(null);
     try {
-      const day = dayjs(dateRef.current);
-      const isToday = day.isSame(dayjs(), "day");
-      const start = isToday ? undefined : day.startOf("day").toISOString();
-      const data = await loadGuide(start, guideWindowHoursRef.current);
+      // This experiment is intentionally forward-only: every fresh Guide
+      // session begins at the current instant, never at a past calendar day.
+      const data = await loadGuide(undefined, guideWindowHoursRef.current);
       if (requestId !== refreshRequestRef.current) return;
       // A refresh that began just before held D-pad input must never land a
       // whole-guide update under native focus. Keep its data out of React and
@@ -693,11 +732,10 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
                 .filter((channel) => Array.isArray(channel.programs) && channel.programs.length)
                 .map((channel) => [channel.id, channel.programs as Program[]]),
             );
+      windowStartRef.current = data.start;
+      windowEndRef.current = data.end;
       guideEpochRef.current = data.guideEpoch || 0;
-      applyGuidePrograms(
-        data.programSnapshotKey || makeGuideProgramWindowKey(data.start, data.end, guideEpochRef.current),
-        nextPrograms,
-      );
+      applyGuidePrograms(makeGuideProgramWindowKey(data.start, data.end, guideEpochRef.current), nextPrograms);
       setChannels((prev) => {
         if (
           prev.length === nextChannels.length &&
@@ -761,32 +799,143 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
 
   refreshSilentRef.current = refresh;
 
-  const patchProgramsForChannelIds = useCallback(async (channelIds: string[], priorityIds: string[] = []) => {
-    // Kept as a compatibility API for grid callers outside the native build.
-    // Native all-channel delivery never schedules viewport SQL/bridge work.
-    void channelIds;
-    void priorityIds;
+  const flushProgramPatchQueue = useCallback(async () => {
+    if (patchInFlightRef.current || pendingPatchIdsRef.current.size === 0) return;
+    if (!windowStartRef.current || !windowEndRef.current) return;
+
+    patchInFlightRef.current = true;
+    const ids = Array.from(pendingPatchIdsRef.current);
+    const priorityOrder = pendingPatchPriorityIdsRef.current;
+    pendingPatchIdsRef.current.clear();
+    pendingPatchPriorityIdsRef.current = [];
+    const start = windowStartRef.current;
+    const end = windowEndRef.current;
+    const guideEpoch = guideEpochRef.current;
+    try {
+      const applyTier = async (tierIds: string[]) => {
+        if (!tierIds.length) return true;
+        const delta = await loadGuideProgramsForChannelIds(tierIds, start, guideWindowHoursRef.current);
+        // Date/window changed while SQLite was reading. Do not paint an old day.
+        if (start !== windowStartRef.current || end !== windowEndRef.current) return false;
+        // A background guide refresh replaced the native cache while this tier
+        // was reading. Keep last-good rows and enqueue the newest runway again.
+        if (guideEpoch !== guideEpochRef.current) {
+          pendingPatchIdsRef.current.clear();
+          for (const id of lastPatchRunwayIdsRef.current) {
+            if (id) pendingPatchIdsRef.current.add(id);
+          }
+          pendingPatchPriorityIdsRef.current = lastPatchRunwayIdsRef.current.slice(0, 3);
+          return false;
+        }
+        // Focus may advance while SQLite is reading. Keep results that still
+        // belong to the newest bounded keep set instead of discarding the whole
+        // query and repeatedly starting over until the remote is released.
+        const keep = lastKeepIdsRef.current.length
+          ? lastKeepIdsRef.current
+          : lastPatchRunwayIdsRef.current;
+        const usefulDelta = keepUsefulGuidePatch(delta || {}, keep);
+        // Native returns explicit empty arrays too, clearing stale rows without
+        // waiting for the complete runway.
+        if (Object.keys(usefulDelta).length) {
+          applyGuidePrograms(makeGuideProgramWindowKey(start, end, guideEpochRef.current), usefulDelta);
+        }
+        retainGuidePrograms(keep);
+        retainProgrammeWindowCache(keep);
+        return true;
+      };
+      // One leading batch avoids paying a native bridge round-trip for only one
+      // row while still getting the focused page on glass first. Tail chunks
+      // are bounded so a long runway never creates one giant JS allocation.
+      const tiers = buildGuidePatchTiers(ids, priorityOrder, 12, 24);
+      for (const tier of tiers) {
+        if (!(await applyTier(tier))) return;
+        // A newer runway supersedes the old tail. Finish its focused tier next
+        // instead of making held-D-pad input wait behind obsolete bridge work.
+        if (pendingPatchIdsRef.current.size > 0) return;
+      }
+    } catch {
+      /* keep last-good programmes on the glass */
+    } finally {
+      patchInFlightRef.current = false;
+      if (pendingPatchIdsRef.current.size > 0) {
+        if (patchTimerRef.current) clearTimeout(patchTimerRef.current);
+        patchTimerRef.current = setTimeout(() => {
+          patchTimerRef.current = null;
+          void flushProgramPatchQueue();
+        }, isGuideSurfing() ? 24 : 0);
+      }
+    }
   }, []);
+
+  const patchProgramsForChannelIds = useCallback(async (channelIds: string[], priorityIds: string[] = []) => {
+    // Each call is the complete current page plus seven pages in each direction.
+    // Keep only the newest pending window while SQLite is busy.
+    pendingPatchIdsRef.current.clear();
+    pendingPatchPriorityIdsRef.current = [];
+    lastPatchRunwayIdsRef.current = channelIds.filter(Boolean);
+    for (const id of channelIds) {
+      if (id) pendingPatchIdsRef.current.add(id);
+    }
+    for (const id of priorityIds) {
+      if (
+        id &&
+        pendingPatchIdsRef.current.has(id) &&
+        !pendingPatchPriorityIdsRef.current.includes(id)
+      ) {
+        pendingPatchPriorityIdsRef.current.push(id);
+      }
+    }
+    if (!pendingPatchIdsRef.current.size || patchInFlightRef.current || patchTimerRef.current) return;
+    // Leading-edge work keeps the next rows populated while the key is held.
+    patchTimerRef.current = setTimeout(() => {
+      patchTimerRef.current = null;
+      void flushProgramPatchQueue();
+    }, isGuideSurfing() ? 16 : 32);
+  }, [flushProgramPatchQueue]);
 
   /**
    * Advance the conveyor-belt keep set: drop JS + native programme rows that
-   * left the hysteresis band so held surfing cannot accumulate the playlist.
+   * left the seven-page runway so held surfing cannot accumulate the playlist.
    */
   const retainGuideSlidingCache = useCallback((keepIds: Iterable<string>) => {
-    // All-channel 12-hour delivery keeps every row resident.
-    void keepIds;
+    const keep = Array.from(keepIds).filter(Boolean);
+    if (!keep.length) return;
+    lastKeepIdsRef.current = keep;
+    retainGuidePrograms(keep);
+    retainProgrammeWindowCache(keep);
   }, []);
 
   const releaseGuideSlidingCache = useCallback(() => {
-    // Do not discard the guide when opening fullscreen playback; returning to
-    // Guide must require no runway refill.
+    // Preserve a small warm runway for a fast return to Guide while releasing
+    // the bulk of programme arrays before fullscreen video decoders start.
+    // Cap around lastChannelId — slicing the ascending keep head drops focus.
+    const keepLimit = powerProfile === "weak" ? 24 : powerProfile === "max_preview" ? 72 : 48;
+    const source = lastKeepIdsRef.current.length
+      ? lastKeepIdsRef.current
+      : lastPatchRunwayIdsRef.current;
+    const keep = pickKeepIdsAroundFocus(source, keepLimit, lastChannelId);
+    lastPatchRunwayIdsRef.current = keep;
+    lastKeepIdsRef.current = keep;
+    pendingPatchIdsRef.current.clear();
+    pendingPatchPriorityIdsRef.current = [];
+    if (patchTimerRef.current) {
+      clearTimeout(patchTimerRef.current);
+      patchTimerRef.current = null;
+    }
+    // Strict retain first so blur cannot leave hundreds of off-runway rows warm.
+    // Force empties subscribed off-keep rows — FlashList may still be mounted.
+    retainGuidePrograms(keep, { force: true });
+    retainProgrammeWindowCache(keep);
+    trimGuideProgramRows(keep, true);
+    trimProgrammeWindowCacheForMemoryPressure(keep, true);
     clearChannelLogoMemory();
-  }, []);
+  }, [lastChannelId, powerProfile]);
 
   const setSelectedDate = useCallback(
-    (d: string) => {
-      dateRef.current = d;
-      setSelectedDateState(d);
+    (_d: string) => {
+      const today = dayjs().format("YYYY-MM-DD");
+      dateRef.current = today;
+      setSelectedDateState(today);
       refresh();
     },
     [refresh],
@@ -877,7 +1026,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
         setFavoriteFoldersState(storedFolders);
         if (!foldersSeeded) void storage.setItem(FAVORITE_FOLDERS_SEEDED_KEY, true);
       }
-      const storedGuideWindowHours = readGuideWindowHours(
+      const storedGuideWindowHours = resolveGuideWindowHours(
         await storage.getItem<number>(GUIDE_WINDOW_HOURS_KEY, DEFAULT_GUIDE_WINDOW_HOURS),
         DEFAULT_GUIDE_WINDOW_HOURS,
       );
@@ -955,6 +1104,11 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(
     () => () => {
+      if (patchTimerRef.current) clearTimeout(patchTimerRef.current);
+      pendingPatchIdsRef.current.clear();
+      pendingPatchPriorityIdsRef.current = [];
+      lastPatchRunwayIdsRef.current = [];
+      lastKeepIdsRef.current = [];
       if (favoritesPersistTimer.current) clearTimeout(favoritesPersistTimer.current);
       if (favoritesPendingRef.current) void storage.setItem(FAV_KEY, favoritesPendingRef.current);
       if (recentPersistTimer.current) clearTimeout(recentPersistTimer.current);
@@ -967,8 +1121,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
-  // Schedule one due-time refresh instead of polling the guide every hour. This
-  // leaves no recurring EPG task running after the complete snapshot is loaded.
+  // One due-time wakeup replaces the old hourly poll. Once the Guide is loaded,
+  // no recurring EPG timer keeps touching cache or memory in the background.
   const busyRef = useRef(false);
   useEffect(() => {
     busyRef.current = loading || refreshing;

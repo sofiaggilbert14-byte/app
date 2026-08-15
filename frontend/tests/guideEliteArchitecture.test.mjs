@@ -88,20 +88,21 @@ test("native focus graph avoids dead tap events and wires every preview action",
   assert.doesNotMatch(shell, /purple-icon-rail|ICON_RAIL/);
 });
 
-test("grids virtualize rendering while EPG data remains a complete snapshot", async () => {
+test("grids virtualize rendering while EPG data follows a bounded sliding runway", async () => {
   const [store, timeline, box, guide] = await Promise.all([
     readFile(join(root, "src/store.tsx"), "utf8"),
     readFile(join(root, "src/components/TimelineGrid.tsx"), "utf8"),
     readFile(join(root, "src/components/BoxGrid.tsx"), "utf8"),
     readFile(join(root, "app/(tabs)/guide.tsx"), "utf8"),
   ]);
-  assert.doesNotMatch(store, /buildGuidePatchTiers|keepUsefulGuidePatch|flushProgramPatchQueue/);
+  assert.match(store, /buildGuidePatchTiers|keepUsefulGuidePatch|flushProgramPatchQueue/);
   assert.match(timeline, /visiblePageIds/);
   assert.match(box, /visiblePageIds/);
   assert.match(box, /Math\.min\(renderContentHeight, renderViewport \* renderScreens\)/);
   assert.doesNotMatch(box, /renderDrawDistance = Math\.max\(148, Math\.ceil\(channels\.length \/ numColumns\) \* 148\)/);
   assert.match(box, /drawDistance=\{renderDrawDistance\}/);
-  assert.doesNotMatch(guide, /buildGuideRunwayIds|onViewportChannelIds=/);
+  assert.match(guide, /buildGuideRunwayIds/);
+  assert.match(guide, /onViewportChannelIds=\{onViewportChannelIds\}/);
 });
 
 test("memory cleanup preserves active logo accounting and cancels recycled focus work", async () => {

@@ -32,28 +32,27 @@ test("native EPG v4 adds playlist/match tables and joined queryGuideWindow", asy
   assert.match(bridge, /nativePlaylistIsCurrent/);
 });
 
-test("source loadGuide uses one complete all-channel SQL join response", async () => {
+test("source loadGuide uses bounded joined SQLite runway responses", async () => {
   const native = await source("src/source.native.ts");
   assert.match(native, /queryNativeGuideWindow/);
-  assert.doesNotMatch(native, /loadGuideProgramsForChannelIds/);
+  assert.match(native, /loadGuideProgramsForChannelIds/);
   assert.doesNotMatch(native, /buildFocusRing/);
   assert.match(native, /syncPlaylistToNative/);
   assert.match(native, /playlistNativeContentFingerprint/);
   assert.match(native, /nativePlaylistIsCurrent/);
   assert.match(native, /syncMatchesToNative/);
   assert.match(native, /programsByChannelId/);
-  assert.match(native, /now\.startOf\("hour"\)\.subtract\(1, "hour"\)/);
+  assert.match(native, /const winStart = startISO \? dayjs\(startISO\) : now/);
   assert.match(native, /programmeWindowEmptyKeys/);
   assert.match(native, /loadProgrammeCacheMisses/);
-  assert.match(native, /const playlistIds = Array\.from\(new Set\(allPlaylistIds\)\)/);
-  assert.doesNotMatch(native, /allPlaylistIds\.slice\(0, 96\)/);
+  assert.match(native, /allPlaylistIds\.slice\(0, INITIAL_GUIDE_RUNWAY_ROWS\)/);
   assert.doesNotMatch(
     native,
     /for \(const id of allGuideIds\) \{\s*if \(have\.has\(id\)\) continue;\s*ring\.push\(id\);/,
   );
 });
 
-test("store publishes a complete snapshot and schedules no viewport patch work", async () => {
+test("store publishes row deltas through a superseding viewport patch queue", async () => {
   const [store, gate, guide, timeline, programStore] = await Promise.all([
     source("src/store.tsx"),
     source("src/utils/guideSurfGate.ts"),
@@ -64,17 +63,18 @@ test("store publishes a complete snapshot and schedules no viewport patch work",
   assert.match(store, /applyGuidePrograms/);
   assert.doesNotMatch(store, /const \[programsByChannelId, setProgramsByChannelId\]/);
   assert.match(store, /patchProgramsForChannelIds/);
-  assert.doesNotMatch(store, /pendingPatchIdsRef|patchInFlightRef|flushProgramPatchQueue/);
+  assert.match(store, /pendingPatchIdsRef|patchInFlightRef|flushProgramPatchQueue/);
   assert.match(store, /isGuideSurfing/);
   assert.match(store, /pendingSilentRefreshRef/);
   assert.match(store, /onGuideSurfSettled/);
   assert.match(programStore, /useSyncExternalStore/);
-  assert.match(programStore, /maxProgrammeRows = 20_000/);
+  assert.match(programStore, /maxProgrammeRows = 1800/);
   assert.match(programStore, /setGuideProgramRowLimit/);
   assert.match(gate, /export function markGuideSurfing/);
   assert.match(gate, /export function isGuideSurfing/);
   assert.match(guide, /markGuideSurfing/);
-  assert.doesNotMatch(guide, /patchProgramsForChannelIds|onViewportChannelIds=|lastRunwayRef/);
+  assert.match(guide, /patchProgramsForChannelIds|lastRunwayRef/);
+  assert.match(guide, /onViewportChannelIds=\{onViewportChannelIds\}/);
   assert.match(timeline, /useGuidePrograms/);
   assert.match(timeline, /data=\{channels\}/);
   assert.doesNotMatch(timeline, /preparedRows/);
@@ -84,7 +84,7 @@ test("store publishes a complete snapshot and schedules no viewport patch work",
   assert.match(timeline, /drawDistance=\{renderDrawDistance\}/);
 });
 
-test("complete guide keeps explicit empty rows and has no viewport slice", async () => {
+test("sliding guide keeps explicit empty rows and a configurable forward window", async () => {
   const [native, bridge, box, policy] = await Promise.all([
     source("src/source.native.ts"),
     source("src/nativeEpg.ts"),
@@ -93,13 +93,11 @@ test("complete guide keeps explicit empty rows and has no viewport slice", async
   ]);
   assert.match(bridge, /: EMPTY_NATIVE_PROGRAMS/);
   assert.match(native, /programsByChannelId\[channel\.id\] = emptyPrograms/);
-  assert.match(native, /ACTIVE_GUIDE_WINDOW_MS = 12 \* 60 \* 60 \* 1000/);
-  assert.match(native, /loadProgrammeCacheMisses\(remapped, playlistIds, activeStartMs, activeEndMs\)/);
-  assert.match(native, /programSnapshotKey: cacheKey/);
+  assert.match(native, /resolveGuideWindowHours\(hours, DEFAULT_GUIDE_WINDOW_HOURS\)/);
+  assert.match(native, /loadProgrammeCacheMisses\(remapped, playlistIds, startMs, endMs\)/);
   assert.doesNotMatch(native, /buildFocusRing|PROGRAMME_WARM_RING_ROWS/);
-  assert.match(policy, /GUIDE_PREFETCH_PAGES_AHEAD = 8/);
-  assert.match(native, /const playlistIds = Array\.from\(new Set\(allPlaylistIds\)\)/);
-  assert.doesNotMatch(native, /allPlaylistIds\.slice\(0, 96\)/);
+  assert.match(policy, /GUIDE_PREFETCH_PAGES_AHEAD = 7/);
+  assert.match(native, /allPlaylistIds\.slice\(0, INITIAL_GUIDE_RUNWAY_ROWS\)/);
   assert.doesNotMatch(box, /mountedRowBandRef/);
   assert.match(box, /drawDistance=\{renderDrawDistance\}/);
 });
@@ -131,7 +129,7 @@ test("native provider configuration preserves PR23 HTTPS-first behavior with HTT
   assert.match(native, /if \(!isProviderTransportFailure\(error\)\) throw error/);
 });
 
-test("experimental EPG downloads first, parses locally, and hands finalized data directly to RAM", async () => {
+test("experimental EPG downloads first, parses locally, and leaves full feed only in SQLite", async () => {
   const [mod, db, ram, ramModule, bridge] = await Promise.all([
     source("android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt"),
     source("android/app/src/main/java/com/charmiptv/app/EpgDatabase.kt"),
@@ -146,10 +144,10 @@ test("experimental EPG downloads first, parses locally, and hands finalized data
   assert.match(mod, /channelIdsWithPrograms = retainedPrograms\.mapTo/);
   assert.match(mod, /normalizeStopsAndRetain\(parsed, minStop, maxStart\)/);
   assert.match(mod, /database\.replaceBatches\(sequenceOf\(retainedPrograms\)\)/);
-  assert.match(mod, /ramRuntime\.engine\.replacePrograms\(activeRamPrograms, activeRamStart, activeRamEnd\)/);
-  assert.match(mod, /activeRamEnd = activeRamStart \+ ACTIVE_GUIDE_WINDOW_MS/);
+  assert.doesNotMatch(mod, /ramRuntime\.engine\.replacePrograms\(activeRamPrograms/);
+  assert.match(mod, /ramRuntime\.engine\.clear\(0L\)/);
   assert.doesNotMatch(mod, /SharedParsedEpgSnapshot/);
-  assert.match(mod, /ramRuntime\.warmGuideEpoch = guideEpoch/);
+  assert.match(mod, /ramRuntime\.warmGuideEpoch = -1L/);
   assert.match(db, /SELECT DISTINCT channel_id FROM \$LIVE_TABLE/);
   assert.match(mod, /File\.createTempFile\("xmltv-", "\.download"/);
   assert.match(mod, /downloaded\?\.file\?\.delete\(\)/);
@@ -162,7 +160,7 @@ test("experimental EPG downloads first, parses locally, and hands finalized data
   assert.match(ram, /generation\.incrementAndGet\(\)/);
   assert.match(ram, /fun replacePrograms\(programs: List<NativeEpgProgram>/);
   assert.match(ram, /EMPTY\.copy\(playlistToXmltv = current\.playlistToXmltv\)/);
-  assert.match(ramModule, /scheduleWarmForCurrentEpoch\(\)/);
+  assert.doesNotMatch(ramModule, /scheduleWarmForCurrentEpoch\(\)/);
   assert.match(ramModule, /promise\.resolve\(null\)\s*return@execute/);
   assert.match(ramModule, /groupProgramsByOutput/);
   assert.match(ramModule, /sqliteFallbackCount/);

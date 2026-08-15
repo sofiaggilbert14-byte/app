@@ -183,12 +183,13 @@ test("Android source path stays native-only (no JS XMLTV inflate/parse)", async 
   assert.doesNotMatch(native, /parseXMLTV|inflateToTextChunks|from "fflate"|epgDb/);
   assert.match(native, /Native EPG engine is unavailable/);
   assert.match(native, /Never mutate EMPTY_PROGRAMS/);
-  // Full-guide experiment: one bounded complete snapshot + no warm emit hitch.
-  assert.match(native, /maxProgrammeWindowKeys = 20_000/);
+  // Bounded sliding-runway experiment: native parsing stays native while
+  // JavaScript retains only the active channel pages.
+  assert.match(native, /maxProgrammeWindowKeys = 1800/);
   assert.match(native, /setProgrammeWindowCacheLimit/);
   assert.match(native, /HUGE_PLAYLIST_MATCH_THRESHOLD = 400/);
   assert.match(native, /trimProgrammeWindowCache/);
-  assert.doesNotMatch(native, /loadGuideProgramsForChannelIds/);
+  assert.match(native, /loadGuideProgramsForChannelIds/);
 });
 
 test("web source path documents no TV JS fallback and uses shared matching", async () => {

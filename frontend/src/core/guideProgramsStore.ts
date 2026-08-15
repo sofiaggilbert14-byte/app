@@ -4,10 +4,10 @@ import type { Program } from "@/src/api";
 /**
  * TV guide programme cache deliberately lives outside the app-wide React context.
  *
- * The all-channel 12-hour response may update thousands of rows at once.
- * Putting that map in GuideProvider makes every consumer render and makes
- * FlashList receive a new data array. This store lets each mounted row
- * subscribe to its own programme pointer only.
+ * A viewport EPG response may update one channel while a 2,000-row guide is
+ * mounted. Putting that map in GuideProvider makes every consumer render and
+ * makes FlashList receive a new data array. This store lets a row subscribe to
+ * its own programme pointer only.
  *
  * SQLite/native EPG storage is authoritative. This JS layer is only a bounded,
  * row-local pointer cache so guide focus never depends on an all-channel React
@@ -17,7 +17,7 @@ const EMPTY_PROGRAMS: Program[] = [];
 // Programme arrays are shared with the source cache rather than copied. A wider
 // bounded row index lets a 2,000-channel playlist reverse direction without
 // immediately rebuilding rows that were already visited.
-let maxProgrammeRows = 20_000;
+let maxProgrammeRows = 1800;
 
 let activeWindowKey = "";
 const programsByChannelId = new Map<string, Program[]>();
@@ -66,9 +66,7 @@ function trim(keepIds: ReadonlySet<string> = new Set(), force = false): void {
 }
 
 export function setGuideProgramRowLimit(limit: number): void {
-  // Full-guide experiment: power profiles cannot evict off-screen programme
-  // rows after the all-channel response has reached JavaScript.
-  maxProgrammeRows = Math.max(20_000, Math.floor(limit || 20_000));
+  maxProgrammeRows = Math.max(128, Math.min(4000, Math.floor(limit || 1800)));
   trim();
 }
 

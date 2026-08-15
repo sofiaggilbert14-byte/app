@@ -1,8 +1,8 @@
 export type GuideScanDirection = -1 | 1;
 
 /** Keep an equal warm runway in both directions so reversing never cold-loads. */
-export const GUIDE_PREFETCH_PAGES_AHEAD = 8;
-export const GUIDE_PREFETCH_PAGES_BEHIND = 8;
+export const GUIDE_PREFETCH_PAGES_AHEAD = 7;
+export const GUIDE_PREFETCH_PAGES_BEHIND = 7;
 
 type GuideRowIdentity = { id: string };
 
@@ -14,11 +14,8 @@ export type GuideRunwayPages = {
 /** Keep in sync with PROFILE_PAGES in guideSlidingCache.ts. */
 const PROFILE_RUNWAY: Record<string, GuideRunwayPages> = {
   normal: { ahead: GUIDE_PREFETCH_PAGES_AHEAD, behind: GUIDE_PREFETCH_PAGES_BEHIND },
-  weak: { ahead: 5, behind: 5 },
-  max_preview: {
-    ahead: GUIDE_PREFETCH_PAGES_AHEAD + 2,
-    behind: GUIDE_PREFETCH_PAGES_BEHIND + 2,
-  },
+  weak: { ahead: GUIDE_PREFETCH_PAGES_AHEAD, behind: GUIDE_PREFETCH_PAGES_BEHIND },
+  max_preview: { ahead: GUIDE_PREFETCH_PAGES_AHEAD, behind: GUIDE_PREFETCH_PAGES_BEHIND },
 };
 
 /** Resolve direction-aware runway page counts from the device power profile. */
@@ -31,9 +28,8 @@ export function guideRunwayPagesForProfile(
 
 /**
  * Build a direction-aware EPG data runway in the exact order shown on screen.
- * Default is eight pages on both sides; Compatibility (weak) shortens both
- * bands so weaker devices do less SQLite/bridge work while still reversing warm.
- * Rows that leave the expanded hysteresis keep set are discarded by retain*.
+ * Every power profile uses seven pages on both sides. Rows that leave this hard
+ * keep set are discarded so memory cannot grow with playlist depth.
  */
 export function buildGuideRunwayIds(
   rows: GuideRowIdentity[],

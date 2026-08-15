@@ -81,7 +81,7 @@ test("Home no longer mounts a NowPlayingBar; guide owns live preview", async () 
   assert.doesNotMatch(home, /NowPlayingBar|home-now-playing/);
 });
 
-test("EPG screen delivery publishes one bounded complete guide snapshot", async () => {
+test("EPG screen delivery publishes a bounded seven-page sliding guide snapshot", async () => {
   const [native, programStore, store, runway, sliding, guide] = await Promise.all([
     source("src/source.native.ts"),
     source("src/core/guideProgramsStore.ts"),
@@ -90,29 +90,30 @@ test("EPG screen delivery publishes one bounded complete guide snapshot", async 
     source("src/core/guideSlidingCache.ts"),
     source("app/(tabs)/guide.tsx"),
   ]);
-  assert.match(runway, /GUIDE_PREFETCH_PAGES_AHEAD = 8/);
-  assert.match(runway, /GUIDE_PREFETCH_PAGES_BEHIND = 8/);
+  assert.match(runway, /GUIDE_PREFETCH_PAGES_AHEAD = 7/);
+  assert.match(runway, /GUIDE_PREFETCH_PAGES_BEHIND = 7/);
   assert.match(sliding, /expandRunwayKeepSet/);
   assert.match(sliding, /hysteresis/);
-  assert.match(programStore, /maxProgrammeRows = 20_000/);
-  assert.match(native, /maxProgrammeWindowKeys = 20_000/);
-  assert.match(native, /const playlistIds = Array\.from\(new Set\(allPlaylistIds\)\)/);
+  assert.match(programStore, /maxProgrammeRows = 1800/);
+  assert.match(native, /maxProgrammeWindowKeys = 1800/);
+  assert.match(native, /allPlaylistIds\.slice\(0, INITIAL_GUIDE_RUNWAY_ROWS\)/);
   assert.match(store, /retainGuideSlidingCache/);
-  assert.doesNotMatch(guide, /expandRunwayKeepSet|retainGuideSlidingCache|onViewportChannelIds=/);
+  assert.match(guide, /expandRunwayKeepSet|retainGuideSlidingCache/);
+  assert.match(guide, /onViewportChannelIds=\{onViewportChannelIds\}/);
   assert.match(native, /programmeWindowInFlight/);
   assert.match(native, /programmeWindowAccessOrder/);
   assert.match(native, /programmeWindowCacheKey === requestCacheKey/);
   assert.match(native, /for \(const id of requested\)/);
   assert.match(native, /queriedPlaylistIds\.has\(channel\.id\)/);
-  assert.doesNotMatch(store, /pendingPatchIdsRef|patchInFlightRef|flushProgramPatchQueue/);
+  assert.match(store, /pendingPatchIdsRef|patchInFlightRef|flushProgramPatchQueue/);
   assert.match(native, /programmeWindowCacheKey !== requestCacheKey\) return result/);
   assert.match(store, /releaseGuideSlidingCache/);
   assert.match(store, /resolveStoredGuideLayout/);
-  assert.doesNotMatch(store, /keepUsefulGuidePatch|buildGuidePatchTiers|lastKeepIdsRef/);
-  assert.match(native, /hours = 6/);
+  assert.match(store, /keepUsefulGuidePatch|buildGuidePatchTiers|lastKeepIdsRef/);
+  assert.match(native, /hours = DEFAULT_GUIDE_WINDOW_HOURS/);
   assert.match(programStore, /setGuideProgramRowLimit/);
-  assert.match(store, /EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 6/);
-  assert.match(store, /data\.programSnapshotKey \|\| makeGuideProgramWindowKey/);
+  assert.match(store, /EXPO_PUBLIC_GUIDE_WINDOW_HOURS,[\s\S]*GUIDE_WINDOW_DEFAULT/);
+  assert.match(store, /makeGuideProgramWindowKey\(data\.start, data\.end/);
 });
 
 test("EPG finalization reports truthful late phases and skips identical match writes", async () => {
@@ -135,7 +136,7 @@ test("EPG finalization reports truthful late phases and skips identical match wr
   assert.match(bar, /phase === "finalizing"/);
 });
 
-test("release hardening preserves full guide on blur and derives APK identity", async () => {
+test("release hardening trims the sliding guide on blur and derives APK identity", async () => {
   const [native, store, guide, workflow, workerPackage] = await Promise.all([
     source("src/source.native.ts"),
     source("src/store.tsx"),
@@ -144,8 +145,9 @@ test("release hardening preserves full guide on blur and derives APK identity", 
     source("../cloudflare-backend/worker/package.json"),
   ]);
   assert.match(native, /programmeWindowCacheKey !== requestCacheKey\) return result/);
-  assert.doesNotMatch(store, /lastPatchRunwayIdsRef|lastKeepIdsRef|trimGuideProgramRows\(keep, true\)/);
-  assert.doesNotMatch(guide, /releaseGuideSlidingCache\(\)|onViewportChannelIds=/);
+  assert.match(store, /lastPatchRunwayIdsRef|lastKeepIdsRef|trimGuideProgramRows\(keep, true\)/);
+  assert.match(guide, /releaseGuideSlidingCache\(\)/);
+  assert.match(guide, /onViewportChannelIds=\{onViewportChannelIds\}/);
   assert.match(workflow, /require\("\.\/app\.json"\)\.expo\.version/);
   assert.match(workflow, /TESTER_RELEASE_NOTES_\$\{APP_VERSION\}\.md/);
   assert.match(workerPackage, /--config \.\.\/\.\.\/wrangler\.toml/);

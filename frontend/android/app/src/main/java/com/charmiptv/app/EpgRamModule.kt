@@ -9,7 +9,6 @@ import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.WritableArray
 import com.facebook.react.bridge.WritableMap
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 /** Experimental RAM serving layer. SQLite stays authoritative and is never cleared here. */
@@ -21,7 +20,6 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
   private val engine = runtime.engine
   private val worker = Executors.newSingleThreadExecutor()
   private val queryPool = Executors.newFixedThreadPool(2)
-  private val warmQueued = AtomicBoolean(false)
   private val sqliteFallbackCount = AtomicLong(0L)
   private val guideQueryCount = AtomicLong(0L)
   private val guideQueryDurationMs = AtomicLong(0L)
@@ -81,7 +79,6 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
       val startedAt = System.currentTimeMillis()
       try {
         if (!isWarmForCurrentEpoch()) {
-          scheduleWarmForCurrentEpoch()
           sqliteFallbackCount.incrementAndGet()
           promise.resolve(null)
           return@execute
@@ -107,7 +104,6 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
     queryPool.execute {
       try {
         if (!isWarmForCurrentEpoch()) {
-          scheduleWarmForCurrentEpoch()
           promise.resolve(null)
           return@execute
         }
@@ -142,23 +138,6 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
   private fun isWarmForCurrentEpoch(): Boolean {
     val epoch = currentGuideEpoch()
     return engine.isWarm() && runtime.warmGuideEpoch == epoch
-  }
-
-  private fun scheduleWarmForCurrentEpoch() {
-    if (!warmQueued.compareAndSet(false, true)) return
-    worker.execute {
-      try {
-        val epoch = currentGuideEpoch()
-        if (engine.isWarm() && runtime.warmGuideEpoch == epoch) return@execute
-        val now = System.currentTimeMillis()
-        val activeStart = now - (now % HOUR_MS) - GUIDE_HISTORY_MS
-        if (engine.rebuild(activeStart, activeStart + ACTIVE_GUIDE_WINDOW_MS)) {
-          runtime.warmGuideEpoch = epoch
-        }
-      } finally {
-        warmQueued.set(false)
-      }
-    }
   }
 
   private fun currentGuideEpoch(): Long = database.getMeta("guide_epoch")?.toLongOrNull() ?: 0L
@@ -217,11 +196,4 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
     super.invalidate()
   }
 
-  companion object {
-    // Disposable accelerator only: the authoritative multi-day feed remains
-    // in SQLite. Keep one hour behind plus eleven hours ahead in RAM.
-    private const val GUIDE_HISTORY_MS = 3_600_000L
-    private const val ACTIVE_GUIDE_WINDOW_MS = 43_200_000L
-    private const val HOUR_MS = 3_600_000L
-  }
 }

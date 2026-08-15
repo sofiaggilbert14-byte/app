@@ -662,6 +662,7 @@ export const TimelineGrid = memo(function TimelineGrid({
   const guideEscapeInFlight = useRef(false);
   const escapeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollXRef = useRef(0);
+  const minimumLiveOffsetRef = useRef(0);
   const lastAxisRef = useRef<"v" | "h" | null>(null);
   const lastAxisAtRef = useRef(0);
   // Ref-only: putting focused key in renderItem deps rebuilt every FlashList row on each cell focus.
@@ -735,7 +736,14 @@ export const TimelineGrid = memo(function TimelineGrid({
     const current = row?.get(key);
     if (!current) return;
     const candidates = Array.from(row?.values() || [])
-      .filter((candidate) => !!findNodeHandle(candidate.node))
+      .filter((candidate) => (
+        !!findNodeHandle(candidate.node) &&
+        (
+          candidate.key === key ||
+          candidate.kind !== "program" ||
+          candidate.left + candidate.width > minimumLiveOffsetRef.current + 1
+        )
+      ))
       .sort((a, b) => a.left - b.left);
     const currentIndex = candidates.findIndex((candidate) => candidate.key === key);
     const selfHandle = findNodeHandle(node as any) || -1;
@@ -822,7 +830,11 @@ export const TimelineGrid = memo(function TimelineGrid({
         requestedVerticalRowRef.current !== targetRow
       ) return;
       const rowCandidates = Array.from(focusCandidatesByRowRef.current.get(targetRow)?.values() || [])
-        .filter((candidate) => candidate.kind === "program" && !!findNodeHandle(candidate.node));
+        .filter((candidate) => (
+          candidate.kind === "program" &&
+          candidate.left + candidate.width > minimumLiveOffsetRef.current + 1 &&
+          !!findNodeHandle(candidate.node)
+        ));
       const anchor = verticalFocusAnchorRef.current ?? scrollXRef.current + programViewportW / 2;
       let best: FocusCandidate | null = null;
       let bestScore = Number.POSITIVE_INFINITY;
@@ -952,13 +964,17 @@ export const TimelineGrid = memo(function TimelineGrid({
     ? ((nowMs - windowStartMs) / MINUTE_MS) * PX_PER_MIN
     : 0;
   const showNow = nowMs > windowStartMs && nowMs < windowEndMs;
+  const minimumLiveOffset = Math.max(
+    0,
+    Math.min(Math.max(0, timelineWidth - programViewportW), nowOffset),
+  );
+  minimumLiveOffsetRef.current = minimumLiveOffset;
 
   const setHorizontalOffset = useCallback(
     (target: number, animated: boolean) => {
-      const next = clampGuideScrollOffset(
-        target,
-        timelineWidth,
-        programViewportW,
+      const next = Math.max(
+        minimumLiveOffset,
+        clampGuideScrollOffset(target, timelineWidth, programViewportW),
       );
       scrollXRef.current = next;
       const commitViewport = () => {
@@ -984,12 +1000,12 @@ export const TimelineGrid = memo(function TimelineGrid({
         commitViewport();
       });
     },
-    [programViewportW, reduceMotion, scrollX, timelineWidth],
+    [minimumLiveOffset, programViewportW, reduceMotion, scrollX, timelineWidth],
   );
 
-  // Settings/date changes can shorten the rendered time window while this tab
-  // remains mounted. Re-clamp the retained pan immediately so no stale offset
-  // can leave the whole Guide track translated beyond its new right edge.
+  // Settings changes can shorten the window, and the clock advances while the
+  // Guide stays open. Re-clamp both edges so past time can never be panned back
+  // onto the screen and stale offsets cannot enter blank future space.
   useEffect(() => {
     setHorizontalOffset(scrollXRef.current, false);
   }, [programViewportW, setHorizontalOffset, timelineWidth]);
@@ -1262,8 +1278,8 @@ export const TimelineGrid = memo(function TimelineGrid({
   );
 
   // Keep a deep focus runway, but never turn the entire playlist into native
-  // views. The 12-hour programme data is already resident; rows beyond this
-  // bounded pixel window can recycle without another EPG query.
+  // views. Programme data is limited to the selected 6–16 hour window and the
+  // current seven-page channel runway; rows beyond this pixel band recycle.
   const renderScreens = cacheProfile === "weak" ? 4 : cacheProfile === "max_preview" ? 8 : 6;
   const renderViewport = Math.max(ROW_H * 6, bodyH || 0);
   const renderDrawDistance = Math.max(

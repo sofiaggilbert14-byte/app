@@ -94,7 +94,9 @@ test("guide tabs reclaim the left edge and top-row Up restores the active tab", 
   assert.doesNotMatch(guide, /focusPurpleIconRail/);
   assert.doesNotMatch(guide, /NowPlayingBar/);
   assert.match(guide, /trapFocusLeft=\{false\}/);
-  assert.doesNotMatch(guide, /expandRunwayKeepSet|retainGuideSlidingCache|onViewportChannelIds=/);
+  assert.match(guide, /expandRunwayKeepSet/);
+  assert.match(guide, /retainGuideSlidingCache/);
+  assert.match(guide, /onViewportChannelIds={onViewportChannelIds}/);
   assert.match(guide, /active=\{isFocused && !activeProgram && !drawerOpen\}/);
   assert.match(guide, /safePreviewMode === "off" \|\| drawerOpen \|\| !isFocused \? null : previewId/);
   assert.match(guide, /lockLeftEdge=\{false\}/);

@@ -1,5 +1,9 @@
 import dayjs from "dayjs";
 import { Platform } from "react-native";
+import {
+  DEFAULT_GUIDE_WINDOW_HOURS,
+  resolveGuideWindowHours,
+} from "@/src/core/guideWindowPolicy";
 import * as FileSystem from "expo-file-system/legacy";
 import { DecodeUTF8, Gunzip } from "fflate";
 import type { Channel, Program, GuideResponse, SourceStatus } from "@/src/api";
@@ -100,6 +104,20 @@ export function trimProgrammeWindowCacheForMemoryPressure(
   _critical = false,
 ): void {
   /* native-only */
+}
+export async function loadGuideProgramsForChannelIds(
+  channelIds: string[],
+  startISO?: string,
+  hours = 8,
+): Promise<Record<string, Program[]>> {
+  if (!channelIds.length) return {};
+  const wanted = new Set(channelIds.filter(Boolean));
+  const guide = await loadGuide(startISO, resolveGuideWindowHours(hours));
+  const result: Record<string, Program[]> = {};
+  for (const channel of guide.channels) {
+    if (wanted.has(channel.id)) result[channel.id] = channel.programs || EMPTY_GUIDE_PROGRAMS;
+  }
+  return result;
 }
 export async function refreshEpgOnly(): Promise<SourceStatus> {
   return refreshSource(true);
@@ -1078,11 +1096,16 @@ function windowPrograms(list: Program[] | undefined, startMs: number, endMs: num
   return out;
 }
 
-export async function loadGuide(startISO?: string, hours = 6, force = false): Promise<GuideResponse> {
+export async function loadGuide(
+  startISO?: string,
+  hours = DEFAULT_GUIDE_WINDOW_HOURS,
+  force = false,
+): Promise<GuideResponse> {
   const parsed = await ensureParsed(force);
   const now = dayjs();
-  const winStart = startISO ? dayjs(startISO) : now.subtract(1, "hour");
-  const winEnd = winStart.add(hours, "hour");
+  const windowHours = resolveGuideWindowHours(hours, DEFAULT_GUIDE_WINDOW_HOURS);
+  const winStart = startISO ? dayjs(startISO) : now;
+  const winEnd = winStart.add(windowHours, "hour");
   const winStartMs = winStart.valueOf();
   const winEndMs = winEnd.valueOf();
   const indexedPrograms = (parsed.epgProgramCount || 0) > 0

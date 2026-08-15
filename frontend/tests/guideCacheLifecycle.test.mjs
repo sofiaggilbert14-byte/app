@@ -15,27 +15,28 @@ test("clearGuideCache also clears in-memory guide programme rows", async () => {
   assert.match(webSource, /clearGuidePrograms/);
 });
 
-test("loadGuide retains every channel for one bounded 12-hour snapshot", async () => {
+test("loadGuide retains only a bounded runway for a configurable forward window", async () => {
   const nativeSource = await readFile(join(root, "src/source.native.ts"), "utf8");
-  assert.match(nativeSource, /const playlistIds = Array\.from\(new Set\(allPlaylistIds\)\)/);
-  assert.match(nativeSource, /ACTIVE_GUIDE_WINDOW_MS = 12 \* 60 \* 60 \* 1000/);
-  assert.match(nativeSource, /maxProgrammeWindowKeys = 20_000/);
-  assert.doesNotMatch(nativeSource, /trimProgrammeWindowCache\(playlistIds/);
+  assert.match(nativeSource, /allPlaylistIds\.slice\(0, INITIAL_GUIDE_RUNWAY_ROWS\)/);
+  assert.match(nativeSource, /resolveGuideWindowHours\(hours, DEFAULT_GUIDE_WINDOW_HOURS\)/);
+  assert.match(nativeSource, /maxProgrammeWindowKeys = 1800/);
+  assert.match(nativeSource, /trimProgrammeWindowCache\(playlistIds, "soft"\)/);
 });
 
-test("full-guide store has no sliding queues or background patch timer", async () => {
+test("sliding store supersedes pending runways and strictly retains the newest one", async () => {
   const store = await readFile(join(root, "src/store.tsx"), "utf8");
-  assert.doesNotMatch(store, /lastKeepIdsRef|pendingPatchIdsRef|patchTimerRef|flushProgramPatchQueue/);
-  assert.match(store, /All-channel 12-hour delivery keeps every row resident/);
+  assert.match(store, /lastKeepIdsRef|pendingPatchIdsRef|patchTimerRef|flushProgramPatchQueue/);
+  assert.match(store, /retainGuidePrograms\(keep\)/);
 });
 
-test("critical pressure releases both JS programme owners without deleting SQLite", async () => {
+test("critical pressure strictly trims both JS programme owners without deleting SQLite", async () => {
   const [store, nativeSource] = await Promise.all([
     readFile(join(root, "src/store.tsx"), "utf8"),
     readFile(join(root, "src/source.native.ts"), "utf8"),
   ]);
-  assert.match(store, /pressure === "critical"[\s\S]*releaseGuideProgrammeMemory\(\)/);
-  assert.match(nativeSource, /function releaseGuideProgrammeMemory\(\)[\s\S]*clearProgrammeWindowCache\(\)[\s\S]*clearGuidePrograms\(\)/);
+  assert.match(store, /pressure === "critical"[\s\S]*retainGuidePrograms\(keep, \{ force: true \}\)/);
+  assert.match(store, /trimProgrammeWindowCacheForMemoryPressure\(keep, critical\)/);
+  assert.doesNotMatch(nativeSource, /database\.clear\(\)[\s\S]*trimProgrammeWindowCacheForMemoryPressure/);
 });
 
 test("prepared program orphan map stays bounded to current + focused keys", async () => {
@@ -65,12 +66,13 @@ test("focusClaimNonce reclaim ignores channels identity churn", async () => {
   assert.doesNotMatch(box, /\[channels, focusClaimNonce, restoreChannelId\]/);
 });
 
-test("guide focus does not rewarm or schedule guide data work", async () => {
+test("guide focus rewarms only its last bounded runway", async () => {
   const [guide, sliding] = await Promise.all([
     readFile(join(root, "app/(tabs)/guide.tsx"), "utf8"),
     readFile(join(root, "src/core/guideSlidingCache.ts"), "utf8"),
   ]);
-  assert.doesNotMatch(guide, /lastRunwayRef|buildChannelIndexMap|onViewportChannelIds=/);
+  assert.match(guide, /lastRunwayRef|buildChannelIndexMap/);
+  assert.match(guide, /onViewportChannelIds=\{onViewportChannelIds\}/);
   assert.match(guide, /cacheProfile=\{powerProfile\}/);
   assert.match(sliding, /export function buildChannelIndexMap/);
   assert.match(sliding, /indexById\?: ReadonlyMap/);

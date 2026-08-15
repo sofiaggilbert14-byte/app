@@ -23,6 +23,7 @@ import {
   type StartScreen,
 } from "@/src/store";
 import { clearGuideCache, refreshEpgOnly, refreshSource, sourceDiagnostics, type SourceDiagnostics } from "@/src/source";
+import { GUIDE_WINDOW_HOUR_OPTIONS } from "@/src/core/guideWindowPolicy";
 import {
   type PlayerEnginePreference,
   usePlayerEnginePreference,
@@ -545,15 +546,17 @@ export default function SettingsScreen() {
                 <ChoiceRow<GuideWindowHours>
                   label="Guide window"
                   value={guideWindowHours}
-                  options={[
-                    { label: "6h", value: 6 },
-                    { label: "8h", value: 8 },
-                    { label: "12h", value: 12 },
-                  ]}
+                  options={GUIDE_WINDOW_HOUR_OPTIONS.map((hours) => ({
+                    label: `${hours}h`,
+                    value: hours,
+                  }))}
                   onChange={setGuideWindowHours}
                 />
+                <Text style={styles.help}>
+                  Changes the forward-only timeline. The vertical Guide cache remains limited to seven pages before and after focus.
+                </Text>
                 <EpgRefreshIntervalRow value={epgRefreshIntervalHours} onChange={setEpgRefreshIntervalHours} />
-                <Text style={styles.help}>Checks hourly and downloads a new guide when the selected interval has elapsed. Manual refresh is always available.</Text>
+                <Text style={styles.help}>Checks again when the selected interval has elapsed and downloads only when the guide is due. Manual refresh is always available.</Text>
                 <ToggleRow label="24-hour clock" value={clock24h} onChange={setClock24h} />
                 <ChoiceRow<StartScreen>
                   label="Start screen"

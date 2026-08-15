@@ -31,7 +31,6 @@ export type GuideResponse = {
   /** Native XMLTV epoch so programme rows never survive a fresh guide swap. */
   guideEpoch?: number;
   /** Stable identity for an all-date programme snapshot across visible date changes. */
-  programSnapshotKey?: string;
 };
 
 export type SourceStatus = {

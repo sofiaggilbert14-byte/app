@@ -29,6 +29,10 @@ import {
 } from "@/src/core/epgMatching";
 import { applyManualEpgRemaps, type EpgManualRemap } from "@/src/core/epgUserOverrides";
 import { cleanupLegacyEpgArtifactsOnce } from "@/src/utils/legacyEpgCleanup";
+import {
+  DEFAULT_GUIDE_WINDOW_HOURS,
+  resolveGuideWindowHours,
+} from "@/src/core/guideWindowPolicy";
 
 export const API_BASE = "";
 /** Playlist URL — set via EXPO_PUBLIC_M3U_URL at build time. Never hardcode provider URLs. */
@@ -38,12 +42,8 @@ export const SOURCE_EPG = (process.env.EXPO_PUBLIC_EPG_URL || "").trim();
 
 /** Shared empty programmes array — reused for channels with no EPG in-window. Never mutate. */
 const EMPTY_PROGRAMS: Program[] = [];
-/**
- * Keep the complete provider feed in native SQLite, but expose only one
- * contiguous 12-hour slice to native RAM/JS at a time. All channel rows share
- * this slice, so vertical D-pad scrolling never triggers another EPG query.
- */
-const ACTIVE_GUIDE_WINDOW_MS = 12 * 60 * 60 * 1000;
+/** Cold paint only; the Guide immediately replaces this with its exact 7/7 runway. */
+const INITIAL_GUIDE_RUNWAY_ROWS = 120;
 
 const DEFAULT_EPG_REFRESH_HOURS = 24;
 const SOURCE_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -57,7 +57,7 @@ const PROGRESS_THROTTLE_MS = 150;
 /** Above this, match current-group / priority ids first, then the rest (keeps channels-first paint snappy). */
 const HUGE_PLAYLIST_MATCH_THRESHOLD = 400;
 /** Bounded JS row cache; the native SQLite index remains authoritative. */
-let maxProgrammeWindowKeys = 20_000;
+let maxProgrammeWindowKeys = 1800;
 const CACHE_ROOT = FileSystem.documentDirectory || "";
 const CHANNEL_CACHE = CACHE_ROOT ? `${CACHE_ROOT}charm_native_channels_v2.json` : "";
 const LEGACY_CHANNEL_CACHE = CACHE_ROOT ? `${CACHE_ROOT}charm_native_channels_v1.json` : "";
@@ -200,7 +200,7 @@ async function syncMatchesToNative(channels: Channel[], guideEpoch: number): Pro
   lastNativeMatchWriteFingerprint = writeFingerprint;
 }
 
-function resolveGuideWindowBounds(startISO?: string, hours = 6): {
+function resolveGuideWindowBounds(startISO?: string, hours = DEFAULT_GUIDE_WINDOW_HOURS): {
   winStart: dayjs.Dayjs;
   winEnd: dayjs.Dayjs;
   startMs: number;
@@ -208,12 +208,12 @@ function resolveGuideWindowBounds(startISO?: string, hours = 6): {
   now: dayjs.Dayjs;
 } {
   const now = dayjs();
-  // A live guide must keep one stable time window while focus moves. Including
-  // the current millisecond in the cache key cleared every programme row on
-  // every D-pad patch. Hour alignment also matches the native RAM handoff; Store
-  // subsequently passes the exact rendered window start back to us.
-  const winStart = startISO ? dayjs(startISO) : now.startOf("hour").subtract(1, "hour");
-  const winEnd = winStart.add(hours, "hour");
+  // The initial call starts at the real current instant, so no past time frame
+  // can be panned into view. Store passes this exact ISO value to every runway
+  // patch, keeping the cache key stable while the remote is held.
+  const winStart = startISO ? dayjs(startISO) : now;
+  const windowHours = resolveGuideWindowHours(hours, DEFAULT_GUIDE_WINDOW_HOURS);
+  const winEnd = winStart.add(windowHours, "hour");
   return {
     winStart,
     winEnd,
@@ -268,9 +268,7 @@ function trimProgrammeWindowCache(keepKeys: Iterable<string>, mode: "soft" | "st
 }
 
 export function setProgrammeWindowCacheLimit(limit: number): void {
-  // Full-guide experiment: never let device-profile runway tuning shrink the
-  // all-channel programme snapshot after its single bridge delivery.
-  maxProgrammeWindowKeys = Math.max(20_000, Math.floor(limit || 20_000));
+  maxProgrammeWindowKeys = Math.max(128, Math.min(4000, Math.floor(limit || 1800)));
   trimProgrammeWindowCache(viewportGuideChannelIds || []);
 }
 
@@ -954,29 +952,33 @@ async function loadProgrammeCacheMisses(
   return result;
 }
 
-export async function loadGuide(startISO?: string, hours = 6, force = false): Promise<GuideResponse> {
+export async function loadGuide(
+  startISO?: string,
+  hours = DEFAULT_GUIDE_WINDOW_HOURS,
+  force = false,
+): Promise<GuideResponse> {
   const parsed = force ? await refreshInternal(true) : await ensureLoaded();
-  const { winStart, winEnd, now } = resolveGuideWindowBounds(startISO, hours);
-  const activeStartMs = winStart.valueOf();
-  const activeEndMs = activeStartMs + ACTIVE_GUIDE_WINDOW_MS;
+  const { winStart, winEnd, startMs, endMs, now } = resolveGuideWindowBounds(startISO, hours);
 
   // Apply user remaps at read time so clear-remap restores auto-matched ids from MEM.
   const remapped = withManualRemaps(parsed.channels);
-  // One bounded snapshot contains every channel, but never every programme date.
-  const cacheKey = `${activeStartMs}|${activeEndMs}|${parsed.guideEpoch || 0}`;
+  const cacheKey = `${startMs}|${endMs}|${parsed.guideEpoch || 0}`;
   if (programmeWindowCacheKey !== cacheKey) {
     clearProgrammeWindowCache();
     programmeWindowCacheKey = cacheKey;
   }
 
   const allPlaylistIds = remapped.map((channel) => channel.id).filter(Boolean);
-  // One native query and one bridge response populate every playlist channel
-  // for the active 12-hour slice before scrolling begins.
-  const playlistIds = Array.from(new Set(allPlaylistIds));
+  // Channel metadata remains complete, but programme objects are fetched only
+  // for the current vertical runway. Before the first viewport report, seed a
+  // bounded leading set so the first Guide paint is immediately useful.
+  const requestedIds = viewportGuideChannelIds?.length
+    ? viewportGuideChannelIds
+    : allPlaylistIds.slice(0, INITIAL_GUIDE_RUNWAY_ROWS);
+  const playlistIds = Array.from(new Set(requestedIds.filter(Boolean)));
 
-  await loadProgrammeCacheMisses(remapped, playlistIds, activeStartMs, activeEndMs);
-  // Keep the complete all-channel slice resident; vertical scrolling performs
-  // no follow-up EPG query.
+  await loadProgrammeCacheMisses(remapped, playlistIds, startMs, endMs);
+  trimProgrammeWindowCache(playlistIds, "soft");
 
   // Shared empty list — avoid allocating tens of thousands of `[]` on big playlists.
   // Never mutate EMPTY_PROGRAMS.
@@ -989,7 +991,8 @@ export async function loadGuide(startISO?: string, hours = 6, force = false): Pr
       programsByChannelId[channel.id] = list;
       return { ...channel, programs: list };
     }
-    // Full refreshes explicitly clear rows whose programmes disappeared.
+    // Queried rows explicitly clear programmes that disappeared. Off-runway
+    // channels stay empty until their page enters the sliding window.
     if (queriedPlaylistIds.has(channel.id)) programsByChannelId[channel.id] = emptyPrograms;
     return { ...channel, programs: emptyPrograms };
   });
@@ -1001,8 +1004,43 @@ export async function loadGuide(startISO?: string, hours = 6, force = false): Pr
     channels,
     programsByChannelId,
     guideEpoch: parsed.guideEpoch || 0,
-    programSnapshotKey: cacheKey,
   };
+}
+
+/** Fetch one exact vertical Guide runway without rebuilding channel metadata. */
+export async function loadGuideProgramsForChannelIds(
+  channelIds: string[],
+  startISO?: string,
+  hours = DEFAULT_GUIDE_WINDOW_HOURS,
+): Promise<Record<string, Program[]>> {
+  if (!channelIds.length) return {};
+  const unique = Array.from(new Set(channelIds.filter(Boolean)));
+  if (!nativeEpgAvailable) {
+    return Object.fromEntries(unique.map((id) => [id, EMPTY_PROGRAMS]));
+  }
+  const parsed = MEM || (await ensureLoaded().catch(() => null));
+  if (!parsed?.channels?.length) {
+    return Object.fromEntries(unique.map((id) => [id, EMPTY_PROGRAMS]));
+  }
+
+  const { startMs, endMs } = resolveGuideWindowBounds(startISO, hours);
+  const cacheKey = `${startMs}|${endMs}|${parsed.guideEpoch || 0}`;
+  if (programmeWindowCacheKey !== cacheKey) {
+    clearProgrammeWindowCache();
+    programmeWindowCacheKey = cacheKey;
+  }
+
+  const remapped = withManualRemaps(parsed.channels);
+  await loadProgrammeCacheMisses(remapped, unique, startMs, endMs);
+  if (programmeWindowCacheKey !== cacheKey) return {};
+
+  const delta: Record<string, Program[]> = {};
+  for (const id of unique) {
+    const cached = programmeWindowCache[id];
+    delta[id] = cached?.length ? cached : EMPTY_PROGRAMS;
+  }
+  trimProgrammeWindowCache([...(viewportGuideChannelIds || []), ...unique]);
+  return delta;
 }
 
 export async function refreshSource(force = false): Promise<SourceStatus> {

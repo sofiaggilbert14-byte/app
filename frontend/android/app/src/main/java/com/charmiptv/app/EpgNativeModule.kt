@@ -119,23 +119,12 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         database.setMeta(HTTP_ETAG_KEY, httpValidators.etag)
         database.setMeta(HTTP_LAST_MODIFIED_KEY, httpValidators.lastModified)
 
-        // SQLite retains the complete provider feed. RAM receives only today's
-        // active 12-hour slice so the parsed multi-day collection is not pinned
-        // on the heap after refresh. Every channel is included in this slice.
-        val activeRamStart = now - (now % HOUR_MS) - ACTIVE_GUIDE_HISTORY_MS
-        val activeRamEnd = activeRamStart + ACTIVE_GUIDE_WINDOW_MS
-        val activeRamPrograms = retainedPrograms.filter {
-          it.endMs > activeRamStart && it.startMs < activeRamEnd
-        }
+        // SQLite retains the complete provider feed. Do not pin a second
+        // all-channel programme graph in native RAM after parsing; the Guide
+        // owns a strict seven-page sliding cache and reads only that runway.
         val ramRuntime = EpgRamRuntime.get(reactContext)
-        if (ramRuntime.engine.replacePrograms(activeRamPrograms, activeRamStart, activeRamEnd)) {
-          ramRuntime.warmGuideEpoch = guideEpoch
-        } else {
-          // Do not retain parser objects after a budget rejection. The RAM
-          // module can rebuild the same bounded slice from authoritative SQLite.
-          ramRuntime.engine.clear(0L)
-          ramRuntime.warmGuideEpoch = -1L
-        }
+        ramRuntime.engine.clear(0L)
+        ramRuntime.warmGuideEpoch = -1L
 
         val deleted = database.deleteExpired(minStop)
         database.maybeIncrementalVacuum(MIN_VACUUM_DELETED_ROWS, deleted)
@@ -720,9 +709,6 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     private const val GUIDE_HISTORY_MS = 3_153_600_000_000L
     private const val GUIDE_WINDOW_MS = 3_153_600_000_000L
     private const val MAX_QUERY_WINDOW_MS = 6_307_200_000_000L
-    private const val ACTIVE_GUIDE_HISTORY_MS = 3_600_000L
-    private const val ACTIVE_GUIDE_WINDOW_MS = 43_200_000L
-    private const val HOUR_MS = 3_600_000L
     private const val CURRENT_CACHE_REFRESH_MS = 30_000L
     private const val DEFAULT_PROGRAMME_DURATION_MS = 30L * 60L * 1000L
     private const val MAX_PROGRAMME_DURATION_MS = 24L * 60L * 60L * 1000L

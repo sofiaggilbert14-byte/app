@@ -1,9 +1,9 @@
 /**
  * Sliding programme-cache window for TV guide surfing (conveyor belt).
  *
- * Keep roughly N pages behind and M pages ahead of focus. Evict only channels
- * that leave an expanded hysteresis band so reversing mid-hold does not thrash.
- * Prefer ahead while holding Down; prefer behind while holding Up.
+ * Keep exactly N pages behind and M pages ahead of focus. This helper retains
+ * optional hysteresis support for non-Guide callers, but the Guide profile uses
+ * zero extra pages to enforce the requested memory bound.
  */
 import {
   GUIDE_PREFETCH_PAGES_AHEAD,
@@ -36,17 +36,21 @@ export type SlidingCacheWindow = {
 };
 
 const PROFILE_PAGES: Record<GuideCacheProfile, SlidingCachePages> = {
-  // Match the symmetric on-screen EPG runway plus one page of eviction slack.
+  // The requested seven-page runway is also the hard in-memory keep set.
   normal: {
     behind: GUIDE_PREFETCH_PAGES_BEHIND,
     ahead: GUIDE_PREFETCH_PAGES_AHEAD,
-    hysteresis: 1,
+    hysteresis: 0,
   },
-  weak: { behind: 5, ahead: 5, hysteresis: 1 },
+  weak: {
+    behind: GUIDE_PREFETCH_PAGES_BEHIND,
+    ahead: GUIDE_PREFETCH_PAGES_AHEAD,
+    hysteresis: 0,
+  },
   max_preview: {
-    behind: GUIDE_PREFETCH_PAGES_BEHIND + 2,
-    ahead: GUIDE_PREFETCH_PAGES_AHEAD + 2,
-    hysteresis: 1,
+    behind: GUIDE_PREFETCH_PAGES_BEHIND,
+    ahead: GUIDE_PREFETCH_PAGES_AHEAD,
+    hysteresis: 0,
   },
 };
 
@@ -78,8 +82,7 @@ export function resolveSurfDirection(
 }
 
 /**
- * Compute the fetch window around focus, then a wider eviction band.
- * Directional stretch: Down adds +1 page ahead; Up adds +1 page behind.
+ * Compute the exact symmetric fetch window around focus, then its eviction band.
  */
 export function computeSlidingCacheWindow(input: {
   focusIndex: number;
@@ -92,12 +95,8 @@ export function computeSlidingCacheWindow(input: {
   const count = Math.max(0, Math.floor(input.channelCount || 0));
   const pageSize = Math.max(4, Math.floor(input.pageSize || 8));
   const pages = getSlidingCachePages(input.profile);
-  const direction = input.direction || "none";
-
-  let behind = pages.behind;
-  let ahead = pages.ahead;
-  if (direction === "down") ahead += 1;
-  if (direction === "up") behind += 1;
+  const behind = pages.behind;
+  const ahead = pages.ahead;
 
   const focus = Math.max(0, Math.min(Math.max(0, count - 1), Math.floor(input.focusIndex || 0)));
   const behindRows = behind * pageSize;
@@ -112,7 +111,7 @@ export function computeSlidingCacheWindow(input: {
 
   // Hysteresis vs previous band: never shrink eviction while still inside it.
   const prev = input.previousWindow;
-  if (prev && count > 0) {
+  if (prev && pages.hysteresis > 0 && count > 0) {
     const stillInside =
       focus >= prev.evictStart && focus < Math.max(prev.evictStart + 1, prev.evictEnd);
     if (stillInside) {
