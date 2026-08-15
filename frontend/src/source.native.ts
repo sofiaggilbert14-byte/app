@@ -656,6 +656,7 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
           epgLogos,
           indexes.fingerprint,
           indexes.fingerprint,
+          logoPriority,
         );
         matchedChannelsWithLogos = logoOnly || cached.channels;
         quality = cached.matchQuality || emptyMatchQuality();
@@ -1010,7 +1011,7 @@ export async function refreshEpgOnly(): Promise<SourceStatus> {
       setProgress({ phase: "matching", ratio: 0.94, etaSeconds: null }, true);
       if (policyUnchanged && epgUnchanged) {
         refreshedChannels =
-          applyLogoOnlyUpdates(cached.channels, epgLogos, indexes.fingerprint, indexes.fingerprint) ||
+          applyLogoOnlyUpdates(cached.channels, epgLogos, indexes.fingerprint, indexes.fingerprint, await getLogoPriority()) ||
           cached.channels;
         quality = cached.matchQuality || emptyMatchQuality();
       } else {

@@ -84,4 +84,11 @@ requireText("app/player.tsx", ">More<", "player More action is missing");
 requireText("app/player.tsx", "Sleep Timer ·", "player sleep-timer quick action is missing");
 requireText("app/player.tsx", "setTracksOpen(false);\n      setMoreOpen(false);", "auto-hide does not release secondary OSD state");
 
+// Final RAM cross-check: PR24-compatible hardening without restoring its old navigation model.
+requireText("app/(tabs)/guide.tsx", "const dataIds = isGuideSurfing()", "held Guide surfing no longer uses compact EPG data runway");
+requireText("app/(tabs)/guide.tsx", "drawerOpen || !!activeProgram || !isFocused", "Guide preview decoder can survive behind drawer/modal/hidden tab");
+requireText("src/utils/tvGuideFocusLock.ts", "activeGuideFocusNode === removed", "recycled programme focus ref cleanup is missing");
+requireText("src/components/PurpleTvShell.tsx", "active === "/guide" && !drawerOpen && !activeProgram", "Guide shell single-Back drawer arbitration is missing");
+forbidText("app/(tabs)/guide.tsx", "guide-more-groups-overlay", "retired More Groups overlay returned");
+
 console.log("TiViMate architecture-overhaul conflict scan passed.");

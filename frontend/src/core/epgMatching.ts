@@ -259,6 +259,7 @@ export function applyLogoOnlyUpdates(
   logos: Record<string, string>,
   previousFingerprint: string | undefined,
   nextFingerprint: string,
+  logoPriority: "playlist" | "epg" = "playlist",
 ): Channel[] | null {
   if (!previousFingerprint || previousFingerprint !== nextFingerprint) return null;
   let changed = false;
@@ -266,7 +267,9 @@ export function applyLogoOnlyUpdates(
     const key = (channel.tvg_id || "").trim();
     const xmltvLogo = (key && logos[key] ? logos[key] : logos[channel.id] || "").trim();
     const playlistLogo = (channel.playlist_logo || (!channel.epg_logo ? channel.logo : "") || "").trim();
-    const nextLogo = playlistLogo || xmltvLogo || channel.logo || "";
+    const nextLogo = logoPriority === "epg"
+      ? (xmltvLogo || playlistLogo || channel.logo || "")
+      : (playlistLogo || xmltvLogo || channel.logo || "");
     if (nextLogo === channel.logo && playlistLogo === (channel.playlist_logo || "") && xmltvLogo === (channel.epg_logo || "")) return channel;
     changed = true;
     return { ...channel, logo: nextLogo, playlist_logo: playlistLogo, epg_logo: xmltvLogo };

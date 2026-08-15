@@ -134,7 +134,9 @@ test("drawer shell boots closed without an icon rail", async () => {
 test("guide.tsx routes its left boundary to GuidePreviewRail with conveyor retain", async () => {
   const guide = await source("app/(tabs)/guide.tsx");
   assert.match(guide, /GuidePreviewRail/);
-  assert.match(guide, /focusGuidePreviewSurface\(\)/);
+  assert.match(guide, /another Left enters the drawer/);
+  assert.match(guide, /openDrawer\(\)/);
+  assert.doesNotMatch(guide, /focusGuidePreviewSurface\(\)/);
   assert.match(guide, /onOpenReminders=/);
   assert.match(guide, /expandRunwayKeepSet/);
   assert.match(guide, /retainGuideSlidingCache/);

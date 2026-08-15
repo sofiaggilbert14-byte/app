@@ -335,8 +335,13 @@ export function registerGuideProgramNode(
 ): void {
   if (!channelId || !programStart) return;
   const key = guideProgramNodeKey(channelId, programStart);
-  if (node) guideProgramNodes.set(key, node);
-  else guideProgramNodes.delete(key);
+  if (node) {
+    guideProgramNodes.set(key, node);
+  } else {
+    const removed = guideProgramNodes.get(key);
+    guideProgramNodes.delete(key);
+    if (activeGuideFocusNode === removed) activeGuideFocusNode = null;
+  }
 }
 
 /** Restore the exact programme cell, resolving its current recycled ref per retry. */

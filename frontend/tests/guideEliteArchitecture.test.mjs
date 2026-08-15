@@ -58,7 +58,8 @@ test("native focus graph avoids dead tap events and wires every preview action",
   assert.match(guide, /lockLeftEdge=\{false\}/);
   assert.match(guide, /focusClaimNonce/);
   assert.match(guide, /openDrawer\(\{ focusTop: true \}\)/);
-  assert.match(guide, /guide-more-groups-overlay/);
+  assert.doesNotMatch(guide, /guide-more-groups-overlay/);
+  assert.match(guide, /type PurpleGuideGroup/);
   assert.match(guide, /guide-pin-overlay/);
   assert.match(guide, /trapFocusUp trapFocusDown trapFocusLeft trapFocusRight/);
   assert.match(guide, /pointerEvents="none"/);

@@ -106,7 +106,7 @@ type DrawerContextValue = {
 const DrawerContext = createContext<DrawerContextValue | null>(null);
 
 export function PurpleTvDrawerProvider({ children }: { children: React.ReactNode }) {
-  // Always boot closed — content is full-bleed; double-Back opens the drawer.
+  // Always boot closed — content is full-bleed; Guide can open the drawer with one Back.
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [focusDrawerTop, setFocusDrawerTop] = useState(false);
   const drawerProgress = useRef(new Animated.Value(0)).current;
@@ -283,6 +283,13 @@ export function PurpleTvShell({
     useCallback(() => {
       if (Platform.OS === "web") return;
       const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+        // Guide owns a TiViMate-style single-Back drawer transition. Keep the
+        // generic double-Back policy for other full-bleed tabs only.
+        if (active === "/guide" && !drawerOpen && !activeProgram) {
+          reopenArmedAtRef.current = 0;
+          openDrawer();
+          return true;
+        }
         const decision = evaluateDrawerBack({
           drawerOpen,
           blockingOverlayOpen: !!activeProgram,
@@ -311,7 +318,7 @@ export function PurpleTvShell({
         return true;
       });
       return () => sub.remove();
-    }, [activeProgram, closeDrawer, drawerOpen, openDrawer]),
+    }, [active, activeProgram, closeDrawer, drawerOpen, openDrawer]),
   );
 
   const navigate = useCallback(

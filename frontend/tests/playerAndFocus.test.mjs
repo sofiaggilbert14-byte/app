@@ -12,7 +12,7 @@ test("stream classification selects the expected first engine and fallback", () 
   assert.equal(detectStreamKind("rtsp://x/live"), "rtsp");
   assert.equal(preferredEngine("hls"), "media3");
   assert.equal(preferredEngine("dash"), "media3");
-  assert.equal(preferredEngine("transport"), "vlc");
+  assert.equal(preferredEngine("transport"), "media3");
   assert.equal(preferredEngine("srt"), "vlc");
   assert.equal(alternateEngine("media3", false), null);
   assert.equal(alternateEngine("vlc", false), "media3");

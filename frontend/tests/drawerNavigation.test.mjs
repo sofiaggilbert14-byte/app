@@ -47,7 +47,7 @@ test("drawer uses bounded native motion and excludes hidden controls from TV foc
   assert.match(shell, /Animated\.View/);
   assert.match(shell, /trapFocusRight/);
   assert.match(shell, /closeDrawer\(\);/);
-  assert.match(shell, /requestNativeFocusWithRetry\(\s*navRefs\.current\.get\(preferredRoute\)/);
+  assert.match(shell, /requestNativeFocusWithRetry\(\s*preferredNode/);
   assert.match(shell, /drawerAutoFocus && drawerPreferredRoute === item\.route/);
   assert.match(shell, /PURPLE_DRAWER_ANIMATION_MS,\s*280,\s*420,\s*650/);
   // Guide owns preferred focus — content autoFocus must not pulse when drawer closes on /guide.
@@ -78,41 +78,29 @@ test("drawer uses bounded native motion and excludes hidden controls from TV foc
   assert.match(layout, /<Tabs/);
 });
 
-test("guide tabs reclaim the left edge and top-row Up restores the active tab", async () => {
-  const [guide, focusLock] = await Promise.all([
+test("Guide drawer owns groups and deterministic Back/Left entry", async () => {
+  const [guide, shell, focusLock] = await Promise.all([
     readFile(join(root, "app/(tabs)/guide.tsx"), "utf8"),
+    readFile(join(root, "src/components/PurpleTvShell.tsx"), "utf8"),
     readFile(join(root, "src/utils/tvGuideFocusLock.ts"), "utf8"),
   ]);
-  // Closed drawer is full-bleed — only shift group chips while the full drawer is open.
-  assert.match(guide, /marginLeft: drawerOpen \? 140 : 0/);
-  assert.match(guide, /transform: \[\{ translateX: groupSlideX \}\]/);
-  assert.match(guide, /if \(chip\) requestNativeFocus\(chip\)/);
-  assert.doesNotMatch(guide, /requestNativeFocusWithRetry\(chip/);
-  assert.match(guide, /onUpBoundary=\{onGuideUpBoundary\}/);
+  assert.match(shell, /guideGroups\?\.length/);
+  assert.match(shell, />Groups</);
+  assert.match(shell, /preferredGuideGroup/);
+  assert.match(shell, /active === "\/guide" && !drawerOpen && !activeProgram/);
   assert.match(guide, /onLeftBoundary=\{onGuideLeftBoundary\}/);
-  assert.match(guide, /focusGuidePreviewSurface\(\)/);
-  assert.doesNotMatch(guide, /focusPurpleIconRail/);
-  assert.doesNotMatch(guide, /NowPlayingBar/);
-  assert.match(guide, /trapFocusLeft=\{false\}/);
-  assert.match(guide, /expandRunwayKeepSet/);
-  assert.match(guide, /retainGuideSlidingCache/);
+  assert.match(guide, /another Left enters the drawer/);
+  assert.match(guide, /openDrawer\(\)/);
+  assert.match(guide, /useTvBackHandler/);
+  assert.match(guide, /one Back opens the group\/navigation drawer immediately/);
+  assert.doesNotMatch(guide, /groupSlideX|guide-more-groups-overlay|onBackTargetChange/);
   assert.match(guide, /active=\{isFocused && !activeProgram && !drawerOpen\}/);
   assert.match(guide, /lockLeftEdge=\{false\}/);
-  assert.match(focusLock, /nextFocusLeft: locked \? handle : previewHandle \|\| -1/);
-  assert.doesNotMatch(guide, /openDrawer\(\)/);
+  assert.match(guide, /expandRunwayKeepSet/);
+  assert.match(guide, /retainGuideSlidingCache/);
+  assert.match(focusLock, /activeGuideFocusNode === removed/);
   assert.match(guide, /openFullscreenPlayer/);
-  assert.match(guide, /drawerWasOpenForFocusRef/);
-  assert.match(guide, /focusGuideSurface\(origin\?\.channelId \|\| guideSessionChannelId\)/);
-  assert.doesNotMatch(guide, /lastGuideFocusNodeRef/);
-  assert.match(guide, /setGuideNavigationActive\(true\)/);
-  assert.match(guide, /GuidePreviewRail/);
-  assert.match(guide, /onOpenReminders=/);
-  assert.match(guide, /setPreviewId\(null\)/);
-  assert.match(guide, /useTvBackHandler/);
-  assert.match(guide, /onBackTargetChange/);
-  assert.match(guide, /guideSessionGroup/);
-  assert.match(guide, /restoreChannelId=\{guideSessionChannelId\}/);
-  assert.doesNotMatch(guide, /openDrawer\(\);\s*\n\s*return true/);
+  assert.match(guide, /guideSessionChannelByGroup/);
 });
 
 test("grids never open the drawer from D-pad Left", async () => {
