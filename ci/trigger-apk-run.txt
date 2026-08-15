@@ -1,3 +1,3 @@
-Trigger APK build run (no-op commit).
+Trigger APK validation/build for unified drawer navigation refinement.
 
-Created by GitHub Copilot Chat Assistant to invoke workflow_dispatch via push.
+Groups + one unified route scroll box + pinned Exit.
