@@ -23,6 +23,8 @@ The native VLC player is unavailable in Expo Go and the browser preview.
 
 Never commit playlist URLs, administrator passwords, Cloudflare tokens, keystores, or signing passwords. Configure feed URLs through GitHub repository secrets named `M3U_URL` and `EPG_URL`.
 
+The RAM experiment Guide keeps live preview, six remote actions, and programme description in a compact strip above the Guide grid.
+
 See [the Phoenix roadmap](docs/ROADMAP.md) and [testing checklist](docs/TESTING_CHECKLIST.md).
 
 Cloud APK builds and downloads are documented in
