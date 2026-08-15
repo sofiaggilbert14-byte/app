@@ -1,1 +1,1 @@
-apply=player-osd-overflow-2026-08-15
+apply=overhaul-typecheck-blockers-2026-08-15
