@@ -1,1 +1,1 @@
-validate=patched-overhaul-head-2026-08-15-0650
+validate=await-logo-priority-fixed-2026-08-15-0653
