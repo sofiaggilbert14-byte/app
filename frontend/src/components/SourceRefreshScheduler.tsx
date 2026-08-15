@@ -1,0 +1,41 @@
+import { useEffect } from "react";
+import { AppState } from "react-native";
+import { refreshSourcesIfDue } from "@/src/source";
+
+/**
+ * Lightweight scheduler for direct-source builds. It checks freshness when the
+ * app becomes active and at a low cadence while the app remains in the foreground.
+ * Native EPG HTTP validators still suppress unchanged payload work with 304s.
+ */
+export function SourceRefreshScheduler() {
+  useEffect(() => {
+    let active = AppState.currentState !== "background" && AppState.currentState !== "inactive";
+    let running = false;
+
+    const check = async () => {
+      if (!active || running) return;
+      running = true;
+      try {
+        await refreshSourcesIfDue();
+      } catch {
+        // Last-good playlist/guide remains authoritative; normal source UI surfaces errors.
+      } finally {
+        running = false;
+      }
+    };
+
+    void check();
+    const timer = setInterval(() => void check(), 10 * 60 * 1000);
+    const sub = AppState.addEventListener("change", (state) => {
+      active = state !== "background" && state !== "inactive";
+      if (active) void check();
+    });
+
+    return () => {
+      clearInterval(timer);
+      sub.remove();
+    };
+  }, []);
+
+  return null;
+}
