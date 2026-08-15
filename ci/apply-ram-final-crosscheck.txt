@@ -1,1 +1,1 @@
-apply=ram-final-tivimate-pr24-crosscheck-2026-08-15
+Apply unified drawer navigation refinement: groups + one route scroll box + pinned Exit.
