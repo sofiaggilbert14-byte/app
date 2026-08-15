@@ -20,6 +20,8 @@ jobs:
           fetch-depth: 0
       - name: Apply overhaul blocker cleanup
         run: python ci/patch-overhaul-typecheck-blockers.py
+      - name: Fix async logo priority call
+        run: python ci/patch-await-logo-priority.py
       - name: Commit patch results
         shell: bash
         run: |
