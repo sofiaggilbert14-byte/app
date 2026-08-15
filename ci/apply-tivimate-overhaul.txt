@@ -1,1 +1,1 @@
-apply=source-refresh-settings-2026-08-15
+apply=native-streaming-playlist-2026-08-15
