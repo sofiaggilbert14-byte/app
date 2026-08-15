@@ -29,6 +29,11 @@ import {
 } from "@/src/core/epgMatching";
 import { applyManualEpgRemaps, type EpgManualRemap } from "@/src/core/epgUserOverrides";
 import { cleanupLegacyEpgArtifactsOnce } from "@/src/utils/legacyEpgCleanup";
+import {
+  getSourceRefreshPreferences,
+  isRefreshDue,
+  nextRefreshAt,
+} from "@/src/core/sourceRefreshPreferences";
 
 export const API_BASE = "";
 /** Playlist URL — set via EXPO_PUBLIC_M3U_URL at build time. Never hardcode provider URLs. */
@@ -39,7 +44,6 @@ export const SOURCE_EPG = (process.env.EXPO_PUBLIC_EPG_URL || "").trim();
 /** Shared empty programmes array — reused for channels with no EPG in-window. Never mutate. */
 const EMPTY_PROGRAMS: Program[] = [];
 
-const TTL_MS = 24 * 60 * 60 * 1000;
 const PROGRESS_THROTTLE_MS = 150;
 /** Above this, match current-group / priority ids first, then the rest (keeps channels-first paint snappy). */
 const HUGE_PLAYLIST_MATCH_THRESHOLD = 400;
@@ -563,12 +567,7 @@ async function ensureLoaded(): Promise<NativeMeta> {
     void syncPlaylistToNative(cached.channels, cached.playlistEpoch || 0)
       .then(() => syncMatchesToNative(cached.channels, cached.guideEpoch || 0))
       .catch(() => undefined);
-    if (cached.ts <= 0 || Date.now() - cached.ts >= TTL_MS) {
-      if (!cached.epgError) {
-        setProgress({ phase: "update_available", ratio: 0, etaSeconds: null, message: null }, true);
-      }
-      void refreshInternal(false);
-    }
+    void refreshSourcesIfDue();
     return cached;
   }
 
@@ -590,12 +589,16 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
   if (refreshPromise) return refreshPromise;
   refreshPromise = (async () => {
     const cached = MEM || (await readChannelCache());
-    if (!force && cached && cached.ts > 0 && Date.now() - cached.ts < TTL_MS) {
-      MEM = cached;
-      void syncPlaylistToNative(cached.channels, cached.playlistEpoch || 0)
-        .then(() => syncMatchesToNative(cached.channels, cached.guideEpoch || 0))
-        .catch(() => undefined);
-      return cached;
+    if (!force && cached?.channels?.length) {
+      const refreshPrefs = await getSourceRefreshPreferences();
+      const playlistLast = cached.playlistRefreshedAt || cached.ts;
+      if (!isRefreshDue(playlistLast, refreshPrefs.playlistHours)) {
+        MEM = cached;
+        void syncPlaylistToNative(cached.channels, cached.playlistEpoch || 0)
+          .then(() => syncMatchesToNative(cached.channels, cached.guideEpoch || 0))
+          .catch(() => undefined);
+        return cached;
+      }
     }
 
     lastSourceError = null;
@@ -933,6 +936,32 @@ export async function refreshSource(force = false): Promise<SourceStatus> {
   return sourceStatus();
 }
 
+/** Check persisted independent playlist/EPG clocks and refresh only what is due. */
+export async function refreshSourcesIfDue(): Promise<SourceStatus> {
+  if (refreshPromise) {
+    await refreshPromise;
+    return sourceStatus();
+  }
+  const cached = MEM || (await readChannelCache());
+  if (!cached?.channels?.length) return sourceStatus();
+  MEM = cached;
+  const prefs = await getSourceRefreshPreferences();
+  const now = Date.now();
+  const playlistLast = cached.playlistRefreshedAt || cached.ts;
+  if (isRefreshDue(playlistLast, prefs.playlistHours, now)) {
+    if (!cached.epgError) {
+      setProgress({ phase: "update_available", ratio: 0, etaSeconds: null, message: null }, true);
+    }
+    await refreshInternal(true);
+    return sourceStatus();
+  }
+  const guideLast = cached.guideRefreshedAt || cached.ts;
+  if (isRefreshDue(guideLast, prefs.epgHours, now)) {
+    return refreshEpgOnly();
+  }
+  return sourceStatus();
+}
+
 /** Refresh XMLTV only — keep current playlist rows (independent epochs). */
 export async function refreshEpgOnly(): Promise<SourceStatus> {
   // Wait for any in-flight refresh, then always rematch with the current policy.
@@ -960,6 +989,7 @@ export async function refreshEpgOnly(): Promise<SourceStatus> {
             typeof epg.guideEpoch === "number" && Number.isFinite(epg.guideEpoch)
               ? Math.round(epg.guideEpoch)
               : cached.guideEpoch,
+          guideRefreshedAt: checkedAt,
         };
         setProgress({ phase: "finalizing", ratio: 0.99, etaSeconds: null }, true);
         await persistMeta(MEM);
@@ -1089,6 +1119,11 @@ export async function sourceDiagnostics(): Promise<SourceDiagnostics> {
       if (info.exists && typeof info.size === "number") cacheBytes += info.size;
     } catch {}
   }
+  const refreshPrefs = await getSourceRefreshPreferences();
+  const playlistNext = nextRefreshAt(MEM?.playlistRefreshedAt || MEM?.ts, refreshPrefs.playlistHours);
+  const epgNext = nextRefreshAt(MEM?.guideRefreshedAt || MEM?.ts, refreshPrefs.epgHours);
+  const nextCandidates = [playlistNext, epgNext].filter((value): value is number => typeof value === "number");
+  const nextAutoRefreshAt = nextCandidates.length ? Math.min(...nextCandidates) : null;
   return {
     mode: SOURCE_M3U ? "direct" : "unconfigured",
     cacheBytes,
@@ -1097,7 +1132,7 @@ export async function sourceDiagnostics(): Promise<SourceDiagnostics> {
     programs: MEM?.epgProgramCount || 0,
     refreshInFlight: !!refreshPromise,
     epgError: MEM?.epgError || lastSourceError,
-    nextAutoRefresh: MEM && MEM.ts > 0 ? new Date(MEM.ts + TTL_MS).toISOString() : null,
+    nextAutoRefresh: nextAutoRefreshAt ? new Date(nextAutoRefreshAt).toISOString() : null,
     matchQuality: MEM?.matchQuality || null,
     playlistRefreshedAt:
       MEM?.playlistRefreshedAt && MEM.playlistRefreshedAt > 0

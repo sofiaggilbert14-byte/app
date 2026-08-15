@@ -27,6 +27,10 @@ import {
   usePlayerEnginePreference,
 } from "@/src/playerEnginePreference";
 import {
+  type SourceRefreshIntervalHours,
+  useSourceRefreshPreferences,
+} from "@/src/core/sourceRefreshPreferences";
+import {
   readLatestFavoritesBackup,
   resolveFavoritesBackup,
   serializeFavoritesBackup,
@@ -149,6 +153,7 @@ export default function SettingsScreen() {
     setSleepTimerMinutes,
   } = useStore();
   const [playerEnginePreference, setPlayerEnginePreference] = usePlayerEnginePreference();
+  const sourceRefresh = useSourceRefreshPreferences();
   const [playbackBufferProfile, setPlaybackBufferProfile] = usePlaybackBufferProfile();
   const channelCustomize = useChannelCustomize();
   const guideUi = useGuideUiPreferences();
@@ -569,6 +574,33 @@ export default function SettingsScreen() {
                 <Text style={styles.help}>
                   For messy providers: match playlist channels by tvg-id only (never by display name). Ambiguous names never invent a match. Turn this off to allow conservative display-name matching.
                 </Text>
+                <ChoiceRow<SourceRefreshIntervalHours>
+                  label="Playlist auto refresh"
+                  value={sourceRefresh.playlistHours}
+                  options={[
+                    { label: "Manual only", value: 0 },
+                    { label: "Every 2 hours", value: 2 },
+                    { label: "Every 4 hours", value: 4 },
+                    { label: "Every 6 hours", value: 6 },
+                    { label: "Every 12 hours", value: 12 },
+                    { label: "Every 24 hours", value: 24 },
+                  ]}
+                  onChange={sourceRefresh.setPlaylistHours}
+                />
+                <ChoiceRow<SourceRefreshIntervalHours>
+                  label="EPG auto refresh"
+                  value={sourceRefresh.epgHours}
+                  options={[
+                    { label: "Manual only", value: 0 },
+                    { label: "Every 2 hours", value: 2 },
+                    { label: "Every 4 hours", value: 4 },
+                    { label: "Every 6 hours", value: 6 },
+                    { label: "Every 12 hours", value: 12 },
+                    { label: "Every 24 hours", value: 24 },
+                  ]}
+                  onChange={sourceRefresh.setEpgHours}
+                />
+                <Text style={styles.help}>Playlist and guide refresh independently. Defaults are 24h for channels and 6h for EPG; Manual only disables automatic checks for that source.</Text>
                 <Action label={busy ? "Refreshing…" : "Refresh playlist & EPG"} icon="refresh" onPress={hardReload} disabled={busy} />
                 <Action label={busy ? "Working…" : "Refresh EPG only"} icon="calendar-outline" onPress={reloadEpgOnly} disabled={busy} />
                 <Action label={busy ? "Working…" : "Export diagnostics"} icon="document-text-outline" onPress={exportDiagnostics} disabled={busy} />

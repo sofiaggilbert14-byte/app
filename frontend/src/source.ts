@@ -105,6 +105,10 @@ export async function refreshEpgOnly(): Promise<SourceStatus> {
   return refreshSource(true);
 }
 
+export async function refreshSourcesIfDue(): Promise<SourceStatus> {
+  return refreshSource(false);
+}
+
 function sortChannelsAlphabetically(channels: Channel[]): Channel[] {
   return [...channels].sort((a, b) =>
     (a.name || "").localeCompare(b.name || "", undefined, {

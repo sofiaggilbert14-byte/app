@@ -14,6 +14,7 @@ import { ProgramModal } from "@/src/components/ProgramModal";
 import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { PointerOverlay } from "@/src/components/PointerOverlay";
 import { PurpleTvDrawerProvider } from "@/src/components/PurpleTvShell";
+import { SourceRefreshScheduler } from "@/src/components/SourceRefreshScheduler";
 import { TvCalibrationFrame, TvCalibrationProvider } from "@/src/tvCalibration";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 
@@ -110,6 +111,7 @@ export default function RootLayout() {
               <PurpleTvDrawerProvider>
                 <StatusBar style="light" />
                 <NotificationRouter />
+                <SourceRefreshScheduler />
                 <ReminderCleanup />
                 <StartScreenRedirect />
                 <ErrorBoundary>
