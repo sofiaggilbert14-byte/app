@@ -65,7 +65,10 @@ function wireAuxiliaryPanelsToGuide(): void {
   if (!targetHandle) return;
   for (const node of guidePreviewNodes.values()) {
     try {
-      (node as any)?.setNativeProps?.({ nextFocusRight: targetHandle });
+      // Preview actions sit above the Guide. Preserve natural Left/Right focus
+      // between the two button columns and make Down the deterministic return
+      // path to the exact active Guide cell.
+      (node as any)?.setNativeProps?.({ nextFocusDown: targetHandle });
     } catch {}
   }
   try {
@@ -216,7 +219,7 @@ export function registerGuidePreviewEntry(node: unknown): void {
   registerGuidePreviewNode("play", node, true);
 }
 
-/** Register every preview action so Right returns directly to the active Guide cell. */
+/** Register every preview action so Down returns directly to the active Guide cell. */
 export function registerGuidePreviewNode(
   key: string,
   node: unknown,

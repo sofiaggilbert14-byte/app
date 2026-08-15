@@ -62,6 +62,7 @@ import { fonts, radius, spacing, tvColors } from "@/src/theme";
 import { nowNext } from "@/src/utils/time";
 import {
   cancelGuideFocusRestore,
+  focusGuidePreviewSurface,
   focusGuideProgramCell,
   focusGuideSurface,
 } from "@/src/utils/tvGuideFocusLock";
@@ -295,7 +296,11 @@ export default function PurpleGuideScreen() {
       if (surfReleaseTimer.current) clearTimeout(surfReleaseTimer.current);
       surfReleaseTimer.current = null;
       if (memoryLogoRestoreTimer.current) clearTimeout(memoryLogoRestoreTimer.current);
-      setPreviewId(null);
+      // Moderate pressure should shed disposable image/cache work without
+      // killing a healthy settled preview. Only critical pressure releases
+      // the decoder; this avoids the live preview disappearing a few seconds
+      // after tune on memory-constrained Android TV devices.
+      if (pressure === "critical") setPreviewId(null);
       setSurfLogosSuppressed(true);
       // Drop decoded logo memory immediately, then permit near-size disk-cached
       // images again after Android has had time to reclaim. A new pressure event
@@ -677,12 +682,10 @@ export default function PurpleGuideScreen() {
     }, delay);
   }, [safePreviewMode]);
 
-  const detailsRailWidth = useMemo(() => {
-    // Fixed left details panel sized for readable descriptions/actions on modern
-    // Android TV hardware. The guide owns all remaining width to the right.
-    // Twenty-five percent smaller than the original 260-360px / 24% rail.
-    return Math.round(Math.min(270, Math.max(195, screenWidth * 0.18)));
-  }, [screenWidth]);
+  const guideTopPanelWidth = useMemo(
+    () => Math.max(0, screenWidth - 24),
+    [screenWidth],
+  );
   const armPreviewForChannel = useCallback(
     (channel: Channel) => {
       if (previewTimer.current) clearTimeout(previewTimer.current);
@@ -825,7 +828,10 @@ export default function PurpleGuideScreen() {
   }, []);
 
   const onGuideUpBoundary = useCallback(() => {
-    // No top group bar anymore; keep focus in the guide instead of jumping upward.
+    // The preview/actions surface now lives above the Guide. Up from the top
+    // Guide row enters its preferred Play action; Down returns to the exact
+    // active Guide row through the native focus graph.
+    focusGuidePreviewSurface();
   }, []);
 
   const onGuideLeftBoundary = useCallback(() => {
@@ -942,7 +948,7 @@ export default function PurpleGuideScreen() {
         ) : (
           <View style={styles.body}>
             <GuideSelectionPreview
-              width={detailsRailWidth}
+              width={guideTopPanelWidth}
               channelById={filteredChannelById}
               fallbackChannel={previewFallbackChannel}
               now={now}
@@ -969,8 +975,8 @@ export default function PurpleGuideScreen() {
               onOpenDrawer={openDrawerFromPreview}
             />
 
-            {/* The preview/details/actions rail is a fixed left sibling. The Guide
-                owns the remaining width on the right; neither panel overlaps the other. */}
+            {/* Preview + six actions + description form one compact top strip.
+                The Guide owns the full width below it. */}
             <FocusGuide
               style={styles.gridPanel}
               trapFocusDown
@@ -1095,7 +1101,7 @@ export default function PurpleGuideScreen() {
 
 const styles = StyleSheet.create({
   page: { flex: 1, paddingHorizontal: 12, paddingTop: 4, paddingBottom: 8, gap: 3 },
-  body: { flex: 1, minHeight: 0, flexDirection: "row", gap: 8 },
+  body: { flex: 1, minHeight: 0, flexDirection: "column", gap: 6 },
   gridPanel: { flex: 1, minWidth: 0, minHeight: 0 },
   pinCard: { width: 340, maxWidth: "100%", borderRadius: 10, backgroundColor: tvColors.panel, padding: 16, gap: 10 },
   overlayTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 16, textAlign: "center" },
