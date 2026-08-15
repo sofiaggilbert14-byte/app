@@ -25,6 +25,7 @@ import {
   clearFullscreenCircuit,
   isFullscreenCircuitOpen,
   type StreamTrack,
+  type PlayerScaleMode,
 } from "@/src/components/StreamPlayer";
 import { useStore } from "@/src/store";
 import { fonts, radius, tvColors } from "@/src/theme";
@@ -102,6 +103,8 @@ export default function PlayerScreen() {
   const [playerNow, setPlayerNow] = useState(() => new Date());
   // Decoder is disarmed while rapid Next/Prev or strip surfing — prevents VLC pile-up / audio leaks.
   const [decoderArmed, setDecoderArmed] = useState(true);
+  const [playbackPaused, setPlaybackPaused] = useState(false);
+  const [scaleMode, setScaleMode] = useState<PlayerScaleMode>("fit");
   const [audioTracks, setAudioTracks] = useState<StreamTrack[]>([]);
   const [textTracks, setTextTracks] = useState<StreamTrack[]>([]);
   const [audioTrackId, setAudioTrackId] = useState<string | number | undefined>(undefined);
@@ -244,6 +247,7 @@ export default function PlayerScreen() {
       setRetryAttempt(0);
       setStatus("loading");
       setFailReason(null);
+      setPlaybackPaused(false);
       setDecoderArmed(true);
       setRetryToken((value) => value + 1);
     }, delayMs);
@@ -265,6 +269,7 @@ export default function PlayerScreen() {
     setStatus("loading");
     setFailReason(null);
     setChannelId(id);
+    setPlaybackPaused(false);
     addRecent(target);
     showNotice(`Switching to ${target.name}`);
     // Keep strip/card focus — do not reclaim Channels button.
@@ -333,6 +338,15 @@ export default function PlayerScreen() {
     // Debounced zap: UI + notice update now; decoder remounts only after settle.
     changeChannel(target.id, true);
   }, [changeChannel, streamChannels]);
+
+  const cycleScaleMode = useCallback(() => {
+    setScaleMode((current) => {
+      const next: PlayerScaleMode = current === "fit" ? "zoom" : current === "zoom" ? "stretch" : "fit";
+      showNotice(next === "fit" ? "Aspect: Fit" : next === "zoom" ? "Aspect: Zoom" : "Aspect: Stretch");
+      return next;
+    });
+    revealControls({ claimChannelsFocus: false });
+  }, [revealControls, showNotice]);
 
   const restartStream = useCallback((clearCircuit: boolean) => {
     if (!hasStream) return;
@@ -615,6 +629,8 @@ export default function PlayerScreen() {
             sessionRole="fullscreen"
             audioTrack={audioTrackId}
             textTrack={textTrackId}
+            paused={playbackPaused}
+            scaleMode={scaleMode}
             onTracksAvailable={(tracks) => {
               const audio = tracks.audio.filter((track) => track.id !== "" && track.id != null);
               const text = tracks.text.filter((track) => track.id !== "" && track.id != null);
@@ -783,6 +799,10 @@ export default function PlayerScreen() {
                 <Ionicons name="musical-notes-outline" size={15} color="#fff" />
                 <Text style={styles.controlLabel}>Audio/CC</Text>
               </Pressable>
+              <Pressable onPress={cycleScaleMode} style={({ focused }: any) => [styles.textControl, focused && styles.focused]}>
+                <Ionicons name="resize-outline" size={15} color="#fff" />
+                <Text style={styles.controlLabel}>{scaleMode === "fit" ? "Fit" : scaleMode === "zoom" ? "Zoom" : "Stretch"}</Text>
+              </Pressable>
               <Pressable
                 onPress={() => {
                   void saveAudioReport();
@@ -803,15 +823,14 @@ export default function PlayerScreen() {
                 <Ionicons name="play-skip-back" size={18} color="#fff" />
               </Pressable>
               <Pressable
-                accessibilityLabel="Hide player controls"
+                accessibilityLabel={playbackPaused ? "Play stream" : "Pause stream"}
                 onPress={() => {
-                  controlsRef.current = false;
-                  setControls(false);
-                  setChannelsOpen(false);
+                  setPlaybackPaused((value) => !value);
+                  revealControls({ claimChannelsFocus: false });
                 }}
                 style={({ focused }: any) => [styles.pauseControl, focused && styles.focused]}
               >
-                <Ionicons name="eye-off-outline" size={18} color="#fff" />
+                <Ionicons name={playbackPaused ? "play" : "pause"} size={18} color="#fff" />
               </Pressable>
               <Pressable
                 ref={nextButtonRef}
@@ -825,8 +844,9 @@ export default function PlayerScreen() {
               <Pressable onPress={() => router.replace("/settings" as any)} style={({ focused }: any) => [styles.iconControl, focused && styles.focused]}>
                 <Ionicons name="settings-outline" size={16} color="#fff" />
               </Pressable>
-              <Pressable onPress={stopAndExit} style={({ focused }: any) => [styles.iconControl, focused && styles.focused]}>
-                <Ionicons name="close" size={18} color="#fff" />
+              <Pressable onPress={stopAndExit} style={({ focused }: any) => [styles.textControl, focused && styles.focused]}>
+                <Ionicons name="stop" size={15} color="#fff" />
+                <Text style={styles.controlLabel}>Stop</Text>
               </Pressable>
             </View>
 

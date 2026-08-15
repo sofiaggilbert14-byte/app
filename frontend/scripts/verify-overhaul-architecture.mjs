@@ -69,4 +69,13 @@ requireText("app/(tabs)/settings.tsx", "Remote · Long Down", "long-Down mapping
 requireText("app/(tabs)/settings.tsx", "Remote · Long OK/Select", "long-Select mapping setting is missing");
 requireText("app/player.tsx", "remoteShortcuts.longDown", "player does not consume configured long-Down action");
 
+
+// Player controls and playback-memory architecture.
+requireText("src/components/StreamPlayer.tsx", "paused?: boolean", "player pause state is not wired through engines");
+requireText("src/components/StreamPlayer.tsx", "mode === \"preview\" ? \"textureView\" : \"surfaceView\"", "fullscreen Media3 is not using SurfaceView");
+requireText("src/components/StreamPlayer.tsx", "shouldUseLowRamTuning", "player buffers are not low-RAM adaptive");
+requireText("app/player.tsx", "Pause stream", "real play/pause player control is missing");
+requireText("app/player.tsx", ">Stop<", "explicit player Stop control is missing");
+requireText("app/player.tsx", "cycleScaleMode", "aspect-ratio cycling is missing");
+
 console.log("TiViMate architecture-overhaul conflict scan passed.");
