@@ -620,8 +620,8 @@ export default function SettingsScreen() {
                   label="Video player"
                   value={playerEnginePreference}
                   options={[
-                    { label: "App Default", value: "default" },
-                    { label: "Media3", value: "media3" },
+                    { label: "Expo / Media3 (Default)", value: "default" },
+                    { label: "Expo / Media3 only", value: "media3" },
                     { label: "VLC", value: "vlc" },
                   ]}
                   onChange={setPlayerEnginePreference}

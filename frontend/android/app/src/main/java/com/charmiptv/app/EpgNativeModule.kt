@@ -664,7 +664,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     private const val MAX_DECOMPRESSED_EPG_BYTES = 1024L * 1024L * 1024L
     private const val MAX_PROGRAMME_COUNT = 2_000_000L
     private const val GUIDE_HISTORY_MS = 6L * 60L * 60L * 1000L
-    private const val GUIDE_WINDOW_MS = 24L * 60L * 60L * 1000L
+    private const val GUIDE_WINDOW_MS = 72L * 60L * 60L * 1000L
     private const val MAX_QUERY_WINDOW_MS = 24L * 60L * 60L * 1000L
     private const val CURRENT_CACHE_REFRESH_MS = 30_000L
     private const val DEFAULT_PROGRAMME_DURATION_MS = 30L * 60L * 1000L
