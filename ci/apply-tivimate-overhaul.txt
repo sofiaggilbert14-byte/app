@@ -1,1 +1,1 @@
-apply=logo-pipeline-2026-08-15
+apply=logo-pipeline-retry-2026-08-15
