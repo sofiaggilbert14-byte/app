@@ -88,7 +88,7 @@ test("guide tabs reclaim the left edge and top-row Up restores the active tab", 
   assert.match(guide, /transform: \[\{ translateX: groupSlideX \}\]/);
   assert.match(guide, /if \(chip\) requestNativeFocus\(chip\)/);
   assert.doesNotMatch(guide, /requestNativeFocusWithRetry\(chip/);
-  assert.match(guide, /onUpBoundary=\{onGuideUpBoundary\}/);
+  assert.match(guide, /<NativeGuide/);
   assert.match(guide, /onLeftBoundary=\{onGuideLeftBoundary\}/);
   assert.match(guide, /focusGuidePreviewSurface\(\)/);
   assert.doesNotMatch(guide, /focusPurpleIconRail/);
@@ -97,7 +97,7 @@ test("guide tabs reclaim the left edge and top-row Up restores the active tab", 
   assert.match(guide, /expandRunwayKeepSet/);
   assert.match(guide, /retainGuideSlidingCache/);
   assert.match(guide, /active=\{isFocused && !activeProgram && !drawerOpen\}/);
-  assert.match(guide, /lockLeftEdge=\{false\}/);
+  assert.doesNotMatch(guide, /<TimelineGrid|<BoxGrid/);
   assert.match(focusLock, /nextFocusLeft: locked \? handle : previewHandle \|\| -1/);
   assert.doesNotMatch(guide, /openDrawer\(\)/);
   assert.match(guide, /openFullscreenPlayer/);
@@ -108,10 +108,10 @@ test("guide tabs reclaim the left edge and top-row Up restores the active tab", 
   assert.match(guide, /GuidePreviewRail/);
   assert.match(guide, /onOpenReminders=/);
   assert.match(guide, /setPreviewId\(null\)/);
-  assert.match(guide, /useTvBackHandler/);
-  assert.match(guide, /onBackTargetChange/);
+  assert.match(guide, /onBack=\{openDrawerFromPreview\}/);
+  assert.match(guide, /onBack=\{openDrawerFromPreview\}/);
   assert.match(guide, /guideSessionGroup/);
-  assert.match(guide, /restoreChannelId=\{guideSessionChannelId\}/);
+  assert.match(guide, /channels=\{filtered\}/);
   assert.doesNotMatch(guide, /openDrawer\(\);\s*\n\s*return true/);
 });
 

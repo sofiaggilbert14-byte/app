@@ -40,14 +40,14 @@ test("extra compact density fits thinner rows and one-line names", () => {
   assert.equal(metrics.channelNameMaxLines, 1);
 });
 
-test("native focus graph avoids dead tap events and wires every preview action", async () => {
-  const [activity, preview, guide, timeline, shell, focusLock] = await Promise.all([
+test("native guide controller avoids mounted-cell focus and wires every preview action", async () => {
+  const [activity, preview, guide, nativeGuide, nativeView, shell] = await Promise.all([
     readFile(join(root, "android/app/src/main/java/com/charmiptv/app/MainActivity.kt"), "utf8"),
     readFile(join(root, "src/components/GuidePreviewRail.tsx"), "utf8"),
     readFile(join(root, "app/(tabs)/guide.tsx"), "utf8"),
-    readFile(join(root, "src/components/TimelineGrid.tsx"), "utf8"),
+    readFile(join(root, "src/components/NativeGuide.tsx"), "utf8"),
+    readFile(join(root, "android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt"), "utf8"),
     readFile(join(root, "src/components/PurpleTvShell.tsx"), "utf8"),
-    readFile(join(root, "src/utils/tvGuideFocusLock.ts"), "utf8"),
   ]);
   assert.doesNotMatch(activity, /TvDpadTap|activeDirectionalRepeated/);
   assert.match(preview, /registerGuidePreviewNode\(key, node, preferred\)/);
@@ -55,8 +55,7 @@ test("native focus graph avoids dead tap events and wires every preview action",
   assert.match(preview, />Drawer</);
   assert.match(preview, /guide-preview-drawer/);
   assert.match(guide, /trapFocusLeft=\{false\}/);
-  assert.match(guide, /lockLeftEdge=\{false\}/);
-  assert.match(guide, /focusClaimNonce/);
+  assert.match(guide, /<NativeGuide/);
   assert.match(guide, /openDrawer\(\{ focusTop: true \}\)/);
   assert.match(guide, /guide-more-groups-overlay/);
   assert.match(guide, /guide-pin-overlay/);
@@ -64,24 +63,16 @@ test("native focus graph avoids dead tap events and wires every preview action",
   assert.match(guide, /pointerEvents="none"/);
   assert.doesNotMatch(guide, /pointerEvents=\{drawerOpen \? "auto" : "none"\}/);
   assert.match(guide, /clearStreamFailure\(channel\.id\)/);
-  // Drawer-close reclaim is nonce-only — no parallel focusGuideSurface race.
-  assert.match(guide, /setFocusClaimNonce\(\(value\) => value \+ 1\)/);
-  assert.doesNotMatch(
-    guide,
-    /setFocusClaimNonce\(\(value\) => value \+ 1\);\s*focusGuideSurface\(guideSessionChannelId\)/,
-  );
-  assert.match(focusLock, /nextFocusLeft: locked \? handle : previewHandle \|\| -1/);
-  assert.match(timeline, /buildVisibleGuideCellSlice/);
-  assert.match(timeline, /tvFocusable=\{near \|\| keepFocused\}/);
-  assert.doesNotMatch(timeline, /pageJumpDetectorRef|subscribeVerticalDpadTaps/);
-  assert.match(timeline, /styles\.rowPanTrack/);
-  assert.match(timeline, /width: logoWidth \+ timelineWidth/);
-  assert.match(timeline, /showChannelLogos && channelRailVisible/);
-  assert.match(timeline, /const timelineOffset = Math\.max\(0, next - LOGO_W\)/);
+  assert.match(nativeGuide, /requireNativeComponent<any>\("CharmNativeGuide"\)/);
+  assert.match(nativeGuide, /if \(!item\.value\.settled\) return/);
+  assert.match(nativeView, /class NativeGuideView/);
+  assert.match(nativeView, /override fun onDraw\(canvas: Canvas\)/);
+  assert.match(nativeView, /Velocity-aware logical movement/);
+  assert.match(nativeView, /database\.queryGuideWindow/);
+  assert.doesNotMatch(guide, /<TimelineGrid|<BoxGrid/);
   assert.match(shell, /sidebarOverlay/);
   assert.match(shell, /pointerEvents=\{drawerOpen \? "auto" : "none"\}/);
   // Shell never reaches behind the drawer to claim Guide focus.
-  assert.doesNotMatch(shell, /focusGuideSurfaceWhenMounted/);
   assert.doesNotMatch(shell, /purple-icon-rail|ICON_RAIL/);
 });
 
@@ -196,7 +187,7 @@ test("hidden tabs stop Guide input, clocks, and decoded-logo work", async () => 
   ]);
   assert.match(guide, /active=\{isFocused && !activeProgram && !drawerOpen\}/);
   assert.match(guide, /if \(!isFocused\) return;[\s\S]*setInterval\(\(\) => setNow/);
-  assert.match(guide, /showChannelLogos=\{isFocused && channelLogos/);
+  assert.match(guide, /active=\{isFocused && !activeProgram && !drawerOpen\}/);
   assert.match(channels, /if \(!isFocused\) return;[\s\S]*setInterval\(\(\) => setNow/);
   assert.match(channels, /logos=\{isFocused && channelLogos\}/);
   assert.match(reminders, /logos=\{isFocused && channelLogos\}/);

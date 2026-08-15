@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Charm IPTV Purple Next",
-    "slug": "charm-iptv-purple-next",
+    "name": "Charm IPTV Native Guide",
+    "slug": "charm-iptv-native-guide",
     "version": "2.1.0-rc.3",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
@@ -15,7 +15,7 @@
       },
       "edgeToEdgeEnabled": true,
       "allowBackup": false,
-      "package": "com.charmiptv.app.purple.next",
+      "package": "com.charmiptv.app.nativeguide",
       "versionCode": 6,
       "blockedPermissions": [
         "android.permission.READ_EXTERNAL_STORAGE",

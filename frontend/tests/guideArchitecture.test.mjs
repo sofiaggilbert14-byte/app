@@ -32,7 +32,7 @@ test("guide is a fixed left details panel plus right grid without drawer extras"
     source("src/components/PurpleTvShell.tsx"),
   ]);
   const railPosition = guide.indexOf("<GuidePreviewRail");
-  const gridPosition = guide.indexOf("<TimelineGrid");
+  const gridPosition = guide.indexOf("<NativeGuide");
   assert.ok(railPosition >= 0 && gridPosition > railPosition);
   assert.match(guide, /const detailsRailWidth = useMemo/);
   assert.match(guide, /flex: 1/);

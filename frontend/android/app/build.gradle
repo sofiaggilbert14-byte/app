@@ -85,7 +85,7 @@ android {
     // installed beside stable/perf builds without replacing their app data.
     namespace 'com.charmiptv.app'
     defaultConfig {
-        applicationId 'com.charmiptv.app.purple.next'
+        applicationId 'com.charmiptv.app.nativeguide'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 6

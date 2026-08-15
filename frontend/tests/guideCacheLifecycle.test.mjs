@@ -70,7 +70,7 @@ test("guide rewarms last runway on focus and reuses channel index maps", async (
   ]);
   assert.match(guide, /lastRunwayRef/);
   assert.match(guide, /buildChannelIndexMap/);
-  assert.match(guide, /cacheProfile=\{powerProfile\}/);
+  assert.match(guide, /onViewportChannelIds=\{onViewportChannelIds\}/);
   assert.match(sliding, /export function buildChannelIndexMap/);
   assert.match(sliding, /indexById\?: ReadonlyMap/);
 });

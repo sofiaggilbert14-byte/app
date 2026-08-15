@@ -18,8 +18,7 @@ import {
   PURPLE_DRAWER_ANIMATION_MS,
   usePurpleTvDrawer,
 } from "@/src/components/PurpleTvShell";
-import { TimelineGrid } from "@/src/components/TimelineGrid";
-import { BoxGrid } from "@/src/components/BoxGrid";
+import { NativeGuide } from "@/src/components/NativeGuide";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { GuidePreviewRail } from "@/src/components/GuidePreviewRail";
 import { EpgProgressBar } from "@/src/components/EpgProgressBar";
@@ -70,7 +69,6 @@ import {
   registerGuideTopEntry,
 } from "@/src/utils/tvGuideFocusLock";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
-import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
 import type { StreamStatus } from "@/src/components/StreamPlayer";
 import { subscribeAndroidMemoryPressure } from "@/src/utils/androidMemoryPressure";
 import { setGuideNavigationActive, setGuideRepeatInterval } from "@/src/utils/tvRemote";
@@ -287,7 +285,6 @@ export default function PurpleGuideScreen() {
     safePreviewMode,
     channelNumbers,
     channelLogos,
-    reminders,
     powerProfile,
     logosOffWhileSurfing,
     instantGuide,
@@ -380,19 +377,9 @@ export default function PurpleGuideScreen() {
     }),
     [groupSlideX, headerTitleProgress],
   );
-  const reminderKeys = useMemo(() => new Set(reminders.map((item) => item.key)), [reminders]);
-  // Freeze grid reminder badges while the program sheet is open so Cancel/Remind
-  // doesn't rebuild the FlashList under the modal.
-  const [gridReminderKeys, setGridReminderKeys] = useState(reminderKeys);
   useEffect(() => {
-    if (activeProgram) {
-      hadProgramModalRef.current = true;
-      return;
-    }
-    // Delay badge sync so focus restore isn't competing with FlashList churn.
-    const syncTimer = setTimeout(() => setGridReminderKeys(reminderKeys), 220);
-    return () => clearTimeout(syncTimer);
-  }, [activeProgram, reminderKeys]);
+    if (activeProgram) hadProgramModalRef.current = true;
+  }, [activeProgram]);
 
   useEffect(() => {
     if (previousDrawerOpenRef.current !== drawerOpen) {
@@ -419,7 +406,6 @@ export default function PurpleGuideScreen() {
   // exact recycled native node is stale, use the registered guide surface entry
   // instead of preferring row 0 and unexpectedly jumping to the first channel.
   const drawerWasOpenForFocusRef = useRef(drawerOpen);
-  const [focusClaimNonce, setFocusClaimNonce] = useState(0);
   useEffect(() => {
     const wasOpen = drawerWasOpenForFocusRef.current;
     drawerWasOpenForFocusRef.current = drawerOpen;
@@ -428,10 +414,8 @@ export default function PurpleGuideScreen() {
       return;
     }
     if (!wasOpen || drawerOpen || activeProgram) return;
-    // Sole post-drawer reclaim path: bump nonce so TimelineGrid/BoxGrid restore
-    // the session channel. Do not also call focusGuideSurface here — Shell and
-    // the shared cancelGuideRestoreTimers would race and yank focus.
-    setFocusClaimNonce((value) => value + 1);
+    // NativeGuide receives active=true after the drawer closes and synchronously
+    // reclaims its single Android focus node without a recycled-cell race.
   }, [activeProgram, drawerOpen]);
 
   const openDrawerFromPreview = useCallback(() => {
@@ -453,27 +437,6 @@ export default function PurpleGuideScreen() {
     }
     return cancelGuideFocusRestore;
   }, [activeProgram, guideLayout]);
-
-  const guideFocusRegionRef = useRef<"channel" | "program">("program");
-  const channelLogoNodeRef = useRef<unknown>(null);
-  const onGuideBackTarget = useCallback((region: "channel" | "program", logoNode: unknown) => {
-    guideFocusRegionRef.current = region;
-    if (logoNode) channelLogoNodeRef.current = logoNode;
-  }, []);
-
-  // Back in the guide: step to the channel logo first. Only at the left edge does
-  // Back defer to the shell double-Back drawer arm — never opens on a single press.
-  useTvBackHandler(
-    useCallback(() => {
-      if (drawerOpen || activeProgram) return false;
-      if (guideFocusRegionRef.current === "program" && channelLogoNodeRef.current) {
-        requestNativeFocus(channelLogoNodeRef.current);
-        guideFocusRegionRef.current = "channel";
-        return true;
-      }
-      return false;
-    }, [activeProgram, drawerOpen]),
-  );
 
   useEffect(() => {
     if (loading || refreshing || channels.length > 0) return;
@@ -702,13 +665,6 @@ export default function PurpleGuideScreen() {
     screenWidth,
   ]);
 
-  const onChannelLongPress = useCallback(
-    (channel: Channel) => {
-      toggleFavorite(channel.id);
-    },
-    [toggleFavorite],
-  );
-
   // If Favorites/Recent (or a vanished category) becomes empty, fall back to All
   // so the guide never leaves an unfocusable empty FlashList.
   useEffect(() => {
@@ -914,21 +870,6 @@ export default function PurpleGuideScreen() {
     },
     [pinnedGroups, setPinnedGroups],
   );
-
-  const onFocusedGuideRow = useCallback((_index: number) => {
-    // Intentionally no-op for trapFocus toggling — flipping traps mid-surf freezes TV focus.
-  }, []);
-
-  const onGuideUpBoundary = useCallback(() => {
-    cancelGuideFocusRestore();
-    const chip = groupChipRefs.current.get(group);
-    // Group chips are permanently mounted. One synchronous request avoids a
-    // delayed retry pulling focus back after the user moves across the tabs.
-    if (chip) {
-      registerGuideTopEntry(chip);
-      requestNativeFocus(chip);
-    }
-  }, [group]);
 
   const onGuideLeftBoundary = useCallback(() => {
     // The preview/details/actions panel is the Guide's only left neighbor.
@@ -1152,66 +1093,20 @@ export default function PurpleGuideScreen() {
               trapFocusLeft={false}
               trapFocusRight
             >
-              {guideLayout === "compact" ? (
-                <BoxGrid
-                  channels={filtered}
-                  now={now}
-                  onChannelPress={play}
-                  onProgramPress={openGuideProgram}
-                  onChannelFocus={onFocusChannel}
-                  refreshing={refreshing}
-                  onRefresh={hardRefresh}
-                  showChannelNumbers={channelNumbers}
-                  channelNumberById={channelNumberById}
-                  showChannelLogos={isFocused && channelLogos && !surfLogosSuppressed}
-                  reminderKeys={gridReminderKeys}
-                  resetToken={resetToken}
-                  active={isFocused && !activeProgram && !drawerOpen}
-                  // Preview is the native Left neighbor; the closed drawer has
-                  // no mounted focus tree and therefore needs no self-lock.
-                  lockLeftEdge={false}
-                  restoreChannelId={guideSessionChannelId}
-                  focusClaimNonce={focusClaimNonce}
-                  cacheProfile={powerProfile}
-                  onUpBoundary={onGuideUpBoundary}
-                  onLeftBoundary={onGuideLeftBoundary}
-                  onFocusedRowChange={onFocusedGuideRow}
-                  onViewportChannelIds={onViewportChannelIds}
-                />
-              ) : (
-                <TimelineGrid
+              <NativeGuide
                   channels={filtered}
                   windowStart={windowStart}
                   windowEnd={windowEnd}
-                  now={now}
                   onChannelPress={play}
                   onProgramPress={openGuideProgram}
                   onProgramFocus={onFocusProgram}
                   onChannelFocus={onFocusChannel}
-                  onChannelLongPress={onChannelLongPress}
-                  refreshing={refreshing}
-                  onRefresh={hardRefresh}
-                  density={guideDensity}
-                  showChannelNumbers={channelNumbers}
                   channelNumberById={channelNumberById}
-                  showChannelLogos={isFocused && channelLogos && !surfLogosSuppressed}
-                  reminderKeys={gridReminderKeys}
-                  resetToken={resetToken}
                   active={isFocused && !activeProgram && !drawerOpen}
-                  // Preview is the native Left neighbor; the closed drawer has
-                  // no mounted focus tree and therefore needs no self-lock.
-                  lockLeftEdge={false}
-                  restoreChannelId={guideSessionChannelId}
-                  focusClaimNonce={focusClaimNonce}
-                  cacheProfile={powerProfile}
-                  onUpBoundary={onGuideUpBoundary}
                   onLeftBoundary={onGuideLeftBoundary}
-                  onFocusedRowChange={onFocusedGuideRow}
                   onViewportChannelIds={onViewportChannelIds}
-                  onBackTargetChange={onGuideBackTarget}
-                  reduceMotion={instantGuide}
+                  onBack={openDrawerFromPreview}
                 />
-              )}
             </FocusGuide>
           </View>
         )}
