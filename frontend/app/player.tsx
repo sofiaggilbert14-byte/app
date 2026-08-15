@@ -28,7 +28,7 @@ import {
 } from "@/src/components/StreamPlayer";
 import { useStore } from "@/src/store";
 import { fonts, radius, tvColors } from "@/src/theme";
-import { addTvKeyListener } from "@/src/utils/tvRemote";
+import { addTvKeyListener, addTvLongPressListener } from "@/src/utils/tvRemote";
 import { getTvSafeInsets } from "@/src/utils/tvLayout";
 import { requestNativeFocus } from "@/src/utils/tvFocus";
 import { stopFullscreenSession, stopAllPlaybackSessions, pauseSessionDecoders, type SessionFailReason } from "@/src/core/playbackSession";
@@ -439,6 +439,23 @@ export default function PlayerScreen() {
     return addTvKeyListener(() => {
       if (!controlsRef.current) revealControls({ claimChannelsFocus: true });
       else scheduleHide();
+    });
+  }, [isTV, revealControls, scheduleHide]);
+
+  useEffect(() => {
+    if (!isTV) return;
+    // TiViMate-style semantic long presses, limited to actions Charm already owns.
+    // Long Down exposes channel browsing without triggering a stream reload;
+    // Long Select simply wakes the controls/quick-action surface.
+    return addTvLongPressListener((key) => {
+      if (key === "DOWN") {
+        controlsRef.current = true;
+        setControls(true);
+        setChannelsOpen(true);
+        scheduleHide();
+        return;
+      }
+      if (key === "SELECT") revealControls({ claimChannelsFocus: true });
     });
   }, [isTV, revealControls, scheduleHide]);
 

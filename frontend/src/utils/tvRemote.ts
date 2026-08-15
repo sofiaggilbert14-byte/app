@@ -12,10 +12,35 @@ const TvRemote: any = Platform.OS === "android" ? NativeModules.TvRemote : null;
 export const tvRemoteAvailable = !!TvRemote;
 
 export type TvKey = "UP" | "DOWN" | "LEFT" | "RIGHT" | "SELECT" | "BACK";
+export type TvLongPressKey = "DOWN" | "SELECT" | "BACK";
+export type DeviceMemoryProfile = { memoryClassMb: number; lowRamDevice: boolean };
 
 const emitter = TvRemote ? new NativeEventEmitter(TvRemote) : null;
 
 // Subscribe to D-pad key presses forwarded from the native Activity.
+export function addTvLongPressListener(cb: (key: TvLongPressKey) => void): () => void {
+  const eventName = "TvRemoteLongPress";
+  if (emitter) {
+    const sub = emitter.addListener(eventName, (key: TvLongPressKey) => cb(key));
+    return () => sub.remove();
+  }
+  const sub = DeviceEventEmitter.addListener(eventName, (key: TvLongPressKey) => cb(key));
+  return () => sub.remove();
+}
+
+export async function getDeviceMemoryProfile(): Promise<DeviceMemoryProfile | null> {
+  try {
+    if (!TvRemote?.getDeviceMemoryProfile) return null;
+    const raw = await TvRemote.getDeviceMemoryProfile();
+    return {
+      memoryClassMb: Number(raw?.memoryClassMb) || 0,
+      lowRamDevice: !!raw?.lowRamDevice,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function addTvKeyListener(cb: (key: TvKey) => void): () => void {
   if (emitter) {
     const sub = emitter.addListener("TvRemoteKey", (k: TvKey) => cb(k));

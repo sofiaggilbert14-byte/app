@@ -55,4 +55,12 @@ requireText("app/(tabs)/guide.tsx", "another Left enters the drawer", "Guide lef
 forbidText("app/(tabs)/guide.tsx", "onBackTargetChange={onGuideBackTarget}", "obsolete Guide Back-target tracking returned");
 forbidText("app/(tabs)/guide.tsx", "focusGuidePreviewSurface();", "Guide left boundary detours through preview rail again");
 
+
+// Remote/focus and low-RAM architecture.
+requireText("plugins/withTvRemote.js", "TvRemoteLongPress", "native semantic long-press routing is missing");
+requireText("plugins/withTvRemote.js", "getDeviceMemoryProfile", "Android memory-class profiler is missing");
+requireText("src/utils/tvRemote.ts", "addTvLongPressListener", "JS long-press remote API is missing");
+requireText("app/player.tsx", 'key === "DOWN"', "player long-Down channel access is missing");
+requireText("app/(tabs)/guide.tsx", "shouldUseLowRamTuning", "Guide does not auto-tighten on low-RAM devices");
+
 console.log("TiViMate architecture-overhaul conflict scan passed.");

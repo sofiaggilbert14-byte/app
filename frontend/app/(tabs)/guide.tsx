@@ -38,6 +38,7 @@ import {
   useGuideSelection,
 } from "@/src/core/guideSelectionStore";
 import { getPowerProfileTuning } from "@/src/core/devicePowerProfile";
+import { shouldUseLowRamTuning, useDeviceMemoryProfile } from "@/src/core/deviceMemoryProfile";
 import { channelHasEpgMatch } from "@/src/core/epgUserOverrides";
 import {
   buildGroupCounts,
@@ -246,7 +247,11 @@ export default function PurpleGuideScreen() {
   const hiddenIdSet = useMemo(() => new Set(hiddenIds), [hiddenIds]);
   const { isGroupLocked, unlockGroup, verifyPin, hasPin } = useParentalPin();
 
-  const powerTuning = useMemo(() => getPowerProfileTuning(powerProfile), [powerProfile]);
+  const deviceMemoryProfile = useDeviceMemoryProfile();
+  const effectivePowerProfile = shouldUseLowRamTuning(deviceMemoryProfile) && powerProfile === "normal"
+    ? "weak"
+    : powerProfile;
+  const powerTuning = useMemo(() => getPowerProfileTuning(effectivePowerProfile), [effectivePowerProfile]);
   useEffect(() => {
     setGuideRepeatInterval(powerTuning.guideRepeatIntervalMs);
   }, [powerTuning.guideRepeatIntervalMs]);

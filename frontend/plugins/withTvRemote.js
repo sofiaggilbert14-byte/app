@@ -18,6 +18,8 @@ function moduleKt(pkg) {
 import android.os.SystemClock
 import android.view.MotionEvent
 import android.media.MediaCodecList
+import android.app.ActivityManager
+import android.content.Context
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -53,6 +55,19 @@ class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBas
   @ReactMethod
   fun setGuideRepeatInterval(milliseconds: Double) {
     guideRepeatIntervalMs = milliseconds.toLong().coerceIn(60L, 120L)
+  }
+
+  @ReactMethod
+  fun getDeviceMemoryProfile(promise: Promise) {
+    try {
+      val am = ctx.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+      promise.resolve(Arguments.createMap().apply {
+        putInt("memoryClassMb", am.memoryClass)
+        putBoolean("lowRamDevice", if (android.os.Build.VERSION.SDK_INT >= 19) am.isLowRamDevice else am.memoryClass < 128)
+      })
+    } catch (t: Throwable) {
+      promise.reject("MEMORY_PROFILE_FAILED", t.message ?: "Memory profile unavailable", t)
+    }
   }
 
   @ReactMethod
@@ -263,11 +278,39 @@ function hardenMainActivity(src) {
   private var lastAcceptedDirectionalRepeatAt = 0L
   private var lastAcceptedDirectionalKeyCode = -1
   private val minDpadRepeatMs = 48L
+  private var emittedLongPressKeyCode = -1
 `;
     src = src.slice(0, idx) + fields + src.slice(idx);
     src = src.replace(
       "  override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {\n",
       `  override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+    // Emit one semantic long-press event per physical hold. Keep normal Android
+    // focus dispatch intact; JS may choose a context-specific shortcut without
+    // duplicating every repeat event across the bridge.
+    if (event.action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount > 0 && emittedLongPressKeyCode != event.keyCode) {
+      val longKey = when (event.keyCode) {
+        android.view.KeyEvent.KEYCODE_DPAD_DOWN -> "DOWN"
+        android.view.KeyEvent.KEYCODE_DPAD_CENTER,
+        android.view.KeyEvent.KEYCODE_ENTER,
+        android.view.KeyEvent.KEYCODE_NUMPAD_ENTER,
+        android.view.KeyEvent.KEYCODE_BUTTON_A -> "SELECT"
+        android.view.KeyEvent.KEYCODE_BACK -> "BACK"
+        else -> null
+      }
+      if (longKey != null) {
+        emittedLongPressKeyCode = event.keyCode
+        try {
+          val app = application as com.facebook.react.ReactApplication
+          val rc = try { app.reactHost?.currentReactContext } catch (e: Throwable) { null }
+            ?: try { app.reactNativeHost.reactInstanceManager.currentReactContext } catch (e: Throwable) { null }
+          rc?.getJSModule(com.facebook.react.modules.core.DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+            ?.emit("TvRemoteLongPress", longKey)
+        } catch (_: Throwable) {}
+      }
+    } else if (event.action == android.view.KeyEvent.ACTION_UP && event.keyCode == emittedLongPressKeyCode) {
+      emittedLongPressKeyCode = -1
+    }
+
     val directional =
       event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP ||
         event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN ||
