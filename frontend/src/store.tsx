@@ -15,7 +15,7 @@ import {
   trimProgrammeWindowCacheForMemoryPressure,
   subscribeSource,
 } from "@/src/source";
-import { isGuideSurfing, onGuideSurfSettled } from "@/src/utils/guideSurfGate";
+import { isGuideScreenActive, isGuideSurfing, onGuideSurfSettled } from "@/src/utils/guideSurfGate";
 import {
   applyGuidePrograms,
   getGuidePrograms,
@@ -1041,6 +1041,9 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       // Health check after the UI can accept D-pad input.
       healthTimer = setTimeout(() => {
         if (disposed) return;
+        // Never replace source/EPG state underneath the native Guide. The
+        // route-aware scheduler retries freshness checks on a safe screen.
+        if (isGuideScreenActive() || isGuideSurfing()) return;
         void (async () => {
           try {
             const status = await refreshSource(false);
@@ -1118,7 +1121,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   }, [loading, refreshing]);
   useEffect(() => {
     const timer = setInterval(() => {
-      if (busyRef.current || isGuideSurfing()) return;
+      if (busyRef.current || isGuideScreenActive() || isGuideSurfing()) return;
       void refresh(true);
     }, 60 * 60 * 1000);
     return () => clearInterval(timer);

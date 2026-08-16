@@ -150,9 +150,9 @@ test("release packaging requires upload signing and keeps tester sideload separa
     source("android/app/build.gradle"),
     source("android/app/src/main/AndroidManifest.xml"),
   ]);
-  assert.match(appJson, /"versionCode": 6/);
-  assert.match(appJson, /2\.1\.0-rc\.3/);
-  assert.match(gradle, /versionCode 6/);
+  assert.match(appJson, /"versionCode": 7/);
+  assert.match(appJson, /2\.1\.0-rc\.4/);
+  assert.match(gradle, /versionCode 7/);
   assert.match(gradle, /CHARM_UPLOAD_STORE_FILE/);
   assert.match(gradle, /signingConfigs\.release/);
   assert.match(gradle, /releaseTaskRequested && !releaseSigningConfigured/);

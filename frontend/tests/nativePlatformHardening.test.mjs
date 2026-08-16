@@ -78,6 +78,7 @@ test("player recovery is bounded and history waits for stable playback", async (
   ]);
   assert.match(player, /STREAM_RETRY_DELAYS_MS = \[1000, 2000, 4000\]/);
   assert.match(player, /STABLE_HISTORY_DELAY_MS = 5000/);
+  assert.match(player, /MAX_TOKEN_REFRESH_CHANNELS = 128/);
   assert.match(stream, /FROZEN_VIDEO_WATCHDOG_MS = 5000/);
   assert.match(patch, /ConnectionPool\(8, 5, TimeUnit\.MINUTES\)/);
   assert.match(player, /refreshPlaylistOnly\(\)/);

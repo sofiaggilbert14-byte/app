@@ -1,7 +1,9 @@
 import { useEffect } from "react";
 import { AppState } from "react-native";
+import { usePathname } from "expo-router";
 import { refreshEpgOnly, refreshSourcesIfDue } from "@/src/source";
 import { consumeNativeScheduledEpgRefresh } from "@/src/nativeEpg";
+import { isGuideSurfing } from "@/src/utils/guideSurfGate";
 
 /**
  * Lightweight scheduler for direct-source builds. It checks freshness when the
@@ -9,12 +11,18 @@ import { consumeNativeScheduledEpgRefresh } from "@/src/nativeEpg";
  * Native EPG HTTP validators still suppress unchanged payload work with 304s.
  */
 export function SourceRefreshScheduler() {
+  const pathname = usePathname();
+
   useEffect(() => {
     let active = AppState.currentState !== "background" && AppState.currentState !== "inactive";
     let running = false;
 
     const check = async () => {
       if (!active || running) return;
+      // A native EPG swap competes with guide SQLite reads and player decoder
+      // memory on low-RAM televisions. Automatic work waits for a safe screen;
+      // Settings / EPG Sources remain the explicit manual refresh paths.
+      if (pathname?.startsWith("/guide") || pathname?.startsWith("/player") || isGuideSurfing()) return;
       running = true;
       try {
         const nativeDue = await consumeNativeScheduledEpgRefresh();
@@ -38,7 +46,7 @@ export function SourceRefreshScheduler() {
       clearInterval(timer);
       sub.remove();
     };
-  }, []);
+  }, [pathname]);
 
   return null;
 }

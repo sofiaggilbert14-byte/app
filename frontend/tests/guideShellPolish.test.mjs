@@ -127,6 +127,99 @@ test("drawer shell boots closed without an icon rail", async () => {
   assert.match(shell, /isGuideSurfing/);
   assert.match(shell, /focusable=\{drawerOpen\}/);
   assert.match(shell, /outputRange: \[-PURPLE_SIDEBAR_WIDTH, 0\]/);
+  assert.doesNotMatch(shell, /Catch Up|\/catchup/);
+  assert.match(shell, /autoFocus=\{!drawerOpen && active !== "\/guide"\}/);
+});
+
+test("shared page focus has a deterministic Left-edge drawer handoff", async () => {
+  const [shell, collection, favorites, reminders, live, channels] = await Promise.all([
+    source("src/components/PurpleTvShell.tsx"),
+    source("src/components/PurpleChannelCollection.tsx"),
+    source("app/(tabs)/favorites.tsx"),
+    source("app/(tabs)/reminders.tsx"),
+    source("app/(tabs)/index.tsx"),
+    source("app/(tabs)/channels.tsx"),
+  ]);
+  assert.match(shell, /testID="purple-left-edge-drawer-target"/);
+  assert.match(shell, /onFocus=\{\(\) => openDrawer\(\)\}/);
+  assert.match(shell, /trapFocusLeft=\{false\}/);
+  assert.match(shell, /isGuideScreenActive\(\) && isGuideSurfing\(\)/);
+  for (const page of [collection, favorites, reminders, live, channels]) {
+    assert.match(page, /preferInitialFocus/);
+    assert.match(page, /setPreferInitialFocus\(false\)/);
+  }
+  assert.doesNotMatch(reminders, /hasTVPreferredFocus\s*\n/);
+  assert.match(reminders, /hasTVPreferredFocus=\{preferInitialFocus\}/);
+});
+
+test("automatic refresh stays away from guide and player screens", async () => {
+  const [scheduler, preferences] = await Promise.all([
+    source("src/components/SourceRefreshScheduler.tsx"),
+    source("src/core/sourceRefreshPreferences.ts"),
+  ]);
+  assert.match(scheduler, /pathname\?\.startsWith\("\/guide"\)/);
+  assert.match(scheduler, /pathname\?\.startsWith\("\/player"\)/);
+  assert.match(scheduler, /isGuideSurfing\(\)/);
+  assert.match(preferences, /playlistHours: 24/);
+  assert.match(preferences, /epgHours: 6/);
+});
+
+test("EPG and playlist controls live only on the dedicated EPG settings page", async () => {
+  const [settings, epg] = await Promise.all([
+    source("app/(tabs)/settings.tsx"),
+    source("app/(tabs)/epg-sources.tsx"),
+  ]);
+  for (const label of [
+    "Guide EPG filter",
+    "Guide window",
+    "Prefer tvg-id matching only",
+    "Playlist auto refresh",
+    "EPG auto refresh",
+    "Channel logos priority",
+    "Clear & rebuild guide cache",
+  ]) {
+    assert.doesNotMatch(settings, new RegExp(label));
+    assert.match(epg, new RegExp(label));
+  }
+  assert.match(epg, /Refresh playlist & EPG now/);
+  assert.match(epg, /Refresh EPG only now/);
+  assert.match(epg, /operationInFlight\.current/);
+  assert.doesNotMatch(epg, /<Pressable disabled=\{disabled\}/);
+  assert.match(epg, /accessibilityState=\{\{ busy: Boolean\(disabled\) \}\}/);
+  assert.match(epg, /<ScrollView/);
+  assert.match(epg, /<FocusGuide/);
+});
+
+test("native guide preserves last-good paint across transient query failures", async () => {
+  const nativeGuide = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");
+  assert.match(nativeGuide, /catch \(_: Throwable\) \{ null \}/);
+  assert.match(nativeGuide, /if \(loaded == null\) continue/);
+  assert.match(nativeGuide, /programs = programs\.filterKeys/);
+});
+
+test("Search hands suggestion focus to results without opening a competing modal", async () => {
+  const [search, canvas, manager] = await Promise.all([
+    source("app/(tabs)/search.tsx"),
+    source("src/components/NativeGuideCanvas.tsx"),
+    source("android/app/src/main/java/com/charmiptv/app/NativeGuidePackage.kt"),
+  ]);
+  assert.match(search, /focusResultsWhenReadyRef/);
+  assert.match(search, /requestNativeFocusWithRetry\(firstResultRef\.current/);
+  assert.doesNotMatch(search, /openProgram\(opts\.program/);
+  assert.match(search, /programStart: opts\?\.programStart/);
+  assert.match(canvas, /restoreTimeMs/);
+  assert.match(manager, /@ReactProp\(name = "restoreTimeMs"/);
+});
+
+test("pointer BACK exits pointer mode and tap coordinates honor Android density", async () => {
+  const [activity, remote] = await Promise.all([
+    source("android/app/src/main/java/com/charmiptv/app/MainActivity.kt"),
+    source("android/app/src/main/java/com/charmiptv/app/TvRemoteModule.kt"),
+  ]);
+  assert.match(activity, /KEYCODE_BACK -> "BACK"/);
+  assert.match(remote, /displayMetrics\.density/);
+  assert.match(remote, /x \* density/);
+  assert.match(remote, /y \* density/);
 });
 
 test("guide top strip is focusable while Left remains drawer-owned with conveyor retain", async () => {
@@ -140,6 +233,7 @@ test("guide top strip is focusable while Left remains drawer-owned with conveyor
   assert.match(guide, /focusGuidePreviewSurface\(\)/);
   assert.match(guide, /onOpenReminders=/);
   assert.match(guide, /expandRunwayKeepSet/);
+  assert.match(guide, /MAX_REMEMBERED_GUIDE_GROUPS = 128/);
   assert.match(guide, /retainGuideSlidingCache/);
   assert.doesNotMatch(guide, /focusPurpleIconRail/);
   assert.match(guide, /buildVisibleGroups/);

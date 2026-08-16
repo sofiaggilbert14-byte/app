@@ -50,6 +50,7 @@ const CHANNEL_PREVIEW_DELAY_MS = 650;
 const CHANNEL_ZAP_SETTLE_MS = 850;
 const STREAM_RETRY_DELAYS_MS = [1000, 2000, 4000] as const;
 const MAX_AUTO_STREAM_RETRIES = 4;
+const MAX_TOKEN_REFRESH_CHANNELS = 128;
 const SWITCH_NOTICE_MS = 1800;
 const STABLE_HISTORY_DELAY_MS = 5000;
 
@@ -551,6 +552,11 @@ export default function PlayerScreen() {
         const failedChannelId = channelIdRef.current;
         if (!tokenRefreshAttemptedRef.current.has(failedChannelId)) {
           tokenRefreshAttemptedRef.current.add(failedChannelId);
+          while (tokenRefreshAttemptedRef.current.size > MAX_TOKEN_REFRESH_CHANNELS) {
+            const oldest = tokenRefreshAttemptedRef.current.values().next().value;
+            if (!oldest) break;
+            tokenRefreshAttemptedRef.current.delete(oldest);
+          }
           // Provider URLs often embed short-lived tokens. Refresh source data
           // silently once, then normal store propagation remounts only if the
           // channel URL actually changed.
@@ -603,7 +609,7 @@ export default function PlayerScreen() {
 
   useEffect(() => {
     if (!isTV) return;
-    // TiViMate-style semantic long presses, limited to actions Charm already owns.
+    // TV-remote semantic long presses, limited to actions Charm already owns.
     // Long Down exposes channel browsing without triggering a stream reload;
     // Long Select simply wakes the controls/quick-action surface.
     return addTvLongPressListener((key) => {

@@ -20,7 +20,7 @@ import { combineTvEdgeInsets, getTvSafeInsets } from "@/src/utils/tvLayout";
 import { requestNativeFocusWithRetry } from "@/src/utils/tvFocus";
 import { useStore } from "@/src/store";
 import { evaluateDrawerBack } from "@/src/core/drawerNavigationPolicy";
-import { isGuideSurfing } from "@/src/utils/guideSurfGate";
+import { isGuideScreenActive, isGuideSurfing } from "@/src/utils/guideSurfGate";
 import { useTvCalibration } from "@/src/tvCalibration";
 
 type Route =
@@ -29,7 +29,6 @@ type Route =
   | "/channels"
   | "/movies"
   | "/series"
-  | "/catchup"
   | "/favorites"
   | "/reminders"
   | "/search"
@@ -79,7 +78,6 @@ const NAV: NavItem[] = [
   { route: "/channels", label: "Channels", icon: "list-outline" },
   { route: "/movies", label: "Movies", icon: "film-outline" },
   { route: "/series", label: "Series", icon: "albums-outline" },
-  { route: "/catchup", label: "Catch Up", icon: "time-outline" },
   { route: "/search", label: "Search", icon: "search-outline" },
   { route: "/settings", label: "Settings", icon: "settings-outline" },
 ];
@@ -110,7 +108,7 @@ export function PurpleTvDrawerProvider({ children }: { children: React.ReactNode
   const openedAtRef = useRef(0);
 
   const openDrawer = useCallback((options?: OpenDrawerOptions) => {
-    if (isGuideSurfing()) return;
+    if (isGuideScreenActive() && isGuideSurfing()) return;
     if (drawerOpenRef.current) return;
     drawerOpenRef.current = true;
     openedAtRef.current = Date.now();
@@ -219,25 +217,16 @@ export function PurpleTvShell({
   const deferredDrawerCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isWatching = !!watchingChannelId;
   const recentStrip = useMemo(() => (recentChannels ?? []).slice(0, 5), [recentChannels]);
-  const [contentAutoFocus, setContentAutoFocus] = useState(() => !drawerOpen);
   const [drawerAutoFocus, setDrawerAutoFocus] = useState(drawerOpen);
   const [drawerPreferredRoute, setDrawerPreferredRoute] = useState<Route | null>(drawerOpen ? active : null);
-
-  useEffect(() => {
-    if (!contentAutoFocus) return;
-    const timer = setTimeout(() => setContentAutoFocus(false), 700);
-    return () => clearTimeout(timer);
-  }, [contentAutoFocus]);
 
   useEffect(() => {
     if (!drawerOpen) {
       setDrawerAutoFocus(false);
       setDrawerPreferredRoute(null);
-      if (active !== "/guide") setContentAutoFocus(true);
       return;
     }
 
-    setContentAutoFocus(false);
     const preferredGuideGroup =
       !focusDrawerTop && active === "/guide" ? guideGroups?.find((item) => item.active) : undefined;
     const preferredRoute: Route | null = preferredGuideGroup ? null : focusDrawerTop ? NAV[0].route : active;
@@ -521,7 +510,23 @@ export function PurpleTvShell({
       </Animated.View>
 
       {drawerOpen ? <View style={styles.sidebarSpacer} /> : null}
-      <FocusGuide style={[styles.content, contentStyle]} autoFocus={contentAutoFocus}>
+      {!drawerOpen && active !== "/guide" ? (
+        <Pressable
+          focusable
+          onFocus={() => openDrawer()}
+          onPress={() => openDrawer()}
+          style={styles.leftEdgeDrawerTarget}
+          testID="purple-left-edge-drawer-target"
+        />
+      ) : null}
+      <FocusGuide
+        style={[styles.content, contentStyle]}
+        autoFocus={!drawerOpen && active !== "/guide"}
+        trapFocusUp={!drawerOpen && active !== "/guide"}
+        trapFocusDown={!drawerOpen && active !== "/guide"}
+        trapFocusLeft={false}
+        trapFocusRight={!drawerOpen && active !== "/guide"}
+      >
         {children}
       </FocusGuide>
       {headerRight ? <View style={styles.headerRight}>{headerRight}</View> : null}
@@ -710,5 +715,14 @@ const styles = StyleSheet.create({
   footerCompactText: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 8 },
   footerDisabled: { opacity: 0.5 },
   content: { flex: 1, backgroundColor: tvColors.canvas },
+  leftEdgeDrawerTarget: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 2,
+    zIndex: 2,
+    opacity: 0.01,
+  },
   headerRight: { position: "absolute", top: 10, right: spacing.lg },
 });

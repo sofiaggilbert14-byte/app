@@ -23,7 +23,7 @@ import { EpgProgressBar } from "@/src/components/EpgProgressBar";
 import { Channel, Program } from "@/src/api";
 import { useStore } from "@/src/store";
 import { setPriorityMatchChannelIds, setViewportGuideChannelIds } from "@/src/source";
-import { isGuideSurfing, markGuideSurfing } from "@/src/utils/guideSurfGate";
+import { isGuideSurfing, markGuideSurfing, setGuideScreenActive } from "@/src/utils/guideSurfGate";
 import { useGuidePrograms } from "@/src/core/guideProgramsStore";
 import { getGuideRailMetrics } from "@/src/core/guideLayoutPolicy";
 import { buildGuideRunwayIds } from "@/src/core/guideRunwayPolicy";
@@ -71,11 +71,12 @@ import { focusGuidePreviewSurface } from "@/src/utils/guidePreviewFocus";
 let guideSessionGroup = "All";
 let guideSessionChannelId: string | null = null;
 const guideSessionChannelByGroup = new Map<string, string>();
+const MAX_REMEMBERED_GUIDE_GROUPS = 128;
 function rememberGuideGroupChannel(groupName: string, channelId: string): void {
   if (!groupName || !channelId) return;
   guideSessionChannelByGroup.delete(groupName);
   guideSessionChannelByGroup.set(groupName, channelId);
-  while (guideSessionChannelByGroup.size > 128) {
+  while (guideSessionChannelByGroup.size > MAX_REMEMBERED_GUIDE_GROUPS) {
     const oldest = guideSessionChannelByGroup.keys().next().value;
     if (!oldest) break;
     guideSessionChannelByGroup.delete(oldest);
@@ -202,8 +203,10 @@ export default function PurpleGuideScreen() {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   useFocusEffect(
     useCallback(() => {
+      setGuideScreenActive(true);
       setGuideNavigationActive(true);
       return () => {
+        setGuideScreenActive(false);
         setGuideNavigationActive(false);
       };
     }, []),
@@ -264,6 +267,7 @@ export default function PurpleGuideScreen() {
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewStatus, setPreviewStatus] = useState<StreamStatus>("loading");
   const [resetToken, setResetToken] = useState(0);
+  const [restoreTimeMs, setRestoreTimeMs] = useState<number | null>(null);
   const [pinPromptGroup, setPinPromptGroup] = useState<string | null>(null);
   const [pinDigits, setPinDigits] = useState("");
   const [pinError, setPinError] = useState(false);
@@ -324,6 +328,11 @@ export default function PurpleGuideScreen() {
     openDrawer({ focusTop: true });
   }, [openDrawer]);
 
+  const openGuideSources = useCallback(() => {
+    closeDrawer();
+    router.replace("/epg-sources" as any);
+  }, [closeDrawer, router]);
+
   // After Remind/Cancel sheet closes, return focus to the guide cell — never Live TV.
   useEffect(() => {
     if (activeProgram) return;
@@ -334,7 +343,7 @@ export default function PurpleGuideScreen() {
     if (origin?.channelId) guideSessionChannelId = origin.channelId;
   }, [activeProgram]);
 
-  // TiViMate-style Guide Back behavior: when the Guide owns the remote and no
+  // Guide Back behavior: when the Guide owns the remote and no
   // modal is blocking, one Back opens the group/navigation drawer immediately.
   // The drawer itself consumes the next Back to close and Guide focus is restored
   // through the native logical session-channel restoration path.
@@ -811,6 +820,8 @@ export default function PurpleGuideScreen() {
       guideSessionChannelId = jump.channelId;
       rememberGuideGroupChannel(nextGroup, jump.channelId);
       setGroup(nextGroup);
+      const requestedTime = jump.programStart ? Date.parse(jump.programStart) : NaN;
+      setRestoreTimeMs(Number.isFinite(requestedTime) ? requestedTime : null);
       resetGuideSelection(jump.channelId);
       setResetToken((value) => value + 1);
       const ch = channelById(jump.channelId);
@@ -850,6 +861,12 @@ export default function PurpleGuideScreen() {
       active="/guide"
       watchingChannelId={lastChannelId}
       guideGroups={drawerGroups}
+      footerAction={{
+        label: "Guide Sources",
+        icon: "refresh-outline",
+        onPress: openGuideSources,
+        testID: "guide-open-sources",
+      }}
     >
       <View style={styles.page}>
         <EpgProgressBar />
@@ -937,6 +954,7 @@ export default function PurpleGuideScreen() {
                 windowEnd={windowEnd}
                 active={isFocused && !activeProgram && !drawerOpen}
                 restoreChannelId={guideSessionChannelId}
+                restoreTimeMs={restoreTimeMs}
                 channelNumberById={channelNumberById}
                 onChannelPress={play}
                 onProgramPress={openGuideProgram}

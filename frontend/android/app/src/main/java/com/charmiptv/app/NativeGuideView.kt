@@ -45,6 +45,7 @@ class NativeGuideView(context: Context) : View(context) {
   @Volatile private var disposed = false
   private var enabled = true
   private var lastMoveAt = 0L
+  private var lastHorizontalMoveAt = 0L
   private var moveVelocity = 0
 
   private val density = resources.displayMetrics.density
@@ -75,13 +76,18 @@ class NativeGuideView(context: Context) : View(context) {
   }
 
   fun setChannels(value: ReadableArray?) {
-    val restoreId = rows.getOrNull(selectedRow)?.id
-    rows.clear()
+    val nextRows = ArrayList<ChannelRow>()
     if (value != null) for (index in 0 until value.size()) {
       val item = value.getMap(index) ?: continue
       val id = item.getString("id") ?: continue
-      rows.add(ChannelRow(id, item.getString("name") ?: "Channel", item.getString("number") ?: ""))
+      nextRows.add(ChannelRow(id, item.getString("name") ?: "Channel", item.getString("number") ?: ""))
     }
+    if (rows == nextRows) return
+    val restoreId = rows.getOrNull(selectedRow)?.id
+    rows.clear()
+    rows.addAll(nextRows)
+    val keepIds = nextRows.asSequence().map { it.id }.toHashSet()
+    programs = programs.filterKeys { it in keepIds }
     selectedRow = max(0, restoreId?.let { wanted -> rows.indexOfFirst { it.id == wanted } } ?: 0)
     if (selectedRow >= rows.size) selectedRow = max(0, rows.lastIndex)
     ensureVisible()
@@ -116,6 +122,17 @@ class NativeGuideView(context: Context) : View(context) {
     if (channelId.isNullOrBlank()) return
     val index = rows.indexOfFirst { it.id == channelId }
     if (index >= 0) { selectedRow = index; ensureVisible(); invalidate(); emitSelection(true) }
+  }
+
+  fun restoreTime(value: Double) {
+    if (!value.isFinite() || value <= 0.0 || windowEndMs <= windowStartMs) return
+    val next = value.toLong().coerceIn(windowStartMs, windowEndMs - 1)
+    if (next == selectedTimeMs) return
+    selectedTimeMs = next
+    viewportStartMs = clampViewportStart(selectedTimeMs - visibleWindowMs / 6L)
+    loadPrograms()
+    invalidate()
+    emitSelection(true)
   }
 
   private fun clampViewportStart(value: Long): Long {
@@ -165,7 +182,11 @@ class NativeGuideView(context: Context) : View(context) {
         while (!disposed) {
           val request = pendingQuery ?: break
           pendingQuery = null
-          val loaded = try { database.queryGuideWindow(request.startMs, request.endMs, request.ids) } catch (_: Throwable) { emptyList() }
+          // A table swap during EPG refresh can briefly make a read fail. Keep
+          // the last-good painted rows instead of replacing the canvas with an
+          // empty map (the reported black-guide failure).
+          val loaded = try { database.queryGuideWindow(request.startMs, request.endMs, request.ids) } catch (_: Throwable) { null }
+          if (loaded == null) continue
           val grouped = LinkedHashMap<String, MutableList<NativeEpgProgram>>()
           for (program in loaded) grouped.getOrPut(program.channelId) { ArrayList() }.add(program)
           val frozen = grouped.mapValues { (_, list) -> list.sortedBy { it.startMs }.toTypedArray() }
@@ -210,6 +231,8 @@ class NativeGuideView(context: Context) : View(context) {
       KeyEvent.KEYCODE_DPAD_UP -> if (selectedRow == 0) emit("upBoundary", null) else moveVertical(-1)
       KeyEvent.KEYCODE_DPAD_DOWN -> moveVertical(1)
       KeyEvent.KEYCODE_DPAD_LEFT -> {
+        if (event.repeatCount > 0 && event.eventTime - lastHorizontalMoveAt < 55L) return true
+        lastHorizontalMoveAt = event.eventTime
         val current = selectedProgram()
         if (current == null || selectedTimeMs <= windowStartMs + 60_000L) { emit("topLeftBoundary", null); return true }
         selectedTimeMs = max(windowStartMs, current.startMs - 1)
@@ -217,8 +240,12 @@ class NativeGuideView(context: Context) : View(context) {
         invalidate(); emitSelection(false)
       }
       KeyEvent.KEYCODE_DPAD_RIGHT -> {
+        if (event.repeatCount > 0 && event.eventTime - lastHorizontalMoveAt < 55L) return true
+        lastHorizontalMoveAt = event.eventTime
         val current = selectedProgram()
-        selectedTimeMs = min(windowEndMs - 1, current?.endMs ?: selectedTimeMs + 30L * 60_000L)
+        val nextTime = min(windowEndMs - 1, current?.endMs ?: selectedTimeMs + 30L * 60_000L)
+        if (nextTime == selectedTimeMs) return true
+        selectedTimeMs = nextTime
         ensureSelectedTimeVisible()
         invalidate(); emitSelection(false)
       }

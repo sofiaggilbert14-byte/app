@@ -108,6 +108,7 @@ export default function FavoritesScreen() {
     });
   }, [channels, favoriteSet, folderMemberSet]);
   const [now, setNow] = useState(() => new Date());
+  const [preferInitialFocus, setPreferInitialFocus] = useState(true);
 
   useEffect(() => {
     if (!isFocused) return;
@@ -115,6 +116,12 @@ export default function FavoritesScreen() {
     const timer = setInterval(() => setNow(new Date()), 60_000);
     return () => clearInterval(timer);
   }, [isFocused]);
+
+  useEffect(() => {
+    if (!preferInitialFocus) return;
+    const timer = setTimeout(() => setPreferInitialFocus(false), 700);
+    return () => clearTimeout(timer);
+  }, [preferInitialFocus]);
 
   const play = useCallback((channel: Channel) => {
     void Haptics.selectionAsync().catch(() => undefined);
@@ -164,7 +171,7 @@ export default function FavoritesScreen() {
         </View>
 
         <View style={styles.folderRow}>
-          <Pressable onPress={() => setFolderId("all")} style={({ focused }: any) => [styles.folderChip, folderId === "all" && styles.folderActive, focused && styles.focused]}>
+          <Pressable hasTVPreferredFocus={preferInitialFocus} onPress={() => setFolderId("all")} style={({ focused }: any) => [styles.folderChip, folderId === "all" && styles.folderActive, focused && styles.focused]}>
             <Text style={styles.folderText}>All</Text>
           </Pressable>
           {favoriteFolders.map((folder) => (
@@ -226,7 +233,7 @@ export default function FavoritesScreen() {
             <View style={styles.emptyIcon}><Ionicons name="heart-outline" size={28} color={tvColors.purpleSoft} /></View>
             <Text style={styles.emptyTitle}>No favorites yet</Text>
             <Text style={styles.emptyText}>Long-press a channel in the guide or Channels list to add one.</Text>
-            <Pressable onPress={() => router.replace("/guide" as any)} style={({ focused }: any) => [styles.guideButton, focused && styles.focused]}>
+            <Pressable hasTVPreferredFocus={preferInitialFocus} onPress={() => router.replace("/guide" as any)} style={({ focused }: any) => [styles.guideButton, focused && styles.focused]}>
               <Text style={styles.guideText}>Open TV Guide</Text>
             </Pressable>
           </View>

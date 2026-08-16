@@ -4,6 +4,7 @@
  */
 
 let surfingUntil = 0;
+let guideScreenActive = false;
 let settleTimer: ReturnType<typeof setTimeout> | null = null;
 const settleListeners = new Set<() => void>();
 
@@ -31,6 +32,14 @@ export function markGuideSurfing(holdMs = 700): void {
 
 export function isGuideSurfing(): boolean {
   return Date.now() < surfingUntil;
+}
+
+export function setGuideScreenActive(active: boolean): void {
+  guideScreenActive = active;
+}
+
+export function isGuideScreenActive(): boolean {
+  return guideScreenActive;
 }
 
 export function onGuideSurfSettled(listener: () => void): () => void {

@@ -65,8 +65,13 @@ class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBas
       try {
         val root = activity.window.decorView
         val t = SystemClock.uptimeMillis()
-        val down = MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, x.toFloat(), y.toFloat(), 0)
-        val up = MotionEvent.obtain(t, t + 40, MotionEvent.ACTION_UP, x.toFloat(), y.toFloat(), 0)
+        // React Native coordinates are density-independent; MotionEvent uses
+        // physical window pixels.
+        val density = root.resources.displayMetrics.density
+        val px = (x * density).toFloat()
+        val py = (y * density).toFloat()
+        val down = MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, px, py, 0)
+        val up = MotionEvent.obtain(t, t + 40, MotionEvent.ACTION_UP, px, py, 0)
         root.dispatchTouchEvent(down)
         root.dispatchTouchEvent(up)
         down.recycle()

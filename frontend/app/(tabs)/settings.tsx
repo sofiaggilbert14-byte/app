@@ -11,33 +11,24 @@ import { TvCalibrationControls } from "@/src/components/TvCalibrationControls";
 import {
   useStore,
   type DeviceLayoutMode,
-  type EpgGuideFilter,
   type GuideDensity,
   type GuideLayout,
-  type GuideWindowHours,
   type PlayerControlsTimeoutMs,
   type PowerProfile,
   type SafePreviewMode,
   type SleepTimerMinutes,
   type StartScreen,
 } from "@/src/store";
-import { clearGuideCache, refreshEpgOnly, refreshSource, sourceDiagnostics, type SourceDiagnostics } from "@/src/source";
+import { sourceDiagnostics } from "@/src/source";
 import {
   type PlayerEnginePreference,
   usePlayerEnginePreference,
 } from "@/src/playerEnginePreference";
 import {
-  type SourceRefreshIntervalHours,
-  useSourceRefreshPreferences,
-} from "@/src/core/sourceRefreshPreferences";
-import { type LogoPriority, useLogoPriority } from "@/src/core/logoPreferences";
-import { chooseLocalLogoFolder, clearLocalLogoFolder } from "@/src/core/localLogoFolder";
-import {
   type LongDownAction,
   type LongSelectAction,
   useRemoteShortcutPreferences,
 } from "@/src/core/remoteShortcutPreferences";
-import { clearChannelLogoCache } from "@/src/components/ChannelLogo";
 import {
   readLatestFavoritesBackup,
   resolveFavoritesBackup,
@@ -55,7 +46,6 @@ import {
   usePlaybackBufferProfile,
   type PlaybackBufferProfile,
 } from "@/src/core/playbackBufferProfile";
-import { channelHasEpgMatch } from "@/src/core/epgUserOverrides";
 import { useChannelCustomize } from "@/src/core/channelCustomize";
 import { useGuideUiPreferences } from "@/src/core/guideUiPreferences";
 import { useParentalPin } from "@/src/core/parentalPin";
@@ -78,9 +68,7 @@ import {
   getDeviceCodecCapabilities,
   type DeviceCodecCapabilities,
 } from "@/src/core/deviceCodecCapabilities";
-import dayjs from "dayjs";
 import * as FileSystem from "expo-file-system/legacy";
-import { formatRelativeAge } from "@/src/utils/time";
 
 type Section =
   | "general"
@@ -120,7 +108,6 @@ const ADULT_GROUP_RE = /adult|xxx|porn/i;
 export default function SettingsScreen() {
   const router = useRouter();
   const {
-    refresh,
     channels,
     favorites,
     replaceFavorites,
@@ -143,7 +130,6 @@ export default function SettingsScreen() {
     autoRetryStreams,
     setAutoRetryStreams,
     preferTvgIdOnly,
-    setPreferTvgIdOnly,
     powerProfile,
     setPowerProfile,
     logosOffWhileSurfing,
@@ -151,9 +137,7 @@ export default function SettingsScreen() {
     instantGuide,
     setInstantGuide,
     epgGuideFilter,
-    setEpgGuideFilter,
     guideWindowHours,
-    setGuideWindowHours,
     clock24h,
     setClock24h,
     startScreen,
@@ -162,8 +146,6 @@ export default function SettingsScreen() {
     setSleepTimerMinutes,
   } = useStore();
   const [playerEnginePreference, setPlayerEnginePreference] = usePlayerEnginePreference();
-  const sourceRefresh = useSourceRefreshPreferences();
-  const [logoPriority, setLogoPriority] = useLogoPriority();
   const remoteShortcuts = useRemoteShortcutPreferences();
   const [playbackBufferProfile, setPlaybackBufferProfile] = usePlaybackBufferProfile();
   const channelCustomize = useChannelCustomize();
@@ -177,7 +159,6 @@ export default function SettingsScreen() {
   const [busy, setBusy] = useState(false);
   const [backupStatus, setBackupStatus] = useState<string | null>(null);
   const [clearFavoritesArmed, setClearFavoritesArmed] = useState(false);
-  const [diagnostics, setDiagnostics] = useState<SourceDiagnostics | null>(null);
   const [codecCapabilities, setCodecCapabilities] = useState<DeviceCodecCapabilities | null>(null);
   const [pinDraft, setPinDraft] = useState("");
   const [focusedCustomizeId, setFocusedCustomizeId] = useState<string | null>(null);
@@ -186,10 +167,6 @@ export default function SettingsScreen() {
   const [preferTileFocus, setPreferTileFocus] = useState(true);
   const [preferBackFocus, setPreferBackFocus] = useState(false);
 
-  useEffect(() => {
-    if (section !== "general" && section !== "backup" && section !== "about" && section !== "health") return;
-    void sourceDiagnostics().then(setDiagnostics).catch(() => undefined);
-  }, [section, busy]);
   useEffect(() => {
     if (section !== "health" && section !== "about") return;
     void getDeviceCodecCapabilities().then(setCodecCapabilities);
@@ -243,21 +220,6 @@ export default function SettingsScreen() {
   const appVersion = Constants.expoConfig?.version || "2.0.0-purple";
   const versionCode = (Constants.expoConfig as any)?.android?.versionCode;
   const selected = useMemo(() => TILES.find((item) => item.id === section), [section]);
-  const groupMatchBreakdown = useMemo(() => {
-    const byGroup = new Map<string, { matched: number; unmatched: number; total: number }>();
-    for (const channel of channels) {
-      const name = (channel.group || "Ungrouped").trim() || "Ungrouped";
-      const entry = byGroup.get(name) || { matched: 0, unmatched: 0, total: 0 };
-      entry.total += 1;
-      if (channelHasEpgMatch(channel)) entry.matched += 1;
-      else entry.unmatched += 1;
-      byGroup.set(name, entry);
-    }
-    return Array.from(byGroup.entries())
-      .map(([name, counts]) => ({ name, ...counts }))
-      .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name))
-      .slice(0, 6);
-  }, [channels]);
 
   const customizeChannels = useMemo(() => channels.slice(0, 30), [channels]);
   const hiddenSet = useMemo(() => new Set(channelCustomize.hiddenIds), [channelCustomize.hiddenIds]);
@@ -294,39 +256,11 @@ export default function SettingsScreen() {
     setSection(id);
   }, [router]);
 
-  const hardReload = useCallback(async () => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await refreshSource(true);
-      await refresh(true);
-    } finally {
-      setBusy(false);
-    }
-  }, [busy, refresh]);
-
-  const reloadEpgOnly = useCallback(async () => {
-    if (busy) return;
-    setBusy(true);
-    setBackupStatus("Refreshing EPG only…");
-    try {
-      await refreshEpgOnly();
-      await refresh(true);
-      setBackupStatus("EPG refreshed. Playlist was left unchanged.");
-      void sourceDiagnostics().then(setDiagnostics).catch(() => undefined);
-    } catch (error) {
-      setBackupStatus(error instanceof Error ? error.message : "EPG refresh failed.");
-    } finally {
-      setBusy(false);
-    }
-  }, [busy, refresh]);
-
   const exportDiagnostics = useCallback(async () => {
     if (busy) return;
     setBusy(true);
     try {
       const snap = await sourceDiagnostics();
-      setDiagnostics(snap);
       const body = formatDiagnosticsExport({
         diagnostics: snap,
         appVersion,
@@ -369,21 +303,6 @@ export default function SettingsScreen() {
     sleepTimerMinutes,
     startScreen,
   ]);
-
-  const clearCache = useCallback(async () => {
-    if (busy) return;
-    setBusy(true);
-    setBackupStatus("Clearing guide cache (favorites kept)…");
-    try {
-      await clearGuideCache();
-      await refreshSource(true);
-      await refresh(true);
-      setBackupStatus("Guide cache cleared and rebuilt. Favorites were not changed.");
-      void sourceDiagnostics().then(setDiagnostics).catch(() => undefined);
-    } finally {
-      setBusy(false);
-    }
-  }, [busy, refresh]);
 
   const clearFavoritesDangerous = useCallback(async () => {
     if (busy) return;
@@ -557,27 +476,6 @@ export default function SettingsScreen() {
                 <Text style={styles.help}>
                   Compatibility lengthens preview arm and settle times for older devices. Max preview arms sooner on stronger devices.
                 </Text>
-                <ChoiceRow<EpgGuideFilter>
-                  label="Guide EPG filter"
-                  value={epgGuideFilter}
-                  options={[
-                    { label: "All", value: "all" },
-                    { label: "Matched", value: "matched" },
-                    { label: "Unmatched", value: "unmatched" },
-                  ]}
-                  onChange={setEpgGuideFilter}
-                />
-                <ChoiceRow<GuideWindowHours>
-                  label="Guide window"
-                  value={guideWindowHours}
-                  options={[
-                    { label: "6h", value: 6 },
-                    { label: "8h", value: 8 },
-                    { label: "12h", value: 12 },
-                    { label: "24h", value: 24 },
-                  ]}
-                  onChange={setGuideWindowHours}
-                />
                 <ToggleRow label="24-hour clock" value={clock24h} onChange={setClock24h} />
                 <ChoiceRow<StartScreen>
                   label="Start screen"
@@ -588,96 +486,6 @@ export default function SettingsScreen() {
                     { label: "Last channel", value: "last_channel" },
                   ]}
                   onChange={setStartScreen}
-                />
-                <ToggleRow
-                  label="Prefer tvg-id matching only"
-                  value={preferTvgIdOnly}
-                  onChange={setPreferTvgIdOnly}
-                />
-                <Text style={styles.help}>
-                  For messy providers: match playlist channels by tvg-id only (never by display name). Ambiguous names never invent a match. Turn this off to allow conservative display-name matching.
-                </Text>
-                <ChoiceRow<SourceRefreshIntervalHours>
-                  label="Playlist auto refresh"
-                  value={sourceRefresh.playlistHours}
-                  options={[
-                    { label: "Manual only", value: 0 },
-                    { label: "Every 2 hours", value: 2 },
-                    { label: "Every 4 hours", value: 4 },
-                    { label: "Every 6 hours", value: 6 },
-                    { label: "Every 12 hours", value: 12 },
-                    { label: "Every 24 hours", value: 24 },
-                  ]}
-                  onChange={sourceRefresh.setPlaylistHours}
-                />
-                <ChoiceRow<SourceRefreshIntervalHours>
-                  label="EPG auto refresh"
-                  value={sourceRefresh.epgHours}
-                  options={[
-                    { label: "Manual only", value: 0 },
-                    { label: "Every 2 hours", value: 2 },
-                    { label: "Every 4 hours", value: 4 },
-                    { label: "Every 6 hours", value: 6 },
-                    { label: "Every 12 hours", value: 12 },
-                    { label: "Every 24 hours", value: 24 },
-                  ]}
-                  onChange={sourceRefresh.setEpgHours}
-                />
-                <Text style={styles.help}>Playlist and guide refresh independently. Defaults are 24h for channels and 6h for EPG; Manual only disables automatic checks for that source.</Text>
-                <ChoiceRow<LogoPriority>
-                  label="Channel logos priority"
-                  value={logoPriority}
-                  options={[
-                    { label: "Prefer playlist logos", value: "playlist" },
-                    { label: "Prefer EPG logos", value: "epg" },
-                  ]}
-                  onChange={setLogoPriority}
-                />
-                <Text style={styles.help}>Both playlist and EPG logo URLs are retained. The preferred source wins, with the other used as fallback.</Text>
-                <Action label="Choose local / USB / network logo folder" icon="folder-open-outline" onPress={() => void chooseLocalLogoFolder()} />
-                <Action label="Stop using local logo folder" icon="folder-outline" onPress={() => void clearLocalLogoFolder()} />
-                <Action label="Clear channel logo cache" icon="image-outline" onPress={() => void clearChannelLogoCache(true)} />
-                <Action label={busy ? "Refreshing…" : "Refresh playlist & EPG"} icon="refresh" onPress={hardReload} disabled={busy} />
-                <Action label={busy ? "Working…" : "Refresh EPG only"} icon="calendar-outline" onPress={reloadEpgOnly} disabled={busy} />
-                <Action label={busy ? "Working…" : "Export diagnostics"} icon="document-text-outline" onPress={exportDiagnostics} disabled={busy} />
-                {backupStatus && section === "general" ? <Text style={styles.status}>{backupStatus}</Text> : null}
-                {diagnostics?.matchQuality ? (
-                  <View style={styles.matchBlock}>
-                    <Text style={styles.settingLabel}>EPG match quality</Text>
-                    <InfoRow label="Matched" value={String(diagnostics.matchQuality.matched)} />
-                    <InfoRow label="Ambiguous" value={String(diagnostics.matchQuality.ambiguous)} />
-                    <InfoRow label="Unmatched" value={String(diagnostics.matchQuality.unmatched)} />
-                    {groupMatchBreakdown.length ? (
-                      <View style={styles.matchGroups}>
-                        {groupMatchBreakdown.map((item) => (
-                          <InfoRow
-                            key={item.name}
-                            label={item.name}
-                            value={`${item.matched} matched / ${item.unmatched} unmatched`}
-                          />
-                        ))}
-                      </View>
-                    ) : null}
-                    <Text style={styles.help}>
-                      Guide filter and favorite folders use this match state. Matched ≈ channels with a programme source id after refresh.
-                    </Text>
-                  </View>
-                ) : null}
-                <InfoRow
-                  label="Playlist refreshed"
-                  value={
-                    diagnostics?.playlistRefreshedAt
-                      ? `${formatRelativeAge(diagnostics.playlistRefreshedAt)} · ${dayjs(diagnostics.playlistRefreshedAt).format(clock24h ? "MMM D, HH:mm" : "MMM D, h:mm A")}`
-                      : "—"
-                  }
-                />
-                <InfoRow
-                  label="EPG refreshed"
-                  value={
-                    diagnostics?.guideRefreshedAt
-                      ? `${formatRelativeAge(diagnostics.guideRefreshedAt)} · ${dayjs(diagnostics.guideRefreshedAt).format(clock24h ? "MMM D, HH:mm" : "MMM D, h:mm A")}`
-                      : "—"
-                  }
                 />
               </SettingsCard>
             ) : null}
@@ -866,21 +674,7 @@ export default function SettingsScreen() {
                   label="Advertised video max"
                   value={codecCapabilities?.maxWidth ? `${codecCapabilities.maxWidth} × ${codecCapabilities.maxHeight}` : "Unavailable"}
                 />
-                <InfoRow label="Channels" value={String(channels.length)} />
-                <InfoRow label="Matched" value={String(diagnostics?.matchQuality?.matched ?? "—")} />
-                <InfoRow label="Unmatched" value={String(diagnostics?.matchQuality?.unmatched ?? "—")} />
-                <InfoRow
-                  label="Unmatched %"
-                  value={(() => {
-                    const matched = diagnostics?.matchQuality?.matched ?? 0;
-                    const unmatched = diagnostics?.matchQuality?.unmatched ?? 0;
-                    const denom = matched + unmatched + (diagnostics?.matchQuality?.ambiguous ?? 0);
-                    if (!denom) return "—";
-                    return `${Math.round((unmatched / denom) * 100)}%`;
-                  })()}
-                />
                 <InfoRow label="Failed streams" value={String(failedStreamCount())} />
-                <InfoRow label="Ambiguous matches" value={String(diagnostics?.matchQuality?.ambiguous ?? "—")} />
                 <InfoRow
                   label="Last audio engine"
                   value={latestAudio?.engine ? String(latestAudio.engine).toUpperCase() : "—"}
@@ -896,22 +690,6 @@ export default function SettingsScreen() {
                 <InfoRow
                   label="Audio tracks seen"
                   value={latestAudio?.trackCount != null ? String(latestAudio.trackCount) : "—"}
-                />
-                <InfoRow
-                  label="Playlist refreshed"
-                  value={
-                    diagnostics?.playlistRefreshedAt
-                      ? `${formatRelativeAge(diagnostics.playlistRefreshedAt)} · ${dayjs(diagnostics.playlistRefreshedAt).format(clock24h ? "MMM D, HH:mm" : "MMM D, h:mm A")}`
-                      : "—"
-                  }
-                />
-                <InfoRow
-                  label="Guide refreshed"
-                  value={
-                    diagnostics?.guideRefreshedAt
-                      ? `${formatRelativeAge(diagnostics.guideRefreshedAt)} · ${dayjs(diagnostics.guideRefreshedAt).format(clock24h ? "MMM D, HH:mm" : "MMM D, h:mm A")}`
-                      : "—"
-                  }
                 />
                 <Action label="Report cache storage" icon="server-outline" onPress={() => void (async () => {
                   const report = await getCacheStorageReport();
@@ -1154,11 +932,6 @@ export default function SettingsScreen() {
                 {backupStatus ? <Text style={styles.status}>{backupStatus}</Text> : null}
                 <View style={styles.divider} />
                 <Text style={styles.help}>
-                  Clear guide cache is safe — rebuilds playlist/EPG meta and native guide DB only. Favorites stay intact.
-                </Text>
-                <Action label={busy ? "Working…" : "Clear & rebuild guide cache"} icon="trash-outline" onPress={clearCache} disabled={busy} />
-                <View style={styles.divider} />
-                <Text style={styles.help}>
                   Clear favorites is destructive and separate from guide cache. Export a backup first if you may need them later.
                 </Text>
                 <Action
@@ -1179,9 +952,7 @@ export default function SettingsScreen() {
             {section === "account" ? (
               <SettingsCard title="Account" icon="person-outline">
                 <InfoRow label="Profile" value="Local CharmIPTV profile" />
-                <InfoRow label="Playlist access" value="Private / app managed" />
-                <InfoRow label="EPG access" value="Private / app managed" />
-                <Text style={styles.help}>No external account or playlist login is exposed in this build.</Text>
+                <Text style={styles.help}>No external account login is exposed in this build. Playlist and EPG details are under EPG Settings.</Text>
               </SettingsCard>
             ) : null}
 

@@ -99,6 +99,7 @@ export default function RemindersScreen() {
   const { openDrawer } = usePurpleTvDrawer();
   const { reminders, removeReminder, channelById, channelLogos } = useStore();
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [preferInitialFocus, setPreferInitialFocus] = useState(true);
 
   useTvBackHandler(
     useCallback(() => {
@@ -113,6 +114,12 @@ export default function RemindersScreen() {
     const timer = setInterval(() => setNowMs(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [isFocused]);
+
+  useEffect(() => {
+    if (!preferInitialFocus) return;
+    const timer = setTimeout(() => setPreferInitialFocus(false), 700);
+    return () => clearTimeout(timer);
+  }, [preferInitialFocus]);
 
   const upcoming = useMemo(() => {
     return [...reminders]
@@ -161,7 +168,7 @@ export default function RemindersScreen() {
         <View style={styles.topBar}>
           <View style={styles.topActions}>
             <Pressable
-              hasTVPreferredFocus
+              hasTVPreferredFocus={preferInitialFocus}
               onPress={returnToGuide}
               style={({ focused }: any) => [styles.returnButton, focused && styles.returnFocused]}
               testID="reminders-return-guide"

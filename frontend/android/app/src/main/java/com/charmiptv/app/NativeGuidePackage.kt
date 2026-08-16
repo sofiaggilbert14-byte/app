@@ -17,6 +17,7 @@ class NativeGuideManager : SimpleViewManager<NativeGuideView>() {
   @ReactProp(name = "windowEndMs") fun end(view: NativeGuideView, value: Double) = view.setWindowEnd(value)
   @ReactProp(name = "active", defaultBoolean = true) fun active(view: NativeGuideView, value: Boolean) = view.setActive(value)
   @ReactProp(name = "restoreChannelId") fun restore(view: NativeGuideView, value: String?) = view.restoreChannel(value)
+  @ReactProp(name = "restoreTimeMs", defaultDouble = 0.0) fun restoreTime(view: NativeGuideView, value: Double) = view.restoreTime(value)
   override fun onDropViewInstance(view: NativeGuideView) {
     view.dispose()
     super.onDropViewInstance(view)

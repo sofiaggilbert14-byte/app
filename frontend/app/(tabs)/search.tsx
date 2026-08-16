@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
@@ -7,12 +7,14 @@ import * as Haptics from "expo-haptics";
 import { PurpleTvShell } from "@/src/components/PurpleTvShell";
 import { PurpleDrawerButton } from "@/src/components/PurpleDrawerButton";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
+import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { Channel, Program } from "@/src/api";
 import { useStore } from "@/src/store";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 import { requestGuideJump } from "@/src/core/guideSearchJump";
 import { searchNativeEpg } from "@/src/nativeEpg";
+import { requestNativeFocusWithRetry } from "@/src/utils/tvFocus";
 
 const KEYS = ["Q","W","E","R","T","Y","U","I","O","P","A","S","D","F","G","H","J","K","L","Z","X","C","V","B","N","M"];
 const DIGITS = ["1","2","3","4","5","6","7","8","9","0"];
@@ -21,12 +23,14 @@ const SUGGESTIONS = ["News", "Sports", "Movies", "Kids", "Discovery"];
 export default function SearchScreen() {
   const router = useRouter();
   const isFocused = useIsFocused();
-  const { channels, addRecent, openProgram, channelLogos } = useStore();
+  const { channels, addRecent, channelLogos } = useStore();
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [preferKeyFocus, setPreferKeyFocus] = useState(true);
   const [nativePrograms, setNativePrograms] = useState<{ channel: Channel; program: Program }[]>([]);
+  const firstResultRef = useRef<unknown>(null);
+  const focusResultsWhenReadyRef = useRef(false);
   const isTV = Platform.OS !== "web" && Platform.isTV;
 
   useEffect(() => {
@@ -98,6 +102,13 @@ export default function SearchScreen() {
     return { channels: channelMatches, programs: mergedPrograms };
   }, [channels, debouncedQuery, nativePrograms]);
 
+  useEffect(() => {
+    if (!focusResultsWhenReadyRef.current || !debouncedQuery.trim()) return;
+    if (!results.channels.length && !results.programs.length) return;
+    focusResultsWhenReadyRef.current = false;
+    return requestNativeFocusWithRetry(firstResultRef.current, [0, 80, 180, 320, 520]);
+  }, [debouncedQuery, results.channels.length, results.programs.length]);
+
   const play = useCallback((channel: Channel) => {
     void Haptics.selectionAsync().catch(() => undefined);
     addRecent(channel);
@@ -112,16 +123,20 @@ export default function SearchScreen() {
         group: channel.group || "All",
         programStart: opts?.programStart || opts?.program?.start,
       });
-      if (opts?.program) openProgram(opts.program, channel);
       router.replace("/guide" as any);
     },
-    [openProgram, router],
+    [router],
   );
 
   const replaceQuery = useCallback((next: string) => {
     setQuery(next);
     setCursor(next.length);
   }, []);
+
+  const chooseSuggestion = useCallback((next: string) => {
+    focusResultsWhenReadyRef.current = true;
+    replaceQuery(next);
+  }, [replaceQuery]);
 
   const insertAtCursor = useCallback((chunk: string) => {
     setQuery((value) => {
@@ -257,7 +272,7 @@ export default function SearchScreen() {
               <>
                 <Text style={styles.resultsTitle}>Suggested</Text>
                 {SUGGESTIONS.map((item) => (
-                  <Pressable key={item} onPress={() => replaceQuery(item)} style={({ focused }: any) => [styles.suggestion, focused && styles.focused]}>
+                  <Pressable key={item} onPress={() => chooseSuggestion(item)} style={({ focused }: any) => [styles.suggestion, focused && styles.focused]}>
                     <Text style={styles.suggestionText}>{item}</Text>
                   </Pressable>
                 ))}
@@ -265,9 +280,10 @@ export default function SearchScreen() {
             ) : (
               <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.resultsScroll}>
                 {results.channels.length ? <Text style={styles.resultsTitle}>Channels</Text> : null}
-                {results.channels.map((channel) => (
-                  <View key={channel.id} style={styles.resultBlock}>
+                {results.channels.map((channel, index) => (
+                  <FocusGuide key={channel.id} style={styles.resultBlock} trapFocusRight>
                     <Pressable
+                      ref={(node) => { if (index === 0) firstResultRef.current = node; }}
                       onPress={() => play(channel)}
                       onLongPress={() => jumpToGuide(channel)}
                       delayLongPress={420}
@@ -278,6 +294,7 @@ export default function SearchScreen() {
                       <Ionicons name="play" size={13} color={tvColors.purpleSoft} />
                     </Pressable>
                     <Pressable
+                      ref={(node) => { if (!results.channels.length && index === 0) firstResultRef.current = node; }}
                       onPress={() => jumpToGuide(channel)}
                       style={({ focused }: any) => [styles.guideAction, focused && styles.focused]}
                       testID={`search-guide-${channel.id}`}
@@ -285,11 +302,11 @@ export default function SearchScreen() {
                       <Ionicons name="grid-outline" size={12} color="#fff" />
                       <Text style={styles.guideActionText}>Open in Guide</Text>
                     </Pressable>
-                  </View>
+                  </FocusGuide>
                 ))}
                 {results.programs.length ? <Text style={styles.resultsTitle}>Programs</Text> : null}
                 {results.programs.map(({ channel, program }, index) => (
-                  <View key={`${channel.id}-${program.start}-${index}`} style={styles.resultBlock}>
+                  <FocusGuide key={`${channel.id}-${program.start}-${index}`} style={styles.resultBlock} trapFocusRight>
                     <Pressable
                       onPress={() => jumpToGuide(channel, { program, programStart: program.start })}
                       onLongPress={() => play(channel)}
@@ -310,7 +327,7 @@ export default function SearchScreen() {
                       <Ionicons name="play" size={12} color="#fff" />
                       <Text style={styles.guideActionText}>Play</Text>
                     </Pressable>
-                  </View>
+                  </FocusGuide>
                 ))}
                 {!results.channels.length && !results.programs.length ? (
                   <View style={styles.noResults}>

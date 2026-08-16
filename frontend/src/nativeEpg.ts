@@ -87,12 +87,17 @@ export const nativeEpgAvailable = Platform.OS === "android" && !!nativeModule;
 export const nativeEpgRamAvailable = Platform.OS === "android" && !!ramModule;
 
 function toProgram(program: NativeProgramme): Program {
+  const startMs = Number(program.startMs);
+  const endMs = Number(program.endMs);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs <= 0 || endMs <= startMs) {
+    throw new Error("Native EPG returned an invalid programme time range");
+  }
   return {
     title: program.title || "No Information",
     desc: program.description || "",
     category: program.category || "",
-    start: new Date(program.startMs).toISOString(),
-    stop: new Date(program.endMs).toISOString(),
+    start: new Date(startMs).toISOString(),
+    stop: new Date(endMs).toISOString(),
   };
 }
 
@@ -166,7 +171,15 @@ export async function searchNativeEpg(
   const value = query.trim();
   if (!nativeModule?.searchProgrammes || value.length < 2) return [];
   const rows = await nativeModule.searchProgrammes(value, Math.max(1, Math.min(80, limit)));
-  return rows.map((row) => ({ channelId: row.channelId, program: toProgram(row) }));
+  return rows.flatMap((row) => {
+    if (!row?.channelId) return [];
+    try {
+      return [{ channelId: row.channelId, program: toProgram(row) }];
+    } catch {
+      // One malformed provider row must not discard every valid Search result.
+      return [];
+    }
+  });
 }
 
 export async function clearNativeEpgRam(): Promise<void> {

@@ -5,7 +5,7 @@ import type { Channel, Program } from "@/src/api";
 type SelectionEvent = { channelId: string; row: number; settled: boolean; pressed: boolean; program?: { title: string; desc: string; category: string; startMs: number; endMs: number } };
 type RunwayEvent = { ids: string[]; priorityIds: string[]; pageSize: number; velocity: number; direction: number };
 type Props = {
-  channels: Channel[]; windowStart: string; windowEnd: string; active: boolean; restoreChannelId?: string | null;
+  channels: Channel[]; windowStart: string; windowEnd: string; active: boolean; restoreChannelId?: string | null; restoreTimeMs?: number | null;
   channelNumberById: Record<string, number>;
   onChannelFocus: (channel: Channel, settled: boolean) => void;
   onProgramFocus: (program: Program, channel: Channel, settled: boolean) => void;
@@ -30,5 +30,5 @@ export const NativeGuideCanvas = memo(function NativeGuideCanvas(props: Props) {
     const value = event.nativeEvent; props.onViewportChannelIds(value.ids || [], value.priorityIds || [], value.pageSize || 8);
   }, [props]);
   if (!Native) return <View style={{ flex: 1 }} />;
-  return <Native style={{ flex: 1 }} channels={nativeChannels} windowStartMs={Date.parse(props.windowStart)} windowEndMs={Date.parse(props.windowEnd)} active={props.active} restoreChannelId={props.restoreChannelId || ""} onSelectionChange={onSelectionChange} onRunwayChange={onRunwayChange} onLeftBoundary={props.onLeftBoundary} onUpBoundary={props.onUpBoundary} />;
+  return <Native style={{ flex: 1 }} channels={nativeChannels} windowStartMs={Date.parse(props.windowStart)} windowEndMs={Date.parse(props.windowEnd)} active={props.active} restoreChannelId={props.restoreChannelId || ""} restoreTimeMs={props.restoreTimeMs ?? 0} onSelectionChange={onSelectionChange} onRunwayChange={onRunwayChange} onLeftBoundary={props.onLeftBoundary} onUpBoundary={props.onUpBoundary} />;
 });
