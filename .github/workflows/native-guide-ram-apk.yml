@@ -1,5 +1,6 @@
 name: Native Guide RAM APK
 
+# Manual rebuild trigger: 2026-08-15
 on:
   push:
     branches: [experiment/full-ram-epg-engine]
