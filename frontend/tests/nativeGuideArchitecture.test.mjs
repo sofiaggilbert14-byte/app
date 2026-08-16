@@ -36,6 +36,19 @@ test("Guide is a single native logical canvas with predictive prefetch", async (
   assert.match(app, /add\(NativeGuidePackage\(\)\)/);
 });
 
+test("native Guide timeline uses real program duration and queries the visible runway", async () => {
+  const view = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");
+  assert.match(view, /visibleWindowMs = 3L \* 60L \* 60_000L/);
+  assert.match(view, /private fun timeToX\(timeMs: Long, visibleStartMs: Long, visibleEndMs: Long\)/);
+  assert.match(view, /val left = timeToX\(program\.startMs, visibleStartMs, visibleEndMs\)/);
+  assert.match(view, /val right = timeToX\(program\.endMs, visibleStartMs, visibleEndMs\)/);
+  assert.match(view, /val x = timeToX\(tick, start, end\)/);
+  assert.match(view, /val queryStart = max\(windowStartMs, viewportStartMs - horizontalPrefetchBeforeMs\)/);
+  assert.match(view, /val queryEnd = min\(windowEndMs, viewportEndMs\(\) \+ horizontalPrefetchAfterMs\)/);
+  assert.match(view, /list\.sortedBy \{ it\.startMs \}\.toTypedArray\(\)/);
+  assert.doesNotMatch(view, /pixelsPerMinute/);
+});
+
 test("preview tuning only follows settled native selection", async () => {
   const guide = await source("app/(tabs)/guide.tsx");
   assert.match(guide, /if \(settled\) armPreviewForChannel\(channel\)/);
