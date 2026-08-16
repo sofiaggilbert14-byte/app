@@ -19,9 +19,10 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * Constant-view-count TV guide. Selection is coordinates, never Android focus nodes.
- * SQLite is read only when the channel/time runway changes; draw and key-repeat paths
- * operate exclusively on sorted native memory.
+ * Constant-view-count TV guide. Selection is logical coordinates, never Android focus nodes.
+ * Program X/width are always derived from real start/end times against the same viewport used
+ * by the header. SQLite reads follow the visible time runway so horizontal navigation cannot
+ * outrun the queried EPG window and expose false empty columns.
  */
 class NativeGuideView(context: Context) : View(context) {
   private data class ChannelRow(val id: String, val name: String, val number: String)
@@ -31,10 +32,12 @@ class NativeGuideView(context: Context) : View(context) {
   private val io = Executors.newSingleThreadExecutor { task -> Thread(task, "CharmGuideRead").apply { isDaemon = true } }
   private val rows = ArrayList<ChannelRow>()
   @Volatile private var programs = emptyMap<String, Array<NativeEpgProgram>>()
+
   private var windowStartMs = System.currentTimeMillis() - 30L * 60_000L
-  private var windowEndMs = windowStartMs + 3L * 60L * 60_000L
+  private var windowEndMs = windowStartMs + 6L * 60L * 60_000L
+  private var viewportStartMs = windowStartMs
   private var selectedRow = 0
-  private var selectedTimeMs = System.currentTimeMillis()
+  private var selectedTimeMs = System.currentTimeMillis().coerceIn(windowStartMs, windowEndMs - 1)
   private var firstVisibleRow = 0
   private var generation = 0
   @Volatile private var pendingQuery: GuideQuery? = null
@@ -43,12 +46,18 @@ class NativeGuideView(context: Context) : View(context) {
   private var enabled = true
   private var lastMoveAt = 0L
   private var moveVelocity = 0
+
   private val density = resources.displayMetrics.density
   private val channelWidth = 184f * density
-  private val headerHeight = 34f * density
-  private val rowHeight = 48f * density
+  private val headerHeight = 38f * density
+  private val rowHeight = 54f * density
   private val pad = 8f * density
-  private val pixelsPerMinute = 2.0f * density
+
+  /** Three visible hours gives six equal 30-minute header columns on every TV size. */
+  private val visibleWindowMs = 3L * 60L * 60_000L
+  private val horizontalPrefetchBeforeMs = 30L * 60_000L
+  private val horizontalPrefetchAfterMs = 60L * 60_000L
+
   private val background = Paint().apply { color = Color.rgb(8, 7, 13) }
   private val header = Paint().apply { color = Color.rgb(22, 18, 33) }
   private val channel = Paint().apply { color = Color.rgb(26, 22, 38) }
@@ -87,7 +96,12 @@ class NativeGuideView(context: Context) : View(context) {
     windowStartMs = nextStart
     windowEndMs = nextEnd
     selectedTimeMs = selectedTimeMs.coerceIn(windowStartMs, windowEndMs - 1)
+    viewportStartMs = clampViewportStart(viewportStartMs)
+    if (selectedTimeMs < viewportStartMs || selectedTimeMs >= viewportEndMs()) {
+      viewportStartMs = clampViewportStart(selectedTimeMs - 15L * 60_000L)
+    }
     loadPrograms()
+    invalidate()
   }
 
   fun setWindowStart(start: Double) = setWindow(start, windowEndMs.toDouble())
@@ -104,6 +118,30 @@ class NativeGuideView(context: Context) : View(context) {
     if (index >= 0) { selectedRow = index; ensureVisible(); invalidate(); emitSelection(true) }
   }
 
+  private fun clampViewportStart(value: Long): Long {
+    val latest = max(windowStartMs, windowEndMs - visibleWindowMs)
+    return value.coerceIn(windowStartMs, latest)
+  }
+
+  private fun viewportEndMs(): Long = min(windowEndMs, viewportStartMs + visibleWindowMs)
+
+  private fun ensureSelectedTimeVisible() {
+    val end = viewportEndMs()
+    val rightGuard = viewportStartMs + (visibleWindowMs * 5L / 6L)
+    val leftGuard = viewportStartMs + (visibleWindowMs / 6L)
+    val next = when {
+      selectedTimeMs >= rightGuard -> selectedTimeMs - (visibleWindowMs * 2L / 3L)
+      selectedTimeMs < leftGuard -> selectedTimeMs - (visibleWindowMs / 6L)
+      selectedTimeMs >= end -> selectedTimeMs - (visibleWindowMs * 2L / 3L)
+      else -> viewportStartMs
+    }
+    val clamped = clampViewportStart(next)
+    if (clamped != viewportStartMs) {
+      viewportStartMs = clamped
+      loadPrograms()
+    }
+  }
+
   private fun loadPrograms() {
     if (disposed || io.isShutdown) return
     val visible = max(6, ((height - headerHeight) / rowHeight).toInt())
@@ -112,7 +150,10 @@ class NativeGuideView(context: Context) : View(context) {
     val to = min(rows.size, firstVisibleRow + visible + ahead)
     val ids = rows.subList(from, to).map { it.id }
     if (ids.isEmpty()) { generation += 1; pendingQuery = null; programs = emptyMap(); return }
-    pendingQuery = GuideQuery(++generation, windowStartMs, windowEndMs, ids)
+
+    val queryStart = max(windowStartMs, viewportStartMs - horizontalPrefetchBeforeMs)
+    val queryEnd = min(windowEndMs, viewportEndMs() + horizontalPrefetchAfterMs)
+    pendingQuery = GuideQuery(++generation, queryStart, queryEnd, ids)
     scheduleQueryDrain()
   }
 
@@ -127,7 +168,7 @@ class NativeGuideView(context: Context) : View(context) {
           val loaded = try { database.queryGuideWindow(request.startMs, request.endMs, request.ids) } catch (_: Throwable) { emptyList() }
           val grouped = LinkedHashMap<String, MutableList<NativeEpgProgram>>()
           for (program in loaded) grouped.getOrPut(program.channelId) { ArrayList() }.add(program)
-          val frozen = grouped.mapValues { it.value.toTypedArray() }
+          val frozen = grouped.mapValues { (_, list) -> list.sortedBy { it.startMs }.toTypedArray() }
           post {
             if (disposed || request.token != generation) return@post
             programs = frozen
@@ -172,11 +213,13 @@ class NativeGuideView(context: Context) : View(context) {
         val current = selectedProgram()
         if (current == null || selectedTimeMs <= windowStartMs + 60_000L) { emit("topLeftBoundary", null); return true }
         selectedTimeMs = max(windowStartMs, current.startMs - 1)
+        ensureSelectedTimeVisible()
         invalidate(); emitSelection(false)
       }
       KeyEvent.KEYCODE_DPAD_RIGHT -> {
         val current = selectedProgram()
         selectedTimeMs = min(windowEndMs - 1, current?.endMs ?: selectedTimeMs + 30L * 60_000L)
+        ensureSelectedTimeVisible()
         invalidate(); emitSelection(false)
       }
       KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_BUTTON_A -> emitSelection(true, pressed = true)
@@ -263,13 +306,21 @@ class NativeGuideView(context: Context) : View(context) {
     (context as? ThemedReactContext)?.getJSModule(RCTEventEmitter::class.java)?.receiveEvent(id, name, payload)
   }
 
+  private fun timeToX(timeMs: Long, visibleStartMs: Long, visibleEndMs: Long): Float {
+    val guideWidth = max(1f, width.toFloat() - channelWidth)
+    val duration = max(1L, visibleEndMs - visibleStartMs)
+    return channelWidth + ((timeMs - visibleStartMs).toFloat() / duration.toFloat()) * guideWidth
+  }
+
   override fun onDraw(canvas: Canvas) {
     super.onDraw(canvas)
     canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), background)
     canvas.drawRect(0f, 0f, width.toFloat(), headerHeight, header)
-    val visibleStartMs = selectedTimeMs - 15L * 60_000L
-    val visibleEndMs = visibleStartMs + (((width - channelWidth) / pixelsPerMinute) * 60_000L).toLong()
+
+    val visibleStartMs = viewportStartMs
+    val visibleEndMs = viewportEndMs()
     drawHeader(canvas, visibleStartMs, visibleEndMs)
+
     val visibleRows = max(1, ceil((height - headerHeight) / rowHeight).toInt())
     for (slot in 0 until visibleRows) {
       val rowIndex = firstVisibleRow + slot
@@ -278,20 +329,28 @@ class NativeGuideView(context: Context) : View(context) {
       channel.color = if (rowIndex == selectedRow) Color.rgb(61, 43, 92) else Color.rgb(26, 22, 38)
       canvas.drawRect(0f, top, channelWidth, top + rowHeight - density, channel)
       drawClippedText(canvas, listOfNotNull(row.number.takeIf { it.isNotBlank() }, row.name).joinToString("  "), pad, top + rowHeight * .62f, channelWidth - pad, title)
+
       val list = programs[row.id].orEmpty()
       for (program in list) {
         if (program.endMs <= visibleStartMs || program.startMs >= visibleEndMs) continue
-        val left = channelWidth + ((program.startMs - visibleStartMs) / 60_000f) * pixelsPerMinute
-        val right = channelWidth + ((program.endMs - visibleStartMs) / 60_000f) * pixelsPerMinute
+        val left = timeToX(program.startMs, visibleStartMs, visibleEndMs)
+        val right = timeToX(program.endMs, visibleStartMs, visibleEndMs)
+        val clippedLeft = max(channelWidth, left)
+        val clippedRight = min(width.toFloat(), right)
+        if (clippedRight <= clippedLeft) continue
         val chosen = rowIndex == selectedRow && program.startMs <= selectedTimeMs && program.endMs > selectedTimeMs
-        canvas.drawRect(RectF(max(channelWidth, left) + density, top + density, min(width.toFloat(), right) - density, top + rowHeight - 2f * density), if (chosen) selected else cell)
-        drawClippedText(canvas, program.title, max(channelWidth, left) + pad, top + rowHeight * .60f, min(width.toFloat(), right) - pad, title)
+        canvas.drawRect(
+          RectF(clippedLeft + density, top + density, clippedRight - density, top + rowHeight - 2f * density),
+          if (chosen) selected else cell,
+        )
+        drawClippedText(canvas, program.title, clippedLeft + pad, top + rowHeight * .60f, clippedRight - pad, title)
       }
       canvas.drawLine(0f, top + rowHeight, width.toFloat(), top + rowHeight, divider)
     }
+
     val now = System.currentTimeMillis()
     if (now in visibleStartMs..visibleEndMs) {
-      val x = channelWidth + ((now - visibleStartMs) / 60_000f) * pixelsPerMinute
+      val x = timeToX(now, visibleStartMs, visibleEndMs)
       canvas.drawLine(x, headerHeight, x, height.toFloat(), nowPaint)
     }
   }
@@ -300,7 +359,7 @@ class NativeGuideView(context: Context) : View(context) {
     canvas.drawText("CHANNEL", pad, headerHeight * .66f, muted)
     var tick = ((start / 1_800_000L) + 1) * 1_800_000L
     while (tick < end) {
-      val x = channelWidth + ((tick - start) / 60_000f) * pixelsPerMinute
+      val x = timeToX(tick, start, end)
       val date = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault()).format(java.util.Date(tick))
       canvas.drawText(date, x + pad, headerHeight * .66f, muted)
       canvas.drawLine(x, headerHeight, x, height.toFloat(), divider)
