@@ -1,0 +1,1 @@
+Apply unified drawer navigation refinement: groups + one route scroll box + pinned Exit.

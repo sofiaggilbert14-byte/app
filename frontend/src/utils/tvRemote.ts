@@ -12,10 +12,68 @@ const TvRemote: any = Platform.OS === "android" ? NativeModules.TvRemote : null;
 export const tvRemoteAvailable = !!TvRemote;
 
 export type TvKey = "UP" | "DOWN" | "LEFT" | "RIGHT" | "SELECT" | "BACK";
+export type TvLongPressKey = "DOWN" | "SELECT" | "BACK";
+export type DeviceMemoryProfile = {
+  memoryClassMb: number;
+  lowRamDevice: boolean;
+  epgBytes: number;
+  logoMemoryBytes: number;
+  playerCacheBytes: number;
+  vodCacheBytes: number;
+};
+export type CacheStorageReport = { logoDiskBytes: number; cacheDiskBytes: number; databaseBytes: number; totalDiskBytes: number };
 
 const emitter = TvRemote ? new NativeEventEmitter(TvRemote) : null;
 
 // Subscribe to D-pad key presses forwarded from the native Activity.
+export function addTvLongPressListener(cb: (key: TvLongPressKey) => void): () => void {
+  const eventName = "TvRemoteLongPress";
+  if (emitter) {
+    const sub = emitter.addListener(eventName, (key: TvLongPressKey) => cb(key));
+    return () => sub.remove();
+  }
+  const sub = DeviceEventEmitter.addListener(eventName, (key: TvLongPressKey) => cb(key));
+  return () => sub.remove();
+}
+
+export async function getDeviceMemoryProfile(): Promise<DeviceMemoryProfile | null> {
+  try {
+    if (!TvRemote?.getDeviceMemoryProfile) return null;
+    const raw = await TvRemote.getDeviceMemoryProfile();
+    return {
+      memoryClassMb: Number(raw?.memoryClassMb) || 0,
+      lowRamDevice: !!raw?.lowRamDevice,
+      epgBytes: Number(raw?.epgBytes) || 0,
+      logoMemoryBytes: Number(raw?.logoMemoryBytes) || 0,
+      playerCacheBytes: Number(raw?.playerCacheBytes) || 0,
+      vodCacheBytes: Number(raw?.vodCacheBytes) || 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function getCacheStorageReport(): Promise<CacheStorageReport | null> {
+  try {
+    if (!TvRemote?.getCacheStorageReport) return null;
+    const raw = await TvRemote.getCacheStorageReport();
+    return {
+      logoDiskBytes: Number(raw?.logoDiskBytes) || 0,
+      cacheDiskBytes: Number(raw?.cacheDiskBytes) || 0,
+      databaseBytes: Number(raw?.databaseBytes) || 0,
+      totalDiskBytes: Number(raw?.totalDiskBytes) || 0,
+    };
+  } catch { return null; }
+}
+
+export async function pruneDiskCaches(maxAgeDays = 14): Promise<{ removedFiles: number; removedBytes: number } | null> {
+  try {
+    if (!TvRemote?.pruneDiskCaches) return null;
+    const raw = await TvRemote.pruneDiskCaches(maxAgeDays);
+    return { removedFiles: Number(raw?.removedFiles) || 0, removedBytes: Number(raw?.removedBytes) || 0 };
+  } catch { return null; }
+}
+
 export function addTvKeyListener(cb: (key: TvKey) => void): () => void {
   if (emitter) {
     const sub = emitter.addListener("TvRemoteKey", (k: TvKey) => cb(k));
@@ -57,6 +115,10 @@ export function setGuideRepeatInterval(milliseconds: number) {
   try {
     TvRemote?.setGuideRepeatInterval?.(Math.max(60, Math.min(120, milliseconds)));
   } catch {}
+}
+
+export function setNativePlaybackStarting(starting: boolean) {
+  try { TvRemote?.setPlaybackStarting?.(starting); } catch {}
 }
 
 // Inject a real tap at screen coordinates (dp) so the element under the virtual

@@ -2,8 +2,10 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import {
   Animated,
   BackHandler,
+  DeviceEventEmitter,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -15,11 +17,10 @@ import * as Haptics from "expo-haptics";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { fonts, radius, spacing, tvColors } from "@/src/theme";
 import { combineTvEdgeInsets, getTvSafeInsets } from "@/src/utils/tvLayout";
-import { reclaimGuideBottomFocusIfArmed } from "@/src/utils/tvGuideFocusLock";
 import { requestNativeFocusWithRetry } from "@/src/utils/tvFocus";
 import { useStore } from "@/src/store";
 import { evaluateDrawerBack } from "@/src/core/drawerNavigationPolicy";
-import { isGuideSurfing } from "@/src/utils/guideSurfGate";
+import { isGuideScreenActive, isGuideSurfing } from "@/src/utils/guideSurfGate";
 import { useTvCalibration } from "@/src/tvCalibration";
 
 type Route =
@@ -28,7 +29,6 @@ type Route =
   | "/channels"
   | "/movies"
   | "/series"
-  | "/catchup"
   | "/favorites"
   | "/reminders"
   | "/search"
@@ -55,13 +55,21 @@ export type PurpleContextAction = {
   testID?: string;
 };
 
+export type PurpleGuideGroup = {
+  name: string;
+  count?: number;
+  active?: boolean;
+  pinned?: boolean;
+  onPress: () => void;
+  onLongPress?: () => void;
+};
+
 export type PurpleRecentChannel = {
   id: string;
   name: string;
   logo?: string | null;
 };
 
-/** Drawer nav items — My Reminders sits directly under Favorites. */
 const NAV: NavItem[] = [
   { route: "/", label: "Live TV", icon: "tv-outline" },
   { route: "/guide", label: "TV Guide", icon: "calendar-outline" },
@@ -70,7 +78,6 @@ const NAV: NavItem[] = [
   { route: "/channels", label: "Channels", icon: "list-outline" },
   { route: "/movies", label: "Movies", icon: "film-outline" },
   { route: "/series", label: "Series", icon: "albums-outline" },
-  { route: "/catchup", label: "Catch Up", icon: "time-outline" },
   { route: "/search", label: "Search", icon: "search-outline" },
   { route: "/settings", label: "Settings", icon: "settings-outline" },
 ];
@@ -79,7 +86,6 @@ export const PURPLE_SIDEBAR_WIDTH = 156;
 export const PURPLE_DRAWER_ANIMATION_MS = 180;
 
 export type OpenDrawerOptions = {
-  /** Focus the first drawer row (Live TV) instead of the active route. */
   focusTop?: boolean;
 };
 
@@ -88,7 +94,6 @@ type DrawerContextValue = {
   drawerProgress: Animated.Value;
   openDrawer: (options?: OpenDrawerOptions) => void;
   closeDrawer: () => void;
-  /** True when the next drawer-open focus pass should land on the top row. */
   focusDrawerTop: boolean;
   consumeFocusDrawerTop: () => void;
 };
@@ -96,21 +101,33 @@ type DrawerContextValue = {
 const DrawerContext = createContext<DrawerContextValue | null>(null);
 
 export function PurpleTvDrawerProvider({ children }: { children: React.ReactNode }) {
-  // Always boot closed — content is full-bleed; double-Back opens the drawer.
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [focusDrawerTop, setFocusDrawerTop] = useState(false);
   const drawerProgress = useRef(new Animated.Value(0)).current;
+  const drawerOpenRef = useRef(false);
+  const openedAtRef = useRef(0);
+
   const openDrawer = useCallback((options?: OpenDrawerOptions) => {
-    // Rapid D-pad surf must never yank the sidebar open under the guide.
-    if (isGuideSurfing()) return;
+    if (isGuideScreenActive() && isGuideSurfing()) return;
+    if (drawerOpenRef.current) return;
+    drawerOpenRef.current = true;
+    openedAtRef.current = Date.now();
     setFocusDrawerTop(!!options?.focusTop);
     setDrawerOpen(true);
   }, []);
+
   const closeDrawer = useCallback(() => {
+    if (!drawerOpenRef.current) return;
+    // Some Android TV firmwares deliver the opening Back/Left key to two
+    // listeners. Do not let the duplicate edge close an animating drawer.
+    if (Date.now() - openedAtRef.current < PURPLE_DRAWER_ANIMATION_MS + 70) return;
+    drawerOpenRef.current = false;
     setFocusDrawerTop(false);
     setDrawerOpen(false);
   }, []);
+
   const consumeFocusDrawerTop = useCallback(() => setFocusDrawerTop(false), []);
+
   useEffect(() => {
     const animation = Animated.timing(drawerProgress, {
       toValue: drawerOpen ? 1 : 0,
@@ -120,17 +137,12 @@ export function PurpleTvDrawerProvider({ children }: { children: React.ReactNode
     animation.start();
     return () => animation.stop();
   }, [drawerOpen, drawerProgress]);
+
   const value = useMemo(
-    () => ({
-      drawerOpen,
-      drawerProgress,
-      openDrawer,
-      closeDrawer,
-      focusDrawerTop,
-      consumeFocusDrawerTop,
-    }),
+    () => ({ drawerOpen, drawerProgress, openDrawer, closeDrawer, focusDrawerTop, consumeFocusDrawerTop }),
     [closeDrawer, consumeFocusDrawerTop, drawerOpen, drawerProgress, focusDrawerTop, openDrawer],
   );
+
   return <DrawerContext.Provider value={value}>{children}</DrawerContext.Provider>;
 }
 
@@ -174,6 +186,7 @@ export function PurpleTvShell({
   contentStyle,
   footerAction,
   contextActions,
+  guideGroups,
   watchingChannelId,
   recentChannels,
   onRecentPress,
@@ -184,19 +197,13 @@ export function PurpleTvShell({
   contentStyle?: any;
   footerAction?: FooterAction;
   contextActions?: PurpleContextAction[];
+  guideGroups?: PurpleGuideGroup[];
   watchingChannelId?: string | null;
   recentChannels?: PurpleRecentChannel[];
   onRecentPress?: (channelId: string) => void;
 }) {
   const router = useRouter();
-  const {
-    drawerOpen,
-    drawerProgress,
-    openDrawer,
-    closeDrawer,
-    focusDrawerTop,
-    consumeFocusDrawerTop,
-  } = usePurpleTvDrawer();
+  const { drawerOpen, drawerProgress, openDrawer, closeDrawer, focusDrawerTop, consumeFocusDrawerTop } = usePurpleTvDrawer();
   const { width, height } = useWindowDimensions();
   const { deviceLayoutMode, activeProgram } = useStore();
   const { calibration } = useTvCalibration();
@@ -204,61 +211,55 @@ export function PurpleTvShell({
     const safe = getTvSafeInsets(width, height, deviceLayoutMode);
     return combineTvEdgeInsets(safe, calibration);
   }, [calibration, deviceLayoutMode, height, width]);
+
   const navRefs = useRef(new Map<Route, unknown>());
+  const guideGroupRefs = useRef(new Map<string, unknown>());
+  const deferredDrawerCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isWatching = !!watchingChannelId;
-  const recentStrip = useMemo(
-    () => (recentChannels ?? []).slice(0, 5),
-    [recentChannels],
-  );
-  // Drawer boots closed — pulse content autoFocus once so guide/home can claim first focus.
-  const [contentAutoFocus, setContentAutoFocus] = useState(() => !drawerOpen);
+  const recentStrip = useMemo(() => (recentChannels ?? []).slice(0, 5), [recentChannels]);
   const [drawerAutoFocus, setDrawerAutoFocus] = useState(drawerOpen);
-  const [drawerPreferredRoute, setDrawerPreferredRoute] = useState<Route | null>(
-    drawerOpen ? active : null,
-  );
-  useEffect(() => {
-    if (!contentAutoFocus) return;
-    const timer = setTimeout(() => setContentAutoFocus(false), 700);
-    return () => clearTimeout(timer);
-  }, [contentAutoFocus]);
+  const [drawerPreferredRoute, setDrawerPreferredRoute] = useState<Route | null>(drawerOpen ? active : null);
 
   useEffect(() => {
     if (!drawerOpen) {
       setDrawerAutoFocus(false);
       setDrawerPreferredRoute(null);
-      // Guide owns post-drawer reclaim via its nonce and mounted grid. A second
-      // Shell retry with no channel id races that path and yanks the wrong row.
-      if (active !== "/guide") {
-        setContentAutoFocus(true);
-      }
       return;
     }
 
-    setContentAutoFocus(false);
-    const preferredRoute: Route = focusDrawerTop ? NAV[0].route : active;
+    const preferredGuideGroup =
+      !focusDrawerTop && active === "/guide" ? guideGroups?.find((item) => item.active) : undefined;
+    const preferredRoute: Route | null = preferredGuideGroup ? null : focusDrawerTop ? NAV[0].route : active;
     if (focusDrawerTop) consumeFocusDrawerTop();
     setDrawerPreferredRoute(preferredRoute);
     setDrawerAutoFocus(true);
+
     const clearPreferred = setTimeout(() => {
       setDrawerAutoFocus(false);
       setDrawerPreferredRoute(null);
     }, 700);
-    const cancelFocus = requestNativeFocusWithRetry(
-      navRefs.current.get(preferredRoute),
-      [0, PURPLE_DRAWER_ANIMATION_MS, 280, 420, 650],
-    );
+    const preferredNode = preferredGuideGroup
+      ? guideGroupRefs.current.get(preferredGuideGroup.name)
+      : preferredRoute
+        ? navRefs.current.get(preferredRoute)
+        : null;
+    const cancelFocus = requestNativeFocusWithRetry(preferredNode, [0, PURPLE_DRAWER_ANIMATION_MS, 280, 420, 650]);
     return () => {
       clearTimeout(clearPreferred);
       cancelFocus?.();
     };
-  }, [active, activeProgram, consumeFocusDrawerTop, drawerOpen, focusDrawerTop]);
+  }, [active, activeProgram, consumeFocusDrawerTop, drawerOpen, focusDrawerTop, guideGroups]);
 
   const reopenArmedAtRef = useRef(0);
-
   useFocusEffect(
     useCallback(() => {
       if (Platform.OS === "web") return;
       const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+        if (active === "/guide" && !drawerOpen && !activeProgram) {
+          reopenArmedAtRef.current = 0;
+          openDrawer();
+          return true;
+        }
         const decision = evaluateDrawerBack({
           drawerOpen,
           blockingOverlayOpen: !!activeProgram,
@@ -269,8 +270,6 @@ export function PurpleTvShell({
           return false;
         }
         if (decision === "arm-reopen") {
-          // First Back only arms — never opens. Guide may also consume Back first
-          // to step left in the timeline before this listener runs.
           reopenArmedAtRef.current = Date.now();
           return true;
         }
@@ -287,25 +286,34 @@ export function PurpleTvShell({
         return true;
       });
       return () => sub.remove();
-    }, [activeProgram, closeDrawer, drawerOpen, openDrawer]),
+    }, [active, activeProgram, closeDrawer, drawerOpen, openDrawer]),
   );
 
   const navigate = useCallback(
     (route: Route) => {
       void Haptics.selectionAsync().catch(() => undefined);
-      // Never focus content beneath a still-open drawer. A newly mounted Guide
-      // claims its own initial focus; an already-mounted Guide uses its nonce.
+      if (route === "/settings") DeviceEventEmitter.emit("CharmShowAllSettings");
       closeDrawer();
+      // If a very fast selection lands during the open-transition guard, close
+      // once that guard expires instead of leaving the drawer over the new page.
+      if (deferredDrawerCloseTimer.current) clearTimeout(deferredDrawerCloseTimer.current);
+      deferredDrawerCloseTimer.current = setTimeout(() => {
+        deferredDrawerCloseTimer.current = null;
+        closeDrawer();
+      }, PURPLE_DRAWER_ANIMATION_MS + 80);
       if (route !== active) router.replace(route as any);
     },
     [active, closeDrawer, router],
   );
 
+  useEffect(() => () => {
+    if (deferredDrawerCloseTimer.current) clearTimeout(deferredDrawerCloseTimer.current);
+  }, []);
+
   const exit = useCallback(() => {
     void Haptics.selectionAsync().catch(() => undefined);
     if (Platform.OS !== "web") BackHandler.exitApp();
   }, []);
-
   const [exitHint, setExitHint] = useState(false);
   const exitHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const promptHoldToExit = useCallback(() => {
@@ -313,18 +321,45 @@ export function PurpleTvShell({
     if (exitHintTimer.current) clearTimeout(exitHintTimer.current);
     exitHintTimer.current = setTimeout(() => setExitHint(false), 1600);
   }, []);
-  useEffect(
-    () => () => {
-      if (exitHintTimer.current) clearTimeout(exitHintTimer.current);
-    },
-    [],
-  );
+  useEffect(() => () => {
+    if (exitHintTimer.current) clearTimeout(exitHintTimer.current);
+  }, []);
 
-  // Fully off-screen when closed — never leave a half-drawer visible on large TVs.
-  const drawerTranslateX = drawerProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [-PURPLE_SIDEBAR_WIDTH, 0],
-  });
+  const drawerTranslateX = drawerProgress.interpolate({ inputRange: [0, 1], outputRange: [-PURPLE_SIDEBAR_WIDTH, 0] });
+
+  const renderNavItem = (item: NavItem) => {
+    const selected = item.route === active;
+    const showWatching = item.route === "/" && isWatching;
+    return (
+      <Pressable
+        key={item.route}
+        ref={(node) => {
+          if (node) navRefs.current.set(item.route, node);
+          else navRefs.current.delete(item.route);
+        }}
+        focusable={drawerOpen}
+        hasTVPreferredFocus={drawerAutoFocus && drawerPreferredRoute === item.route}
+        onPress={() => navigate(item.route)}
+        style={({ focused }: any) => [
+          styles.navRow,
+          selected && styles.navRowSelected,
+          selected && styles.navRowActiveMark,
+          focused && styles.navRowFocused,
+        ]}
+        testID={`purple-nav-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
+      >
+        <View style={styles.navIconWrap}>
+          <Ionicons
+            name={selected ? (item.icon.replace("-outline", "") as any) : item.icon}
+            size={15}
+            color={selected ? "#fff" : tvColors.textMuted}
+          />
+          {showWatching ? <WatchingDot testID="purple-nav-live-watching" /> : null}
+        </View>
+        <Text numberOfLines={1} style={[styles.navText, selected && styles.navTextSelected]}>{item.label}</Text>
+      </Pressable>
+    );
+  };
 
   return (
     <View
@@ -342,109 +377,107 @@ export function PurpleTvShell({
         },
       ]}
     >
-      {/* Absolute overlay drawer — slides completely past the left edge when closed. */}
       <Animated.View
         pointerEvents={drawerOpen ? "auto" : "none"}
         style={[styles.sidebarOverlay, { transform: [{ translateX: drawerTranslateX }] }]}
       >
-        <FocusGuide
-          style={styles.sidebar}
-          trapFocusUp
-          trapFocusDown
-          trapFocusLeft
-          trapFocusRight
-        >
+        <FocusGuide style={styles.sidebar} trapFocusUp trapFocusDown trapFocusLeft trapFocusRight>
           <SmallBrand />
-          {contextActions && contextActions.length > 0 ? (
+
+          {contextActions?.length ? (
             <View style={styles.contextActions}>
               {contextActions.map((action) => (
                 <Pressable
                   key={action.label}
                   focusable={drawerOpen}
                   onPress={action.onPress}
-                  style={({ focused }: any) => [
-                    styles.contextActionRow,
-                    focused && styles.navRowFocused,
-                  ]}
+                  style={({ focused }: any) => [styles.contextActionRow, focused && styles.navRowFocused]}
                   testID={action.testID}
                 >
                   <Ionicons name={action.icon} size={13} color={tvColors.purpleSoft} />
-                  <Text numberOfLines={1} style={styles.contextActionText}>
-                    {action.label}
-                  </Text>
+                  <Text numberOfLines={1} style={styles.contextActionText}>{action.label}</Text>
                 </Pressable>
               ))}
             </View>
           ) : null}
+
+          {active === "/guide" && guideGroups?.length ? (
+            <View style={styles.guideGroupSection}>
+              <Text style={styles.guideGroupLabel}>Groups</Text>
+              <ScrollView
+                style={styles.guideGroupList}
+                contentContainerStyle={styles.guideGroupListContent}
+                showsVerticalScrollIndicator={false}
+              >
+                {guideGroups.map((item) => (
+                  <Pressable
+                    key={item.name}
+                    ref={(node) => {
+                      if (node) guideGroupRefs.current.set(item.name, node);
+                      else guideGroupRefs.current.delete(item.name);
+                    }}
+                    focusable={drawerOpen}
+                    hasTVPreferredFocus={drawerAutoFocus && drawerPreferredRoute === null && !!item.active}
+                    onPress={item.onPress}
+                    onLongPress={item.onLongPress}
+                    delayLongPress={420}
+                    style={({ focused }: any) => [
+                      styles.guideGroupRow,
+                      item.active && styles.guideGroupRowActive,
+                      item.pinned && styles.guideGroupRowPinned,
+                      focused && styles.navRowFocused,
+                    ]}
+                    testID={`purple-guide-group-${item.name.toLowerCase().replace(/\s+/g, "-")}`}
+                  >
+                    <Text numberOfLines={1} style={[styles.guideGroupText, item.active && styles.guideGroupTextActive]}>{item.name}</Text>
+                    {item.count ? <Text style={styles.guideGroupCount}>{item.count}</Text> : null}
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+          ) : null}
+
           {recentStrip.length > 0 ? (
             <View style={styles.recentStrip}>
               <Text style={styles.recentLabel}>Recent</Text>
-              <View style={styles.recentRow}>
-                {recentStrip.map((channel) => (
-                  <Pressable
-                    key={channel.id}
-                    focusable={drawerOpen}
-                    onPress={() => onRecentPress?.(channel.id)}
-                    style={({ focused }: any) => [
-                      styles.recentChip,
-                      focused && styles.navRowFocused,
-                    ]}
-                    testID={`purple-recent-${channel.id}`}
-                  >
-                    <RecentLetterAvatar name={channel.name} />
-                    <Text numberOfLines={1} style={styles.recentName}>
-                      {channel.name}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
+              <ScrollView style={styles.recentScroll} showsVerticalScrollIndicator={false}>
+                <View style={styles.recentRow}>
+                  {recentStrip.map((channel) => (
+                    <Pressable
+                      key={channel.id}
+                      focusable={drawerOpen}
+                      onPress={() => onRecentPress?.(channel.id)}
+                      style={({ focused }: any) => [styles.recentChip, focused && styles.navRowFocused]}
+                      testID={`purple-recent-${channel.id}`}
+                    >
+                      <RecentLetterAvatar name={channel.name} />
+                      <Text numberOfLines={1} style={styles.recentName}>{channel.name}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </ScrollView>
             </View>
           ) : null}
-          <View style={styles.nav}>
-            {NAV.map((item) => {
-              const selected = item.route === active;
-              const showWatching = item.route === "/" && isWatching;
-              return (
-                <Pressable
-                  key={item.route}
-                  ref={(node) => {
-                    if (node) navRefs.current.set(item.route, node);
-                    else navRefs.current.delete(item.route);
-                  }}
-                  focusable={drawerOpen}
-                  hasTVPreferredFocus={drawerAutoFocus && drawerPreferredRoute === item.route}
-                  onPress={() => navigate(item.route)}
-                  style={({ focused }: any) => [
-                    styles.navRow,
-                    selected && styles.navRowSelected,
-                    selected && styles.navRowActiveMark,
-                    focused && styles.navRowFocused,
-                  ]}
-                  testID={`purple-nav-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
-                >
-                  <View style={styles.navIconWrap}>
-                    <Ionicons
-                      name={selected ? (item.icon.replace("-outline", "") as any) : item.icon}
-                      size={15}
-                      color={selected ? "#fff" : tvColors.textMuted}
-                    />
-                    {showWatching ? <WatchingDot testID="purple-nav-live-watching" /> : null}
-                  </View>
-                  <Text numberOfLines={1} style={[styles.navText, selected && styles.navTextSelected]}>
-                    {item.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
+
+          <View style={styles.navSections} testID="purple-nav-bounded-sections">
+            <View style={styles.primaryNavSection}>
+              <ScrollView
+                style={styles.primaryNavList}
+                contentContainerStyle={styles.navListContent}
+                showsVerticalScrollIndicator={false}
+              >
+                {NAV.map(renderNavItem)}
+              </ScrollView>
+            </View>
           </View>
-          <View style={[styles.sidebarFooter, footerAction && styles.sidebarFooterRow]}>
+
+          <View style={[styles.sidebarFooter, footerAction && styles.sidebarFooterRow]} testID="purple-nav-pinned-footer">
             {footerAction ? (
               <Pressable
                 focusable={drawerOpen}
                 disabled={footerAction.disabled}
                 onPress={footerAction.onPress}
                 onFocus={() => {
-                  if (active === "/guide") reclaimGuideBottomFocusIfArmed();
                 }}
                 style={({ focused }: any) => [
                   styles.footerCompact,
@@ -463,7 +496,6 @@ export function PurpleTvShell({
               onLongPress={exit}
               delayLongPress={650}
               onFocus={() => {
-                if (active === "/guide") reclaimGuideBottomFocusIfArmed();
               }}
               style={({ focused }: any) => [footerAction ? styles.footerCompact : styles.power, focused && styles.navRowFocused]}
               testID="purple-nav-power"
@@ -477,14 +509,23 @@ export function PurpleTvShell({
         </FocusGuide>
       </Animated.View>
 
-      {/* Layout spacer only while the full drawer is open — closed state is full-bleed. */}
       {drawerOpen ? <View style={styles.sidebarSpacer} /> : null}
-
+      {!drawerOpen && active !== "/guide" ? (
+        <Pressable
+          focusable
+          onFocus={() => openDrawer()}
+          onPress={() => openDrawer()}
+          style={styles.leftEdgeDrawerTarget}
+          testID="purple-left-edge-drawer-target"
+        />
+      ) : null}
       <FocusGuide
         style={[styles.content, contentStyle]}
-        // Do not remount on every route (key churn steals focus). Guide owns its own
-        // mount-once preferred focus; other screens get a short autoFocus pulse only.
-        autoFocus={contentAutoFocus}
+        autoFocus={!drawerOpen && active !== "/guide"}
+        trapFocusUp={!drawerOpen && active !== "/guide"}
+        trapFocusDown={!drawerOpen && active !== "/guide"}
+        trapFocusLeft={false}
+        trapFocusRight={!drawerOpen && active !== "/guide"}
       >
         {children}
       </FocusGuide>
@@ -494,24 +535,9 @@ export function PurpleTvShell({
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    flexDirection: "row",
-    backgroundColor: tvColors.canvas,
-    overflow: "hidden",
-  },
-  sidebarOverlay: {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: PURPLE_SIDEBAR_WIDTH,
-    zIndex: 20,
-  },
-  sidebarSpacer: {
-    width: PURPLE_SIDEBAR_WIDTH,
-    height: "100%",
-  },
+  root: { flex: 1, flexDirection: "row", backgroundColor: tvColors.canvas, overflow: "hidden" },
+  sidebarOverlay: { position: "absolute", left: 0, top: 0, bottom: 0, width: PURPLE_SIDEBAR_WIDTH, zIndex: 20 },
+  sidebarSpacer: { width: PURPLE_SIDEBAR_WIDTH, height: "100%" },
   sidebar: {
     width: PURPLE_SIDEBAR_WIDTH,
     height: "100%",
@@ -521,15 +547,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingTop: 12,
     paddingBottom: 8,
+    overflow: "hidden",
   },
-  brand: {
-    minHeight: 44,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 6,
-    marginBottom: 8,
-  },
+  brand: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 6, marginBottom: 8 },
   brandMark: {
     width: 26,
     height: 26,
@@ -540,25 +560,9 @@ const styles = StyleSheet.create({
     borderColor: tvColors.lineStrong,
     backgroundColor: tvColors.purpleDeep,
   },
-  brandTop: {
-    color: "#fff",
-    fontFamily: fonts.bold,
-    fontSize: 10,
-    letterSpacing: 0.8,
-  },
-  brandBottom: {
-    color: tvColors.purpleSoft,
-    fontFamily: fonts.bold,
-    fontSize: 8,
-    letterSpacing: 1.4,
-  },
-  contextActions: {
-    gap: 2,
-    marginBottom: 8,
-    paddingBottom: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: tvColors.line,
-  },
+  brandTop: { color: "#fff", fontFamily: fonts.bold, fontSize: 10, letterSpacing: 0.8 },
+  brandBottom: { color: tvColors.purpleSoft, fontFamily: fonts.bold, fontSize: 8, letterSpacing: 1.4 },
+  contextActions: { gap: 2, marginBottom: 8, paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: tvColors.line },
   contextActionRow: {
     minHeight: 30,
     borderRadius: radius.sm,
@@ -569,18 +573,51 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 9,
   },
-  contextActionText: {
-    color: tvColors.textMuted,
-    fontFamily: fonts.medium,
-    fontSize: 10,
-    flex: 1,
+  contextActionText: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 10, flex: 1 },
+  guideGroupSection: {
+    maxHeight: "34%",
+    minHeight: 0,
+    marginBottom: 8,
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: tvColors.line,
+    overflow: "hidden",
   },
+  guideGroupLabel: {
+    color: tvColors.textMuted,
+    fontFamily: fonts.semibold,
+    fontSize: 8,
+    letterSpacing: 0.6,
+    paddingHorizontal: 6,
+    paddingBottom: 4,
+    textTransform: "uppercase",
+  },
+  guideGroupList: { minHeight: 0, maxHeight: 190 },
+  guideGroupListContent: { gap: 2 },
+  guideGroupRow: {
+    minHeight: 30,
+    borderRadius: radius.sm,
+    borderWidth: 2,
+    borderColor: "transparent",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 9,
+  },
+  guideGroupRowActive: { backgroundColor: tvColors.purple },
+  guideGroupRowPinned: { borderLeftColor: tvColors.purpleBright },
+  guideGroupText: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 10, flex: 1 },
+  guideGroupTextActive: { color: "#fff", fontFamily: fonts.semibold },
+  guideGroupCount: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 8 },
   recentStrip: {
+    maxHeight: 86,
+    minHeight: 0,
     marginBottom: 8,
     paddingBottom: 6,
     borderBottomWidth: 1,
     borderBottomColor: tvColors.line,
     gap: 4,
+    overflow: "hidden",
   },
   recentLabel: {
     color: tvColors.textMuted,
@@ -590,9 +627,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     textTransform: "uppercase",
   },
-  recentRow: {
-    gap: 2,
-  },
+  recentScroll: { minHeight: 0 },
+  recentRow: { gap: 2 },
   recentChip: {
     minHeight: 28,
     borderRadius: radius.sm,
@@ -613,18 +649,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: tvColors.lineStrong,
   },
-  recentAvatarText: {
-    color: "#fff",
-    fontFamily: fonts.bold,
-    fontSize: 9,
-  },
-  recentName: {
-    color: tvColors.textMuted,
-    fontFamily: fonts.medium,
-    fontSize: 9.5,
-    flex: 1,
-  },
-  nav: { flex: 1, gap: 2 },
+  recentAvatarText: { color: "#fff", fontFamily: fonts.bold, fontSize: 9 },
+  recentName: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 9.5, flex: 1 },
+  navSections: { flex: 1, minHeight: 0, overflow: "hidden" },
+  primaryNavSection: { flex: 1, minHeight: 0, overflow: "hidden" },
+  primaryNavList: { flex: 1, minHeight: 0 },
+  navListContent: { gap: 2, paddingBottom: 2 },
   navRow: {
     minHeight: 34,
     borderRadius: radius.sm,
@@ -635,24 +665,10 @@ const styles = StyleSheet.create({
     gap: 9,
     paddingHorizontal: 9,
   },
-  navRowSelected: {
-    backgroundColor: tvColors.purple,
-  },
-  navRowActiveMark: {
-    borderLeftWidth: 3,
-    borderLeftColor: tvColors.purpleBright,
-    paddingLeft: 6,
-  },
-  navRowFocused: {
-    borderColor: "#fff",
-    backgroundColor: tvColors.purpleDeep,
-  },
-  navIconWrap: {
-    width: 18,
-    height: 18,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  navRowSelected: { backgroundColor: tvColors.purple },
+  navRowActiveMark: { borderLeftWidth: 3, borderLeftColor: tvColors.purpleBright, paddingLeft: 6 },
+  navRowFocused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
+  navIconWrap: { width: 18, height: 18, alignItems: "center", justifyContent: "center" },
   watchingDot: {
     position: "absolute",
     top: -1,
@@ -662,13 +678,15 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: tvColors.purpleBright,
   },
-  navText: {
-    color: tvColors.textMuted,
-    fontFamily: fonts.medium,
-    fontSize: 10.5,
-  },
+  navText: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 10.5 },
   navTextSelected: { color: "#fff", fontFamily: fonts.semibold },
-  sidebarFooter: { borderTopWidth: 1, borderTopColor: tvColors.line, paddingTop: 6 },
+  sidebarFooter: {
+    flexShrink: 0,
+    borderTopWidth: 1,
+    borderTopColor: tvColors.line,
+    paddingTop: 6,
+    backgroundColor: "#0A0916",
+  },
   sidebarFooterRow: { flexDirection: "row", gap: 4 },
   power: {
     minHeight: 30,
@@ -697,9 +715,14 @@ const styles = StyleSheet.create({
   footerCompactText: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 8 },
   footerDisabled: { opacity: 0.5 },
   content: { flex: 1, backgroundColor: tvColors.canvas },
-  headerRight: {
+  leftEdgeDrawerTarget: {
     position: "absolute",
-    top: 10,
-    right: spacing.lg,
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 2,
+    zIndex: 2,
+    opacity: 0.01,
   },
+  headerRight: { position: "absolute", top: 10, right: spacing.lg },
 });

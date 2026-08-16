@@ -1,9 +1,10 @@
 /**
  * Guide rapid-surf gate — while the user holds D-pad, defer full silent
- * guide rebuilds so focus/FlashList are not thrashed by setChannels.
+ * guide rebuilds so logical focus and native data are not thrashed by setChannels.
  */
 
 let surfingUntil = 0;
+let guideScreenActive = false;
 let settleTimer: ReturnType<typeof setTimeout> | null = null;
 const settleListeners = new Set<() => void>();
 
@@ -31,6 +32,14 @@ export function markGuideSurfing(holdMs = 700): void {
 
 export function isGuideSurfing(): boolean {
   return Date.now() < surfingUntil;
+}
+
+export function setGuideScreenActive(active: boolean): void {
+  guideScreenActive = active;
+}
+
+export function isGuideScreenActive(): boolean {
+  return guideScreenActive;
 }
 
 export function onGuideSurfSettled(listener: () => void): () => void {

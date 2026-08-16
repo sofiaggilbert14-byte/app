@@ -91,6 +91,7 @@ class MainActivity : ReactActivity() {
         android.view.KeyEvent.KEYCODE_ENTER,
         android.view.KeyEvent.KEYCODE_NUMPAD_ENTER,
         android.view.KeyEvent.KEYCODE_BUTTON_A -> "SELECT"
+        android.view.KeyEvent.KEYCODE_BACK -> "BACK"
         else -> null
       }
     } else null

@@ -33,13 +33,17 @@ import {
   type PlaybackBufferProfile,
 } from "@/src/core/playbackBufferProfile";
 import { usePlayerCompatibilityPreferences } from "@/src/core/playerCompatibilityPreferences";
+import { shouldUseLowRamTuning, useDeviceMemoryProfile } from "@/src/core/deviceMemoryProfile";
 import {
   getPreferredAudioLanguage,
   getRememberedChannelAudioTrack,
   pickPreferredAudioTrack,
 } from "@/src/core/audioTrackPreferences";
+import { setNativePlaybackStarting } from "@/src/utils/tvRemote";
 
 export type StreamStatus = "loading" | "playing" | "error";
+export type PlayerScaleMode = "fit" | "zoom" | "stretch";
+
 export type StreamTrack = {
   id: string | number;
   name: string;
@@ -69,6 +73,7 @@ const NON_CIRCUIT_REASONS = new Set<SessionFailReason>([
 ]);
 /** After Media3 reports playing, wait this long for audio tracks before VLC swap. */
 const SILENT_AUDIO_GRACE_MS = 2200;
+const FROZEN_VIDEO_WATCHDOG_MS = 5000;
 
 function pruneFailureMap(now = Date.now()) {
   for (const [key, state] of failureStateByKey) {
@@ -217,6 +222,8 @@ type Props = {
     text: StreamTrack[];
   }) => void;
   bufferProfile?: PlaybackBufferProfile;
+  paused?: boolean;
+  scaleMode?: PlayerScaleMode;
 };
 
 type EngineProps = Props & {
@@ -281,6 +288,8 @@ function VlcStream({
   textTrack,
   onTracksAvailable,
   bufferProfile = "balanced",
+  paused = false,
+  scaleMode = "fit",
 }: EngineProps) {
   const activeRef = useRef(true);
   const tearingDownRef = useRef(false);
@@ -291,8 +300,11 @@ function VlcStream({
   const origin = headers.Origin || headers.origin;
   const userAgent = headers["User-Agent"] || headers["user-agent"] || "VLC/3.0.20 LibVLC/3.0.20";
   const playerCompat = usePlayerCompatibilityPreferences();
+  const deviceMemory = useDeviceMemoryProfile();
+  const lowRam = shouldUseLowRamTuning(deviceMemory);
   const initOptions = useMemo(() => {
-    const fullMs = bufferProfile === "low_latency" ? 900 : bufferProfile === "stable" ? 3200 : 1800;
+    const requestedMs = bufferProfile === "low_latency" ? 900 : bufferProfile === "stable" ? 3200 : 1800;
+    const fullMs = lowRam ? Math.min(requestedMs, 1800) : requestedMs;
     const networkCaching = mode === "preview" ? 1000 : fullMs;
     const liveCaching = mode === "preview" ? 1000 : fullMs;
     const fileCaching = mode === "preview" ? 700 : Math.round(fullMs * 0.62);
@@ -320,6 +332,7 @@ function VlcStream({
     return options;
   }, [
     bufferProfile,
+    lowRam,
     mode,
     origin,
     playerCompat.vlcAudioOutput,
@@ -398,10 +411,10 @@ function VlcStream({
       ref={playerRef}
       style={style}
       source={{ uri, initType: 2, initOptions, mediaOptions }}
-      paused={false}
-      autoplay
-      autoAspectRatio
-      resizeMode="contain"
+      paused={paused}
+      autoplay={!paused}
+      autoAspectRatio={scaleMode !== "stretch"}
+      resizeMode={scaleMode === "zoom" ? "cover" : scaleMode === "stretch" ? "stretch" : "contain"}
       acceptInvalidCertificates
       muted={muted}
       volume={muted ? 0 : 100}
@@ -443,12 +456,16 @@ function ExpoStream({
   textTrack,
   onTracksAvailable,
   bufferProfile = "balanced",
+  paused = false,
+  scaleMode = "fit",
 }: EngineProps) {
   const mountedRef = useRef(true);
   const tearingDownRef = useRef(false);
   const loadIdRef = useRef(0);
   const replaceQueueRef = useRef<Promise<void>>(Promise.resolve());
   const tracksCallbackRef = useRef(onTracksAvailable);
+  const lastPlaybackTimeRef = useRef(-1);
+  const lastPlaybackAdvanceAtRef = useRef(Date.now());
   tracksCallbackRef.current = onTracksAvailable;
   const [mediaReady, setMediaReady] = useState(false);
   const { uri, headers } = useMemo(() => parsePipeHeaders(rawUri), [rawUri]);
@@ -456,6 +473,7 @@ function ExpoStream({
   const { blocked, setBlocked } = useCircuitCooldown(sessionRole, engine, uri, setStatus);
   const player = useVideoPlayer(null, (p) => {
     p.loop = false;
+    p.timeUpdateEventInterval = 1;
   });
 
   const emit = useCallback(
@@ -467,6 +485,8 @@ function ExpoStream({
   );
 
   const playerCompat = usePlayerCompatibilityPreferences();
+  const deviceMemory = useDeviceMemoryProfile();
+  const lowRam = shouldUseLowRamTuning(deviceMemory);
   useEffect(() => {
     try {
       const tunneling = playerCompat.media3Tunneling;
@@ -476,20 +496,28 @@ function ExpoStream({
       const profile = tunneling && bufferProfile !== "stable" ? "low_latency" : bufferProfile;
       const full = profile === "low_latency"
         ? {
-            preferredForwardBufferDuration: media3Audio === "ffmpeg" ? 2.0 : 1.5,
-            maxBufferBytes: (media3Audio === "ffmpeg" ? 36 : 28) * 1024 * 1024,
+            preferredForwardBufferDuration: lowRam ? 1.2 : (media3Audio === "ffmpeg" ? 2.0 : 1.5),
+            maxBufferBytes: (lowRam ? 18 : (media3Audio === "ffmpeg" ? 36 : 28)) * 1024 * 1024,
           }
         : profile === "stable"
-          // Cap Stable below the old 72MB ceiling — Fire TV sticks OOM when the
-          // guide preview + fullscreen decoder both retain large forward buffers.
-          ? { preferredForwardBufferDuration: 6, maxBufferBytes: 48 * 1024 * 1024 }
+          ? { preferredForwardBufferDuration: lowRam ? 3.5 : 6, maxBufferBytes: (lowRam ? 28 : 48) * 1024 * 1024 }
           : {
-              preferredForwardBufferDuration: media3Audio === "ffmpeg" ? 3.5 : 3,
-              maxBufferBytes: (media3Audio === "ffmpeg" ? 56 : 48) * 1024 * 1024,
+              preferredForwardBufferDuration: lowRam ? 2.2 : (media3Audio === "ffmpeg" ? 3.5 : 3),
+              maxBufferBytes: (lowRam ? 24 : (media3Audio === "ffmpeg" ? 56 : 48)) * 1024 * 1024,
             };
+      const coordinatedCacheBudget = Math.max(
+        8 * 1024 * 1024,
+        Math.min(
+          deviceMemory?.playerCacheBytes || Number.MAX_SAFE_INTEGER,
+          deviceMemory?.vodCacheBytes || Number.MAX_SAFE_INTEGER,
+        ),
+      );
       player.bufferOptions = mode === "preview"
-        ? { preferredForwardBufferDuration: 1.2, maxBufferBytes: 12 * 1024 * 1024 }
-        : full;
+        ? {
+            preferredForwardBufferDuration: 1.2,
+            maxBufferBytes: Math.min(12 * 1024 * 1024, coordinatedCacheBudget),
+          }
+        : { ...full, maxBufferBytes: Math.min(full.maxBufferBytes, coordinatedCacheBudget) };
     } catch {
       /* older native builds may ignore bufferOptions */
     }
@@ -504,6 +532,9 @@ function ExpoStream({
     }
   }, [
     bufferProfile,
+    deviceMemory?.playerCacheBytes,
+    deviceMemory?.vodCacheBytes,
+    lowRam,
     mode,
     player,
     playerCompat.media3AudioMode,
@@ -714,7 +745,7 @@ function ExpoStream({
             player.muted = muted;
             player.volume = muted ? 0 : 1;
           } catch {}
-          player.play();
+          if (!paused) player.play();
         }
       } catch {
         if (
@@ -750,7 +781,15 @@ function ExpoStream({
           .catch(() => undefined);
       }
     };
-  }, [blocked, emit, engine, headers, kind, mode, muted, player, sessionGeneration, sessionRole, setBlocked, uri]);
+  }, [blocked, emit, engine, headers, kind, mode, muted, paused, player, sessionGeneration, sessionRole, setBlocked, uri]);
+
+  useEffect(() => {
+    if (!mediaReady || blocked) return;
+    try {
+      if (paused) player.pause();
+      else player.play();
+    } catch {}
+  }, [blocked, mediaReady, paused, player]);
 
   useEffect(() => {
     try {
@@ -766,6 +805,8 @@ function ExpoStream({
       if (!mountedRef.current || tearingDownRef.current || blocked) return;
       if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
       if (status === "readyToPlay") {
+        lastPlaybackTimeRef.current = player.currentTime;
+        lastPlaybackAdvanceAtRef.current = Date.now();
         setMediaReady(true);
         reportAndSelectMedia3Tracks();
         recordStablePlayback(sessionRole, engine, uri);
@@ -784,6 +825,32 @@ function ExpoStream({
     });
     return () => sub.remove();
   }, [blocked, emit, engine, player, reportAndSelectMedia3Tracks, sessionGeneration, sessionRole, setBlocked, uri]);
+
+  useEffect(() => {
+    const progressSub = player.addListener("timeUpdate", ({ currentTime }) => {
+      if (currentTime > lastPlaybackTimeRef.current + 0.05) {
+        lastPlaybackTimeRef.current = currentTime;
+        lastPlaybackAdvanceAtRef.current = Date.now();
+      }
+    });
+    if (mode === "preview" || paused || blocked || !mediaReady) {
+      return () => progressSub.remove();
+    }
+    lastPlaybackTimeRef.current = player.currentTime;
+    lastPlaybackAdvanceAtRef.current = Date.now();
+    const watchdog = setInterval(() => {
+      if (!mountedRef.current || tearingDownRef.current || paused || blocked) return;
+      if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
+      if (Date.now() - lastPlaybackAdvanceAtRef.current < FROZEN_VIDEO_WATCHDOG_MS) return;
+      lastPlaybackAdvanceAtRef.current = Date.now();
+      recordFailure(sessionRole, engine, uri, "stream-error");
+      emit("error", "stream-error");
+    }, 1000);
+    return () => {
+      progressSub.remove();
+      clearInterval(watchdog);
+    };
+  }, [blocked, emit, engine, mediaReady, mode, paused, player, sessionGeneration, sessionRole, uri]);
 
   useEffect(() => {
     const onTracksChanged = () => {
@@ -847,9 +914,11 @@ function ExpoStream({
     <VideoView
       style={style}
       player={player}
-      contentFit="contain"
-      surfaceType={Platform.OS === "android" ? "textureView" : undefined}
+      contentFit={scaleMode === "zoom" ? "cover" : scaleMode === "stretch" ? "fill" : "contain"}
+      // Keep preview compositable above the Guide; fullscreen gets the cheaper hardware SurfaceView.
+      surfaceType={Platform.OS === "android" ? (mode === "preview" ? "textureView" : "surfaceView") : undefined}
       nativeControls={false}
+      useExoShutter
     />
   );
 }
@@ -866,6 +935,8 @@ export function StreamPlayer({
   textTrack,
   onTracksAvailable,
   bufferProfile,
+  paused = false,
+  scaleMode = "fit",
 }: Props) {
   const isFocused = useIsFocused();
   const pathname = usePathname();
@@ -933,6 +1004,12 @@ export function StreamPlayer({
     setStatus("loading");
   }, [initialEngine, role, sessionKey, setStatus, uri]);
 
+  useEffect(() => {
+    if (role !== "fullscreen") return;
+    setNativePlaybackStarting(true);
+    return () => setNativePlaybackStarting(false);
+  }, [role, sessionKey]);
+
   // URI changes render no child until beginSession has invalidated/released the
   // previous decoder. This avoids mounting newUri:oldGeneration and immediately
   // remounting it again when the generation effect runs.
@@ -962,6 +1039,7 @@ export function StreamPlayer({
       if (!isSessionCurrent(role, sessionGeneration)) return;
 
       if (status === "playing") {
+        if (role === "fullscreen") setNativePlaybackStarting(false);
         stableRef.current = true;
         rememberSuccessfulStreamEngine(engineMemoryKey, engine);
         setSessionPhase(role, sessionGeneration, "playing");
@@ -1027,6 +1105,8 @@ export function StreamPlayer({
         textTrack={textTrack}
         onTracksAvailable={onTracksAvailable}
         bufferProfile={effectiveBufferProfile}
+        paused={paused}
+        scaleMode={scaleMode}
       />
     );
   }
@@ -1046,6 +1126,8 @@ export function StreamPlayer({
       textTrack={textTrack}
       onTracksAvailable={onTracksAvailable}
       bufferProfile={effectiveBufferProfile}
+      paused={paused}
+      scaleMode={scaleMode}
     />
   );
 }

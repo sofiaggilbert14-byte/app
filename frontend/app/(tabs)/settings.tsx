@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { DeviceEventEmitter, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -11,21 +11,24 @@ import { TvCalibrationControls } from "@/src/components/TvCalibrationControls";
 import {
   useStore,
   type DeviceLayoutMode,
-  type EpgGuideFilter,
   type GuideDensity,
   type GuideLayout,
-  type GuideWindowHours,
   type PlayerControlsTimeoutMs,
   type PowerProfile,
   type SafePreviewMode,
   type SleepTimerMinutes,
   type StartScreen,
 } from "@/src/store";
-import { clearGuideCache, refreshEpgOnly, refreshSource, sourceDiagnostics, type SourceDiagnostics } from "@/src/source";
+import { sourceDiagnostics } from "@/src/source";
 import {
   type PlayerEnginePreference,
   usePlayerEnginePreference,
 } from "@/src/playerEnginePreference";
+import {
+  type LongDownAction,
+  type LongSelectAction,
+  useRemoteShortcutPreferences,
+} from "@/src/core/remoteShortcutPreferences";
 import {
   readLatestFavoritesBackup,
   resolveFavoritesBackup,
@@ -38,11 +41,11 @@ import {
   getLastAudioDiagnostics,
 } from "@/src/core/audioDiagnostics";
 import { POWER_PROFILE_OPTIONS } from "@/src/core/devicePowerProfile";
+import { getCacheStorageReport, pruneDiskCaches } from "@/src/utils/tvRemote";
 import {
   usePlaybackBufferProfile,
   type PlaybackBufferProfile,
 } from "@/src/core/playbackBufferProfile";
-import { channelHasEpgMatch } from "@/src/core/epgUserOverrides";
 import { useChannelCustomize } from "@/src/core/channelCustomize";
 import { useGuideUiPreferences } from "@/src/core/guideUiPreferences";
 import { useParentalPin } from "@/src/core/parentalPin";
@@ -65,9 +68,7 @@ import {
   getDeviceCodecCapabilities,
   type DeviceCodecCapabilities,
 } from "@/src/core/deviceCodecCapabilities";
-import dayjs from "dayjs";
 import * as FileSystem from "expo-file-system/legacy";
-import { formatRelativeAge } from "@/src/utils/time";
 
 type Section =
   | "general"
@@ -107,7 +108,6 @@ const ADULT_GROUP_RE = /adult|xxx|porn/i;
 export default function SettingsScreen() {
   const router = useRouter();
   const {
-    refresh,
     channels,
     favorites,
     replaceFavorites,
@@ -130,7 +130,6 @@ export default function SettingsScreen() {
     autoRetryStreams,
     setAutoRetryStreams,
     preferTvgIdOnly,
-    setPreferTvgIdOnly,
     powerProfile,
     setPowerProfile,
     logosOffWhileSurfing,
@@ -138,9 +137,7 @@ export default function SettingsScreen() {
     instantGuide,
     setInstantGuide,
     epgGuideFilter,
-    setEpgGuideFilter,
     guideWindowHours,
-    setGuideWindowHours,
     clock24h,
     setClock24h,
     startScreen,
@@ -149,6 +146,7 @@ export default function SettingsScreen() {
     setSleepTimerMinutes,
   } = useStore();
   const [playerEnginePreference, setPlayerEnginePreference] = usePlayerEnginePreference();
+  const remoteShortcuts = useRemoteShortcutPreferences();
   const [playbackBufferProfile, setPlaybackBufferProfile] = usePlaybackBufferProfile();
   const channelCustomize = useChannelCustomize();
   const guideUi = useGuideUiPreferences();
@@ -161,7 +159,6 @@ export default function SettingsScreen() {
   const [busy, setBusy] = useState(false);
   const [backupStatus, setBackupStatus] = useState<string | null>(null);
   const [clearFavoritesArmed, setClearFavoritesArmed] = useState(false);
-  const [diagnostics, setDiagnostics] = useState<SourceDiagnostics | null>(null);
   const [codecCapabilities, setCodecCapabilities] = useState<DeviceCodecCapabilities | null>(null);
   const [pinDraft, setPinDraft] = useState("");
   const [focusedCustomizeId, setFocusedCustomizeId] = useState<string | null>(null);
@@ -170,10 +167,6 @@ export default function SettingsScreen() {
   const [preferTileFocus, setPreferTileFocus] = useState(true);
   const [preferBackFocus, setPreferBackFocus] = useState(false);
 
-  useEffect(() => {
-    if (section !== "general" && section !== "backup" && section !== "about" && section !== "health") return;
-    void sourceDiagnostics().then(setDiagnostics).catch(() => undefined);
-  }, [section, busy]);
   useEffect(() => {
     if (section !== "health" && section !== "about") return;
     void getDeviceCodecCapabilities().then(setCodecCapabilities);
@@ -192,6 +185,16 @@ export default function SettingsScreen() {
     const timer = setTimeout(() => setPreferBackFocus(false), 700);
     return () => clearTimeout(timer);
   }, [section]);
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener("CharmShowAllSettings", () => {
+      setBackupStatus(null);
+      setClearFavoritesArmed(false);
+      setPreferTileFocus(true);
+      setSection(null);
+    });
+    return () => sub.remove();
+  }, []);
 
   useEffect(
     () => () => {
@@ -217,21 +220,6 @@ export default function SettingsScreen() {
   const appVersion = Constants.expoConfig?.version || "2.0.0-purple";
   const versionCode = (Constants.expoConfig as any)?.android?.versionCode;
   const selected = useMemo(() => TILES.find((item) => item.id === section), [section]);
-  const groupMatchBreakdown = useMemo(() => {
-    const byGroup = new Map<string, { matched: number; unmatched: number; total: number }>();
-    for (const channel of channels) {
-      const name = (channel.group || "Ungrouped").trim() || "Ungrouped";
-      const entry = byGroup.get(name) || { matched: 0, unmatched: 0, total: 0 };
-      entry.total += 1;
-      if (channelHasEpgMatch(channel)) entry.matched += 1;
-      else entry.unmatched += 1;
-      byGroup.set(name, entry);
-    }
-    return Array.from(byGroup.entries())
-      .map(([name, counts]) => ({ name, ...counts }))
-      .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name))
-      .slice(0, 6);
-  }, [channels]);
 
   const customizeChannels = useMemo(() => channels.slice(0, 30), [channels]);
   const hiddenSet = useMemo(() => new Set(channelCustomize.hiddenIds), [channelCustomize.hiddenIds]);
@@ -268,39 +256,11 @@ export default function SettingsScreen() {
     setSection(id);
   }, [router]);
 
-  const hardReload = useCallback(async () => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await refreshSource(true);
-      await refresh(true);
-    } finally {
-      setBusy(false);
-    }
-  }, [busy, refresh]);
-
-  const reloadEpgOnly = useCallback(async () => {
-    if (busy) return;
-    setBusy(true);
-    setBackupStatus("Refreshing EPG only…");
-    try {
-      await refreshEpgOnly();
-      await refresh(true);
-      setBackupStatus("EPG refreshed. Playlist was left unchanged.");
-      void sourceDiagnostics().then(setDiagnostics).catch(() => undefined);
-    } catch (error) {
-      setBackupStatus(error instanceof Error ? error.message : "EPG refresh failed.");
-    } finally {
-      setBusy(false);
-    }
-  }, [busy, refresh]);
-
   const exportDiagnostics = useCallback(async () => {
     if (busy) return;
     setBusy(true);
     try {
       const snap = await sourceDiagnostics();
-      setDiagnostics(snap);
       const body = formatDiagnosticsExport({
         diagnostics: snap,
         appVersion,
@@ -343,21 +303,6 @@ export default function SettingsScreen() {
     sleepTimerMinutes,
     startScreen,
   ]);
-
-  const clearCache = useCallback(async () => {
-    if (busy) return;
-    setBusy(true);
-    setBackupStatus("Clearing guide cache (favorites kept)…");
-    try {
-      await clearGuideCache();
-      await refreshSource(true);
-      await refresh(true);
-      setBackupStatus("Guide cache cleared and rebuilt. Favorites were not changed.");
-      void sourceDiagnostics().then(setDiagnostics).catch(() => undefined);
-    } finally {
-      setBusy(false);
-    }
-  }, [busy, refresh]);
 
   const clearFavoritesDangerous = useCallback(async () => {
     if (busy) return;
@@ -440,6 +385,23 @@ export default function SettingsScreen() {
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             <PurpleDrawerButton testID="settings-open-drawer" />
+            {section ? (
+              <Pressable
+                hasTVPreferredFocus={preferBackFocus}
+                onPress={() => {
+                  void Haptics.selectionAsync().catch(() => undefined);
+                  setBackupStatus(null);
+                  setClearFavoritesArmed(false);
+                  setPreferTileFocus(true);
+                  setSection(null);
+                }}
+                style={({ focused }: any) => [styles.backButton, focused && styles.focused]}
+                testID="settings-all-settings"
+              >
+                <Ionicons name="arrow-back" size={14} color="#fff" />
+                <Text style={styles.backText}>All Settings</Text>
+              </Pressable>
+            ) : null}
             <View>
               <Text style={styles.kicker}>SYSTEM</Text>
               <Text style={styles.title}>{selected ? selected.label : "Settings"}</Text>
@@ -467,21 +429,6 @@ export default function SettingsScreen() {
         ) : (
           <FocusGuide style={styles.detailsWrap}>
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.details}>
-            <Pressable
-              hasTVPreferredFocus={preferBackFocus}
-              onPress={() => {
-                void Haptics.selectionAsync().catch(() => undefined);
-                setBackupStatus(null);
-                setClearFavoritesArmed(false);
-                setPreferTileFocus(true);
-                setSection(null);
-              }}
-              style={({ focused }: any) => [styles.backButton, focused && styles.focused]}
-              testID="settings-all-settings"
-            >
-              <Ionicons name="arrow-up" size={14} color="#fff" />
-              <Text style={styles.backText}>All Settings</Text>
-            </Pressable>
 
             {section === "general" ? (
               <SettingsCard title="Guide & channels" icon="list-outline">
@@ -529,27 +476,6 @@ export default function SettingsScreen() {
                 <Text style={styles.help}>
                   Compatibility lengthens preview arm and settle times for older devices. Max preview arms sooner on stronger devices.
                 </Text>
-                <ChoiceRow<EpgGuideFilter>
-                  label="Guide EPG filter"
-                  value={epgGuideFilter}
-                  options={[
-                    { label: "All", value: "all" },
-                    { label: "Matched", value: "matched" },
-                    { label: "Unmatched", value: "unmatched" },
-                  ]}
-                  onChange={setEpgGuideFilter}
-                />
-                <ChoiceRow<GuideWindowHours>
-                  label="Guide window"
-                  value={guideWindowHours}
-                  options={[
-                    { label: "6h", value: 6 },
-                    { label: "8h", value: 8 },
-                    { label: "12h", value: 12 },
-                    { label: "24h", value: 24 },
-                  ]}
-                  onChange={setGuideWindowHours}
-                />
                 <ToggleRow label="24-hour clock" value={clock24h} onChange={setClock24h} />
                 <ChoiceRow<StartScreen>
                   label="Start screen"
@@ -561,56 +487,6 @@ export default function SettingsScreen() {
                   ]}
                   onChange={setStartScreen}
                 />
-                <ToggleRow
-                  label="Prefer tvg-id matching only"
-                  value={preferTvgIdOnly}
-                  onChange={setPreferTvgIdOnly}
-                />
-                <Text style={styles.help}>
-                  For messy providers: match playlist channels by tvg-id only (never by display name). Ambiguous names never invent a match. Turn this off to allow conservative display-name matching.
-                </Text>
-                <Action label={busy ? "Refreshing…" : "Refresh playlist & EPG"} icon="refresh" onPress={hardReload} disabled={busy} />
-                <Action label={busy ? "Working…" : "Refresh EPG only"} icon="calendar-outline" onPress={reloadEpgOnly} disabled={busy} />
-                <Action label={busy ? "Working…" : "Export diagnostics"} icon="document-text-outline" onPress={exportDiagnostics} disabled={busy} />
-                {backupStatus && section === "general" ? <Text style={styles.status}>{backupStatus}</Text> : null}
-                {diagnostics?.matchQuality ? (
-                  <View style={styles.matchBlock}>
-                    <Text style={styles.settingLabel}>EPG match quality</Text>
-                    <InfoRow label="Matched" value={String(diagnostics.matchQuality.matched)} />
-                    <InfoRow label="Ambiguous" value={String(diagnostics.matchQuality.ambiguous)} />
-                    <InfoRow label="Unmatched" value={String(diagnostics.matchQuality.unmatched)} />
-                    {groupMatchBreakdown.length ? (
-                      <View style={styles.matchGroups}>
-                        {groupMatchBreakdown.map((item) => (
-                          <InfoRow
-                            key={item.name}
-                            label={item.name}
-                            value={`${item.matched} matched / ${item.unmatched} unmatched`}
-                          />
-                        ))}
-                      </View>
-                    ) : null}
-                    <Text style={styles.help}>
-                      Guide filter and favorite folders use this match state. Matched ≈ channels with a programme source id after refresh.
-                    </Text>
-                  </View>
-                ) : null}
-                <InfoRow
-                  label="Playlist refreshed"
-                  value={
-                    diagnostics?.playlistRefreshedAt
-                      ? `${formatRelativeAge(diagnostics.playlistRefreshedAt)} · ${dayjs(diagnostics.playlistRefreshedAt).format(clock24h ? "MMM D, HH:mm" : "MMM D, h:mm A")}`
-                      : "—"
-                  }
-                />
-                <InfoRow
-                  label="EPG refreshed"
-                  value={
-                    diagnostics?.guideRefreshedAt
-                      ? `${formatRelativeAge(diagnostics.guideRefreshedAt)} · ${dayjs(diagnostics.guideRefreshedAt).format(clock24h ? "MMM D, HH:mm" : "MMM D, h:mm A")}`
-                      : "—"
-                  }
-                />
               </SettingsCard>
             ) : null}
 
@@ -620,8 +496,8 @@ export default function SettingsScreen() {
                   label="Video player"
                   value={playerEnginePreference}
                   options={[
-                    { label: "App Default", value: "default" },
-                    { label: "Media3", value: "media3" },
+                    { label: "Expo / Media3 (Default)", value: "default" },
+                    { label: "Expo / Media3 only", value: "media3" },
                     { label: "VLC", value: "vlc" },
                   ]}
                   onChange={setPlayerEnginePreference}
@@ -632,6 +508,27 @@ export default function SettingsScreen() {
                   options={[{ label: "8 sec", value: 8000 }, { label: "15 sec", value: 15000 }, { label: "30 sec", value: 30000 }, { label: "60 sec", value: 60000 }]}
                   onChange={setPlayerControlsTimeoutMs}
                 />
+                <ChoiceRow<LongDownAction>
+                  label="Remote · Long Down"
+                  value={remoteShortcuts.longDown}
+                  options={[
+                    { label: "Open channel bar", value: "channels" },
+                    { label: "Open TV Guide", value: "guide" },
+                    { label: "No shortcut", value: "none" },
+                  ]}
+                  onChange={remoteShortcuts.setLongDown}
+                />
+                <ChoiceRow<LongSelectAction>
+                  label="Remote · Long OK/Select"
+                  value={remoteShortcuts.longSelect}
+                  options={[
+                    { label: "Show player controls", value: "controls" },
+                    { label: "Open TV Guide", value: "guide" },
+                    { label: "No shortcut", value: "none" },
+                  ]}
+                  onChange={remoteShortcuts.setLongSelect}
+                />
+                <Text style={styles.help}>Directional D-pad keys stay reserved for deterministic focus/navigation. Only safe long-press shortcuts are remappable.</Text>
                 <ChoiceRow<PlaybackBufferProfile>
                   label="Playback buffer"
                   value={playbackBufferProfile}
@@ -760,15 +657,6 @@ export default function SettingsScreen() {
                 />
                 <View style={styles.divider} />
                 <Text style={styles.settingLabel}>Guide preview</Text>
-                <ChoiceRow<"horizontal" | "vertical">
-                  label="Group layout"
-                  value={guideUi.groupLayout}
-                  options={[
-                    { label: "Horizontal", value: "horizontal" },
-                    { label: "Vertical", value: "vertical" },
-                  ]}
-                  onChange={guideUi.setGroupLayout}
-                />
                 <ToggleRow label="Mute preview by default" value={guideUi.mutePreview} onChange={guideUi.setMutePreview} />
                 <ToggleRow label="Hide preview by default" value={guideUi.hidePreview} onChange={guideUi.setHidePreview} />
               </SettingsCard>
@@ -786,21 +674,7 @@ export default function SettingsScreen() {
                   label="Advertised video max"
                   value={codecCapabilities?.maxWidth ? `${codecCapabilities.maxWidth} × ${codecCapabilities.maxHeight}` : "Unavailable"}
                 />
-                <InfoRow label="Channels" value={String(channels.length)} />
-                <InfoRow label="Matched" value={String(diagnostics?.matchQuality?.matched ?? "—")} />
-                <InfoRow label="Unmatched" value={String(diagnostics?.matchQuality?.unmatched ?? "—")} />
-                <InfoRow
-                  label="Unmatched %"
-                  value={(() => {
-                    const matched = diagnostics?.matchQuality?.matched ?? 0;
-                    const unmatched = diagnostics?.matchQuality?.unmatched ?? 0;
-                    const denom = matched + unmatched + (diagnostics?.matchQuality?.ambiguous ?? 0);
-                    if (!denom) return "—";
-                    return `${Math.round((unmatched / denom) * 100)}%`;
-                  })()}
-                />
                 <InfoRow label="Failed streams" value={String(failedStreamCount())} />
-                <InfoRow label="Ambiguous matches" value={String(diagnostics?.matchQuality?.ambiguous ?? "—")} />
                 <InfoRow
                   label="Last audio engine"
                   value={latestAudio?.engine ? String(latestAudio.engine).toUpperCase() : "—"}
@@ -817,22 +691,17 @@ export default function SettingsScreen() {
                   label="Audio tracks seen"
                   value={latestAudio?.trackCount != null ? String(latestAudio.trackCount) : "—"}
                 />
-                <InfoRow
-                  label="Playlist refreshed"
-                  value={
-                    diagnostics?.playlistRefreshedAt
-                      ? `${formatRelativeAge(diagnostics.playlistRefreshedAt)} · ${dayjs(diagnostics.playlistRefreshedAt).format(clock24h ? "MMM D, HH:mm" : "MMM D, h:mm A")}`
-                      : "—"
-                  }
-                />
-                <InfoRow
-                  label="Guide refreshed"
-                  value={
-                    diagnostics?.guideRefreshedAt
-                      ? `${formatRelativeAge(diagnostics.guideRefreshedAt)} · ${dayjs(diagnostics.guideRefreshedAt).format(clock24h ? "MMM D, HH:mm" : "MMM D, h:mm A")}`
-                      : "—"
-                  }
-                />
+                <Action label="Report cache storage" icon="server-outline" onPress={() => void (async () => {
+                  const report = await getCacheStorageReport();
+                  if (!report) return setBackupStatus("Cache storage report is unavailable.");
+                  const mib = (bytes: number) => `${(bytes / 1048576).toFixed(1)} MiB`;
+                  setBackupStatus(`Cache ${mib(report.cacheDiskBytes)} · Logos ${mib(report.logoDiskBytes)} · Databases ${mib(report.databaseBytes)}`);
+                })()} />
+                <Action label="Prune old disk cache" icon="trash-bin-outline" onPress={() => void (async () => {
+                  const report = await pruneDiskCaches(14);
+                  if (!report) return setBackupStatus("Disk cache pruning is unavailable.");
+                  setBackupStatus(`Removed ${report.removedFiles} old cache files (${(report.removedBytes / 1048576).toFixed(1)} MiB).`);
+                })()} />
                 <Action label={busy ? "Working…" : "Export diagnostics"} icon="document-text-outline" onPress={exportDiagnostics} disabled={busy} />
                 {backupStatus && section === "health" ? <Text style={styles.status}>{backupStatus}</Text> : null}
                 {failedChannelRows.length ? (
@@ -1039,15 +908,6 @@ export default function SettingsScreen() {
                   options={[{ label: "Comfortable", value: "large" }, { label: "Normal", value: "normal" }, { label: "Compact", value: "compact" }, { label: "Extra compact", value: "extra_compact" }]}
                   onChange={setGuideDensity}
                 />
-                <ChoiceRow<"horizontal" | "vertical">
-                  label="Guide group layout"
-                  value={guideUi.groupLayout}
-                  options={[
-                    { label: "Horizontal", value: "horizontal" },
-                    { label: "Vertical", value: "vertical" },
-                  ]}
-                  onChange={guideUi.setGroupLayout}
-                />
                 <ToggleRow
                   label="Instant Guide / reduce motion"
                   value={instantGuide}
@@ -1072,11 +932,6 @@ export default function SettingsScreen() {
                 {backupStatus ? <Text style={styles.status}>{backupStatus}</Text> : null}
                 <View style={styles.divider} />
                 <Text style={styles.help}>
-                  Clear guide cache is safe — rebuilds playlist/EPG meta and native guide DB only. Favorites stay intact.
-                </Text>
-                <Action label={busy ? "Working…" : "Clear & rebuild guide cache"} icon="trash-outline" onPress={clearCache} disabled={busy} />
-                <View style={styles.divider} />
-                <Text style={styles.help}>
                   Clear favorites is destructive and separate from guide cache. Export a backup first if you may need them later.
                 </Text>
                 <Action
@@ -1097,9 +952,7 @@ export default function SettingsScreen() {
             {section === "account" ? (
               <SettingsCard title="Account" icon="person-outline">
                 <InfoRow label="Profile" value="Local CharmIPTV profile" />
-                <InfoRow label="Playlist access" value="Private / app managed" />
-                <InfoRow label="EPG access" value="Private / app managed" />
-                <Text style={styles.help}>No external account or playlist login is exposed in this build.</Text>
+                <Text style={styles.help}>No external account login is exposed in this build. Playlist and EPG details are under EPG Settings.</Text>
               </SettingsCard>
             ) : null}
 
@@ -1185,7 +1038,7 @@ const styles = StyleSheet.create({
   headerLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
   kicker: { color: tvColors.purpleSoft, fontFamily: fonts.semibold, fontSize: 7.5, letterSpacing: 1 },
   title: { color: "#fff", fontFamily: fonts.bold, fontSize: 18, marginTop: 2 },
-  backButton: { alignSelf: "flex-start", minHeight: 30, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, borderRadius: 5, borderWidth: 2, borderColor: "transparent", backgroundColor: tvColors.panel, marginBottom: 8 },
+  backButton: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, borderRadius: 5, borderWidth: 2, borderColor: "transparent", backgroundColor: tvColors.panel },
   backText: { color: "#fff", fontFamily: fonts.medium, fontSize: 8.5 },
   tileGridWrap: { flex: 1 },
   tileGrid: { flex: 1, flexDirection: "row", flexWrap: "wrap", alignContent: "center", gap: 9, paddingHorizontal: 18 },

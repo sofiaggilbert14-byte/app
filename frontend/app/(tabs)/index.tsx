@@ -36,6 +36,7 @@ export default function LiveTvHomeScreen() {
   } = useStore();
   void clock24h;
   const [now, setNow] = useState(() => new Date());
+  const [preferInitialFocus, setPreferInitialFocus] = useState(true);
 
   useEffect(() => {
     if (!isFocused) return;
@@ -43,6 +44,12 @@ export default function LiveTvHomeScreen() {
     const timer = setInterval(() => setNow(new Date()), 60_000);
     return () => clearInterval(timer);
   }, [isFocused]);
+
+  useEffect(() => {
+    if (!preferInitialFocus) return;
+    const timer = setTimeout(() => setPreferInitialFocus(false), 700);
+    return () => clearTimeout(timer);
+  }, [preferInitialFocus]);
 
   const channelNumberById = useMemo(() => {
     const result: Record<string, number> = {};
@@ -126,6 +133,7 @@ export default function LiveTvHomeScreen() {
             </View>
             {heroChannel ? (
               <Pressable
+                hasTVPreferredFocus={preferInitialFocus}
                 onPress={() => play(heroChannel)}
                 style={({ focused }: any) => [styles.primaryButton, focused && styles.focused]}
                 testID="home-continue-watching"
@@ -135,6 +143,7 @@ export default function LiveTvHomeScreen() {
               </Pressable>
             ) : (
               <Pressable
+                hasTVPreferredFocus={preferInitialFocus}
                 onPress={() => void hardRefresh()}
                 disabled={loading || refreshing}
                 style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}

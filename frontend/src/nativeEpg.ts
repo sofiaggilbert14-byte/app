@@ -1,5 +1,5 @@
-import { NativeModules, Platform } from "react-native";
-import type { Program } from "@/src/api";
+import { DeviceEventEmitter, NativeModules, Platform } from "react-native";
+import type { Channel, Program } from "@/src/api";
 
 type NativeProgramme = {
   channelId: string;
@@ -11,8 +11,13 @@ type NativeProgramme = {
 };
 
 type NativeWindow = Record<string, NativeProgramme[]>;
-type NativeCurrent = Record<string, NativeProgramme>;
 const EMPTY_NATIVE_PROGRAMS: Program[] = [];
+
+type NativePlaylistResult = {
+  channels: Channel[];
+  rejected: number;
+  truncated: boolean;
+};
 
 type NativeRefreshResult = {
   count: number;
@@ -43,7 +48,17 @@ export type NativePlaylistEpgMatchRow = {
 };
 
 type CharmEpgModule = {
-  refresh(url: string, allowNotModified: boolean): Promise<NativeRefreshResult>;
+  fetchPlaylist?(url: string): Promise<NativePlaylistResult>;
+  configureSource?(
+    playlistId: string,
+    url: string,
+    refreshHours: number,
+    serverOffsetMinutes: number,
+    playlistOffsetMinutes: number,
+    channelOffsets: Record<string, number>,
+  ): Promise<boolean>;
+  consumeScheduledRefreshDue?(): Promise<boolean>;
+  refresh(url: string, allowNotModified: boolean, activeXmltvIds: string[], activeChannelNames: string[]): Promise<NativeRefreshResult>;
   getWindow(startMs: number, endMs: number, channelIds: string[]): Promise<NativeWindow>;
   queryGuideWindow?(startMs: number, endMs: number, playlistChannelIds: string[]): Promise<NativeWindow>;
   isPlaylistCurrent?(contentFingerprint: string): Promise<boolean>;
@@ -53,21 +68,36 @@ type CharmEpgModule = {
     contentFingerprint: string,
   ): Promise<boolean>;
   upsertPlaylistEpgMatches?(matches: NativePlaylistEpgMatchRow[], guideEpoch: number): Promise<boolean>;
-  getCurrent(): Promise<NativeCurrent>;
+  searchProgrammes?(query: string, limit: number): Promise<NativeProgramme[]>;
   clear(): Promise<boolean>;
 };
 
+type CharmEpgRamModule = {
+  replaceMatches(matches: NativePlaylistEpgMatchRow[]): Promise<boolean>;
+  queryGuideWindow(startMs: number, endMs: number, playlistChannelIds: string[]): Promise<NativeWindow | null>;
+  getWindow(startMs: number, endMs: number, channelIds: string[]): Promise<NativeWindow | null>;
+  clearMemory(): Promise<boolean>;
+  stats(): Promise<Record<string, number | boolean>>;
+};
+
 const nativeModule = NativeModules.CharmEpg as CharmEpgModule | undefined;
+const ramModule = NativeModules.CharmEpgRam as CharmEpgRamModule | undefined;
 
 export const nativeEpgAvailable = Platform.OS === "android" && !!nativeModule;
+export const nativeEpgRamAvailable = Platform.OS === "android" && !!ramModule;
 
 function toProgram(program: NativeProgramme): Program {
+  const startMs = Number(program.startMs);
+  const endMs = Number(program.endMs);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs <= 0 || endMs <= startMs) {
+    throw new Error("Native EPG returned an invalid programme time range");
+  }
   return {
     title: program.title || "No Information",
     desc: program.description || "",
     category: program.category || "",
-    start: new Date(program.startMs).toISOString(),
-    stop: new Date(program.endMs).toISOString(),
+    start: new Date(startMs).toISOString(),
+    stop: new Date(endMs).toISOString(),
   };
 }
 
@@ -83,9 +113,77 @@ function windowToPrograms(window: NativeWindow, channelIds: string[]): Record<st
   return result;
 }
 
-export async function refreshNativeEpg(url: string, allowNotModified: boolean): Promise<NativeRefreshResult> {
+export async function fetchNativePlaylist(url: string): Promise<NativePlaylistResult> {
+  if (!nativeModule || typeof nativeModule.fetchPlaylist !== "function") {
+    throw new Error("Native playlist engine is unavailable");
+  }
+  return nativeModule.fetchPlaylist(url);
+}
+
+export async function refreshNativeEpg(
+  url: string,
+  allowNotModified: boolean,
+  activeXmltvIds: string[],
+  activeChannelNames: string[],
+  onProgress?: (phase: string, ratio: number) => void,
+): Promise<NativeRefreshResult> {
   if (!nativeModule) throw new Error("Native EPG engine is unavailable");
-  return nativeModule.refresh(url, allowNotModified);
+  const subscription = onProgress
+    ? DeviceEventEmitter.addListener("CharmEpgImportProgress", (event: { phase?: string; ratio?: number }) => {
+        if (typeof event?.ratio === "number") onProgress(event.phase || "downloading", event.ratio);
+      })
+    : null;
+  let result: NativeRefreshResult;
+  try {
+    result = await nativeModule.refresh(url, allowNotModified, activeXmltvIds, activeChannelNames);
+  } finally {
+    subscription?.remove();
+  }
+  return result;
+}
+
+export async function configureNativeEpgSource(
+  url: string,
+  refreshHours: number,
+  serverOffsetMinutes = 0,
+  playlistOffsetMinutes = 0,
+  channelOffsets: Record<string, number> = {},
+): Promise<void> {
+  if (!nativeModule?.configureSource) return;
+  await nativeModule.configureSource(
+    "default",
+    url,
+    refreshHours,
+    serverOffsetMinutes,
+    playlistOffsetMinutes,
+    channelOffsets,
+  );
+}
+
+export async function consumeNativeScheduledEpgRefresh(): Promise<boolean> {
+  return nativeModule?.consumeScheduledRefreshDue?.() ?? false;
+}
+
+export async function searchNativeEpg(
+  query: string,
+  limit = 24,
+): Promise<{ channelId: string; program: Program }[]> {
+  const value = query.trim();
+  if (!nativeModule?.searchProgrammes || value.length < 2) return [];
+  const rows = await nativeModule.searchProgrammes(value, Math.max(1, Math.min(80, limit)));
+  return rows.flatMap((row) => {
+    if (!row?.channelId) return [];
+    try {
+      return [{ channelId: row.channelId, program: toProgram(row) }];
+    } catch {
+      // One malformed provider row must not discard every valid Search result.
+      return [];
+    }
+  });
+}
+
+export async function clearNativeEpgRam(): Promise<void> {
+  if (ramModule) await ramModule.clearMemory();
 }
 
 export async function loadNativeEpgWindow(
@@ -97,11 +195,15 @@ export async function loadNativeEpgWindow(
   const uniqueIds = Array.from(new Set(channelIds.filter(Boolean)));
   if (!uniqueIds.length) return {};
 
+  if (ramModule) {
+    const ramWindow = await ramModule.getWindow(startMs, endMs, uniqueIds);
+    if (ramWindow) return windowToPrograms(ramWindow, uniqueIds);
+  }
   const window = await nativeModule.getWindow(startMs, endMs, uniqueIds);
   return windowToPrograms(window, uniqueIds);
 }
 
-/** Joined guide window keyed by playlist channel id (SQL MATCH ⋈ PROGRAMMES). */
+/** Joined guide window keyed by playlist channel id. RAM is preferred; SQLite is fallback. */
 export async function queryNativeGuideWindow(
   playlistChannelIds: string[],
   startMs: number,
@@ -111,11 +213,14 @@ export async function queryNativeGuideWindow(
   const uniqueIds = Array.from(new Set(playlistChannelIds.filter(Boolean)));
   if (!uniqueIds.length) return {};
 
+  if (ramModule) {
+    const ramWindow = await ramModule.queryGuideWindow(startMs, endMs, uniqueIds);
+    if (ramWindow) return windowToPrograms(ramWindow, uniqueIds);
+  }
   if (typeof nativeModule.queryGuideWindow === "function") {
     const window = await nativeModule.queryGuideWindow(startMs, endMs, uniqueIds);
     return windowToPrograms(window, uniqueIds);
   }
-  // Older APKs: fall back to XMLTV-keyed getWindow (caller must pass xmltv ids).
   return loadNativeEpgWindow(uniqueIds, startMs, endMs);
 }
 
@@ -139,20 +244,13 @@ export async function upsertNativePlaylistEpgMatches(
   matches: NativePlaylistEpgMatchRow[],
   guideEpoch: number,
 ): Promise<void> {
-  if (!nativeModule || typeof nativeModule.upsertPlaylistEpgMatches !== "function") return;
-  await nativeModule.upsertPlaylistEpgMatches(matches, guideEpoch);
-}
-
-export async function loadNativeCurrentPrograms(): Promise<Record<string, Program>> {
-  if (!nativeModule) return {};
-  const current = await nativeModule.getCurrent();
-  const result: Record<string, Program> = {};
-  for (const [channelId, programme] of Object.entries(current)) {
-    result[channelId] = toProgram(programme);
+  if (nativeModule && typeof nativeModule.upsertPlaylistEpgMatches === "function") {
+    await nativeModule.upsertPlaylistEpgMatches(matches, guideEpoch);
   }
-  return result;
+  if (ramModule) await ramModule.replaceMatches(matches);
 }
 
 export async function clearNativeEpg(): Promise<void> {
+  if (ramModule) await ramModule.clearMemory();
   if (nativeModule) await nativeModule.clear();
 }

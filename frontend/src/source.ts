@@ -105,6 +105,10 @@ export async function refreshEpgOnly(): Promise<SourceStatus> {
   return refreshSource(true);
 }
 
+export async function refreshSourcesIfDue(): Promise<SourceStatus> {
+  return refreshSource(false);
+}
+
 function sortChannelsAlphabetically(channels: Channel[]): Channel[] {
   return [...channels].sort((a, b) =>
     (a.name || "").localeCompare(b.name || "", undefined, {
@@ -1107,6 +1111,11 @@ export async function refreshSource(force = false): Promise<SourceStatus> {
   const parsed = await ensureParsed(force);
   if (force && !API_BASE && SOURCE_EPG) await loadEpg(parsed.channels, true);
   return sourceStatus();
+}
+
+/** Web fallback; native overrides this with a playlist-only streamed refresh. */
+export async function refreshPlaylistOnly(): Promise<SourceStatus> {
+  return refreshSource(true);
 }
 
 export function sourceStatus(): SourceStatus {

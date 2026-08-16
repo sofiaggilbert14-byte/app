@@ -21,15 +21,18 @@ const Card = memo(function Card({
   logos,
   now,
   onPress,
+  preferredFocus,
 }: {
   channel: Channel;
   logos: boolean;
   now: Date;
   onPress: (channel: Channel) => void;
+  preferredFocus?: boolean;
 }) {
   const current = nowNext(channel.programs, now).current;
   return (
     <Pressable
+      hasTVPreferredFocus={preferredFocus}
       onPress={() => onPress(channel)}
       style={({ focused }: any) => [styles.card, focused && styles.focused]}
       testID={`collection-${channel.id}`}
@@ -61,7 +64,7 @@ export function PurpleChannelCollection({
   const { channels, addRecent, channelLogos, hardRefresh, loading, refreshing, error } = useStore();
   const columns = width >= 1500 ? 6 : width >= 1050 ? 5 : 4;
   const [now, setNow] = useState(() => new Date());
-  const [preferEmptyFocus, setPreferEmptyFocus] = useState(true);
+  const [preferInitialFocus, setPreferInitialFocus] = useState(true);
 
   useEffect(() => {
     if (!isFocused) return;
@@ -71,10 +74,10 @@ export function PurpleChannelCollection({
   }, [isFocused]);
 
   useEffect(() => {
-    if (!preferEmptyFocus) return;
-    const timer = setTimeout(() => setPreferEmptyFocus(false), 700);
+    if (!preferInitialFocus) return;
+    const timer = setTimeout(() => setPreferInitialFocus(false), 700);
     return () => clearTimeout(timer);
-  }, [preferEmptyFocus]);
+  }, [preferInitialFocus]);
 
   const items = useMemo(() => channels.filter(matcher), [channels, matcher]);
   const playlistEmpty = channels.length === 0;
@@ -112,8 +115,8 @@ export function PurpleChannelCollection({
               showsVerticalScrollIndicator={false}
               columnWrapperStyle={styles.row}
               contentContainerStyle={styles.grid}
-              renderItem={({ item }) => (
-                <Card channel={item} logos={isFocused && channelLogos} now={now} onPress={play} />
+              renderItem={({ item, index }) => (
+                <Card channel={item} logos={isFocused && channelLogos} now={now} onPress={play} preferredFocus={preferInitialFocus && index === 0} />
               )}
             />
           </>
@@ -129,7 +132,7 @@ export function PurpleChannelCollection({
             </Text>
             {playlistEmpty ? (
               <Pressable
-                hasTVPreferredFocus={preferEmptyFocus}
+                hasTVPreferredFocus={preferInitialFocus}
                 onPress={() => void hardRefresh()}
                 disabled={loading || refreshing}
                 style={({ focused }: any) => [styles.emptyButton, focused && styles.focused]}
@@ -139,7 +142,7 @@ export function PurpleChannelCollection({
               </Pressable>
             ) : (
               <Pressable
-                hasTVPreferredFocus={preferEmptyFocus}
+                hasTVPreferredFocus={preferInitialFocus}
                 onPress={() => router.replace("/guide" as any)}
                 style={({ focused }: any) => [styles.emptyButton, focused && styles.focused]}
               >

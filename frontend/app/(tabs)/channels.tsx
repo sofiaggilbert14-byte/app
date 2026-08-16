@@ -25,6 +25,7 @@ const ChannelListRow = memo(function ChannelListRow({
   now,
   onPlay,
   onFavorite,
+  preferredFocus,
 }: {
   channel: Channel;
   number: number;
@@ -33,11 +34,13 @@ const ChannelListRow = memo(function ChannelListRow({
   now: Date;
   onPlay: (channel: Channel) => void;
   onFavorite: (id: string) => void;
+  preferredFocus?: boolean;
 }) {
   const current = nowNext(channel.programs, now).current;
   const progress = current ? progressPct(current, now) : 0;
   return (
     <Pressable
+      hasTVPreferredFocus={preferredFocus}
       onPress={() => onPlay(channel)}
       onLongPress={() => onFavorite(channel.id)}
       delayLongPress={450}
@@ -72,6 +75,7 @@ export default function ChannelsScreen() {
   const sorted = useMemo(() => [...channels].sort(byName), [channels]);
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
   const [now, setNow] = useState(() => new Date());
+  const [preferInitialFocus, setPreferInitialFocus] = useState(true);
 
   useEffect(() => {
     if (!isFocused) return;
@@ -79,6 +83,12 @@ export default function ChannelsScreen() {
     const timer = setInterval(() => setNow(new Date()), 60_000);
     return () => clearInterval(timer);
   }, [isFocused]);
+
+  useEffect(() => {
+    if (!preferInitialFocus) return;
+    const timer = setTimeout(() => setPreferInitialFocus(false), 700);
+    return () => clearTimeout(timer);
+  }, [preferInitialFocus]);
 
   const play = useCallback((channel: Channel) => {
     void Haptics.selectionAsync().catch(() => undefined);
@@ -120,6 +130,7 @@ export default function ChannelsScreen() {
               {error || "Reload your playlist or open Search once channels are available."}
             </Text>
             <Pressable
+              hasTVPreferredFocus={preferInitialFocus}
               onPress={() => void hardRefresh()}
               disabled={loading || refreshing}
               style={({ focused }: any) => [styles.retryButton, focused && styles.focused]}
@@ -149,6 +160,7 @@ export default function ChannelsScreen() {
                 now={now}
                 onPlay={play}
                 onFavorite={favorite}
+                preferredFocus={preferInitialFocus && index === 0}
               />
             )}
           />

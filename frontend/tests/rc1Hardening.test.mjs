@@ -67,10 +67,11 @@ test("Purple TV APK workflow injects playlist/EPG from secrets", async () => {
 });
 
 test("native EPG refuses empty live swaps and filters getWindow by channel ids", async () => {
-  const [db, mod, bridge] = await Promise.all([
+  const [db, mod, bridge, ram] = await Promise.all([
     source("android/app/src/main/java/com/charmiptv/app/EpgDatabase.kt"),
     source("android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt"),
     source("src/nativeEpg.ts"),
+    source("android/app/src/main/java/com/charmiptv/app/EpgRamEngine.kt"),
   ]);
   assert.match(db, /Refusing to replace live EPG with an empty feed/);
   assert.match(db, /channelIds\.chunked\(IN_CLAUSE_CHUNK\)/);
@@ -83,6 +84,15 @@ test("native EPG refuses empty live swaps and filters getWindow by channel ids",
   assert.match(bridge, /getWindow\(startMs, endMs, uniqueIds\)/);
   assert.match(db, /queryGuideWindow/);
   assert.match(mod, /queryGuideWindow/);
+  assert.match(mod, /activeXmltvIds: ReadableArray/);
+  assert.match(mod, /activeChannelNames: ReadableArray/);
+  assert.match(mod, /channelId!!\.lowercase\(\) in acceptedChannelIds/);
+  assert.match(mod, /CharmEpgImportProgress/);
+  assert.match(bridge, /DeviceEventEmitter\.addListener\("CharmEpgImportProgress"/);
+  assert.match(ram, /database\.queryWindow\(startMs, endMs, missing\)/);
+  assert.match(ram, /ENTRY_TTL_MS = 90L \* 60L \* 1000L/);
+  assert.match(ram, /LOW_RAM_CHANNEL_LIMIT = 128/);
+  assert.doesNotMatch(ram, /queryWindow\(startMs, endMs, null\)/);
 });
 
 test("favorites are never auto-pruned on playlist load", async () => {
@@ -140,9 +150,9 @@ test("release packaging requires upload signing and keeps tester sideload separa
     source("android/app/build.gradle"),
     source("android/app/src/main/AndroidManifest.xml"),
   ]);
-  assert.match(appJson, /"versionCode": 6/);
-  assert.match(appJson, /2\.1\.0-rc\.3/);
-  assert.match(gradle, /versionCode 6/);
+  assert.match(appJson, /"versionCode": 8/);
+  assert.match(appJson, /2\.1\.0-rc\.5/);
+  assert.match(gradle, /versionCode 8/);
   assert.match(gradle, /CHARM_UPLOAD_STORE_FILE/);
   assert.match(gradle, /signingConfigs\.release/);
   assert.match(gradle, /releaseTaskRequested && !releaseSigningConfigured/);
@@ -211,19 +221,21 @@ test("Cloudflare builder and worker bound provider data and hide internal failur
   assert.doesNotMatch(worker, /allowed\.includes\("\*"\)/);
 });
 
-test("playlist ingest keeps last-good and enforces protocol/size guards", async () => {
+test("playlist ingest keeps last-good and streams Android M3U parsing natively", async () => {
   const [parsing, native, web] = await Promise.all([
     source("src/core/sourceParsing.ts"),
     source("src/source.native.ts"),
     source("src/source.ts"),
   ]);
+  // Shared/web parser remains bounded for non-Android use.
   assert.match(parsing, /MAX_PLAYLIST_BYTES/);
   assert.match(parsing, /MAX_PLAYLIST_CHANNELS/);
   assert.match(parsing, /isAllowedPlaylistUrl/);
   assert.match(parsing, /allocateChannelId/);
   assert.match(parsing, /parseM3UWithStats/);
-  assert.match(native, /parseM3UWithStats/);
-  assert.match(native, /enforcePlaylistTextLimit/);
+  // Android must not materialize the full M3U in JS; Kotlin streams it line by line.
+  assert.match(native, /fetchNativePlaylist/);
+  assert.doesNotMatch(native, /parseM3UWithStats|enforcePlaylistTextLimit/);
   assert.match(native, /Playlist contained no playable channels/);
   assert.match(native, /EMPTY_PROGRAMS/);
   assert.match(native, /matchQuality/);
