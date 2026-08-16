@@ -23,7 +23,8 @@ test("player remounts engines for compatibility changes and adapts buffers to de
   // Fullscreen buffers scale down on low-RAM devices; preview stays tightly bounded.
   assert.match(source, /shouldUseLowRamTuning/);
   assert.match(source, /lowRam \? 28 : 48/);
-  assert.match(source, /maxBufferBytes: 12 \* 1024 \* 1024/);
+  assert.match(source, /coordinatedCacheBudget/);
+  assert.match(source, /Math\.min\(12 \* 1024 \* 1024, coordinatedCacheBudget\)/);
   assert.match(source, /if \(media3Audio === "ffmpeg"\) return selectedAudio != null/);
   assert.match(source, /export function isFullscreenCircuitOpen/);
   assert.match(source, /hardStop\(\);\s*setBlocked\(true\)/);

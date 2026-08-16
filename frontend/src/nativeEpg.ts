@@ -11,7 +11,6 @@ type NativeProgramme = {
 };
 
 type NativeWindow = Record<string, NativeProgramme[]>;
-type NativeCurrent = Record<string, NativeProgramme>;
 const EMPTY_NATIVE_PROGRAMS: Program[] = [];
 
 type NativePlaylistResult = {
@@ -69,7 +68,6 @@ type CharmEpgModule = {
     contentFingerprint: string,
   ): Promise<boolean>;
   upsertPlaylistEpgMatches?(matches: NativePlaylistEpgMatchRow[], guideEpoch: number): Promise<boolean>;
-  getCurrent(): Promise<NativeCurrent>;
   searchProgrammes?(query: string, limit: number): Promise<NativeProgramme[]>;
   clear(): Promise<boolean>;
 };
@@ -237,16 +235,6 @@ export async function upsertNativePlaylistEpgMatches(
     await nativeModule.upsertPlaylistEpgMatches(matches, guideEpoch);
   }
   if (ramModule) await ramModule.replaceMatches(matches);
-}
-
-export async function loadNativeCurrentPrograms(): Promise<Record<string, Program>> {
-  if (!nativeModule) return {};
-  const current = await nativeModule.getCurrent();
-  const result: Record<string, Program> = {};
-  for (const [channelId, programme] of Object.entries(current)) {
-    result[channelId] = toProgram(programme);
-  }
-  return result;
 }
 
 export async function clearNativeEpg(): Promise<void> {

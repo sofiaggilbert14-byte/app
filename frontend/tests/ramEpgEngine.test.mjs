@@ -7,20 +7,21 @@ const root = process.cwd();
 const read = (path) => readFile(join(root, path), "utf8");
 
 test("RAM EPG engine remains bounded, restart-local, and SQLite-fallback safe", async () => {
-  const [engine, ramModule, bridge, memory, source, app] = await Promise.all([
+  const [engine, ramModule, bridge, memory, source, app, refreshPreferences] = await Promise.all([
     read("android/app/src/main/java/com/charmiptv/app/EpgRamEngine.kt"),
     read("android/app/src/main/java/com/charmiptv/app/EpgRamModule.kt"),
     read("src/nativeEpg.ts"),
     read("src/utils/androidMemoryPressure.ts"),
     read("src/source.native.ts"),
     read("android/app/src/main/java/com/charmiptv/app/MainApplication.kt"),
+    read("src/core/sourceRefreshPreferences.ts"),
   ]);
 
-  assert.match(engine, /queryWindow\(startMs, endMs, null\)/);
-  assert.match(engine, /runtime\.maxMemory\(\) \* 0\.52/);
-  assert.match(engine, /PREBUILD_PRESSURE_FRACTION/);
-  assert.match(engine, /FAILED_REBUILD_COOLDOWN_MS/);
-  assert.match(engine, /heapPressureCritical/);
+  assert.match(engine, /queryWindow\(startMs, endMs, missing\)/);
+  assert.match(engine, /runtime\.maxMemory\(\) \* 0\.18/);
+  assert.match(engine, /CharmMemoryCoordinator\.budgets\(\)/);
+  assert.match(engine, /LOW_RAM_CHANNEL_LIMIT/);
+  assert.match(engine, /trimToBudget/);
   assert.match(engine, /firstOverlap/);
 
   assert.match(ramModule, /ensureWarmForCurrentEpoch/);
@@ -29,13 +30,21 @@ test("RAM EPG engine remains bounded, restart-local, and SQLite-fallback safe", 
   assert.doesNotMatch(ramModule, /EPG_RAM_GUIDE_FAILED/);
 
   assert.match(bridge, /CharmEpgRam/);
-  assert.match(bridge, /ramModule\.warm/);
+  assert.match(bridge, /ramModule\.getWindow/);
+  assert.match(bridge, /ramModule\.queryGuideWindow/);
   assert.match(bridge, /if \(ramWindow\) return windowToPrograms/);
-  assert.match(memory, /ramEpgModule\?\.clearMemory/);
+  assert.match(engine, /CharmTrimLevel\.BACKGROUND/);
+  assert.match(memory, /background/);
+  assert.doesNotMatch(memory, /ramEpgModule\?\.clearMemory/);
   assert.match(app, /add\(EpgRamPackage\(\)\)/);
+  assert.match(ramModule, /engine\.dispose\(\)/);
+  assert.match(ramModule, /queryPool\.shutdownNow\(\)/);
 
-  // Normal startup/source refresh remains cache-first for 24 hours.
-  assert.match(source, /const TTL_MS = 24 \* 60 \* 60 \* 1000/);
-  assert.match(source, /Date\.now\(\) - cached\.ts < TTL_MS/);
-  assert.match(source, /return cached/);
+  // Normal startup remains cache-first; independent playlist/EPG clocks decide
+  // whether background refresh is due without blocking the Guide.
+  assert.match(source, /refreshSourcesIfDue/);
+  assert.match(source, /isRefreshDue\(playlistLast/);
+  assert.match(source, /isRefreshDue\(guideLast/);
+  assert.match(refreshPreferences, /playlistHours: 24/);
+  assert.match(refreshPreferences, /epgHours: 6/);
 });

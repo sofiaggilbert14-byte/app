@@ -42,6 +42,23 @@ class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBas
   }
 
   @ReactMethod
+  fun getDeviceMemoryProfile(promise: Promise) {
+    try {
+      val memory = CharmMemoryCoordinator.budgets()
+      promise.resolve(Arguments.createMap().apply {
+        putInt("memoryClassMb", memory.memoryClassMb)
+        putBoolean("lowRamDevice", memory.lowRam)
+        putDouble("epgBytes", memory.epgBytes.toDouble())
+        putDouble("logoMemoryBytes", memory.logoMemoryBytes.toDouble())
+        putDouble("playerCacheBytes", memory.playerCacheBytes.toDouble())
+        putDouble("vodCacheBytes", memory.vodCacheBytes.toDouble())
+      })
+    } catch (t: Throwable) {
+      promise.reject("MEMORY_PROFILE_FAILED", t.message ?: "Memory profile unavailable", t)
+    }
+  }
+
+  @ReactMethod
   fun tap(x: Double, y: Double) {
     val activity = ctx.getCurrentActivity() ?: return
     activity.runOnUiThread {
@@ -114,11 +131,14 @@ class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBas
     try {
       val logo = File(ctx.cacheDir, "charm-channel-logos")
       val databases = ctx.databaseList().map(ctx::getDatabasePath)
+      val logoBytes = directoryBytes(logo)
+      val cacheBytes = directoryBytes(ctx.cacheDir)
+      val databaseBytes = databases.sumOf(::fileFamilyBytes)
       promise.resolve(Arguments.createMap().apply {
-        putDouble("logoDiskBytes", directoryBytes(logo).toDouble())
-        putDouble("cacheDiskBytes", directoryBytes(ctx.cacheDir).toDouble())
-        putDouble("databaseBytes", databases.sumOf(::fileFamilyBytes).toDouble())
-        putDouble("totalDiskBytes", (directoryBytes(ctx.cacheDir) + databases.sumOf(::fileFamilyBytes)).toDouble())
+        putDouble("logoDiskBytes", logoBytes.toDouble())
+        putDouble("cacheDiskBytes", cacheBytes.toDouble())
+        putDouble("databaseBytes", databaseBytes.toDouble())
+        putDouble("totalDiskBytes", (cacheBytes + databaseBytes).toDouble())
       })
     } catch (t: Throwable) {
       promise.reject("CACHE_REPORT_FAILED", t.message ?: "Cache report unavailable", t)

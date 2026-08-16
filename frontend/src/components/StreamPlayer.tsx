@@ -505,9 +505,19 @@ function ExpoStream({
               preferredForwardBufferDuration: lowRam ? 2.2 : (media3Audio === "ffmpeg" ? 3.5 : 3),
               maxBufferBytes: (lowRam ? 24 : (media3Audio === "ffmpeg" ? 56 : 48)) * 1024 * 1024,
             };
+      const coordinatedCacheBudget = Math.max(
+        8 * 1024 * 1024,
+        Math.min(
+          deviceMemory?.playerCacheBytes || Number.MAX_SAFE_INTEGER,
+          deviceMemory?.vodCacheBytes || Number.MAX_SAFE_INTEGER,
+        ),
+      );
       player.bufferOptions = mode === "preview"
-        ? { preferredForwardBufferDuration: 1.2, maxBufferBytes: 12 * 1024 * 1024 }
-        : full;
+        ? {
+            preferredForwardBufferDuration: 1.2,
+            maxBufferBytes: Math.min(12 * 1024 * 1024, coordinatedCacheBudget),
+          }
+        : { ...full, maxBufferBytes: Math.min(full.maxBufferBytes, coordinatedCacheBudget) };
     } catch {
       /* older native builds may ignore bufferOptions */
     }
@@ -522,6 +532,8 @@ function ExpoStream({
     }
   }, [
     bufferProfile,
+    deviceMemory?.playerCacheBytes,
+    deviceMemory?.vodCacheBytes,
     lowRam,
     mode,
     player,

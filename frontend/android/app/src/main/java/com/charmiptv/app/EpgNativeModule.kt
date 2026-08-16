@@ -30,15 +30,11 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   private val controlDao = EpgControlDatabase.get(reactContext).dao()
 
   // Refresh/network/XML work is intentionally isolated from guide reads. A slow
-  // EPG download must never queue getWindow/getCurrent behind it; WAL lets the
+  // EPG download must never queue bounded Guide reads behind it; WAL lets the
   // query executor keep serving the last-good live table until the final swap.
   private val refreshExecutor = Executors.newSingleThreadExecutor()
   private val playlistExecutor = Executors.newSingleThreadExecutor()
   private val queryExecutor = Executors.newFixedThreadPool(2)
-
-  private val currentCacheLock = Any()
-  private val currentCache = HashMap<String, NativeEpgProgram>()
-  @Volatile private var currentCacheValidUntilMs = 0L
 
   override fun getName(): String = "CharmEpg"
 
@@ -251,15 +247,6 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         val deleted = database.deleteExpired(now - GUIDE_HISTORY_MS)
         // Rare idle reclaim only after a large expiry — never every refresh.
         database.maybeIncrementalVacuum(MIN_VACUUM_DELETED_ROWS, deleted)
-        // The Guide reads bounded channel windows and never consumes getCurrent.
-        // Invalidate this optional compatibility cache after refresh and rebuild
-        // it lazily only if a caller actually asks for the all-current snapshot.
-        // This avoids retaining one extra NativeEpgProgram per channel all day.
-        synchronized(currentCacheLock) {
-          currentCache.clear()
-          currentCacheValidUntilMs = 0L
-        }
-
         val logos = Arguments.createMap()
         for ((channelId, logoUrl) in channelLogos) {
           logos.putString(channelId, logoUrl)
@@ -432,57 +419,14 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   }
 
   @ReactMethod
-  fun getCurrent(promise: Promise) {
-    queryExecutor.execute {
-      try {
-        val now = System.currentTimeMillis()
-        if (now >= currentCacheValidUntilMs) rebuildCurrentCache(now)
-        val snapshot = synchronized(currentCacheLock) { HashMap(currentCache) }
-        val result = Arguments.createMap()
-        for ((channelId, program) in snapshot) {
-          result.putMap(channelId, programToMap(program))
-        }
-        promise.resolve(result)
-      } catch (t: Throwable) {
-        promise.reject("EPG_CURRENT_FAILED", t.message ?: "Could not read current EPG", t)
-      }
-    }
-  }
-
-  @ReactMethod
   fun clear(promise: Promise) {
     refreshExecutor.execute {
       try {
         database.clear()
-        synchronized(currentCacheLock) {
-          currentCache.clear()
-          currentCacheValidUntilMs = 0L
-        }
         promise.resolve(true)
       } catch (t: Throwable) {
         promise.reject("EPG_CLEAR_FAILED", t.message ?: "Could not clear native EPG cache", t)
       }
-    }
-  }
-
-  private fun rebuildCurrentCache(nowMs: Long) {
-    val programmes = database.queryCurrent(nowMs)
-    var earliestEnd = Long.MAX_VALUE
-    val replacement = HashMap<String, NativeEpgProgram>(programmes.size)
-    for (program in programmes) {
-      replacement[program.channelId] = program
-      if (program.endMs < earliestEnd) earliestEnd = program.endMs
-    }
-    val normalRefresh = nowMs + CURRENT_CACHE_REFRESH_MS
-    val validUntil = if (earliestEnd == Long.MAX_VALUE) {
-      normalRefresh
-    } else {
-      minOf(normalRefresh, maxOf(nowMs + 1_000L, earliestEnd))
-    }
-    synchronized(currentCacheLock) {
-      currentCache.clear()
-      currentCache.putAll(replacement)
-      currentCacheValidUntilMs = validUntil
     }
   }
 
@@ -827,10 +771,6 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   }
 
   override fun invalidate() {
-    synchronized(currentCacheLock) {
-      currentCache.clear()
-      currentCacheValidUntilMs = 0L
-    }
     refreshExecutor.shutdownNow()
     playlistExecutor.shutdownNow()
     queryExecutor.shutdownNow()
@@ -927,7 +867,6 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     private const val GUIDE_HISTORY_MS = 6L * 60L * 60L * 1000L
     private const val GUIDE_WINDOW_MS = 72L * 60L * 60L * 1000L
     private const val MAX_QUERY_WINDOW_MS = 24L * 60L * 60L * 1000L
-    private const val CURRENT_CACHE_REFRESH_MS = 30_000L
     private const val DEFAULT_PROGRAMME_DURATION_MS = 30L * 60L * 1000L
     private const val MAX_PROGRAMME_DURATION_MS = 24L * 60L * 60L * 1000L
     /** Only vacuum after a large expiry purge — never on every refresh. */

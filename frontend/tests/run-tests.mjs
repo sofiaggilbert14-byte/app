@@ -12,3 +12,4 @@ import "./guideSlidingCache.test.mjs";
 import "./playerSettingsHotApply.test.mjs";
 import "./nativeGuideArchitecture.test.mjs";
 import "./nativePlatformHardening.test.mjs";
+import "./ramEpgEngine.test.mjs";

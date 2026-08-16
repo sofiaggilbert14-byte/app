@@ -34,6 +34,7 @@ import { pushRecentId, sanitizeRecentIds } from "@/src/utils/recentIds";
 import { sanitizeReminders } from "@/src/utils/reminderIds";
 import { remapStoredChannelIds } from "@/src/utils/channelIdentityMigrate";
 import { getPowerProfileTuning, resolvePowerProfile, type PowerProfile } from "@/src/core/devicePowerProfile";
+import { readDeviceMemoryProfile, shouldUseLowRamTuning } from "@/src/core/deviceMemoryProfile";
 import { resolveStoredGuideLayout } from "@/src/core/guideLayoutDefault";
 import { applyManualEpgRemaps, resolveEpgGuideFilter, sanitizeEpgManualRemap, type EpgGuideFilter } from "@/src/core/epgUserOverrides";
 import {
@@ -404,7 +405,9 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     setPowerProfileState(next);
     storage.setItem(POWER_PROFILE_KEY, next);
     const tuning = getPowerProfileTuning(next);
-    setChannelLogoMemoryProfile(next === "weak");
+    void readDeviceMemoryProfile().then((memory) => {
+      setChannelLogoMemoryProfile(next === "weak" || shouldUseLowRamTuning(memory), memory?.logoMemoryBytes);
+    });
     setLogosOffWhileSurfingState(tuning.logosOffWhileSurfingDefault);
     storage.setItem(LOGOS_OFF_SURF_KEY, tuning.logosOffWhileSurfingDefault);
   }, []);
@@ -985,7 +988,11 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setPreferTvgIdOnlyMatching(tvgOnly);
       const profile = resolvePowerProfile(await storage.getItem<string>(POWER_PROFILE_KEY, "normal"));
       setPowerProfileState(profile);
-      setChannelLogoMemoryProfile(profile === "weak");
+      const deviceMemory = await readDeviceMemoryProfile();
+      setChannelLogoMemoryProfile(
+        profile === "weak" || shouldUseLowRamTuning(deviceMemory),
+        deviceMemory?.logoMemoryBytes,
+      );
       const rawLogosOffWhileSurfing = await storage.getItem<boolean | null>(LOGOS_OFF_SURF_KEY, null);
       setLogosOffWhileSurfingState(
         typeof rawLogosOffWhileSurfing === "boolean"

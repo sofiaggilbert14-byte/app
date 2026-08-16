@@ -32,15 +32,19 @@ test("programme persistence uses epoch seconds, FTS, and a guarded last-good dat
   const bridge = await source("android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt");
   const search = await source("app/(tabs)/search.tsx");
   assert.match(bridge, /fun searchProgrammes/);
+  assert.doesNotMatch(bridge, /fun getCurrent/);
+  assert.doesNotMatch(database, /fun queryCurrent/);
   assert.match(search, /searchNativeEpg/);
 });
 
 test("memory and logo work is bounded and releases native listeners", async () => {
-  const [memory, ram, logo, local] = await Promise.all([
+  const [memory, ram, logo, local, glide, application] = await Promise.all([
     source("android/app/src/main/java/com/charmiptv/app/CharmMemoryCoordinator.kt"),
     source("android/app/src/main/java/com/charmiptv/app/EpgRamEngine.kt"),
     source("src/components/ChannelLogo.tsx"),
     source("src/core/localLogoFolder.ts"),
+    source("android/app/src/main/java/com/charmiptv/app/CharmGlideModule.kt"),
+    source("android/app/src/main/java/com/charmiptv/app/MainApplication.kt"),
   ]);
   assert.match(memory, /isLowRamDevice/);
   assert.match(memory, /BACKGROUND, MODERATE, CRITICAL/);
@@ -49,8 +53,20 @@ test("memory and logo work is bounded and releases native listeners", async () =
   assert.match(logo, /MAX_URI_HISTORY = 192/);
   assert.match(logo, /maxLoadQueue = 48/);
   assert.match(logo, /inFlightWaiters/);
+  assert.match(logo, /beginInFlight\(currentUri\)[\s\S]*requestLoadSlot/);
+  assert.doesNotMatch(logo.match(/function joinInFlight[\s\S]*?\n}/)?.[0] || "", /inFlightWaiters\.delete/);
   assert.match(local, /MAX_FILES = 5000/);
+  assert.match(local, /loadPromise/);
+  assert.match(local, /cancelled/);
+  assert.match(local, /resolvedCache\.clear\(\)/);
   assert.match(local, /resolvedCache\.size > 512/);
+  assert.match(glide, /LOGO_DISK_CACHE_BYTES = 250L \* 1024L \* 1024L/);
+  assert.match(glide, /Glide\.init/);
+  assert.doesNotMatch(glide, /@GlideModule|AppGlideModule/);
+  assert.match(application, /CharmGlideConfig\.initialize/);
+  const remote = await source("android/app/src/main/java/com/charmiptv/app/TvRemoteModule.kt");
+  assert.match(remote, /fun getDeviceMemoryProfile/);
+  assert.match(remote, /playerCacheBytes/);
 });
 
 test("player recovery is bounded and history waits for stable playback", async () => {

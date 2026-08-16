@@ -13,7 +13,14 @@ export const tvRemoteAvailable = !!TvRemote;
 
 export type TvKey = "UP" | "DOWN" | "LEFT" | "RIGHT" | "SELECT" | "BACK";
 export type TvLongPressKey = "DOWN" | "SELECT" | "BACK";
-export type DeviceMemoryProfile = { memoryClassMb: number; lowRamDevice: boolean };
+export type DeviceMemoryProfile = {
+  memoryClassMb: number;
+  lowRamDevice: boolean;
+  epgBytes: number;
+  logoMemoryBytes: number;
+  playerCacheBytes: number;
+  vodCacheBytes: number;
+};
 export type CacheStorageReport = { logoDiskBytes: number; cacheDiskBytes: number; databaseBytes: number; totalDiskBytes: number };
 
 const emitter = TvRemote ? new NativeEventEmitter(TvRemote) : null;
@@ -36,6 +43,10 @@ export async function getDeviceMemoryProfile(): Promise<DeviceMemoryProfile | nu
     return {
       memoryClassMb: Number(raw?.memoryClassMb) || 0,
       lowRamDevice: !!raw?.lowRamDevice,
+      epgBytes: Number(raw?.epgBytes) || 0,
+      logoMemoryBytes: Number(raw?.logoMemoryBytes) || 0,
+      playerCacheBytes: Number(raw?.playerCacheBytes) || 0,
+      vodCacheBytes: Number(raw?.vodCacheBytes) || 0,
     };
   } catch {
     return null;

@@ -728,36 +728,6 @@ internal class EpgDatabase(context: Context) :
     }
   }
 
-  fun queryCurrent(nowMs: Long): List<NativeEpgProgram> {
-    val result = ArrayList<NativeEpgProgram>()
-    readableDatabase.rawQuery(
-      """
-      SELECT channel_id, title, description, category, start_time, end_time
-      FROM $LIVE_TABLE
-      WHERE start_time <= ? AND end_time > ?
-      ORDER BY channel_id ASC, start_time DESC
-      """.trimIndent(),
-      arrayOf(toEpochSeconds(nowMs).toString(), toEpochSeconds(nowMs).toString()),
-    ).use { cursor ->
-      val seen = HashSet<String>()
-      while (cursor.moveToNext()) {
-        val channelId = cursor.getString(0)
-        if (!seen.add(channelId)) continue
-        result.add(
-          NativeEpgProgram(
-            channelId = channelId,
-            title = cursor.getString(1),
-            description = if (cursor.isNull(2)) null else cursor.getString(2),
-            category = if (cursor.isNull(3)) null else cursor.getString(3),
-            startMs = toEpochMillis(cursor.getLong(4)),
-            endMs = toEpochMillis(cursor.getLong(5)),
-          )
-        )
-      }
-    }
-    return result
-  }
-
   fun deleteExpired(beforeMs: Long): Int {
     val deleted = writableDatabase.delete(LIVE_TABLE, "end_time < ?", arrayOf(toEpochSeconds(beforeMs).toString()))
     try {

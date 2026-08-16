@@ -8,6 +8,7 @@ const IMAGE_EXT = /\.(?:png|jpe?g|webp|gif|bmp|svg)$/i;
 const MAX_FILES = 5000;
 let folderUri = "";
 let loaded = false;
+let loadPromise: Promise<string> | null = null;
 let index = new Map<string, string>();
 let entries: [string, string][] = [];
 const resolvedCache = new Map<string, string | null>();
@@ -56,12 +57,20 @@ async function rebuild(uri: string): Promise<void> {
 }
 
 export async function loadLocalLogoFolder(): Promise<string> {
-  if (!loaded) {
-    folderUri = (await storage.getItem(KEY, "")) || "";
-    loaded = true;
-    await rebuild(folderUri);
+  if (loaded) return folderUri;
+  if (!loadPromise) {
+    loadPromise = (async () => {
+      const storedUri = (await storage.getItem(KEY, "")) || "";
+      // A folder may have been chosen or cleared while storage was resolving.
+      if (!loaded) {
+        folderUri = storedUri;
+        loaded = true;
+        await rebuild(folderUri);
+      }
+      return folderUri;
+    })().finally(() => { loadPromise = null; });
   }
-  return folderUri;
+  return loadPromise;
 }
 
 export async function chooseLocalLogoFolder(): Promise<boolean> {
@@ -81,6 +90,7 @@ export async function clearLocalLogoFolder(): Promise<void> {
   loaded = true;
   index.clear();
   entries = [];
+  resolvedCache.clear();
   await storage.removeItem(KEY);
   listeners.forEach((listener) => listener());
 }
@@ -119,10 +129,18 @@ export function resolveLocalLogo(channelName: string): string | undefined {
 export function useLocalLogo(channelName: string): string | undefined {
   const [, setVersion] = useState(0);
   useEffect(() => {
-    void loadLocalLogoFolder().then(() => setVersion((value) => value + 1));
-    const listener = () => setVersion((value) => value + 1);
+    let cancelled = false;
+    void loadLocalLogoFolder().then(() => {
+      if (!cancelled) setVersion((value) => value + 1);
+    });
+    const listener = () => {
+      if (!cancelled) setVersion((value) => value + 1);
+    };
     listeners.add(listener);
-    return () => { listeners.delete(listener); };
+    return () => {
+      cancelled = true;
+      listeners.delete(listener);
+    };
   }, []);
   return resolveLocalLogo(channelName);
 }

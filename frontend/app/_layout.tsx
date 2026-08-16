@@ -15,10 +15,8 @@ import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { PointerOverlay } from "@/src/components/PointerOverlay";
 import { PurpleTvDrawerProvider } from "@/src/components/PurpleTvShell";
 import { SourceRefreshScheduler } from "@/src/components/SourceRefreshScheduler";
-import { clearChannelLogoMemory } from "@/src/components/ChannelLogo";
 import { TvCalibrationFrame, TvCalibrationProvider } from "@/src/tvCalibration";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
-import { subscribeAndroidMemoryPressure } from "@/src/utils/androidMemoryPressure";
 import { StartupVersion4 } from "@/src/components/StartupVersion4";
 
 // Keep real errors visible for TV QA; only silence known noisy module warnings.
@@ -39,15 +37,6 @@ function NotificationRouter() {
     });
     return () => sub.remove();
   }, [router]);
-  return null;
-}
-
-function LogoMemoryPressureGuard() {
-  useEffect(() => subscribeAndroidMemoryPressure(() => {
-    // Decoded logo bitmaps are expendable. Keep disk cache so visible rows can
-    // repopulate cheaply after Android has reclaimed heap.
-    clearChannelLogoMemory();
-  }), []);
   return null;
 }
 
@@ -124,7 +113,6 @@ export default function RootLayout() {
                 <StatusBar style="light" />
                 <NotificationRouter />
                 <SourceRefreshScheduler />
-                <LogoMemoryPressureGuard />
                 <ReminderCleanup />
                 <StartScreenRedirect />
                 <ErrorBoundary>
