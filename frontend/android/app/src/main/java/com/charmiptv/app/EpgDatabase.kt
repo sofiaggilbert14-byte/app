@@ -94,6 +94,7 @@ internal class EpgDatabase(context: Context) :
     createPlaylistTable(db)
     createMatchTable(db)
     createStopUpdateTable(db)
+    createProgrammeSearchTable(db)
     db.execSQL("CREATE INDEX IF NOT EXISTS idx_epg_lookup ON $LIVE_TABLE(channel_id, start_time, end_time)")
     db.execSQL("CREATE INDEX IF NOT EXISTS idx_epg_window ON $LIVE_TABLE(start_time, end_time)")
     db.execSQL("CREATE INDEX IF NOT EXISTS idx_epg_staging_order ON $STAGING_TABLE(channel_id, start_time, id)")
@@ -185,6 +186,13 @@ internal class EpgDatabase(context: Context) :
     )
   }
 
+  private fun createProgrammeSearchTable(db: SQLiteDatabase) {
+    db.execSQL(
+      "CREATE VIRTUAL TABLE IF NOT EXISTS $FTS_TABLE USING fts4(" +
+        "programme_id INTEGER, channel_id TEXT, title TEXT, description TEXT, category TEXT)"
+    )
+  }
+
   override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
     // Additive only — never DROP live guide on upgrade (would fight last-good / Phase 4).
     if (oldVersion < 3) {
@@ -210,6 +218,14 @@ internal class EpgDatabase(context: Context) :
     if (oldVersion < 6) {
       createStopUpdateTable(db)
     }
+    if (oldVersion < 7) {
+      // Version 6 stored Unix milliseconds. SQLite comparisons and indexes are
+      // smaller/faster in seconds; bridge methods continue exposing millis.
+      db.execSQL("UPDATE $LIVE_TABLE SET start_time = start_time / 1000, end_time = end_time / 1000 WHERE start_time > 100000000000")
+      db.execSQL("UPDATE $STAGING_TABLE SET start_time = start_time / 1000, end_time = end_time / 1000 WHERE start_time > 100000000000")
+      createProgrammeSearchTable(db)
+      rebuildProgrammeSearch(db)
+    }
   }
 
   private fun ensureColumn(db: SQLiteDatabase, table: String, column: String, type: String) {
@@ -222,7 +238,7 @@ internal class EpgDatabase(context: Context) :
     db.execSQL("ALTER TABLE $table ADD COLUMN $column $type")
   }
 
-  /** Quick integrity check once per process; recreate empty schema if corrupt. Does not touch playlist cache. */
+  /** Quick integrity check once per process. Never destroy last-good data automatically. */
   private var checkedThisProcess = false
 
   fun ensureHealthy(): Boolean {
@@ -232,12 +248,10 @@ internal class EpgDatabase(context: Context) :
         val db = readableDatabase
         db.rawQuery("PRAGMA quick_check", null).use { cursor ->
           if (!cursor.moveToFirst()) {
-            recreateEmpty()
             return false
           }
           val result = cursor.getString(0) ?: ""
           if (result != "ok" && !result.equals("ok", ignoreCase = true)) {
-            recreateEmpty()
             return false
           }
         }
@@ -246,27 +260,7 @@ internal class EpgDatabase(context: Context) :
       countTable(LIVE_TABLE)
       true
     } catch (_: Throwable) {
-      recreateEmpty()
       false
-    }
-  }
-
-  private fun recreateEmpty() {
-    val db = writableDatabase
-    db.beginTransaction()
-    try {
-      db.execSQL("DROP TABLE IF EXISTS $LIVE_TABLE")
-      db.execSQL("DROP TABLE IF EXISTS $STAGING_TABLE")
-      db.execSQL("DROP TABLE IF EXISTS $ALIAS_TABLE")
-      db.execSQL("DROP TABLE IF EXISTS $META_TABLE")
-      // A recovered programme table must never join against stale playlist /
-      // match rows from the corrupted database generation.
-      db.execSQL("DROP TABLE IF EXISTS $PLAYLIST_TABLE")
-      db.execSQL("DROP TABLE IF EXISTS $MATCH_TABLE")
-      onCreate(db)
-      db.setTransactionSuccessful()
-    } finally {
-      db.endTransaction()
     }
   }
 
@@ -289,8 +283,8 @@ internal class EpgDatabase(context: Context) :
           else statement.bindString(3, program.description)
           if (program.category.isNullOrBlank()) statement.bindNull(4)
           else statement.bindString(4, program.category)
-          statement.bindLong(5, program.startMs)
-          statement.bindLong(6, program.endMs)
+          statement.bindLong(5, toEpochSeconds(program.startMs))
+          statement.bindLong(6, toEpochSeconds(program.endMs))
           statement.executeInsert()
         }
       } finally {
@@ -347,11 +341,11 @@ internal class EpgDatabase(context: Context) :
             val startMs = cursor.getLong(2)
             val endMs = cursor.getLong(3)
             if (prevId >= 0L && prevChannel == channelId && startMs > prevStart) {
-              val usedDefault = prevEnd == prevStart + defaultDurationMs
+              val usedDefault = prevEnd == prevStart + toDurationSeconds(defaultDurationMs)
               val overlapsNext = prevEnd > startMs
               if (usedDefault || overlapsNext) {
                 val duration = startMs - prevStart
-                if (duration > 0L && duration <= maxDurationMs) {
+                if (duration > 0L && duration <= toDurationSeconds(maxDurationMs)) {
                   insertUpdate.clearBindings()
                   insertUpdate.bindLong(1, prevId)
                   insertUpdate.bindLong(2, startMs)
@@ -567,8 +561,8 @@ internal class EpgDatabase(context: Context) :
       val placeholders = chunk.joinToString(",") { "?" }
       val args = ArrayList<String>(chunk.size + 2)
       args.addAll(chunk)
-      args.add(startMs.toString())
-      args.add(endMs.toString())
+      args.add(toEpochSeconds(startMs).toString())
+      args.add(toEpochSeconds(endMs).toString())
       readableDatabase.rawQuery(
         """
         SELECT m.playlist_id AS channel_id, p.title, p.description, p.category, p.start_time, p.end_time
@@ -648,6 +642,7 @@ internal class EpgDatabase(context: Context) :
           FROM $STAGING_TABLE
           """.trimIndent()
         )
+        rebuildProgrammeSearch(db)
         db.delete(STAGING_TABLE, null, null)
         db.setTransactionSuccessful()
       } finally {
@@ -682,7 +677,7 @@ internal class EpgDatabase(context: Context) :
         LIVE_TABLE,
         arrayOf("channel_id", "title", "description", "category", "start_time", "end_time"),
         "end_time > ? AND start_time < ?",
-        arrayOf(startMs.toString(), endMs.toString()),
+        arrayOf(toEpochSeconds(startMs).toString(), toEpochSeconds(endMs).toString()),
         null,
         null,
         "channel_id ASC, start_time ASC",
@@ -695,8 +690,8 @@ internal class EpgDatabase(context: Context) :
       val placeholders = chunk.joinToString(",") { "?" }
       val args = ArrayList<String>(chunk.size + 2)
       args.addAll(chunk)
-      args.add(startMs.toString())
-      args.add(endMs.toString())
+      args.add(toEpochSeconds(startMs).toString())
+      args.add(toEpochSeconds(endMs).toString())
       readableDatabase.rawQuery(
         """
         SELECT channel_id, title, description, category, start_time, end_time
@@ -726,8 +721,8 @@ internal class EpgDatabase(context: Context) :
           title = cursor.getString(titleColumn),
           description = if (cursor.isNull(descriptionColumn)) null else cursor.getString(descriptionColumn),
           category = if (categoryColumn >= 0 && !cursor.isNull(categoryColumn)) cursor.getString(categoryColumn) else null,
-          startMs = cursor.getLong(startColumn),
-          endMs = cursor.getLong(endColumn),
+          startMs = toEpochMillis(cursor.getLong(startColumn)),
+          endMs = toEpochMillis(cursor.getLong(endColumn)),
         )
       )
     }
@@ -742,7 +737,7 @@ internal class EpgDatabase(context: Context) :
       WHERE start_time <= ? AND end_time > ?
       ORDER BY channel_id ASC, start_time DESC
       """.trimIndent(),
-      arrayOf(nowMs.toString(), nowMs.toString()),
+      arrayOf(toEpochSeconds(nowMs).toString(), toEpochSeconds(nowMs).toString()),
     ).use { cursor ->
       val seen = HashSet<String>()
       while (cursor.moveToNext()) {
@@ -754,8 +749,8 @@ internal class EpgDatabase(context: Context) :
             title = cursor.getString(1),
             description = if (cursor.isNull(2)) null else cursor.getString(2),
             category = if (cursor.isNull(3)) null else cursor.getString(3),
-            startMs = cursor.getLong(4),
-            endMs = cursor.getLong(5),
+            startMs = toEpochMillis(cursor.getLong(4)),
+            endMs = toEpochMillis(cursor.getLong(5)),
           )
         )
       }
@@ -764,7 +759,7 @@ internal class EpgDatabase(context: Context) :
   }
 
   fun deleteExpired(beforeMs: Long): Int {
-    val deleted = writableDatabase.delete(LIVE_TABLE, "end_time < ?", arrayOf(beforeMs.toString()))
+    val deleted = writableDatabase.delete(LIVE_TABLE, "end_time < ?", arrayOf(toEpochSeconds(beforeMs).toString()))
     try {
       writableDatabase.execSQL("PRAGMA wal_checkpoint(PASSIVE)")
     } catch (_: Throwable) {
@@ -796,6 +791,7 @@ internal class EpgDatabase(context: Context) :
       db.delete(PLAYLIST_TABLE, null, null)
       db.delete(MATCH_TABLE, null, null)
       db.delete(STOP_UPDATE_TABLE, null, null)
+      db.delete(FTS_TABLE, null, null)
       db.delete(META_TABLE, null, null)
       db.setTransactionSuccessful()
     } finally {
@@ -805,9 +801,44 @@ internal class EpgDatabase(context: Context) :
 
   fun count(): Long = countTable(LIVE_TABLE)
 
+  fun searchProgrammes(query: String, limit: Int = 80): List<NativeEpgProgram> {
+    val match = query.trim().replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
+    if (match.isEmpty()) return emptyList()
+    val result = ArrayList<NativeEpgProgram>()
+    readableDatabase.rawQuery(
+      """
+      SELECT p.channel_id, p.title, p.description, p.category, p.start_time, p.end_time
+      FROM $FTS_TABLE f
+      INNER JOIN $LIVE_TABLE p ON p.id = f.programme_id
+      WHERE $FTS_TABLE MATCH ? AND p.end_time >= ?
+      ORDER BY p.start_time ASC
+      LIMIT ?
+      """.trimIndent(),
+      arrayOf(
+        "$match*",
+        toEpochSeconds(System.currentTimeMillis()).toString(),
+        limit.coerceIn(1, 250).toString(),
+      ),
+    ).use { cursor -> appendPrograms(cursor, result) }
+    return result
+  }
+
+  private fun rebuildProgrammeSearch(db: SQLiteDatabase) {
+    createProgrammeSearchTable(db)
+    db.delete(FTS_TABLE, null, null)
+    db.execSQL(
+      "INSERT INTO $FTS_TABLE(programme_id, channel_id, title, description, category) " +
+        "SELECT id, channel_id, title, COALESCE(description, ''), COALESCE(category, '') FROM $LIVE_TABLE"
+    )
+  }
+
+  private fun toEpochSeconds(milliseconds: Long): Long = Math.floorDiv(milliseconds, 1000L)
+  private fun toEpochMillis(seconds: Long): Long = seconds * 1000L
+  private fun toDurationSeconds(milliseconds: Long): Long = (milliseconds + 999L) / 1000L
+
   companion object {
     private const val STORAGE_RECHECK_BATCHES = 32
-    private const val DATABASE_VERSION = 6
+    private const val DATABASE_VERSION = 7
     private const val LIVE_TABLE = "epg_programmes"
     private const val STAGING_TABLE = "epg_programmes_staging"
     private const val ALIAS_TABLE = "epg_channel_aliases"
@@ -815,6 +846,7 @@ internal class EpgDatabase(context: Context) :
     private const val PLAYLIST_TABLE = "playlist_channels"
     private const val MATCH_TABLE = "playlist_epg_matches"
     private const val STOP_UPDATE_TABLE = "epg_stop_updates"
+    private const val FTS_TABLE = "epg_programmes_fts"
     private const val PLAYLIST_CONTENT_FINGERPRINT_KEY = "playlist_content_fingerprint"
     private const val MATCH_CONTENT_FINGERPRINT_KEY = "match_content_fingerprint"
     private const val IN_CLAUSE_CHUNK = 400

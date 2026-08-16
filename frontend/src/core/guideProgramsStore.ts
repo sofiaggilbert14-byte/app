@@ -6,7 +6,7 @@ import type { Program } from "@/src/api";
  *
  * A viewport EPG response may update one channel while a 2,000-row guide is
  * mounted. Putting that map in GuideProvider makes every consumer render and
- * makes FlashList receive a new data array. This store lets a row subscribe to
+ * makes the Guide receive a new data array. This store lets a row subscribe to
  * its own programme pointer only.
  *
  * SQLite/native EPG storage is authoritative. This JS layer is only a bounded,
@@ -17,7 +17,7 @@ const EMPTY_PROGRAMS: Program[] = [];
 // Programme arrays are shared with the source cache rather than copied. A wider
 // bounded row index lets a 2,000-channel playlist reverse direction without
 // immediately rebuilding rows that were already visited.
-let maxProgrammeRows = 1800;
+let maxProgrammeRows = 512;
 
 let activeWindowKey = "";
 const programsByChannelId = new Map<string, Program[]>();
@@ -66,7 +66,7 @@ function trim(keepIds: ReadonlySet<string> = new Set(), force = false): void {
 }
 
 export function setGuideProgramRowLimit(limit: number): void {
-  maxProgrammeRows = Math.max(128, Math.min(4000, Math.floor(limit || 1800)));
+  maxProgrammeRows = Math.max(128, Math.min(1024, Math.floor(limit || 512)));
   trim();
 }
 
@@ -147,7 +147,7 @@ export type RetainGuideProgramsOptions = {
 /**
  * Keep only the sliding-window channel ids. Off-window rows are dropped so a
  * held D-pad run cannot accumulate the whole playlist in JS heap. Mounted
- * (subscribed) rows stay until FlashList recycles them unless `force` is set.
+ * (subscribed) rows stay until the Guide releases them unless `force` is set.
  */
 export function retainGuidePrograms(
   keepIds: Iterable<string>,

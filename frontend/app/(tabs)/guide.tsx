@@ -71,6 +71,16 @@ import { focusGuidePreviewSurface } from "@/src/utils/guidePreviewFocus";
 let guideSessionGroup = "All";
 let guideSessionChannelId: string | null = null;
 const guideSessionChannelByGroup = new Map<string, string>();
+function rememberGuideGroupChannel(groupName: string, channelId: string): void {
+  if (!groupName || !channelId) return;
+  guideSessionChannelByGroup.delete(groupName);
+  guideSessionChannelByGroup.set(groupName, channelId);
+  while (guideSessionChannelByGroup.size > 128) {
+    const oldest = guideSessionChannelByGroup.keys().next().value;
+    if (!oldest) break;
+    guideSessionChannelByGroup.delete(oldest);
+  }
+}
 
 function byName(a: Channel, b: Channel) {
   return (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" });
@@ -371,7 +381,7 @@ export default function PurpleGuideScreen() {
   useFocusEffect(
     useCallback(() => {
       // Refocus after blur/player: rewarm the last runway so soft-trim on blur
-      // does not leave an empty FlashList waiting for the first D-pad event.
+      // does not leave an empty Guide waiting for the first D-pad event.
       const last = lastRunwayRef.current;
       if (last.ids.length) {
         setViewportGuideChannelIds(last.ids);
@@ -573,7 +583,7 @@ export default function PurpleGuideScreen() {
   ]);
 
   // If Favorites/Recent (or a vanished category) becomes empty, fall back to All
-  // so the guide never leaves an unfocusable empty FlashList.
+  // so the guide never leaves an unfocusable empty surface.
   useEffect(() => {
     if (!groups.includes(group) && !overflowGroups.includes(group)) {
       guideSessionGroup = "All";
@@ -689,14 +699,14 @@ export default function PurpleGuideScreen() {
 
   const onFocusChannel = useCallback((channel: Channel, settled = true) => {
     guideSessionChannelId = channel.id;
-    guideSessionChannelByGroup.set(group, channel.id);
+    rememberGuideGroupChannel(group, channel.id);
     resetGuideSelection(channel.id);
     if (settled) armPreviewForChannel(channel);
   }, [armPreviewForChannel, group]);
 
   const onFocusProgram = useCallback((program: Program, channel: Channel, settled = true) => {
     guideSessionChannelId = channel.id;
-    guideSessionChannelByGroup.set(group, channel.id);
+    rememberGuideGroupChannel(group, channel.id);
     setGuideFocusedProgram(channel.id, program);
     if (settled) armPreviewForChannel(channel);
   }, [armPreviewForChannel, group]);
@@ -722,7 +732,7 @@ export default function PurpleGuideScreen() {
     void Haptics.selectionAsync().catch(() => undefined);
     if (previewTimer.current) clearTimeout(previewTimer.current);
     groupChangedAt.current = Date.now();
-    if (guideSessionChannelId) guideSessionChannelByGroup.set(group, guideSessionChannelId);
+    if (guideSessionChannelId) rememberGuideGroupChannel(group, guideSessionChannelId);
     const rememberedChannelId = guideSessionChannelByGroup.get(next) || null;
     guideSessionGroup = next;
     guideSessionChannelId = rememberedChannelId;
@@ -799,7 +809,7 @@ export default function PurpleGuideScreen() {
       }
       guideSessionGroup = nextGroup;
       guideSessionChannelId = jump.channelId;
-      guideSessionChannelByGroup.set(nextGroup, jump.channelId);
+      rememberGuideGroupChannel(nextGroup, jump.channelId);
       setGroup(nextGroup);
       resetGuideSelection(jump.channelId);
       setResetToken((value) => value + 1);

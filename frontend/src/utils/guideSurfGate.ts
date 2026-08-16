@@ -1,6 +1,6 @@
 /**
  * Guide rapid-surf gate — while the user holds D-pad, defer full silent
- * guide rebuilds so focus/FlashList are not thrashed by setChannels.
+ * guide rebuilds so logical focus and native data are not thrashed by setChannels.
  */
 
 let surfingUntil = 0;

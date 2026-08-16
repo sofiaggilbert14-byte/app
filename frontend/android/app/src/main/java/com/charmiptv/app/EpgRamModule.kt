@@ -23,28 +23,6 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
   override fun getName(): String = "CharmEpgRam"
 
   @ReactMethod
-  fun warm(startMs: Double, endMs: Double, promise: Promise) {
-    worker.execute {
-      try {
-        // Callers may know about the much larger SQLite retention window. RAM is
-        // intentionally clamped to a compact runway around now so widening disk
-        // retention never turns into a multi-day heap allocation on Fire TV.
-        val now = System.currentTimeMillis()
-        val requestedStart = startMs.toLong()
-        val requestedEnd = endMs.toLong()
-        val boundedStart = maxOf(requestedStart, now - RAM_HISTORY_MS)
-        val boundedEnd = minOf(requestedEnd, now + RAM_FUTURE_MS)
-        val warmed = engine.rebuild(boundedStart, boundedEnd)
-        if (warmed) warmGuideEpoch = currentGuideEpoch()
-        promise.resolve(warmed)
-      } catch (_: Throwable) {
-        // RAM acceleration must never turn a healthy persisted guide into a failure.
-        promise.resolve(false)
-      }
-    }
-  }
-
-  @ReactMethod
   fun replaceMatches(matches: ReadableArray, promise: Promise) {
     worker.execute {
       try {
@@ -119,11 +97,9 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
 
   private fun ensureWarmForCurrentEpoch() {
     val epoch = currentGuideEpoch()
-    if (engine.isWarm() && warmGuideEpoch == epoch) return
-    val now = System.currentTimeMillis()
-    if (engine.rebuild(now - RAM_HISTORY_MS, now + RAM_FUTURE_MS)) {
-      warmGuideEpoch = epoch
-    }
+    if (warmGuideEpoch == epoch) return
+    engine.clearPrograms()
+    warmGuideEpoch = epoch
   }
 
   private fun currentGuideEpoch(): Long = database.getMeta("guide_epoch")?.toLongOrNull() ?: 0L
@@ -157,19 +133,11 @@ class EpgRamModule(private val reactContext: ReactApplicationContext) :
   }
 
   override fun invalidate() {
-    engine.clear(0L)
+    engine.dispose()
     worker.shutdownNow()
     queryPool.shutdownNow()
     database.close()
     super.invalidate()
   }
 
-  companion object {
-    // Keep RAM intentionally smaller than persisted EPG. Six hours of history
-    // supports recent-program context/catch-up while twelve hours ahead gives
-    // the guide a generous runway. Requests outside this range fall back to
-    // SQLite rather than expanding the heap snapshot.
-    private const val RAM_HISTORY_MS = 6L * 60L * 60L * 1000L
-    private const val RAM_FUTURE_MS = 12L * 60L * 60L * 1000L
-  }
 }

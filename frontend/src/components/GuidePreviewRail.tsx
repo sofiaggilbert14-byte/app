@@ -186,9 +186,6 @@ export function GuidePreviewRail({
             <Ionicons name="notifications-outline" size={12} color={tvColors.purpleSoft} />
             <Text style={styles.secondaryText}>Reminders</Text>
           </Pressable>
-        </View>
-
-        <View style={styles.actionColumn}>
           <Pressable
             ref={drawerFocus.setRef}
             onPress={onOpenDrawer}
@@ -199,20 +196,17 @@ export function GuidePreviewRail({
             <Ionicons name="menu-outline" size={12} color={tvColors.purpleSoft} />
             <Text style={styles.secondaryText}>Drawer</Text>
           </Pressable>
-          {!hidePreview ? (
-            <Pressable
-              ref={muteFocus.setRef}
-              onPress={onToggleMute}
-              onFocus={muteFocus.onFocus}
-              style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
-              testID="guide-preview-mute"
-            >
-              <Ionicons name={muted ? "volume-mute-outline" : "volume-medium-outline"} size={12} color={tvColors.purpleSoft} />
-              <Text style={styles.secondaryText}>{muted ? "Unmute" : "Mute"}</Text>
-            </Pressable>
-          ) : (
-            <View style={styles.actionPlaceholder} />
-          )}
+          <Pressable
+            ref={muteFocus.setRef}
+            disabled={hidePreview}
+            onPress={onToggleMute}
+            onFocus={muteFocus.onFocus}
+            style={({ focused }: any) => [styles.secondaryButton, hidePreview && styles.disabledButton, focused && styles.focused]}
+            testID="guide-preview-mute"
+          >
+            <Ionicons name={muted ? "volume-mute-outline" : "volume-medium-outline"} size={10} color={tvColors.purpleSoft} />
+            <Text style={styles.secondaryText}>{muted ? "Unmute" : "Mute"}</Text>
+          </Pressable>
           <Pressable
             ref={hideFocus.setRef}
             onPress={onHideToggle}
@@ -332,16 +326,17 @@ const styles = StyleSheet.create({
   },
   hiddenPreviewText: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 9 },
   actionGrid: {
-    width: 230,
+    // Previous two-column rail was 230px. The requested 40% reduction leaves
+    // a 138px single column and returns 92px to programme description copy.
+    width: 138,
     flexShrink: 0,
-    flexDirection: "row",
-    gap: 6,
     padding: 7,
     borderRightWidth: 1,
     borderRightColor: tvColors.line,
   },
-  actionColumn: { flex: 1, minWidth: 0, gap: 6 },
-  actionPlaceholder: { flex: 1, minHeight: 0 },
+  // 174px panel - 14px padding - five 3px gaps = 145px; flex divides that
+  // evenly into six ~24.17px controls aligned to the preview's full height.
+  actionColumn: { flex: 1, minWidth: 0, gap: 3 },
   copy: { flex: 1, minWidth: 0, paddingHorizontal: 12, paddingVertical: 9 },
   channelName: { color: tvColors.purpleSoft, fontFamily: fonts.semibold, fontSize: 10 },
   programTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 17, lineHeight: 21, marginTop: 3 },
@@ -380,7 +375,7 @@ const styles = StyleSheet.create({
     borderColor: "transparent",
     paddingHorizontal: 4,
   },
-  watchText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 8.5 },
+  watchText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 7.5 },
   secondaryButton: {
     flex: 1,
     minWidth: 0,
@@ -395,6 +390,7 @@ const styles = StyleSheet.create({
     borderColor: "transparent",
     paddingHorizontal: 3,
   },
-  secondaryText: { color: "#fff", fontFamily: fonts.medium, fontSize: 8 },
+  secondaryText: { color: "#fff", fontFamily: fonts.medium, fontSize: 7.2 },
+  disabledButton: { opacity: 0.45 },
   focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
 });

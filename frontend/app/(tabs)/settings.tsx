@@ -31,6 +31,7 @@ import {
   useSourceRefreshPreferences,
 } from "@/src/core/sourceRefreshPreferences";
 import { type LogoPriority, useLogoPriority } from "@/src/core/logoPreferences";
+import { chooseLocalLogoFolder, clearLocalLogoFolder } from "@/src/core/localLogoFolder";
 import {
   type LongDownAction,
   type LongSelectAction,
@@ -49,6 +50,7 @@ import {
   getLastAudioDiagnostics,
 } from "@/src/core/audioDiagnostics";
 import { POWER_PROFILE_OPTIONS } from "@/src/core/devicePowerProfile";
+import { getCacheStorageReport, pruneDiskCaches } from "@/src/utils/tvRemote";
 import {
   usePlaybackBufferProfile,
   type PlaybackBufferProfile,
@@ -464,6 +466,23 @@ export default function SettingsScreen() {
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             <PurpleDrawerButton testID="settings-open-drawer" />
+            {section ? (
+              <Pressable
+                hasTVPreferredFocus={preferBackFocus}
+                onPress={() => {
+                  void Haptics.selectionAsync().catch(() => undefined);
+                  setBackupStatus(null);
+                  setClearFavoritesArmed(false);
+                  setPreferTileFocus(true);
+                  setSection(null);
+                }}
+                style={({ focused }: any) => [styles.backButton, focused && styles.focused]}
+                testID="settings-all-settings"
+              >
+                <Ionicons name="arrow-back" size={14} color="#fff" />
+                <Text style={styles.backText}>All Settings</Text>
+              </Pressable>
+            ) : null}
             <View>
               <Text style={styles.kicker}>SYSTEM</Text>
               <Text style={styles.title}>{selected ? selected.label : "Settings"}</Text>
@@ -490,22 +509,6 @@ export default function SettingsScreen() {
           </FocusGuide>
         ) : (
           <FocusGuide style={styles.detailsWrap}>
-            <Pressable
-              hasTVPreferredFocus={preferBackFocus}
-              onPress={() => {
-                void Haptics.selectionAsync().catch(() => undefined);
-                setBackupStatus(null);
-                setClearFavoritesArmed(false);
-                setPreferTileFocus(true);
-                setSection(null);
-              }}
-              style={({ focused }: any) => [styles.backButton, focused && styles.focused]}
-              testID="settings-all-settings"
-            >
-              <Ionicons name="arrow-up" size={14} color="#fff" />
-              <Text style={styles.backText}>All Settings</Text>
-            </Pressable>
-
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.details}>
 
             {section === "general" ? (
@@ -631,6 +634,8 @@ export default function SettingsScreen() {
                   onChange={setLogoPriority}
                 />
                 <Text style={styles.help}>Both playlist and EPG logo URLs are retained. The preferred source wins, with the other used as fallback.</Text>
+                <Action label="Choose local / USB / network logo folder" icon="folder-open-outline" onPress={() => void chooseLocalLogoFolder()} />
+                <Action label="Stop using local logo folder" icon="folder-outline" onPress={() => void clearLocalLogoFolder()} />
                 <Action label="Clear channel logo cache" icon="image-outline" onPress={() => void clearChannelLogoCache(true)} />
                 <Action label={busy ? "Refreshing…" : "Refresh playlist & EPG"} icon="refresh" onPress={hardReload} disabled={busy} />
                 <Action label={busy ? "Working…" : "Refresh EPG only"} icon="calendar-outline" onPress={reloadEpgOnly} disabled={busy} />
@@ -908,6 +913,17 @@ export default function SettingsScreen() {
                       : "—"
                   }
                 />
+                <Action label="Report cache storage" icon="server-outline" onPress={() => void (async () => {
+                  const report = await getCacheStorageReport();
+                  if (!report) return setBackupStatus("Cache storage report is unavailable.");
+                  const mib = (bytes: number) => `${(bytes / 1048576).toFixed(1)} MiB`;
+                  setBackupStatus(`Cache ${mib(report.cacheDiskBytes)} · Logos ${mib(report.logoDiskBytes)} · Databases ${mib(report.databaseBytes)}`);
+                })()} />
+                <Action label="Prune old disk cache" icon="trash-bin-outline" onPress={() => void (async () => {
+                  const report = await pruneDiskCaches(14);
+                  if (!report) return setBackupStatus("Disk cache pruning is unavailable.");
+                  setBackupStatus(`Removed ${report.removedFiles} old cache files (${(report.removedBytes / 1048576).toFixed(1)} MiB).`);
+                })()} />
                 <Action label={busy ? "Working…" : "Export diagnostics"} icon="document-text-outline" onPress={exportDiagnostics} disabled={busy} />
                 {backupStatus && section === "health" ? <Text style={styles.status}>{backupStatus}</Text> : null}
                 {failedChannelRows.length ? (
@@ -1251,7 +1267,7 @@ const styles = StyleSheet.create({
   headerLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
   kicker: { color: tvColors.purpleSoft, fontFamily: fonts.semibold, fontSize: 7.5, letterSpacing: 1 },
   title: { color: "#fff", fontFamily: fonts.bold, fontSize: 18, marginTop: 2 },
-  backButton: { alignSelf: "flex-start", minHeight: 30, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, borderRadius: 5, borderWidth: 2, borderColor: "transparent", backgroundColor: tvColors.panel, marginBottom: 8 },
+  backButton: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, borderRadius: 5, borderWidth: 2, borderColor: "transparent", backgroundColor: tvColors.panel },
   backText: { color: "#fff", fontFamily: fonts.medium, fontSize: 8.5 },
   tileGridWrap: { flex: 1 },
   tileGrid: { flex: 1, flexDirection: "row", flexWrap: "wrap", alignContent: "center", gap: 9, paddingHorizontal: 18 },

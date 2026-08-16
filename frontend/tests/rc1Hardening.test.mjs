@@ -67,10 +67,11 @@ test("Purple TV APK workflow injects playlist/EPG from secrets", async () => {
 });
 
 test("native EPG refuses empty live swaps and filters getWindow by channel ids", async () => {
-  const [db, mod, bridge] = await Promise.all([
+  const [db, mod, bridge, ram] = await Promise.all([
     source("android/app/src/main/java/com/charmiptv/app/EpgDatabase.kt"),
     source("android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt"),
     source("src/nativeEpg.ts"),
+    source("android/app/src/main/java/com/charmiptv/app/EpgRamEngine.kt"),
   ]);
   assert.match(db, /Refusing to replace live EPG with an empty feed/);
   assert.match(db, /channelIds\.chunked\(IN_CLAUSE_CHUNK\)/);
@@ -83,6 +84,15 @@ test("native EPG refuses empty live swaps and filters getWindow by channel ids",
   assert.match(bridge, /getWindow\(startMs, endMs, uniqueIds\)/);
   assert.match(db, /queryGuideWindow/);
   assert.match(mod, /queryGuideWindow/);
+  assert.match(mod, /activeXmltvIds: ReadableArray/);
+  assert.match(mod, /activeChannelNames: ReadableArray/);
+  assert.match(mod, /channelId!!\.lowercase\(\) in acceptedChannelIds/);
+  assert.match(mod, /CharmEpgImportProgress/);
+  assert.match(bridge, /DeviceEventEmitter\.addListener\("CharmEpgImportProgress"/);
+  assert.match(ram, /database\.queryWindow\(startMs, endMs, missing\)/);
+  assert.match(ram, /ENTRY_TTL_MS = 90L \* 60L \* 1000L/);
+  assert.match(ram, /LOW_RAM_CHANNEL_LIMIT = 128/);
+  assert.doesNotMatch(ram, /queryWindow\(startMs, endMs, null\)/);
 });
 
 test("favorites are never auto-pruned on playlist load", async () => {

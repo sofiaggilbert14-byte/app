@@ -216,6 +216,7 @@ export function PurpleTvShell({
 
   const navRefs = useRef(new Map<Route, unknown>());
   const guideGroupRefs = useRef(new Map<string, unknown>());
+  const deferredDrawerCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isWatching = !!watchingChannelId;
   const recentStrip = useMemo(() => (recentChannels ?? []).slice(0, 5), [recentChannels]);
   const [contentAutoFocus, setContentAutoFocus] = useState(() => !drawerOpen);
@@ -306,11 +307,19 @@ export function PurpleTvShell({
       closeDrawer();
       // If a very fast selection lands during the open-transition guard, close
       // once that guard expires instead of leaving the drawer over the new page.
-      setTimeout(closeDrawer, PURPLE_DRAWER_ANIMATION_MS + 80);
+      if (deferredDrawerCloseTimer.current) clearTimeout(deferredDrawerCloseTimer.current);
+      deferredDrawerCloseTimer.current = setTimeout(() => {
+        deferredDrawerCloseTimer.current = null;
+        closeDrawer();
+      }, PURPLE_DRAWER_ANIMATION_MS + 80);
       if (route !== active) router.replace(route as any);
     },
     [active, closeDrawer, router],
   );
+
+  useEffect(() => () => {
+    if (deferredDrawerCloseTimer.current) clearTimeout(deferredDrawerCloseTimer.current);
+  }, []);
 
   const exit = useCallback(() => {
     void Haptics.selectionAsync().catch(() => undefined);

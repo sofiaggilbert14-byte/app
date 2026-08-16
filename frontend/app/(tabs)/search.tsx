@@ -12,6 +12,7 @@ import { useStore } from "@/src/store";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 import { requestGuideJump } from "@/src/core/guideSearchJump";
+import { searchNativeEpg } from "@/src/nativeEpg";
 
 const KEYS = ["Q","W","E","R","T","Y","U","I","O","P","A","S","D","F","G","H","J","K","L","Z","X","C","V","B","N","M"];
 const DIGITS = ["1","2","3","4","5","6","7","8","9","0"];
@@ -25,12 +26,37 @@ export default function SearchScreen() {
   const [cursor, setCursor] = useState(0);
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [preferKeyFocus, setPreferKeyFocus] = useState(true);
+  const [nativePrograms, setNativePrograms] = useState<{ channel: Channel; program: Program }[]>([]);
   const isTV = Platform.OS !== "web" && Platform.isTV;
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQuery(query), 180);
     return () => clearTimeout(timer);
   }, [query]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const value = debouncedQuery.trim();
+    if (value.length < 2) {
+      setNativePrograms([]);
+      return;
+    }
+    const byEpgId = new Map<string, Channel>();
+    for (const channel of channels) {
+      const ids = [channel.id, channel.tvg_id, channel.raw_tvg_id].filter(Boolean) as string[];
+      for (const id of ids) if (!byEpgId.has(id)) byEpgId.set(id, channel);
+    }
+    void searchNativeEpg(value, 24)
+      .then((rows) => {
+        if (cancelled) return;
+        setNativePrograms(rows.flatMap(({ channelId, program }) => {
+          const channel = byEpgId.get(channelId);
+          return channel ? [{ channel, program }] : [];
+        }));
+      })
+      .catch(() => { if (!cancelled) setNativePrograms([]); });
+    return () => { cancelled = true; };
+  }, [channels, debouncedQuery]);
 
   useEffect(() => {
     if (!preferKeyFocus) return;
@@ -68,8 +94,9 @@ export default function SearchScreen() {
       }
       if (programs.length >= 24) break;
     }
-    return { channels: channelMatches, programs };
-  }, [channels, debouncedQuery]);
+    const mergedPrograms = nativePrograms.length ? nativePrograms : programs;
+    return { channels: channelMatches, programs: mergedPrograms };
+  }, [channels, debouncedQuery, nativePrograms]);
 
   const play = useCallback((channel: Channel) => {
     void Haptics.selectionAsync().catch(() => undefined);

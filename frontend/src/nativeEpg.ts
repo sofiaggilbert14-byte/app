@@ -1,4 +1,4 @@
-import { NativeModules, Platform } from "react-native";
+import { DeviceEventEmitter, NativeModules, Platform } from "react-native";
 import type { Channel, Program } from "@/src/api";
 
 type NativeProgramme = {
@@ -13,8 +13,6 @@ type NativeProgramme = {
 type NativeWindow = Record<string, NativeProgramme[]>;
 type NativeCurrent = Record<string, NativeProgramme>;
 const EMPTY_NATIVE_PROGRAMS: Program[] = [];
-const RAM_HISTORY_MS = 6 * 60 * 60 * 1000;
-const RAM_FUTURE_MS = 12 * 60 * 60 * 1000;
 
 type NativePlaylistResult = {
   channels: Channel[];
@@ -52,7 +50,16 @@ export type NativePlaylistEpgMatchRow = {
 
 type CharmEpgModule = {
   fetchPlaylist?(url: string): Promise<NativePlaylistResult>;
-  refresh(url: string, allowNotModified: boolean): Promise<NativeRefreshResult>;
+  configureSource?(
+    playlistId: string,
+    url: string,
+    refreshHours: number,
+    serverOffsetMinutes: number,
+    playlistOffsetMinutes: number,
+    channelOffsets: Record<string, number>,
+  ): Promise<boolean>;
+  consumeScheduledRefreshDue?(): Promise<boolean>;
+  refresh(url: string, allowNotModified: boolean, activeXmltvIds: string[], activeChannelNames: string[]): Promise<NativeRefreshResult>;
   getWindow(startMs: number, endMs: number, channelIds: string[]): Promise<NativeWindow>;
   queryGuideWindow?(startMs: number, endMs: number, playlistChannelIds: string[]): Promise<NativeWindow>;
   isPlaylistCurrent?(contentFingerprint: string): Promise<boolean>;
@@ -63,11 +70,11 @@ type CharmEpgModule = {
   ): Promise<boolean>;
   upsertPlaylistEpgMatches?(matches: NativePlaylistEpgMatchRow[], guideEpoch: number): Promise<boolean>;
   getCurrent(): Promise<NativeCurrent>;
+  searchProgrammes?(query: string, limit: number): Promise<NativeProgramme[]>;
   clear(): Promise<boolean>;
 };
 
 type CharmEpgRamModule = {
-  warm(startMs: number, endMs: number): Promise<boolean>;
   replaceMatches(matches: NativePlaylistEpgMatchRow[]): Promise<boolean>;
   queryGuideWindow(startMs: number, endMs: number, playlistChannelIds: string[]): Promise<NativeWindow | null>;
   getWindow(startMs: number, endMs: number, channelIds: string[]): Promise<NativeWindow | null>;
@@ -110,31 +117,58 @@ export async function fetchNativePlaylist(url: string): Promise<NativePlaylistRe
   return nativeModule.fetchPlaylist(url);
 }
 
-export async function refreshNativeEpg(url: string, allowNotModified: boolean): Promise<NativeRefreshResult> {
+export async function refreshNativeEpg(
+  url: string,
+  allowNotModified: boolean,
+  activeXmltvIds: string[],
+  activeChannelNames: string[],
+  onProgress?: (phase: string, ratio: number) => void,
+): Promise<NativeRefreshResult> {
   if (!nativeModule) throw new Error("Native EPG engine is unavailable");
-  const result = await nativeModule.refresh(url, allowNotModified);
-  // SQLite retains the broad 72h guide. RAM intentionally keeps only a near-now
-  // runway so a larger disk horizon never turns into a larger heap snapshot.
-  if (
-    ramModule &&
-    Number.isFinite(result.windowStartMs) &&
-    Number.isFinite(result.windowEndMs) &&
-    result.windowEndMs > result.windowStartMs &&
-    result.count > 0
-  ) {
-    const now = Date.now();
-    const warmStart = Math.max(result.windowStartMs, now - RAM_HISTORY_MS);
-    const warmEnd = Math.min(result.windowEndMs, now + RAM_FUTURE_MS);
-    if (warmEnd > warmStart) {
-      void ramModule.warm(warmStart, warmEnd).catch(() => undefined);
-    }
+  const subscription = onProgress
+    ? DeviceEventEmitter.addListener("CharmEpgImportProgress", (event: { phase?: string; ratio?: number }) => {
+        if (typeof event?.ratio === "number") onProgress(event.phase || "downloading", event.ratio);
+      })
+    : null;
+  let result: NativeRefreshResult;
+  try {
+    result = await nativeModule.refresh(url, allowNotModified, activeXmltvIds, activeChannelNames);
+  } finally {
+    subscription?.remove();
   }
   return result;
 }
 
-export async function warmNativeEpgRam(startMs: number, endMs: number): Promise<boolean> {
-  if (!ramModule || endMs <= startMs) return false;
-  return ramModule.warm(startMs, endMs);
+export async function configureNativeEpgSource(
+  url: string,
+  refreshHours: number,
+  serverOffsetMinutes = 0,
+  playlistOffsetMinutes = 0,
+  channelOffsets: Record<string, number> = {},
+): Promise<void> {
+  if (!nativeModule?.configureSource) return;
+  await nativeModule.configureSource(
+    "default",
+    url,
+    refreshHours,
+    serverOffsetMinutes,
+    playlistOffsetMinutes,
+    channelOffsets,
+  );
+}
+
+export async function consumeNativeScheduledEpgRefresh(): Promise<boolean> {
+  return nativeModule?.consumeScheduledRefreshDue?.() ?? false;
+}
+
+export async function searchNativeEpg(
+  query: string,
+  limit = 24,
+): Promise<{ channelId: string; program: Program }[]> {
+  const value = query.trim();
+  if (!nativeModule?.searchProgrammes || value.length < 2) return [];
+  const rows = await nativeModule.searchProgrammes(value, Math.max(1, Math.min(80, limit)));
+  return rows.map((row) => ({ channelId: row.channelId, program: toProgram(row) }));
 }
 
 export async function clearNativeEpgRam(): Promise<void> {

@@ -1113,6 +1113,11 @@ export async function refreshSource(force = false): Promise<SourceStatus> {
   return sourceStatus();
 }
 
+/** Web fallback; native overrides this with a playlist-only streamed refresh. */
+export async function refreshPlaylistOnly(): Promise<SourceStatus> {
+  return refreshSource(true);
+}
+
 export function sourceStatus(): SourceStatus {
   const channels = MEM?.channels || [];
   const withEpg = MEM?.epgChannelCount ||

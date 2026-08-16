@@ -13,17 +13,20 @@ class NativeGuideManager : SimpleViewManager<NativeGuideView>() {
   override fun getName() = "CharmNativeGuide"
   override fun createViewInstance(context: ThemedReactContext) = NativeGuideView(context)
   @ReactProp(name = "channels") fun channels(view: NativeGuideView, value: com.facebook.react.bridge.ReadableArray?) = view.setChannels(value)
-  @ReactProp(name = "windowStartMs") fun start(view: NativeGuideView, value: Double) { view.setTag(WINDOW_START_TAG, value); view.setWindow(value, view.getTag(WINDOW_END_TAG) as? Double ?: value + 10_800_000.0) }
-  @ReactProp(name = "windowEndMs") fun end(view: NativeGuideView, value: Double) { view.setTag(WINDOW_END_TAG, value); view.setWindow(view.getTag(WINDOW_START_TAG) as? Double ?: value - 10_800_000.0, value) }
+  @ReactProp(name = "windowStartMs") fun start(view: NativeGuideView, value: Double) = view.setWindowStart(value)
+  @ReactProp(name = "windowEndMs") fun end(view: NativeGuideView, value: Double) = view.setWindowEnd(value)
   @ReactProp(name = "active", defaultBoolean = true) fun active(view: NativeGuideView, value: Boolean) = view.setActive(value)
   @ReactProp(name = "restoreChannelId") fun restore(view: NativeGuideView, value: String?) = view.restoreChannel(value)
+  override fun onDropViewInstance(view: NativeGuideView) {
+    view.dispose()
+    super.onDropViewInstance(view)
+  }
   override fun getExportedCustomDirectEventTypeConstants(): MutableMap<String, Any> = MapBuilder.builder<String, Any>()
     .put("selectionChange", MapBuilder.of("registrationName", "onSelectionChange"))
     .put("runwayChange", MapBuilder.of("registrationName", "onRunwayChange"))
     .put("topLeftBoundary", MapBuilder.of("registrationName", "onLeftBoundary"))
     .put("upBoundary", MapBuilder.of("registrationName", "onUpBoundary"))
     .build().toMutableMap()
-  companion object { private const val WINDOW_START_TAG = 0x434701; private const val WINDOW_END_TAG = 0x434702 }
 }
 
 class NativeGuidePackage : ReactPackage {

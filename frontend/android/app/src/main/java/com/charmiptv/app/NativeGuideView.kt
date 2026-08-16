@@ -13,6 +13,7 @@ import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.uimanager.ThemedReactContext
 import com.facebook.react.uimanager.events.RCTEventEmitter
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
@@ -24,6 +25,7 @@ import kotlin.math.min
  */
 class NativeGuideView(context: Context) : View(context) {
   private data class ChannelRow(val id: String, val name: String, val number: String)
+  private data class GuideQuery(val token: Int, val startMs: Long, val endMs: Long, val ids: List<String>)
 
   private val database = EpgDatabase(context.applicationContext)
   private val io = Executors.newSingleThreadExecutor { task -> Thread(task, "CharmGuideRead").apply { isDaemon = true } }
@@ -35,6 +37,9 @@ class NativeGuideView(context: Context) : View(context) {
   private var selectedTimeMs = System.currentTimeMillis()
   private var firstVisibleRow = 0
   private var generation = 0
+  @Volatile private var pendingQuery: GuideQuery? = null
+  private val queryDrainScheduled = AtomicBoolean(false)
+  @Volatile private var disposed = false
   private var enabled = true
   private var lastMoveAt = 0L
   private var moveVelocity = 0
@@ -85,6 +90,9 @@ class NativeGuideView(context: Context) : View(context) {
     loadPrograms()
   }
 
+  fun setWindowStart(start: Double) = setWindow(start, windowEndMs.toDouble())
+  fun setWindowEnd(end: Double) = setWindow(windowStartMs.toDouble(), end)
+
   fun setActive(value: Boolean) {
     enabled = value
     if (value) { requestFocus(); emitSelection(true) }
@@ -97,28 +105,62 @@ class NativeGuideView(context: Context) : View(context) {
   }
 
   private fun loadPrograms() {
-    val ids = rows.map { it.id }
-    if (ids.isEmpty()) { programs = emptyMap(); return }
-    val token = ++generation
+    if (disposed || io.isShutdown) return
+    val visible = max(6, ((height - headerHeight) / rowHeight).toInt())
+    val ahead = 8 + min(28, moveVelocity * 2)
+    val from = max(0, firstVisibleRow - ahead)
+    val to = min(rows.size, firstVisibleRow + visible + ahead)
+    val ids = rows.subList(from, to).map { it.id }
+    if (ids.isEmpty()) { generation += 1; pendingQuery = null; programs = emptyMap(); return }
+    pendingQuery = GuideQuery(++generation, windowStartMs, windowEndMs, ids)
+    scheduleQueryDrain()
+  }
+
+  /** Keep at most one active read plus the newest requested runway. */
+  private fun scheduleQueryDrain() {
+    if (disposed || io.isShutdown || !queryDrainScheduled.compareAndSet(false, true)) return
     io.execute {
-      val loaded = try { database.queryGuideWindow(windowStartMs, windowEndMs, ids) } catch (_: Throwable) { emptyList() }
-      val grouped = LinkedHashMap<String, MutableList<NativeEpgProgram>>()
-      for (program in loaded) grouped.getOrPut(program.channelId) { ArrayList() }.add(program)
-      val frozen = grouped.mapValues { it.value.toTypedArray() }
-      post {
-        if (token != generation) return@post
-        programs = frozen
-        invalidate()
-        emitSelection(true)
+      try {
+        while (!disposed) {
+          val request = pendingQuery ?: break
+          pendingQuery = null
+          val loaded = try { database.queryGuideWindow(request.startMs, request.endMs, request.ids) } catch (_: Throwable) { emptyList() }
+          val grouped = LinkedHashMap<String, MutableList<NativeEpgProgram>>()
+          for (program in loaded) grouped.getOrPut(program.channelId) { ArrayList() }.add(program)
+          val frozen = grouped.mapValues { it.value.toTypedArray() }
+          post {
+            if (disposed || request.token != generation) return@post
+            programs = frozen
+            invalidate()
+            emitSelection(true)
+          }
+        }
+      } finally {
+        queryDrainScheduled.set(false)
+        if (!disposed && pendingQuery != null) scheduleQueryDrain()
       }
     }
   }
 
   override fun onDetachedFromWindow() {
     generation += 1
+    pendingQuery = null
+    super.onDetachedFromWindow()
+  }
+
+  override fun onAttachedToWindow() {
+    super.onAttachedToWindow()
+    loadPrograms()
+  }
+
+  fun dispose() {
+    if (disposed) return
+    disposed = true
+    generation += 1
+    pendingQuery = null
+    programs = emptyMap()
     io.shutdownNow()
     database.close()
-    super.onDetachedFromWindow()
   }
 
   override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
@@ -159,6 +201,7 @@ class NativeGuideView(context: Context) : View(context) {
     lastMoveAt = now
     selectedRow = (selectedRow + delta).coerceIn(0, rows.lastIndex)
     ensureVisible()
+    loadPrograms()
     invalidate()
     emitSelection(false)
     emitRunway(delta)

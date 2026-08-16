@@ -1,6 +1,14 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
+apply plugin: "org.jetbrains.kotlin.kapt"
 apply plugin: "com.facebook.react"
+
+kapt {
+    arguments {
+        arg("room.schemaLocation", "$projectDir/schemas")
+        arg("room.incremental", "true")
+    }
+}
 
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
 
@@ -168,6 +176,12 @@ android {
 
 dependencies {
     implementation("com.facebook.react:react-android")
+    implementation("androidx.room:room-runtime:2.7.2")
+    implementation("androidx.room:room-ktx:2.7.2")
+    kapt("androidx.room:room-compiler:2.7.2")
+    implementation("androidx.work:work-runtime-ktx:2.10.2")
+    implementation("com.github.bumptech.glide:glide:4.16.0")
+    kapt("com.github.bumptech.glide:compiler:4.16.0")
     // LGPL-only Media3 FFmpeg audio extension built from pinned source in CI.
     // DefaultRenderersFactory in the Expo Video patch discovers it reflectively.
     implementation project(':ffmpeg-audio')

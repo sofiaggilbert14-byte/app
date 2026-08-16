@@ -39,6 +39,7 @@ import {
   getRememberedChannelAudioTrack,
   pickPreferredAudioTrack,
 } from "@/src/core/audioTrackPreferences";
+import { setNativePlaybackStarting } from "@/src/utils/tvRemote";
 
 export type StreamStatus = "loading" | "playing" | "error";
 export type PlayerScaleMode = "fit" | "zoom" | "stretch";
@@ -72,6 +73,7 @@ const NON_CIRCUIT_REASONS = new Set<SessionFailReason>([
 ]);
 /** After Media3 reports playing, wait this long for audio tracks before VLC swap. */
 const SILENT_AUDIO_GRACE_MS = 2200;
+const FROZEN_VIDEO_WATCHDOG_MS = 5000;
 
 function pruneFailureMap(now = Date.now()) {
   for (const [key, state] of failureStateByKey) {
@@ -462,6 +464,8 @@ function ExpoStream({
   const loadIdRef = useRef(0);
   const replaceQueueRef = useRef<Promise<void>>(Promise.resolve());
   const tracksCallbackRef = useRef(onTracksAvailable);
+  const lastPlaybackTimeRef = useRef(-1);
+  const lastPlaybackAdvanceAtRef = useRef(Date.now());
   tracksCallbackRef.current = onTracksAvailable;
   const [mediaReady, setMediaReady] = useState(false);
   const { uri, headers } = useMemo(() => parsePipeHeaders(rawUri), [rawUri]);
@@ -469,6 +473,7 @@ function ExpoStream({
   const { blocked, setBlocked } = useCircuitCooldown(sessionRole, engine, uri, setStatus);
   const player = useVideoPlayer(null, (p) => {
     p.loop = false;
+    p.timeUpdateEventInterval = 1;
   });
 
   const emit = useCallback(
@@ -788,6 +793,8 @@ function ExpoStream({
       if (!mountedRef.current || tearingDownRef.current || blocked) return;
       if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
       if (status === "readyToPlay") {
+        lastPlaybackTimeRef.current = player.currentTime;
+        lastPlaybackAdvanceAtRef.current = Date.now();
         setMediaReady(true);
         reportAndSelectMedia3Tracks();
         recordStablePlayback(sessionRole, engine, uri);
@@ -806,6 +813,32 @@ function ExpoStream({
     });
     return () => sub.remove();
   }, [blocked, emit, engine, player, reportAndSelectMedia3Tracks, sessionGeneration, sessionRole, setBlocked, uri]);
+
+  useEffect(() => {
+    const progressSub = player.addListener("timeUpdate", ({ currentTime }) => {
+      if (currentTime > lastPlaybackTimeRef.current + 0.05) {
+        lastPlaybackTimeRef.current = currentTime;
+        lastPlaybackAdvanceAtRef.current = Date.now();
+      }
+    });
+    if (mode === "preview" || paused || blocked || !mediaReady) {
+      return () => progressSub.remove();
+    }
+    lastPlaybackTimeRef.current = player.currentTime;
+    lastPlaybackAdvanceAtRef.current = Date.now();
+    const watchdog = setInterval(() => {
+      if (!mountedRef.current || tearingDownRef.current || paused || blocked) return;
+      if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
+      if (Date.now() - lastPlaybackAdvanceAtRef.current < FROZEN_VIDEO_WATCHDOG_MS) return;
+      lastPlaybackAdvanceAtRef.current = Date.now();
+      recordFailure(sessionRole, engine, uri, "stream-error");
+      emit("error", "stream-error");
+    }, 1000);
+    return () => {
+      progressSub.remove();
+      clearInterval(watchdog);
+    };
+  }, [blocked, emit, engine, mediaReady, mode, paused, player, sessionGeneration, sessionRole, uri]);
 
   useEffect(() => {
     const onTracksChanged = () => {
@@ -873,6 +906,7 @@ function ExpoStream({
       // Keep preview compositable above the Guide; fullscreen gets the cheaper hardware SurfaceView.
       surfaceType={Platform.OS === "android" ? (mode === "preview" ? "textureView" : "surfaceView") : undefined}
       nativeControls={false}
+      useExoShutter
     />
   );
 }
@@ -958,6 +992,12 @@ export function StreamPlayer({
     setStatus("loading");
   }, [initialEngine, role, sessionKey, setStatus, uri]);
 
+  useEffect(() => {
+    if (role !== "fullscreen") return;
+    setNativePlaybackStarting(true);
+    return () => setNativePlaybackStarting(false);
+  }, [role, sessionKey]);
+
   // URI changes render no child until beginSession has invalidated/released the
   // previous decoder. This avoids mounting newUri:oldGeneration and immediately
   // remounting it again when the generation effect runs.
@@ -987,6 +1027,7 @@ export function StreamPlayer({
       if (!isSessionCurrent(role, sessionGeneration)) return;
 
       if (status === "playing") {
+        if (role === "fullscreen") setNativePlaybackStarting(false);
         stableRef.current = true;
         rememberSuccessfulStreamEngine(engineMemoryKey, engine);
         setSessionPhase(role, sessionGeneration, "playing");

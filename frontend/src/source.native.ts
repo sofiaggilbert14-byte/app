@@ -10,6 +10,7 @@ import {
   nativePlaylistIsCurrent,
   queryNativeGuideWindow,
   refreshNativeEpg,
+  configureNativeEpgSource,
   upsertNativePlaylistChannels,
   upsertNativePlaylistEpgMatches,
 } from "@/src/nativeEpg";
@@ -73,6 +74,7 @@ type NativeMeta = {
 
 let MEM: NativeMeta | null = null;
 let refreshPromise: Promise<NativeMeta> | null = null;
+let playlistOnlyRefreshPromise: Promise<SourceStatus> | null = null;
 let lastSourceError: string | null = null;
 const listeners = new Set<() => void>();
 let sourceEmitScheduled = false;
@@ -142,6 +144,26 @@ async function syncPlaylistToNative(channels: Channel[], playlistEpoch: number):
     playlistEpoch,
     contentFingerprint,
   );
+}
+
+function activeEpgBindings(channels: Channel[]): { ids: string[]; names: string[] } {
+  const ids = new Set<string>();
+  const names = new Set<string>();
+  for (const channel of channels) {
+    const id = (channel.raw_tvg_id || channel.tvg_id || "").trim();
+    const name = (channel.name || "").trim();
+    if (id) ids.add(id);
+    if (name) names.add(name);
+  }
+  return { ids: Array.from(ids), names: Array.from(names) };
+}
+
+function applyNativeImportProgress(phase: string, ratio: number): void {
+  const safePhase: LoadPhase =
+    phase === "decompressing" || phase === "parsing" || phase === "indexing"
+      ? phase
+      : "downloading";
+  setProgress({ phase: safePhase, ratio: Math.max(0.2, Math.min(0.9, ratio)), etaSeconds: null });
 }
 
 /** Two independent 32-bit hashes keep the cold-start native handshake compact. */
@@ -617,13 +639,22 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
       // Channels-first paint — EPG continues async below.
       await persistMeta(MEM);
       // Sync raw playlist rows into SQLite before match rewrites tvg_id.
-      void syncPlaylistToNative(channels, playlistEpoch).catch(() => undefined);
+      await syncPlaylistToNative(channels, playlistEpoch);
       emit();
 
       if (!nativeEpgAvailable) throw new Error("Native EPG engine is unavailable in this Android build");
       if (!SOURCE_EPG) throw new Error("EPG is not configured for this build (missing EXPO_PUBLIC_EPG_URL).");
       setProgress({ phase: "downloading", ratio: 0.2, etaSeconds: null, message: null }, true);
-      const epg = await refreshNativeEpg(https(SOURCE_EPG), false);
+      const activeBindings = activeEpgBindings(channels);
+      const refreshPreferences = await getSourceRefreshPreferences();
+      await configureNativeEpgSource(https(SOURCE_EPG), refreshPreferences.epgHours);
+      const epg = await refreshNativeEpg(
+        https(SOURCE_EPG),
+        false,
+        activeBindings.ids,
+        activeBindings.names,
+        applyNativeImportProgress,
+      );
       setProgress({ phase: "indexing", ratio: 0.91, etaSeconds: null }, true);
 
       const epgLogos = epg.channelLogos || {};
@@ -668,7 +699,7 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
           logoPriority,
           async (partialChannels, partialQuality) => {
             // Two-phase: paint priority/viewport matches without waiting for the full list.
-            // Keep the same channel array length/order to reduce FlashList thrash.
+            // Keep the same channel array length/order to avoid Guide data churn.
             MEM = {
               ...MEM!,
               channels: partialChannels,
@@ -930,6 +961,51 @@ export async function refreshSource(force = false): Promise<SourceStatus> {
   return sourceStatus();
 }
 
+/**
+ * Refresh expiring provider stream URLs without downloading or rebuilding XMLTV.
+ * Existing logical EPG matches are retained for stable playlist channel ids.
+ */
+export async function refreshPlaylistOnly(): Promise<SourceStatus> {
+  if (playlistOnlyRefreshPromise) return playlistOnlyRefreshPromise;
+  playlistOnlyRefreshPromise = (async () => {
+    if (refreshPromise) await refreshPromise;
+    const cached = MEM || (await readChannelCache());
+    const fresh = await fetchPlaylist();
+    const oldById = new Map((cached?.channels || []).map((channel) => [channel.id, channel]));
+    const channels = fresh.map((channel) => {
+      const previous = oldById.get(channel.id);
+      if (!previous) return channel;
+      return {
+        ...channel,
+        tvg_id: previous.tvg_id || channel.tvg_id,
+        logo: channel.logo || previous.logo,
+      };
+    });
+    const playlistEpoch = (cached?.playlistEpoch || 0) + 1;
+    MEM = {
+      ...(cached || {
+        ts: 0,
+        epgProgramCount: 0,
+        epgChannelCount: 0,
+      }),
+      channels,
+      playlistEpoch,
+      playlistRefreshedAt: Date.now(),
+      playlistIdentityFingerprint: playlistIdentityFingerprint(channels),
+    };
+    await persistMeta(MEM);
+    await syncPlaylistToNative(channels, playlistEpoch);
+    await syncMatchesToNative(channels, MEM.guideEpoch || 0);
+    emit();
+    return sourceStatus();
+  })();
+  try {
+    return await playlistOnlyRefreshPromise;
+  } finally {
+    playlistOnlyRefreshPromise = null;
+  }
+}
+
 /** Check persisted independent playlist/EPG clocks and refresh only what is due. */
 export async function refreshSourcesIfDue(): Promise<SourceStatus> {
   if (refreshPromise) {
@@ -970,7 +1046,17 @@ export async function refreshEpgOnly(): Promise<SourceStatus> {
       if (!nativeEpgAvailable) throw new Error("Native EPG engine is unavailable in this Android build");
       if (!SOURCE_EPG) throw new Error("EPG is not configured for this build (missing EXPO_PUBLIC_EPG_URL).");
       setProgress({ phase: "downloading", ratio: 0.2, etaSeconds: null, message: null }, true);
-      const epg = await refreshNativeEpg(https(SOURCE_EPG), true);
+      await syncPlaylistToNative(cached.channels, cached.playlistEpoch || 0);
+      const activeBindings = activeEpgBindings(cached.channels);
+      const refreshPreferences = await getSourceRefreshPreferences();
+      await configureNativeEpgSource(https(SOURCE_EPG), refreshPreferences.epgHours);
+      const epg = await refreshNativeEpg(
+        https(SOURCE_EPG),
+        true,
+        activeBindings.ids,
+        activeBindings.names,
+        applyNativeImportProgress,
+      );
       if (epg.notModified) {
         const checkedAt = Date.now();
         MEM = {

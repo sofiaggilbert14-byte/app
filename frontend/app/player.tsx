@@ -44,12 +44,14 @@ import { pickDefaultSubtitleTrack, useSubtitlePreferences } from "@/src/core/sub
 import { pickPreferredAudioTrack, useAudioTrackPreferences } from "@/src/core/audioTrackPreferences";
 import { clearStreamFailure, noteStreamFailure } from "@/src/core/streamFailureRegistry";
 import * as FileSystem from "expo-file-system/legacy";
+import { refreshPlaylistOnly } from "@/src/source";
 
 const CHANNEL_PREVIEW_DELAY_MS = 650;
 const CHANNEL_ZAP_SETTLE_MS = 850;
-const STREAM_RETRY_MS = 3000;
+const STREAM_RETRY_DELAYS_MS = [1000, 2000, 4000] as const;
 const MAX_AUTO_STREAM_RETRIES = 4;
 const SWITCH_NOTICE_MS = 1800;
+const STABLE_HISTORY_DELAY_MS = 5000;
 
 const FAIL_REASON_LABEL: Record<SessionFailReason, string> = {
   "start-timeout": "start timeout — trying alternate engine",
@@ -81,6 +83,7 @@ export default function PlayerScreen() {
   const { width, height } = useWindowDimensions();
   const {
     channels,
+    recent,
     channelById,
     addRecent,
     playerControlsTimeoutMs,
@@ -97,7 +100,7 @@ export default function PlayerScreen() {
   const [failReason, setFailReason] = useState<SessionFailReason | null>(null);
   const [retryToken, setRetryToken] = useState(0);
   const [controls, setControls] = useState(true);
-  const [channelsOpen, setChannelsOpen] = useState(false);
+  const [playerOverlay, setPlayerOverlay] = useState<"channels" | "tracks" | "more" | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [retryAttempt, setRetryAttempt] = useState(0);
   const [playerNow, setPlayerNow] = useState(() => new Date());
@@ -109,8 +112,19 @@ export default function PlayerScreen() {
   const [textTracks, setTextTracks] = useState<StreamTrack[]>([]);
   const [audioTrackId, setAudioTrackId] = useState<string | number | undefined>(undefined);
   const [textTrackId, setTextTrackId] = useState<string | number | undefined>(undefined);
-  const [tracksOpen, setTracksOpen] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
+  const channelsOpen = playerOverlay === "channels";
+  const tracksOpen = playerOverlay === "tracks";
+  const moreOpen = playerOverlay === "more";
+  const setOverlayOpen = useCallback((name: "channels" | "tracks" | "more", next: React.SetStateAction<boolean>) => {
+    setPlayerOverlay((current) => {
+      const open = current === name;
+      const resolved = typeof next === "function" ? next(open) : next;
+      return resolved ? name : current === name ? null : current;
+    });
+  }, []);
+  const setChannelsOpen = useCallback((next: React.SetStateAction<boolean>) => setOverlayOpen("channels", next), [setOverlayOpen]);
+  const setTracksOpen = useCallback((next: React.SetStateAction<boolean>) => setOverlayOpen("tracks", next), [setOverlayOpen]);
+  const setMoreOpen = useCallback((next: React.SetStateAction<boolean>) => setOverlayOpen("more", next), [setOverlayOpen]);
   const { defaultLanguage: subtitleDefaultLanguage } = useSubtitlePreferences();
   const audioPreferences = useAudioTrackPreferences();
   const remoteShortcuts = useRemoteShortcutPreferences();
@@ -120,10 +134,13 @@ export default function PlayerScreen() {
   const zapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stableHistoryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const controlsRef = useRef(true);
   const channelsOpenRef = useRef(false);
   const generationRef = useRef(0);
   const channelsButtonRef = useRef<any>(null);
+  const moreButtonRef = useRef<any>(null);
+  const overlayOpenerRef = useRef<any>(null);
   const nextButtonRef = useRef<any>(null);
   const prevButtonRef = useRef<any>(null);
   const preferControlRef = useRef<"next" | "prev" | null>(null);
@@ -131,10 +148,12 @@ export default function PlayerScreen() {
   const rapidStripUntilRef = useRef(0);
   const pendingChannelIdRef = useRef(params.channelId);
   const channelIdRef = useRef(params.channelId);
+  const previousChannelIdRef = useRef<string | null>(null);
   const textTrackIdRef = useRef<string | number | undefined>(undefined);
   const subtitleDefaultLanguageRef = useRef(subtitleDefaultLanguage);
   const subtitleAutoAppliedRef = useRef<string | null>(null);
   const audioAutoAppliedRef = useRef<string | null>(null);
+  const tokenRefreshAttemptedRef = useRef(new Set<string>());
 
   const isTV = Platform.OS !== "web" && Platform.isTV;
   const overlayHideMs = playerControlsTimeoutMs;
@@ -153,6 +172,10 @@ export default function PlayerScreen() {
     [channels],
   );
   const streamChannels = useMemo(() => sortedChannels.filter((item) => !!item.url), [sortedChannels]);
+  const historyChannels = useMemo(() => {
+    const seen = new Set<string>();
+    return [...recent, ...streamChannels].filter((item) => !!item.url && !seen.has(item.id) && !!seen.add(item.id));
+  }, [recent, streamChannels]);
   const numberById = useMemo(() => {
     const result: Record<string, number> = {};
     sortedChannels.forEach((item, index) => { result[item.id] = index + 1; });
@@ -193,7 +216,7 @@ export default function PlayerScreen() {
     subtitleAutoAppliedRef.current = null;
     audioAutoAppliedRef.current = null;
     setTracksOpen(false);
-  }, [channelId, retryToken]);
+  }, [channelId, retryToken, setTracksOpen]);
 
   const { current, next } = nowNext(channel?.programs, playerNow);
   const progress = current ? progressPct(current, playerNow) : 0;
@@ -216,7 +239,7 @@ export default function PlayerScreen() {
       setTracksOpen(false);
       setMoreOpen(false);
     }, overlayHideMs);
-  }, [overlayHideMs]);
+  }, [overlayHideMs, setChannelsOpen, setMoreOpen, setTracksOpen]);
 
   const revealControls = useCallback((opts?: { claimChannelsFocus?: boolean }) => {
     const wasHidden = !controlsRef.current;
@@ -266,6 +289,7 @@ export default function PlayerScreen() {
     if (haptic) void Haptics.selectionAsync().catch(() => undefined);
 
     pendingChannelIdRef.current = id;
+    if (channelIdRef.current && channelIdRef.current !== id) previousChannelIdRef.current = channelIdRef.current;
     channelIdRef.current = id;
     generationRef.current += 1;
     setRetryAttempt(0);
@@ -273,7 +297,7 @@ export default function PlayerScreen() {
     setFailReason(null);
     setChannelId(id);
     setPlaybackPaused(false);
-    addRecent(target);
+    if (stableHistoryTimer.current) clearTimeout(stableHistoryTimer.current);
     showNotice(`Switching to ${target.name}`);
     // Keep strip/card focus — do not reclaim Channels button.
     revealControls({ claimChannelsFocus: false });
@@ -290,7 +314,7 @@ export default function PlayerScreen() {
     pauseSessionDecoders("fullscreen");
     setDecoderArmed(false);
     armDecoderAfterSettle(CHANNEL_ZAP_SETTLE_MS);
-  }, [addRecent, armDecoderAfterSettle, channelById, revealControls, showNotice]);
+  }, [armDecoderAfterSettle, channelById, revealControls, showNotice]);
 
   const previewChannel = useCallback((id: string) => {
     if (id === pendingChannelIdRef.current) return;
@@ -305,7 +329,7 @@ export default function PlayerScreen() {
     setChannelId(id);
     const target = channelById(id);
     if (target) {
-      addRecent(target);
+      if (stableHistoryTimer.current) clearTimeout(stableHistoryTimer.current);
       showNotice(`Switching to ${target.name}`);
     }
     pauseSessionDecoders("fullscreen");
@@ -328,7 +352,7 @@ export default function PlayerScreen() {
       if (pendingChannelIdRef.current !== id) return;
       armDecoderAfterSettle(40);
     }, delay);
-  }, [addRecent, armDecoderAfterSettle, channelById, revealControls, showNotice]);
+  }, [armDecoderAfterSettle, channelById, revealControls, showNotice]);
 
   const stepChannel = useCallback((direction: -1 | 1) => {
     if (streamChannels.length < 2) return;
@@ -341,6 +365,13 @@ export default function PlayerScreen() {
     // Debounced zap: UI + notice update now; decoder remounts only after settle.
     changeChannel(target.id, true);
   }, [changeChannel, streamChannels]);
+
+  const returnToPreviousChannel = useCallback(() => {
+    const previous = previousChannelIdRef.current;
+    if (!previous || previous === channelIdRef.current) return;
+    changeChannel(previous, true, { immediate: true });
+    setPlayerOverlay(null);
+  }, [changeChannel]);
 
   const cycleScaleMode = useCallback(() => {
     setScaleMode((current) => {
@@ -386,6 +417,13 @@ export default function PlayerScreen() {
     channelsOpenRef.current = channelsOpen;
   }, [channelsOpen]);
 
+  const closeOverlayAndRestoreFocus = useCallback(() => {
+    setPlayerOverlay(null);
+    const opener = overlayOpenerRef.current;
+    overlayOpenerRef.current = null;
+    if (opener) requestAnimationFrame(() => requestNativeFocus(opener));
+  }, []);
+
   // Cold mount / explicit retry only — channel zaps must not reclaim Channels focus.
   useEffect(() => {
     revealControls({ claimChannelsFocus: true });
@@ -394,6 +432,7 @@ export default function PlayerScreen() {
       if (previewTimer.current) clearTimeout(previewTimer.current);
       if (zapTimer.current) clearTimeout(zapTimer.current);
       if (retryTimer.current) clearTimeout(retryTimer.current);
+      if (stableHistoryTimer.current) clearTimeout(stableHistoryTimer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional cold-mount/retry only
   }, [retryToken]);
@@ -404,7 +443,7 @@ export default function PlayerScreen() {
       if (zapTimer.current) clearTimeout(zapTimer.current);
       if (previewTimer.current) clearTimeout(previewTimer.current);
     },
-    [],
+    [setTracksOpen],
   );
 
   useEffect(() => {
@@ -420,8 +459,18 @@ export default function PlayerScreen() {
     if (status === "playing") {
       setRetryAttempt(0);
       if (controlsRef.current) scheduleHide();
+      if (stableHistoryTimer.current) clearTimeout(stableHistoryTimer.current);
+      const stableChannelId = channelIdRef.current;
+      stableHistoryTimer.current = setTimeout(() => {
+        if (status !== "playing" || channelIdRef.current !== stableChannelId) return;
+        const stableChannel = channelById(stableChannelId);
+        if (stableChannel) addRecent(stableChannel);
+      }, STABLE_HISTORY_DELAY_MS);
+      return () => {
+        if (stableHistoryTimer.current) clearTimeout(stableHistoryTimer.current);
+      };
     }
-  }, [scheduleHide, status]);
+  }, [addRecent, channelById, scheduleHide, status]);
 
   useEffect(() => {
     if (status !== "error" && hasStream) return;
@@ -437,7 +486,7 @@ export default function PlayerScreen() {
     // the deliberate Retry button (which clears the breaker).
     if (failReason === "circuit-open" || isFullscreenCircuitOpen(channel?.url)) return;
     if (retryTimer.current) clearTimeout(retryTimer.current);
-    const delay = STREAM_RETRY_MS * Math.min(4, 2 ** retryAttempt);
+    const delay = STREAM_RETRY_DELAYS_MS[Math.min(retryAttempt, STREAM_RETRY_DELAYS_MS.length - 1)];
     retryTimer.current = setTimeout(() => restartStream(false), delay);
     return () => {
       if (retryTimer.current) clearTimeout(retryTimer.current);
@@ -499,13 +548,22 @@ export default function PlayerScreen() {
         reason !== "circuit-open"
       ) {
         noteStreamFailure(channelIdRef.current);
+        const failedChannelId = channelIdRef.current;
+        if (!tokenRefreshAttemptedRef.current.has(failedChannelId)) {
+          tokenRefreshAttemptedRef.current.add(failedChannelId);
+          // Provider URLs often embed short-lived tokens. Refresh source data
+          // silently once, then normal store propagation remounts only if the
+          // channel URL actually changed.
+          void refreshPlaylistOnly().catch(() => undefined);
+        }
       }
       if (next === "playing") {
         setFailReason(null);
         clearStreamFailure(channelIdRef.current);
+        tokenRefreshAttemptedRef.current.delete(channelIdRef.current);
       }
     },
-    [],
+    [setTracksOpen],
   );
 
   const saveAudioReport = useCallback(async () => {
@@ -572,7 +630,7 @@ export default function PlayerScreen() {
         if (remoteShortcuts.longSelect === "controls") revealControls({ claimChannelsFocus: true });
       }
     });
-  }, [goGuide, isTV, remoteShortcuts.longDown, remoteShortcuts.longSelect, revealControls, scheduleHide]);
+  }, [goGuide, isTV, remoteShortcuts.longDown, remoteShortcuts.longSelect, revealControls, scheduleHide, setChannelsOpen, setMoreOpen, setTracksOpen]);
 
   useEffect(() => {
     if (!params.channelId || params.channelId === channelIdRef.current) return;
@@ -586,17 +644,17 @@ export default function PlayerScreen() {
         return true;
       }
       if (tracksOpen) {
-        setTracksOpen(false);
+        closeOverlayAndRestoreFocus();
         scheduleHide();
         return true;
       }
       if (moreOpen) {
-        setMoreOpen(false);
+        closeOverlayAndRestoreFocus();
         scheduleHide();
         return true;
       }
       if (channelsOpen) {
-        setChannelsOpen(false);
+        closeOverlayAndRestoreFocus();
         scheduleHide();
         return true;
       }
@@ -604,7 +662,7 @@ export default function PlayerScreen() {
       return true;
     });
     return () => sub.remove();
-  }, [channelsOpen, moreOpen, revealControls, scheduleHide, stopAndExit, tracksOpen]);
+  }, [channelsOpen, closeOverlayAndRestoreFocus, moreOpen, revealControls, scheduleHide, stopAndExit, tracksOpen]);
 
   return (
     <View style={styles.root}>
@@ -799,6 +857,7 @@ export default function PlayerScreen() {
               <Pressable
                 ref={channelsButtonRef}
                 onPress={() => {
+                  overlayOpenerRef.current = channelsButtonRef.current;
                   setTracksOpen(false);
                   setMoreOpen(false);
                   setChannelsOpen((value) => !value);
@@ -838,7 +897,9 @@ export default function PlayerScreen() {
               </Pressable>
               <View style={styles.controlsSpacer} />
               <Pressable
+                ref={moreButtonRef}
                 onPress={() => {
+                  overlayOpenerRef.current = moreButtonRef.current;
                   setChannelsOpen(false);
                   setTracksOpen(false);
                   setMoreOpen((value) => !value);
@@ -857,8 +918,12 @@ export default function PlayerScreen() {
 
             {moreOpen ? (
               <View style={styles.tracksPanel}>
+                <Pressable onPress={returnToPreviousChannel} style={({ focused }: any) => [styles.trackRow, focused && styles.focused]}>
+                  <Ionicons name="return-up-back-outline" size={15} color="#fff" />
+                  <Text style={styles.controlLabel}>Previous channel</Text>
+                </Pressable>
                 <Pressable
-                  onPress={() => { setMoreOpen(false); setTracksOpen(true); scheduleHide(); }}
+                  onPress={() => { overlayOpenerRef.current = moreButtonRef.current; setTracksOpen(true); scheduleHide(); }}
                   style={({ focused }: any) => [styles.trackRow, focused && styles.focused]}
                 >
                   <Ionicons name="musical-notes-outline" size={15} color="#fff" />
@@ -934,8 +999,10 @@ export default function PlayerScreen() {
             ) : null}
 
             {channelsOpen ? (
+              <View>
+                <Text style={styles.controlLabel}>Previous & recent channels</Text>
               <FlatList
-                data={streamChannels}
+                data={historyChannels}
                 horizontal
                 keyExtractor={(item) => item.id}
                 initialNumToRender={8}
@@ -955,6 +1022,7 @@ export default function PlayerScreen() {
                   </Pressable>
                 )}
               />
+              </View>
             ) : null}
           </LinearGradient>
         </>

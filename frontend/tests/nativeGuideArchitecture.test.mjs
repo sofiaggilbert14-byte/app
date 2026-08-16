@@ -7,9 +7,10 @@ const root = new URL("..", import.meta.url).pathname.replace(/^\/(.:)/, "$1");
 const source = (path) => readFile(join(root, path), "utf8");
 
 test("Guide is a single native logical canvas with predictive prefetch", async () => {
-  const [guide, bridge, view, app] = await Promise.all([
+  const [guide, bridge, view, manager, app] = await Promise.all([
     source("app/(tabs)/guide.tsx"), source("src/components/NativeGuideCanvas.tsx"),
     source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt"),
+    source("android/app/src/main/java/com/charmiptv/app/NativeGuidePackage.kt"),
     source("android/app/src/main/java/com/charmiptv/app/MainApplication.kt"),
   ]);
   assert.match(guide, /<NativeGuideCanvas/);
@@ -19,6 +20,19 @@ test("Guide is a single native logical canvas with predictive prefetch", async (
   assert.match(view, /override fun onKeyDown/);
   assert.match(view, /moveVelocity/);
   assert.match(view, /database\.queryGuideWindow/);
+  assert.match(view, /rows\.subList\(from, to\)\.map \{ it\.id \}/);
+  assert.match(view, /val ahead = 8 \+ min\(28, moveVelocity \* 2\)/);
+  assert.doesNotMatch(view, /val ids = rows\.map \{ it\.id \}/);
+  assert.match(manager, /view\.setWindowStart\(value\)/);
+  assert.match(manager, /view\.setWindowEnd\(value\)/);
+  assert.doesNotMatch(manager, /setTag|getTag|WINDOW_START_TAG|WINDOW_END_TAG/);
+  assert.match(manager, /override fun onDropViewInstance/);
+  assert.match(manager, /view\.dispose\(\)/);
+  assert.match(view, /fun dispose\(\)/);
+  assert.doesNotMatch(view, /onDetachedFromWindow\(\)[\s\S]{0,180}(shutdownNow|database\.close)/);
+  assert.match(view, /pendingQuery = GuideQuery/);
+  assert.match(view, /queryDrainScheduled = AtomicBoolean\(false\)/);
+  assert.match(view, /Keep at most one active read plus the newest requested runway/);
   assert.match(app, /add\(NativeGuidePackage\(\)\)/);
 });
 
@@ -27,11 +41,20 @@ test("preview tuning only follows settled native selection", async () => {
   assert.match(guide, /if \(settled\) armPreviewForChannel\(channel\)/);
 });
 
-test("Startup V4 uses source milestones and permits progressive EPG entry", async () => {
+test("Startup V4 uses ordered milestones and exits at eight seconds", async () => {
   const startup = await source("src/components/StartupVersion4.tsx");
   assert.match(startup, /subscribeProgress/);
-  assert.match(startup, /epgStarted \|\| freshCacheReady/);
-  assert.doesNotMatch(startup, /setTimeout|setInterval/);
+  assert.match(startup, /const STARTUP_SEQUENCE_MS = 8_000/);
+  assert.match(startup, /CACHE_DOT_MS = 900/);
+  assert.match(startup, /DATABASE_DOT_MS = 2_400/);
+  assert.match(startup, /PLAYLIST_DOT_MS = 4_500/);
+  assert.match(startup, /setInterval/);
+  assert.match(startup, /return \(\) => clearInterval\(timer\)/);
+  assert.match(startup, /const mayEnter = sequenceComplete/);
+  assert.match(startup, /Starting EPG in background/);
+  assert.match(startup, /let completedForSession = false/);
+  assert.match(startup, /if \(mayEnter\) completedForSession = true/);
+  assert.match(startup, /if \(completedForSession\) return null/);
 });
 
 test("settings recovery and drawer transition guard are wired", async () => {
@@ -39,6 +62,8 @@ test("settings recovery and drawer transition guard are wired", async () => {
     source("app/(tabs)/settings.tsx"), source("app/(tabs)/epg-sources.tsx"), source("src/components/PurpleTvShell.tsx"),
   ]);
   assert.match(settings, /testID="settings-all-settings"/);
+  assert.match(settings, /<PurpleDrawerButton testID="settings-open-drawer" \/>[\s\S]*?testID="settings-all-settings"[\s\S]*?<Ionicons name="arrow-back"/);
+  assert.doesNotMatch(settings, /<FocusGuide style=\{styles\.detailsWrap\}>\s*<Pressable[\s\S]*?testID="settings-all-settings"/);
   assert.match(settings, /CharmShowAllSettings/);
   assert.match(epg, />All Settings</);
   assert.match(shell, /openedAtRef/);

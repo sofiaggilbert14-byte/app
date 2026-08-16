@@ -5,24 +5,41 @@ import { useStore } from "@/src/store";
 import { fonts, tvColors } from "@/src/theme";
 
 const INITIAL: EpgProgress = { phase: "idle", ratio: 0, etaSeconds: null, message: null };
+const STARTUP_SEQUENCE_MS = 8_000;
+const CACHE_DOT_MS = 900;
+const DATABASE_DOT_MS = 2_400;
+const PLAYLIST_DOT_MS = 4_500;
+let completedForSession = false;
 
 /** Real-event startup gate: never sleeps and never waits for a complete XMLTV import. */
 export function StartupVersion4() {
   const { channels, loading, windowStart, windowEnd } = useStore();
   const [epg, setEpg] = useState(INITIAL);
+  const [elapsedMs, setElapsedMs] = useState(0);
   useEffect(() => subscribeProgress(setEpg), []);
+  useEffect(() => {
+    const startedAt = Date.now();
+    const timer = setInterval(() => {
+      setElapsedMs(Math.min(STARTUP_SEQUENCE_MS, Date.now() - startedAt));
+    }, 100);
+    return () => clearInterval(timer);
+  }, []);
   const databaseReady = Number.isFinite(Date.parse(windowStart)) && Number.isFinite(Date.parse(windowEnd));
   const channelsReady = channels.length > 0;
   const epgStarted = epg.phase !== "idle" && epg.phase !== "channels";
   const freshCacheReady = channelsReady && databaseReady && !loading;
-  const mayEnter = channelsReady && databaseReady && (epgStarted || freshCacheReady);
+  const sequenceComplete = elapsedMs >= STARTUP_SEQUENCE_MS;
+  // Version 4 has a hard eight-second visual deadline. Initialization keeps
+  // running in the store after the overlay leaves, including XMLTV import.
+  const mayEnter = sequenceComplete;
   const milestones = useMemo(() => [
-    { label: "Opening local cache", ready: databaseReady || channelsReady },
-    { label: "Checking guide database", ready: databaseReady },
-    { label: `Loading M3U channels${channelsReady ? ` · ${channels.length}` : ""}`, ready: channelsReady },
-    { label: epgStarted ? `EPG ${epg.phase}` : freshCacheReady ? "EPG cache is fresh" : "Starting EPG", ready: epgStarted || freshCacheReady },
-  ], [channels.length, channelsReady, databaseReady, epg.phase, epgStarted, freshCacheReady]);
-  if (mayEnter) return null;
+    { label: "Opening local cache", ready: elapsedMs >= CACHE_DOT_MS },
+    { label: "Checking guide database", ready: elapsedMs >= DATABASE_DOT_MS },
+    { label: `Loading M3U channels${channelsReady ? ` · ${channels.length}` : ""}`, ready: elapsedMs >= PLAYLIST_DOT_MS },
+    { label: epgStarted ? `EPG ${epg.phase}` : freshCacheReady ? "EPG cache is fresh" : "Starting EPG in background", ready: sequenceComplete },
+  ], [channels.length, channelsReady, elapsedMs, epg.phase, epgStarted, freshCacheReady, sequenceComplete]);
+  if (mayEnter) completedForSession = true;
+  if (completedForSession) return null;
   return (
     <View style={styles.overlay} testID="startup-version-4">
       <View style={styles.mark}><Text style={styles.markText}>C</Text></View>

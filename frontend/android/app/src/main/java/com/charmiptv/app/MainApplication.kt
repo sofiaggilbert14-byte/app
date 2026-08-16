@@ -46,6 +46,7 @@ class MainApplication : Application(), ReactApplication {
 
   override fun onCreate() {
     super.onCreate()
+    CharmMemoryCoordinator.initialize(this)
     DefaultNewArchitectureEntryPoint.releaseLevel = try {
       ReleaseLevel.valueOf(BuildConfig.REACT_NATIVE_RELEASE_LEVEL.uppercase())
     } catch (e: IllegalArgumentException) {
@@ -53,6 +54,7 @@ class MainApplication : Application(), ReactApplication {
     }
     loadReactNative(this)
     ApplicationLifecycleDispatcher.onApplicationCreate(this)
+    EpgUpdateScheduler.install(this)
   }
 
   override fun onConfigurationChanged(newConfig: Configuration) {
@@ -62,12 +64,15 @@ class MainApplication : Application(), ReactApplication {
 
   override fun onTrimMemory(level: Int) {
     super.onTrimMemory(level)
-    val pressure = when {
+    val trimLevel = when {
       level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL ||
-        level >= ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> "critical"
-      level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW -> "moderate"
+        level >= ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> CharmTrimLevel.CRITICAL
+      level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW -> CharmTrimLevel.MODERATE
+      level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN -> CharmTrimLevel.BACKGROUND
       else -> null
     } ?: return
+    CharmMemoryCoordinator.trim(trimLevel)
+    val pressure = trimLevel.name.lowercase()
     try {
       reactNativeHost.reactInstanceManager.currentReactContext
         ?.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)

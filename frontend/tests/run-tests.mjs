@@ -11,3 +11,4 @@ import "./remindersPage.test.mjs";
 import "./guideSlidingCache.test.mjs";
 import "./playerSettingsHotApply.test.mjs";
 import "./nativeGuideArchitecture.test.mjs";
+import "./nativePlatformHardening.test.mjs";

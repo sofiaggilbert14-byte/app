@@ -130,7 +130,10 @@ test("drawer shell boots closed without an icon rail", async () => {
 });
 
 test("guide top strip is focusable while Left remains drawer-owned with conveyor retain", async () => {
-  const guide = await source("app/(tabs)/guide.tsx");
+  const [guide, preview] = await Promise.all([
+    source("app/(tabs)/guide.tsx"),
+    source("src/components/GuidePreviewRail.tsx"),
+  ]);
   assert.match(guide, /GuidePreviewRail/);
   assert.match(guide, /another Left enters the drawer/);
   assert.match(guide, /openDrawer\(\)/);
@@ -141,4 +144,7 @@ test("guide top strip is focusable while Left remains drawer-owned with conveyor
   assert.doesNotMatch(guide, /focusPurpleIconRail/);
   assert.match(guide, /buildVisibleGroups/);
   assert.doesNotMatch(guide, /NowPlayingBar/);
+  assert.match(preview, /width: 138/);
+  assert.match(preview, /actionColumn: \{ flex: 1, minWidth: 0, gap: 3 \}/);
+  assert.doesNotMatch(preview, /actionPlaceholder/);
 });

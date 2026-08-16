@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { AppState } from "react-native";
-import { refreshSourcesIfDue } from "@/src/source";
+import { refreshEpgOnly, refreshSourcesIfDue } from "@/src/source";
+import { consumeNativeScheduledEpgRefresh } from "@/src/nativeEpg";
 
 /**
  * Lightweight scheduler for direct-source builds. It checks freshness when the
@@ -16,7 +17,9 @@ export function SourceRefreshScheduler() {
       if (!active || running) return;
       running = true;
       try {
-        await refreshSourcesIfDue();
+        const nativeDue = await consumeNativeScheduledEpgRefresh();
+        if (nativeDue) await refreshEpgOnly();
+        else await refreshSourcesIfDue();
       } catch {
         // Last-good playlist/guide remains authoritative; normal source UI surfaces errors.
       } finally {
