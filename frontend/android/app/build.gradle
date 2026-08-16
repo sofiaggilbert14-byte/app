@@ -96,8 +96,8 @@ android {
         applicationId 'com.charmiptv.app.purple.next'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 7
-        versionName "2.1.0-rc.4"
+        versionCode 8
+        versionName "2.1.0-rc.5"
         manifestPlaceholders = [allowCleartextStreams: "false"]
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""

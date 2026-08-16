@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import dayjs from "dayjs";
@@ -32,7 +32,21 @@ export default function EpgSourcesScreen() {
   const [diagnostics, setDiagnostics] = useState<SourceDiagnostics | null>(null);
   const [busy, setBusy] = useState(false);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
+  const [preferTopFocus, setPreferTopFocus] = useState(true);
   const operationInFlight = useRef(false);
+  const scrollRef = useRef<ScrollView | null>(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      setPreferTopFocus(true);
+      const topTimer = setTimeout(() => scrollRef.current?.scrollTo({ y: 0, animated: false }), 0);
+      const focusTimer = setTimeout(() => setPreferTopFocus(false), 700);
+      return () => {
+        clearTimeout(topTimer);
+        clearTimeout(focusTimer);
+      };
+    }, []),
+  );
 
   useTvBackHandler(useCallback(() => {
     router.replace("/settings" as any);
@@ -108,12 +122,19 @@ export default function EpgSourcesScreen() {
       <View style={styles.page}>
         <View style={styles.header}>
           <View><Text style={styles.kicker}>GUIDE CONFIGURATION</Text><Text style={styles.title}>EPG & Playlist</Text></View>
-          <Pressable onPress={() => router.replace("/settings" as any)} style={({ focused }: any) => [styles.back, focused && styles.focused]}>
+          <Pressable hasTVPreferredFocus={preferTopFocus} onPress={() => router.replace("/settings" as any)} style={({ focused }: any) => [styles.back, focused && styles.focused]}>
             <Ionicons name="arrow-back" size={14} color="#fff" /><Text style={styles.backText}>All Settings</Text>
           </Pressable>
         </View>
-        <FocusGuide style={styles.scrollWrap}>
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+        <FocusGuide autoFocus trapFocusUp trapFocusDown trapFocusLeft trapFocusRight style={styles.scrollWrap}>
+          <ScrollView
+            ref={scrollRef}
+            scrollEnabled
+            nestedScrollEnabled
+            showsVerticalScrollIndicator={false}
+            contentInsetAdjustmentBehavior="never"
+            contentContainerStyle={styles.content}
+          >
             <Card title="Sources" icon="server-outline">
               <SourceRow title="Primary XMLTV Guide" subtitle="Managed by CharmIPTV · locked source" status={status.error ? "Guide error — see below" : "Active"} />
               <SourceRow title="Playlist Channel Map" subtitle="Managed by CharmIPTV · locked source" status={`${status.channel_count || 0} channels`} />

@@ -114,6 +114,7 @@ function GuideSelectionPreview({
   onOpenReminders,
   onHideToggle,
   onOpenDrawer,
+  focusRequestToken,
 }: {
   width: number;
   channelById: ReadonlyMap<string, Channel>;
@@ -136,6 +137,7 @@ function GuideSelectionPreview({
   onOpenReminders: () => void;
   onHideToggle: () => void;
   onOpenDrawer: () => void;
+  focusRequestToken: number;
 }) {
   const selection = useGuideSelection();
   const channel = (selection.channelId ? channelById.get(selection.channelId) : null) || fallbackChannel;
@@ -192,6 +194,7 @@ function GuideSelectionPreview({
       onOpenReminders={onOpenReminders}
       onHideToggle={onHideToggle}
       onOpenDrawer={onOpenDrawer}
+      focusRequestToken={focusRequestToken}
     />
   );
 }
@@ -266,6 +269,7 @@ export default function PurpleGuideScreen() {
   const [group, setGroup] = useState(() => guideSessionGroup);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewStatus, setPreviewStatus] = useState<StreamStatus>("loading");
+  const [previewFocusRequestToken, setPreviewFocusRequestToken] = useState(0);
   const [resetToken, setResetToken] = useState(0);
   const [restoreTimeMs, setRestoreTimeMs] = useState<number | null>(null);
   const [pinPromptGroup, setPinPromptGroup] = useState<string | null>(null);
@@ -800,6 +804,7 @@ export default function PurpleGuideScreen() {
   }, [activeProgram, drawerOpen, openDrawer]);
 
   const onGuideUpBoundary = useCallback(() => {
+    setPreviewFocusRequestToken((value) => value + 1);
     focusGuidePreviewSurface();
   }, []);
 
@@ -943,6 +948,7 @@ export default function PurpleGuideScreen() {
               }}
               onHideToggle={() => setHidePreview(!hidePreview)}
               onOpenDrawer={openDrawerFromPreview}
+              focusRequestToken={previewFocusRequestToken}
             />
 
             {/* Preview + six actions + description form one compact top strip.

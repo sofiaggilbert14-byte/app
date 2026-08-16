@@ -2,7 +2,7 @@
   "expo": {
     "name": "Charm IPTV Purple Next",
     "slug": "charm-iptv-purple-next",
-    "version": "2.1.0-rc.4",
+    "version": "2.1.0-rc.5",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "charmiptv-purple",
@@ -16,7 +16,7 @@
       "edgeToEdgeEnabled": true,
       "allowBackup": false,
       "package": "com.charmiptv.app.purple.next",
-      "versionCode": 7,
+      "versionCode": 8,
       "blockedPermissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",

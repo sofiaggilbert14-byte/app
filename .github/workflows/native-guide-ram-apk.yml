@@ -86,7 +86,7 @@ jobs:
           cp "$APK" artifact/CharmIPTV-Native-Guide-RAM-sideload.apk
           sha256sum artifact/CharmIPTV-Native-Guide-RAM-sideload.apk | tee artifact/CharmIPTV-Native-Guide-RAM-sideload.apk.sha256
           cp apk-contents.txt artifact/
-          cp "../docs/TESTER_RELEASE_NOTES_2.1.0-rc.4.md" artifact/TESTER_RELEASE_NOTES.md
+          cp "../docs/TESTER_RELEASE_NOTES_2.1.0-rc.5.md" artifact/TESTER_RELEASE_NOTES.md
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: CharmIPTV-Native-Guide-RAM-${{ github.sha }}

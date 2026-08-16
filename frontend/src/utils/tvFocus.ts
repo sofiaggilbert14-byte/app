@@ -6,11 +6,23 @@ type TvUIManager = typeof UIManager & { focus?: (tag: number) => void };
 /** Request native TV focus on a React node (Pressable ref, View ref, etc.). */
 export function requestNativeFocus(node: unknown): boolean {
   if (!node) return false;
+  const focus = (node as { focus?: () => void }).focus;
+  if (typeof focus === "function") {
+    try {
+      focus.call(node);
+      return true;
+    } catch {}
+  }
   const handle = findNodeHandle(node as any);
   if (!handle) return false;
   if (Platform.isTV) {
     try {
-      (UIManager as TvUIManager).focus?.(handle);
+      const manager = UIManager as TvUIManager;
+      if (typeof manager.focus === "function") {
+        manager.focus(handle);
+        return true;
+      }
+      UIManager.dispatchViewManagerCommand(handle, "requestFocus" as any, []);
       return true;
     } catch {
       return false;

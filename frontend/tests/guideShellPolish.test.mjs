@@ -188,6 +188,9 @@ test("EPG and playlist controls live only on the dedicated EPG settings page", a
   assert.match(epg, /accessibilityState=\{\{ busy: Boolean\(disabled\) \}\}/);
   assert.match(epg, /<ScrollView/);
   assert.match(epg, /<FocusGuide/);
+  assert.match(epg, /hasTVPreferredFocus=\{preferTopFocus\}/);
+  assert.match(epg, /scrollRef\.current\?\.scrollTo\(\{ y: 0, animated: false \}\)/);
+  assert.match(epg, /nestedScrollEnabled/);
 });
 
 test("native guide preserves last-good paint across transient query failures", async () => {
@@ -223,15 +226,26 @@ test("pointer BACK exits pointer mode and tap coordinates honor Android density"
 });
 
 test("guide top strip is focusable while Left remains drawer-owned with conveyor retain", async () => {
-  const [guide, preview] = await Promise.all([
+  const [guide, preview, focus] = await Promise.all([
     source("app/(tabs)/guide.tsx"),
     source("src/components/GuidePreviewRail.tsx"),
+    source("src/utils/tvFocus.ts"),
   ]);
   assert.match(guide, /GuidePreviewRail/);
   assert.match(guide, /another Left enters the drawer/);
   assert.match(guide, /openDrawer\(\)/);
   assert.match(guide, /focusGuidePreviewSurface\(\)/);
+  assert.match(guide, /setPreviewFocusRequestToken/);
+  assert.match(preview, /hasTVPreferredFocus=\{preferPlayFocus\}/);
+  assert.match(focus, /typeof focus === "function"/);
+  assert.match(focus, /dispatchViewManagerCommand/);
   assert.match(guide, /onOpenReminders=/);
+  for (const action of ["play", "favorite", "remind", "drawer", "mute", "hide"]) {
+    assert.match(preview, new RegExp(`testID="guide-preview-${action}"`));
+  }
+  for (const handler of ["onPlay", "onFavorite", "onOpenReminders", "onOpenDrawer", "onToggleMute", "onHideToggle"]) {
+    assert.match(preview, new RegExp(`onPress=\\{${handler}\\}`));
+  }
   assert.match(guide, /expandRunwayKeepSet/);
   assert.match(guide, /MAX_REMEMBERED_GUIDE_GROUPS = 128/);
   assert.match(guide, /retainGuideSlidingCache/);

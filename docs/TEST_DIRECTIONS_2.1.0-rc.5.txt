@@ -1,0 +1,28 @@
+CharmIPTV 2.1.0-rc.5 (Android build 8)
+Changes and Test Directions
+
+• EPG settings now open at the top.
+  Test: Open Drawer > Settings > EPG & Playlist. Confirm the top heading and All Settings button are visible immediately.
+
+• EPG settings now have a reliable initial D-pad focus.
+  Test: On entry, press Down. Confirm focus moves from All Settings into the first settings group and remains visible.
+
+• The full EPG settings page can be navigated vertically.
+  Test: Continue pressing Down through every option and action. Confirm the page scrolls to keep the focused control visible, including the bottom controls. Then press Up repeatedly and confirm it returns to the top.
+
+• The six Guide actions can now be reached from the channel grid.
+  Test: Open Live TV, focus a program in the first visible guide row, and press Up. Confirm focus enters the action area at Play.
+
+• All six Guide actions remain connected.
+  Test: Navigate through Play, Favorite, Reminders, Drawer, Mute/Unmute, and Hide/Show. Activate each one and confirm its normal result. Return to the guide after each navigation action.
+
+• Guide focus handoff now uses a real Android focus request with a fallback.
+  Test: Repeat the grid-to-action transition at least 20 times, including after changing groups and after returning from full-screen playback. Confirm focus never disappears.
+
+• Existing Guide navigation behavior is protected.
+  Test: Rapidly move Up/Down through channels, move several hours Left/Right, open and close the drawer, start a channel, and return to the Guide. Confirm navigation remains responsive and the Guide remains painted.
+
+• Refresh controls remain available on the EPG page.
+  Test: Run Refresh EPG only, then Refresh playlist & EPG. Confirm each reports completion and the screen remains navigable.
+
+If any problem occurs, record the exact screen, focused item, D-pad sequence, approximate time, and whether video was playing.
