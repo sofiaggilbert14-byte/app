@@ -1141,11 +1141,40 @@ export async function refreshEpgOnly(): Promise<SourceStatus> {
     lastSourceError = null;
     try {
       if (!nativeEpgAvailable) throw new Error("Native EPG engine is unavailable in this Android build");
+      await syncPlaylistToNative(cached.channels, cached.playlistEpoch || 0);
+      const ownership = await applyPersistedGuideOwnership();
+      const overrideIds = ownership.userEnabled
+        ? new Set(Object.keys(ownership.userOverrides))
+        : new Set<string>();
+      const refreshPreferences = await getSourceRefreshPreferences();
+
+      if (ownership.userEnabled && ownership.userUrl) {
+        await refreshNativeUserGuide(ownership.userUrl);
+      }
+
+      if (!ownership.primaryEnabled) {
+        // A disabled primary source is not downloaded, parsed, rematched, or
+        // scheduled in disguise. Advance the logical Guide epoch so every
+        // consumer drops old row caches and re-queries the selected ownership.
+        const checkedAt = Date.now();
+        clearProgrammeWindowCache();
+        MEM = {
+          ...cached,
+          ...MEM,
+          ts: checkedAt,
+          epgError: undefined,
+          guideEpoch: (cached.guideEpoch || 0) + 1,
+          guideRefreshedAt: checkedAt,
+        };
+        await persistMeta(MEM);
+        emit();
+        setProgress({ phase: "ready", ratio: 1, etaSeconds: 0, message: null }, true);
+        return MEM;
+      }
+
       if (!SOURCE_EPG) throw new Error("EPG is not configured for this build (missing EXPO_PUBLIC_EPG_URL).");
       setProgress({ phase: "downloading", ratio: 0.2, etaSeconds: null, message: null }, true);
-      await syncPlaylistToNative(cached.channels, cached.playlistEpoch || 0);
-      const activeBindings = activeEpgBindings(cached.channels);
-      const refreshPreferences = await getSourceRefreshPreferences();
+      const activeBindings = activeEpgBindings(cached.channels, overrideIds);
       await configureNativeEpgSource(sourceUrl(SOURCE_EPG), refreshPreferences.epgHours);
       const epg = await refreshNativeEpg(
         sourceUrl(SOURCE_EPG),
