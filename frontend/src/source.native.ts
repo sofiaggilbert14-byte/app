@@ -1199,13 +1199,23 @@ export async function refreshSourcesIfDue(): Promise<SourceStatus> {
 
 /** Refresh XMLTV only — keep current playlist rows (independent epochs). */
 export async function refreshEpgOnly(): Promise<SourceStatus> {
-  // Wait for any in-flight refresh, then always rematch with the current policy.
-  if (refreshPromise) await refreshPromise;
+  // TiviMate-style single refresh owner: if a full/EPG refresh is already doing
+  // the provider work, join it. Do not queue an immediate duplicate XMLTV pass.
+  if (refreshPromise) {
+    await refreshPromise;
+    return sourceStatus();
+  }
+
+  // Resolve cold/empty fallback before claiming refreshPromise. Calling
+  // refreshInternal while this function owns that same promise creates a
+  // self-referential promise cycle because refreshInternal coalesces on it.
+  const cached = MEM || (await readChannelCache());
+  if (!cached?.channels?.length) {
+    await refreshInternal(true);
+    return sourceStatus();
+  }
+
   refreshPromise = (async () => {
-    const cached = MEM || (await readChannelCache());
-    if (!cached?.channels?.length) {
-      return refreshInternal(true);
-    }
     lastSourceError = null;
     try {
       if (!nativeEpgAvailable) throw new Error("Native EPG engine is unavailable in this Android build");

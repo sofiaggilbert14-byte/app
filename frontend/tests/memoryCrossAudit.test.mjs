@@ -115,3 +115,16 @@ test("Guide fixed start preference is entry-scoped and explicit jumps override i
   assert.doesNotMatch(guide, /let guideStartPreferenceApplied = false/);
   assert.match(guide, /startPreferenceAppliedRef\.current = true;[\s\S]{0,120}const nextGroup = jump\.group/);
 });
+
+test("EPG-only refresh coalesces with active source work and avoids cold-start promise cycles", async () => {
+  const source = await readFile(join(root, "src/source.native.ts"), "utf8");
+  const epgOnly = source.match(/export async function refreshEpgOnly\(\)[\s\S]*?\n}\n\nexport function sourceStatus/)?.[0] || "";
+  assert.match(epgOnly, /if \(refreshPromise\) \{[\s\S]{0,160}await refreshPromise;[\s\S]{0,120}return sourceStatus\(\)/);
+  assert.match(epgOnly, /const cached = MEM \|\| \(await readChannelCache\(\)\)/);
+  assert.match(epgOnly, /if \(!cached\?\.channels\?\.length\) \{[\s\S]{0,160}await refreshInternal\(true\);[\s\S]{0,100}return sourceStatus\(\)/);
+  assert.ok(
+    epgOnly.indexOf('const cached = MEM || (await readChannelCache())') < epgOnly.indexOf('refreshPromise = (async () => {'),
+    "cold source fallback must resolve before EPG-only owns refreshPromise",
+  );
+  assert.doesNotMatch(epgOnly, /refreshPromise = \(async \(\) => \{[\s\S]{0,240}return refreshInternal\(true\)/);
+});
