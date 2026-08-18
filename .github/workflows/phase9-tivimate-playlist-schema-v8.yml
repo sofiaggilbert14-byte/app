@@ -1,0 +1,60 @@
+name: Phase 9 TiviMate Playlist Schema v8
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-playlist-schema-v8.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Add additive v8 playlist migration and remove runtime schema mutation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          epg = Path('frontend/android/app/src/main/java/com/charmiptv/app/EpgDatabase.kt')
+          s = epg.read_text()
+          s = s.replace(
+              '        norm_name TEXT NOT NULL,\n        updated_at INTEGER NOT NULL\n',
+              '        norm_name TEXT NOT NULL,\n        updated_at INTEGER NOT NULL,\n        deleted_at INTEGER NOT NULL DEFAULT 0\n',
+              1,
+          )
+          marker = '''    if (oldVersion < 7) {\n      // Version 6 stored Unix milliseconds. SQLite comparisons and indexes are\n      // smaller/faster in seconds; bridge methods continue exposing millis.\n      db.execSQL("UPDATE $LIVE_TABLE SET start_time = start_time / 1000, end_time = end_time / 1000 WHERE start_time > 100000000000")\n      db.execSQL("UPDATE $STAGING_TABLE SET start_time = start_time / 1000, end_time = end_time / 1000 WHERE start_time > 100000000000")\n      createProgrammeSearchTable(db)\n      rebuildProgrammeSearch(db)\n    }\n'''
+          addition = marker + '''    if (oldVersion < 8) {\n      // Provider refreshes use a TiViMate-style soft-delete marker so row\n      // identities and user-owned relationships survive temporary removals.\n      ensureColumn(db, PLAYLIST_TABLE, "deleted_at", "INTEGER NOT NULL DEFAULT 0")\n      db.execSQL("CREATE INDEX IF NOT EXISTS idx_playlist_deleted ON $PLAYLIST_TABLE(deleted_at)")\n    }\n'''
+          if 'if (oldVersion < 8)' not in s:
+              if marker not in s:
+                  raise SystemExit('v7 migration marker not found')
+              s = s.replace(marker, addition, 1)
+          s = s.replace('private const val DATABASE_VERSION = 7', 'private const val DATABASE_VERSION = 8', 1)
+          epg.write_text(s)
+
+          sync = Path('frontend/android/app/src/main/java/com/charmiptv/app/PlaylistSyncCoordinator.kt')
+          t = sync.read_text()
+          t = t.replace('    ensureSoftDeleteColumn(db)\n', '', 1)
+          start = t.find('  private fun ensureSoftDeleteColumn(db: SQLiteDatabase) {')
+          if start >= 0:
+              end = t.find('  private fun readMeta(', start)
+              if end < 0:
+                  raise SystemExit('readMeta marker not found')
+              t = t[:start] + t[end:]
+          sync.write_text(t)
+          PY
+      - name: Commit migration
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/android/app/src/main/java/com/charmiptv/app/EpgDatabase.kt frontend/android/app/src/main/java/com/charmiptv/app/PlaylistSyncCoordinator.kt
+          git commit -m "phase9: version playlist soft-delete schema"
+          git push origin HEAD:phase9/purple-next
