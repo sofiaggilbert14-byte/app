@@ -23,6 +23,8 @@ class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBas
     var guideNavigationActive: Boolean = false
     @JvmField
     var guideRepeatIntervalMs: Long = 72L
+    @JvmField
+    var remoteContext: String = "default"
     private const val MAX_SANE_CODEC_DIMENSION = 16_384
   }
 
@@ -39,6 +41,14 @@ class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBas
   @ReactMethod
   fun setGuideRepeatInterval(milliseconds: Double) {
     guideRepeatIntervalMs = milliseconds.toLong().coerceIn(60L, 120L)
+  }
+
+  @ReactMethod
+  fun setRemoteContext(context: String) {
+    remoteContext = when (context) {
+      "guide", "guide_groups", "main_drawer", "player", "modal" -> context
+      else -> "default"
+    }
   }
 
   @ReactMethod

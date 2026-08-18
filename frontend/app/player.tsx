@@ -89,6 +89,7 @@ export default function PlayerScreen() {
     recent,
     channelById,
     addRecent,
+    toggleFavorite,
     playerControlsTimeoutMs,
     autoRetryStreams,
     channelLogos,
@@ -649,6 +650,14 @@ export default function PlayerScreen() {
         return;
       }
       if (key === "SELECT") {
+        if (remoteShortcuts.longSelect === "favorite") {
+          const target = pendingChannelIdRef.current || channelIdRef.current;
+          if (target) {
+            toggleFavorite(target);
+            showNotice("Favorite updated");
+          }
+          return;
+        }
         if (remoteShortcuts.longSelect === "guide") {
           goGuide();
           return;
@@ -656,7 +665,7 @@ export default function PlayerScreen() {
         if (remoteShortcuts.longSelect === "controls") revealControls({ claimChannelsFocus: true });
       }
     });
-  }, [goGuide, isTV, remoteShortcuts.longDown, remoteShortcuts.longSelect, revealControls, scheduleHide, setChannelsOpen, setMoreOpen, setTracksOpen]);
+  }, [goGuide, isTV, remoteShortcuts.longDown, remoteShortcuts.longSelect, revealControls, scheduleHide, setChannelsOpen, setMoreOpen, setTracksOpen, showNotice, toggleFavorite]);
 
   useEffect(() => {
     if (!params.channelId || params.channelId === channelIdRef.current) return;

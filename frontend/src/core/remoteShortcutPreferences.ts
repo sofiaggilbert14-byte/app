@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { storage } from "@/src/utils/storage";
 
 export type LongDownAction = "channels" | "guide" | "none";
-export type LongSelectAction = "controls" | "guide" | "none";
+export type LongSelectAction = "favorite" | "controls" | "guide" | "none";
 
 export type RemoteShortcutPreferences = {
   longDown: LongDownAction;
@@ -12,7 +12,7 @@ export type RemoteShortcutPreferences = {
 const KEY = "gs_remote_shortcuts_v1";
 const DEFAULTS: RemoteShortcutPreferences = {
   longDown: "channels",
-  longSelect: "controls",
+  longSelect: "favorite",
 };
 
 let cached = DEFAULTS;
@@ -22,7 +22,7 @@ const listeners = new Set<(value: RemoteShortcutPreferences) => void>();
 function normalize(value: Partial<RemoteShortcutPreferences> | null | undefined): RemoteShortcutPreferences {
   return {
     longDown: value?.longDown === "guide" || value?.longDown === "none" ? value.longDown : "channels",
-    longSelect: value?.longSelect === "guide" || value?.longSelect === "none" ? value.longSelect : "controls",
+    longSelect: value?.longSelect === "favorite" || value?.longSelect === "guide" || value?.longSelect === "controls" || value?.longSelect === "none" ? value.longSelect : "favorite",
   };
 }
 

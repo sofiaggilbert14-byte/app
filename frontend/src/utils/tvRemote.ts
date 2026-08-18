@@ -110,6 +110,12 @@ export function setGuideNavigationActive(active: boolean) {
   } catch {}
 }
 
+export type RemoteContext = "default" | "guide" | "guide_groups" | "main_drawer" | "player" | "modal";
+
+export function setRemoteContext(context: RemoteContext) {
+  try { TvRemote?.setRemoteContext?.(context); } catch {}
+}
+
 /** Configure the bounded held-key cadence used while the Guide route is active. */
 export function setGuideRepeatInterval(milliseconds: number) {
   try {

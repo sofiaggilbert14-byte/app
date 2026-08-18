@@ -522,6 +522,7 @@ export default function SettingsScreen() {
                   label="Remote · Long OK/Select"
                   value={remoteShortcuts.longSelect}
                   options={[
+                    { label: "Add/remove Favorite", value: "favorite" },
                     { label: "Show player controls", value: "controls" },
                     { label: "Open TV Guide", value: "guide" },
                     { label: "No shortcut", value: "none" },

@@ -73,7 +73,8 @@ const NON_CIRCUIT_REASONS = new Set<SessionFailReason>([
 ]);
 /** After Media3 reports playing, wait this long for audio tracks before VLC swap. */
 const SILENT_AUDIO_GRACE_MS = 2200;
-const FROZEN_VIDEO_WATCHDOG_MS = 5000;
+const STALL_RECOVERY_NUDGE_MS = 7000;
+const FROZEN_VIDEO_WATCHDOG_MS = 18000;
 
 function pruneFailureMap(now = Date.now()) {
   for (const [key, state] of failureStateByKey) {
@@ -303,8 +304,8 @@ function VlcStream({
   const deviceMemory = useDeviceMemoryProfile();
   const lowRam = shouldUseLowRamTuning(deviceMemory);
   const initOptions = useMemo(() => {
-    const requestedMs = bufferProfile === "low_latency" ? 900 : bufferProfile === "stable" ? 3200 : 1800;
-    const fullMs = lowRam ? Math.min(requestedMs, 1800) : requestedMs;
+    const requestedMs = bufferProfile === "low_latency" ? 1200 : bufferProfile === "stable" ? 5200 : 3000;
+    const fullMs = lowRam ? Math.min(requestedMs, 3000) : requestedMs;
     const networkCaching = mode === "preview" ? 1000 : fullMs;
     const liveCaching = mode === "preview" ? 1000 : fullMs;
     const fileCaching = mode === "preview" ? 700 : Math.round(fullMs * 0.62);
@@ -466,6 +467,7 @@ function ExpoStream({
   const tracksCallbackRef = useRef(onTracksAvailable);
   const lastPlaybackTimeRef = useRef(-1);
   const lastPlaybackAdvanceAtRef = useRef(Date.now());
+  const lastStallNudgeAtRef = useRef(0);
   tracksCallbackRef.current = onTracksAvailable;
   const [mediaReady, setMediaReady] = useState(false);
   const { uri, headers } = useMemo(() => parsePipeHeaders(rawUri), [rawUri]);
@@ -496,14 +498,14 @@ function ExpoStream({
       const profile = tunneling && bufferProfile !== "stable" ? "low_latency" : bufferProfile;
       const full = profile === "low_latency"
         ? {
-            preferredForwardBufferDuration: lowRam ? 1.2 : (media3Audio === "ffmpeg" ? 2.0 : 1.5),
-            maxBufferBytes: (lowRam ? 18 : (media3Audio === "ffmpeg" ? 36 : 28)) * 1024 * 1024,
+            preferredForwardBufferDuration: lowRam ? 1.8 : (media3Audio === "ffmpeg" ? 2.8 : 2.2),
+            maxBufferBytes: (lowRam ? 20 : (media3Audio === "ffmpeg" ? 40 : 32)) * 1024 * 1024,
           }
         : profile === "stable"
-          ? { preferredForwardBufferDuration: lowRam ? 3.5 : 6, maxBufferBytes: (lowRam ? 28 : 48) * 1024 * 1024 }
+          ? { preferredForwardBufferDuration: lowRam ? 5 : 10, maxBufferBytes: (lowRam ? 32 : 64) * 1024 * 1024 }
           : {
-              preferredForwardBufferDuration: lowRam ? 2.2 : (media3Audio === "ffmpeg" ? 3.5 : 3),
-              maxBufferBytes: (lowRam ? 24 : (media3Audio === "ffmpeg" ? 56 : 48)) * 1024 * 1024,
+              preferredForwardBufferDuration: lowRam ? 3.5 : (media3Audio === "ffmpeg" ? 6 : 5),
+              maxBufferBytes: (lowRam ? 28 : (media3Audio === "ffmpeg" ? 60 : 52)) * 1024 * 1024,
             };
       const coordinatedCacheBudget = Math.max(
         8 * 1024 * 1024,
@@ -841,8 +843,20 @@ function ExpoStream({
     const watchdog = setInterval(() => {
       if (!mountedRef.current || tearingDownRef.current || paused || blocked) return;
       if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
-      if (Date.now() - lastPlaybackAdvanceAtRef.current < FROZEN_VIDEO_WATCHDOG_MS) return;
+      const stalledFor = Date.now() - lastPlaybackAdvanceAtRef.current;
+      if (stalledFor >= STALL_RECOVERY_NUDGE_MS && stalledFor < FROZEN_VIDEO_WATCHDOG_MS) {
+        // A live HLS/TS source can legitimately stop advancing for several
+        // seconds while waiting for the next provider segment. Nudge play once
+        // without tearing down sockets/decoders; only escalate a sustained stall.
+        if (Date.now() - lastStallNudgeAtRef.current >= STALL_RECOVERY_NUDGE_MS) {
+          lastStallNudgeAtRef.current = Date.now();
+          try { player.play(); } catch {}
+        }
+        return;
+      }
+      if (stalledFor < FROZEN_VIDEO_WATCHDOG_MS) return;
       lastPlaybackAdvanceAtRef.current = Date.now();
+      lastStallNudgeAtRef.current = 0;
       recordFailure(sessionRole, engine, uri, "stream-error");
       emit("error", "stream-error");
     }, 1000);
