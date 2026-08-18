@@ -12,6 +12,9 @@ import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.uimanager.ThemedReactContext
 import com.facebook.react.uimanager.events.RCTEventEmitter
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.ceil
@@ -83,6 +86,8 @@ class NativeGuideView(context: Context) : View(context) {
   private val nowPaint = Paint().apply { color = Color.rgb(197, 158, 255); strokeWidth = 2f * density }
   private val title = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 13f * density }
   private val muted = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(183, 174, 204); textSize = 11f * density }
+  private val timeFormatter = SimpleDateFormat("h:mm a", Locale.getDefault())
+  private val tickDate = Date()
 
   init {
     isFocusable = true
@@ -432,7 +437,8 @@ class NativeGuideView(context: Context) : View(context) {
       channel.color = if (rowIndex == selectedRow) Color.rgb(61, 43, 92) else Color.rgb(26, 22, 38)
       canvas.drawRect(0f, top, channelWidth, top + rowHeight - density, channel)
       canvas.drawRect(channelWidth, top, width.toFloat(), top + rowHeight - density, rowSurface)
-      drawClippedText(canvas, listOfNotNull(row.number.takeIf { it.isNotBlank() }, row.name).joinToString("  "), pad, top + rowHeight * .62f, channelWidth - pad, title)
+      val rowLabel = if (row.number.isBlank()) row.name else "${row.number}  ${row.name}"
+      drawClippedText(canvas, rowLabel, pad, top + rowHeight * .62f, channelWidth - pad, title)
 
       val list = programs[row.id].orEmpty()
       for (program in list) {
@@ -464,8 +470,9 @@ class NativeGuideView(context: Context) : View(context) {
     var tick = ((start / 1_800_000L) + 1) * 1_800_000L
     while (tick < end) {
       val x = timeToX(tick, start, end)
-      val date = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault()).format(java.util.Date(tick))
-      canvas.drawText(date, x + pad, headerHeight * .66f, muted)
+      tickDate.time = tick
+      val timeLabel = timeFormatter.format(tickDate)
+      canvas.drawText(timeLabel, x + pad, headerHeight * .66f, muted)
       canvas.drawLine(x, headerHeight, x, height.toFloat(), divider)
       tick += 1_800_000L
     }
