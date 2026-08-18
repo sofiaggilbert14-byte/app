@@ -81,15 +81,18 @@ async function load(): Promise<Snapshot> {
   }
 }
 
-async function persist(next: Snapshot): Promise<void> {
+async function persist(previous: Snapshot, next: Snapshot): Promise<void> {
   cached = next;
   loaded = true;
   emit();
-  await Promise.all([
-    storage.setItem(HIDDEN_KEY, next.hiddenIds),
-    storage.setItem(ORDER_KEY, next.customOrder),
-    storage.setItem(NUMBERS_KEY, next.customNumbers),
-  ]);
+
+  // Channel order may contain thousands of IDs. Do not JSON-serialize and write
+  // every customization blob when a focus action changed only one of them.
+  const writes: Promise<boolean>[] = [];
+  if (previous.hiddenIds !== next.hiddenIds) writes.push(storage.setItem(HIDDEN_KEY, next.hiddenIds));
+  if (previous.customOrder !== next.customOrder) writes.push(storage.setItem(ORDER_KEY, next.customOrder));
+  if (previous.customNumbers !== next.customNumbers) writes.push(storage.setItem(NUMBERS_KEY, next.customNumbers));
+  if (writes.length) await Promise.all(writes);
 }
 
 function mergeCustomOrder(current: string[], channelIds: string[]): string[] {
@@ -108,7 +111,7 @@ function mergeCustomOrder(current: string[], channelIds: string[]): string[] {
     seen.add(id);
     next.push(id);
   }
-  return next.slice(0, MAX_ORDER);
+  return next;
 }
 
 export function useChannelCustomize() {
@@ -139,7 +142,7 @@ export function useChannelCustomize() {
         ? prev.hiddenIds.filter((item) => item !== id)
         : [...prev.hiddenIds, id].slice(0, MAX_HIDDEN);
       const next = { ...prev, hiddenIds };
-      void persist(next);
+      void persist(prev, next);
       return next;
     });
   }, []);
@@ -148,11 +151,17 @@ export function useChannelCustomize() {
     const id = String(channelId || "").trim();
     if (!id) return;
     setValue((prev) => {
+      const normalized = number == null || !Number.isFinite(number)
+        ? null
+        : Math.max(1, Math.min(99999, Math.floor(number)));
+      const existing = prev.customNumbers[id];
+      if ((normalized == null && existing == null) || normalized === existing) return prev;
+
       const customNumbers = { ...prev.customNumbers };
-      if (number == null || !Number.isFinite(number)) delete customNumbers[id];
-      else customNumbers[id] = Math.max(1, Math.min(99999, Math.floor(number)));
+      if (normalized == null) delete customNumbers[id];
+      else customNumbers[id] = normalized;
       const next = { ...prev, customNumbers };
-      void persist(next);
+      void persist(prev, next);
       return next;
     });
   }, []);
@@ -167,7 +176,7 @@ export function useChannelCustomize() {
         return prev;
       }
       const next = { ...prev, customOrder };
-      void persist(next);
+      void persist(prev, next);
       return next;
     });
   }, []);
@@ -184,14 +193,14 @@ export function useChannelCustomize() {
       const target = index + direction;
       if (target < 0 || target >= order.length) {
         if (order.length === prev.customOrder.length && order.every((item, i) => item === prev.customOrder[i])) return prev;
-        const next = { ...prev, customOrder: order.slice(0, MAX_ORDER) };
-        void persist(next);
+        const next = { ...prev, customOrder: order };
+        void persist(prev, next);
         return next;
       }
       const [item] = order.splice(index, 1);
       order.splice(target, 0, item);
-      const next = { ...prev, customOrder: order.slice(0, MAX_ORDER) };
-      void persist(next);
+      const next = { ...prev, customOrder: order };
+      void persist(prev, next);
       return next;
     });
   }, []);
@@ -199,8 +208,14 @@ export function useChannelCustomize() {
   const setCustomOrder = useCallback((channelIds: string[]) => {
     const customOrder = sanitizeIds(channelIds, MAX_ORDER);
     setValue((prev) => {
+      if (
+        customOrder.length === prev.customOrder.length &&
+        customOrder.every((id, index) => id === prev.customOrder[index])
+      ) {
+        return prev;
+      }
       const next = { ...prev, customOrder };
-      void persist(next);
+      void persist(prev, next);
       return next;
     });
   }, []);
@@ -209,7 +224,7 @@ export function useChannelCustomize() {
     setValue((prev) => {
       if (!prev.customOrder.length) return prev;
       const next = { ...prev, customOrder: [] };
-      void persist(next);
+      void persist(prev, next);
       return next;
     });
   }, []);
