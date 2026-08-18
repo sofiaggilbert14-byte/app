@@ -112,7 +112,7 @@ export function GuidePreviewRail({
                 onError={onPreviewErrorRemount}
                 fallback={() => (
                   <View style={styles.fallback}>
-                    <ChannelLogo name={channel.name} logo={channel.logo} disabled={!showLogos} size={52} />
+                    <ChannelLogo name={channel.name} logo={channel.logo} disabled={!showLogos} size={104} />
                     <Text style={styles.fallbackHint}>Preview unavailable</Text>
                   </View>
                 )}
@@ -131,9 +131,9 @@ export function GuidePreviewRail({
             ) : (
               <View style={styles.fallback}>
                 {channel ? (
-                  <ChannelLogo name={channel.name} logo={channel.logo} disabled={!showLogos} size={52} />
+                  <ChannelLogo name={channel.name} logo={channel.logo} disabled={!showLogos} size={104} />
                 ) : (
-                  <Ionicons name="tv-outline" size={34} color={tvColors.purpleSoft} />
+                  <Ionicons name="tv-outline" size={58} color={tvColors.purpleSoft} />
                 )}
                 <Text style={styles.fallbackHint}>{channel ? "Tuning preview…" : "Select a channel"}</Text>
               </View>
@@ -298,10 +298,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: tvColors.purpleDeep,
-    gap: 8,
+    gap: 6,
     paddingHorizontal: 8,
   },
-  fallbackHint: { color: tvColors.textMuted, fontFamily: fonts.regular, fontSize: 9, textAlign: "center" },
+  fallbackHint: { color: tvColors.textMuted, fontFamily: fonts.regular, fontSize: 8.5, textAlign: "center" },
   liveTag: {
     position: "absolute",
     left: 6,
@@ -336,16 +336,12 @@ const styles = StyleSheet.create({
   },
   hiddenPreviewText: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 9 },
   actionGrid: {
-    // Previous two-column rail was 230px. The requested 40% reduction leaves
-    // a 138px single column and returns 92px to programme description copy.
     width: 138,
     flexShrink: 0,
     padding: 7,
     borderRightWidth: 1,
     borderRightColor: tvColors.line,
   },
-  // 174px panel - 14px padding - five 3px gaps = 145px; flex divides that
-  // evenly into six ~24.17px controls aligned to the preview's full height.
   actionColumn: { flex: 1, minWidth: 0, gap: 3 },
   copy: { flex: 1, minWidth: 0, paddingHorizontal: 12, paddingVertical: 9 },
   channelName: { color: tvColors.purpleSoft, fontFamily: fonts.semibold, fontSize: 10 },
