@@ -1159,6 +1159,7 @@ export async function refreshPlaylistOnly(): Promise<SourceStatus> {
     };
     await persistMeta(MEM);
     await syncPlaylistToNative(channels, playlistEpoch);
+    await touchNativePlaylistRefresh(playlistEpoch);
     await syncMatchesToNative(channels, MEM.guideEpoch || 0);
     emit();
     return sourceStatus();
