@@ -722,7 +722,11 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
         ? new Set(Object.keys(ownership.userOverrides))
         : new Set<string>();
       const refreshPreferences = await getSourceRefreshPreferences();
-      if (ownership.userEnabled && ownership.userUrl) {
+      // The custom source manager performs a deliberate full XMLTV index when
+      // the user presses Refresh Custom EPG. Background/scheduled refreshes only
+      // need to spend network/CPU/disk when at least one playlist channel is
+      // actually owned by the custom source.
+      if (ownership.userEnabled && ownership.userUrl && overrideIds.size > 0) {
         await refreshNativeUserGuide(ownership.userUrl);
       }
       if (!ownership.primaryEnabled) {
