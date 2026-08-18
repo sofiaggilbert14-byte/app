@@ -35,31 +35,36 @@ jobs:
           bridge = Path('frontend/src/nativeEpg.ts')
           b = bridge.read_text()
           if 'touchPlaylistRefresh?' not in b:
+              type_marker = '  isPlaylistCurrent?(contentFingerprint: string): Promise<boolean>;\n'
+              if type_marker not in b: raise SystemExit('isPlaylistCurrent type marker not found')
               b = b.replace(
-                  '  isPlaylistCurrent?(contentFingerprint: string): Promise<boolean>;\n',
-                  '  isPlaylistCurrent?(contentFingerprint: string): Promise<boolean>;\n  touchPlaylistRefresh?(playlistEpoch: number): Promise<boolean>;\n',
+                  type_marker,
+                  type_marker + '  touchPlaylistRefresh?(playlistEpoch: number): Promise<boolean>;\n',
                   1,
               )
-          marker2 = '''export async function nativePlaylistIsCurrent(contentFingerprint: string): Promise<boolean> {\n  if (!nativeModule?.isPlaylistCurrent) return false;\n  return nativeModule.isPlaylistCurrent(contentFingerprint);\n}\n'''
-          method2 = marker2 + '''\nexport async function touchNativePlaylistRefresh(playlistEpoch: number): Promise<void> {\n  if (nativeModule?.touchPlaylistRefresh) {\n    await nativeModule.touchPlaylistRefresh(playlistEpoch);\n  }\n}\n'''
           if 'export async function touchNativePlaylistRefresh' not in b:
-              if marker2 not in b: raise SystemExit('nativePlaylistIsCurrent wrapper marker not found')
-              b = b.replace(marker2, method2, 1)
+              insert_marker = 'export async function upsertNativePlaylistChannels(\n'
+              if insert_marker not in b: raise SystemExit('upsert playlist wrapper marker not found')
+              method2 = '''export async function touchNativePlaylistRefresh(playlistEpoch: number): Promise<void> {\n  if (nativeModule?.touchPlaylistRefresh) {\n    await nativeModule.touchPlaylistRefresh(playlistEpoch);\n  }\n}\n\n'''
+              b = b.replace(insert_marker, method2 + insert_marker, 1)
           bridge.write_text(b)
 
           source = Path('frontend/src/source.native.ts')
           s = source.read_text()
           if 'touchNativePlaylistRefresh,' not in s:
-              s = s.replace(
-                  '  nativePlaylistIsCurrent,\n',
-                  '  nativePlaylistIsCurrent,\n  touchNativePlaylistRefresh,\n',
-                  1,
-              )
-          old = '''  const contentFingerprint = playlistNativeContentFingerprint(channels);\n  if (await nativePlaylistIsCurrent(contentFingerprint)) return;\n  await upsertNativePlaylistChannels('''
-          new = '''  const contentFingerprint = playlistNativeContentFingerprint(channels);\n  if (await nativePlaylistIsCurrent(contentFingerprint)) {\n    await touchNativePlaylistRefresh(playlistEpoch);\n    return;\n  }\n  await upsertNativePlaylistChannels('''
-          if 'await touchNativePlaylistRefresh(playlistEpoch);' not in s:
-              if old not in s: raise SystemExit('native playlist fingerprint marker not found')
-              s = s.replace(old, new, 1)
+              import_marker = '  nativePlaylistIsCurrent,\n'
+              if import_marker not in s: raise SystemExit('nativePlaylistIsCurrent import marker not found')
+              s = s.replace(import_marker, import_marker + '  touchNativePlaylistRefresh,\n', 1)
+
+          # TiviMate keeps provider last-update time separate from row diffs.
+          # Advance it only after an actual successful M3U fetch path, never from
+          # a read-only SQLite cold start.
+          target = '      await syncPlaylistToNative(channels, playlistEpoch);\n'
+          replacement = target + '      await touchNativePlaylistRefresh(playlistEpoch);\n'
+          if replacement not in s:
+              count = s.count(target)
+              if count < 1: raise SystemExit('successful playlist sync marker not found')
+              s = s.replace(target, replacement)
           source.write_text(s)
           PY
       - name: Commit refresh clock fix
@@ -68,5 +73,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt frontend/src/nativeEpg.ts frontend/src/source.native.ts
-          git commit -m "phase9: advance native playlist refresh clock on no-change sync"
+          git commit -m "phase9: track successful playlist refresh separately from row diffs"
           git push origin HEAD:phase9/purple-next
