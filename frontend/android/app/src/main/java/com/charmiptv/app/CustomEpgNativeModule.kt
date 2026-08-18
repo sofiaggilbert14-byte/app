@@ -94,6 +94,7 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
         val minStop = now - GUIDE_HISTORY_MS
         val maxStart = now + GUIDE_WINDOW_MS
         val channelNames = LinkedHashMap<String, String>()
+        val channelIcons = LinkedHashMap<String, String>()
         var acceptedProgrammeCount = 0L
 
         val batches = streamFilteredXmltv(
@@ -102,6 +103,7 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
           minStop = minStop,
           maxStart = maxStart,
           channelNames = channelNames,
+          channelIcons = channelIcons,
           onAcceptedProgramme = { acceptedProgrammeCount += 1L },
         )
 
@@ -130,6 +132,9 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
           aliases.add(Triple(channelId, "display_name", displayName))
           aliases.add(Triple(channelId, "xmltv_id", channelId))
         }
+        for ((channelId, logoUrl) in channelIcons) {
+          if (logoUrl.isNotBlank()) aliases.add(Triple(channelId, "icon_url", logoUrl))
+        }
         userDatabase.replaceChannelAliases(aliases)
         userDatabase.setMeta("guide_refreshed_at", now.toString())
         userDatabase.setMeta("custom_programme_scope", activeXmltvIds.size.toString())
@@ -151,6 +156,7 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
     minStop: Long,
     maxStart: Long,
     channelNames: MutableMap<String, String>,
+    channelIcons: MutableMap<String, String>,
     onAcceptedProgramme: () -> Unit,
   ): Sequence<List<NativeEpgProgram>> = sequence {
     openPossiblyGzipped(sourceUrl).use { input ->
@@ -182,6 +188,13 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
                 if (displayName.isNotEmpty() && !channelNames.containsKey(id)) {
                   channelNames[id] = displayName
                 }
+              }
+            }
+            "icon" -> {
+              val id = metadataChannelId
+              val src = parser.getAttributeValue(null, "src")?.trim().orEmpty()
+              if (!id.isNullOrBlank() && src.isNotEmpty() && !channelIcons.containsKey(id)) {
+                channelIcons[id] = src
               }
             }
             "programme" -> {

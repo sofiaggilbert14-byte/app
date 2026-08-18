@@ -272,6 +272,9 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
           aliases.add(Triple(channelId, "display_name", displayName))
           aliases.add(Triple(channelId, "xmltv_id", channelId))
         }
+        for ((channelId, logoUrl) in channelLogos) {
+          if (logoUrl.isNotBlank()) aliases.add(Triple(channelId, "icon_url", logoUrl))
+        }
         for (channelId in channelIdsWithPrograms) {
           aliases.add(Triple(channelId, "has_programs", channelId))
           if (!channelNames.containsKey(channelId)) {
@@ -429,8 +432,15 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     queryExecutor.execute {
       try {
         val rows = database.activePlaylistChannels()
+        val userSource = controlDao.source(USER_SOURCE_ID)
+        val userEnabled = userSource?.enabled == true && userSource.url.isNotBlank()
+        val userBindings = if (userEnabled) controlDao.allChannelBindings(USER_SOURCE_ID) else emptyList()
+        val bindingByPlaylist = userBindings.associate { it.channelId to it.xmltvId }
+        val userIcons = if (bindingByPlaylist.isNotEmpty()) userDatabase.iconAliases(bindingByPlaylist.values.toSet()) else emptyMap()
         val channels = Arguments.createArray()
         for (row in rows) {
+          val customXmltvId = bindingByPlaylist[row.playlistId]
+          val effectiveEpgLogo = if (customXmltvId != null) userIcons[customXmltvId].orEmpty() else row.epgLogo
           channels.pushMap(Arguments.createMap().apply {
             putString("id", row.playlistId)
             putString("raw_tvg_id", row.rawTvgId)
@@ -438,6 +448,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
             putString("name", row.name)
             putString("logo", row.logo)
             putString("playlist_logo", row.logo)
+            putString("epg_logo", effectiveEpgLogo)
             putString("group", row.groupTitle)
             putString("url", row.streamUrl)
             putString("stream_type", row.streamType)

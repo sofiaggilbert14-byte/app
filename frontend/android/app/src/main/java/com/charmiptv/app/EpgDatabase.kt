@@ -25,6 +25,7 @@ internal data class PlaylistChannelRow(
   val streamUrl: String,
   val streamType: String,
   val providerPosition: Int,
+  val epgLogo: String = "",
 )
 
 internal data class PlaylistEpgMatchRow(
@@ -472,10 +473,13 @@ internal class EpgDatabase(context: Context, private val databaseName: String = 
     val rows = ArrayList<PlaylistChannelRow>()
     readableDatabase.rawQuery(
       """
-      SELECT playlist_id, raw_tvg_id, name, COALESCE(logo, ''),
-             COALESCE(group_title, ''), stream_url, stream_type, provider_position
-      FROM $PLAYLIST_TABLE
-      WHERE deleted_at = 0 AND stream_url != ''
+      SELECT c.playlist_id, c.raw_tvg_id, c.name, COALESCE(c.logo, ''),
+             COALESCE(c.group_title, ''), c.stream_url, c.stream_type, c.provider_position,
+             COALESCE((SELECT a.alias_value FROM $ALIAS_TABLE a
+                       WHERE a.channel_id = m.xmltv_id AND a.alias_kind = 'icon_url' LIMIT 1), '')
+      FROM $PLAYLIST_TABLE c
+      LEFT JOIN $MATCH_TABLE m ON m.playlist_id = c.playlist_id
+      WHERE c.deleted_at = 0 AND c.stream_url != ''
       ORDER BY provider_position ASC, name COLLATE NOCASE ASC
       """.trimIndent(),
       null,
@@ -491,11 +495,30 @@ internal class EpgDatabase(context: Context, private val databaseName: String = 
             streamUrl = cursor.getString(5),
             streamType = cursor.getString(6),
             providerPosition = cursor.getInt(7),
+            epgLogo = cursor.getString(8),
           )
         )
       }
     }
     return rows
+  }
+
+  fun iconAliases(channelIds: Collection<String>): Map<String, String> {
+    if (channelIds.isEmpty()) return emptyMap()
+    val result = LinkedHashMap<String, String>()
+    for (chunk in channelIds.chunked(IN_CLAUSE_CHUNK)) {
+      val placeholders = chunk.joinToString(",") { "?" }
+      val args = ArrayList<String>(chunk.size + 1)
+      args.add("icon_url")
+      args.addAll(chunk)
+      readableDatabase.rawQuery(
+        "SELECT channel_id, alias_value FROM $ALIAS_TABLE WHERE alias_kind = ? AND channel_id IN ($placeholders)",
+        args.toTypedArray(),
+      ).use { cursor ->
+        while (cursor.moveToNext()) result[cursor.getString(0)] = cursor.getString(1)
+      }
+    }
+    return result
   }
 
   /** Replace playlist channel rows (independent of EPG live table). */
