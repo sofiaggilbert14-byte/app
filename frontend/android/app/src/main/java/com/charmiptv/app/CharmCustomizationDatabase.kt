@@ -208,7 +208,7 @@ internal abstract class CharmCustomizationDatabase : RoomDatabase() {
         context.applicationContext,
         CharmCustomizationDatabase::class.java,
         "charm_user_customization_v1.db",
-      ).setJournalMode(JournalMode.WRITE_AHEAD_LOGGING).build().also { instance = it }
+      ).setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING).build().also { instance = it }
     }
   }
 }
