@@ -1,0 +1,74 @@
+name: Phase 9 TiviMate Native Playlist Read
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-native-playlist-read.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Add indexed native playlist snapshot read path
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          db = Path('frontend/android/app/src/main/java/com/charmiptv/app/EpgDatabase.kt')
+          s = db.read_text()
+          marker = '  /** Replace playlist channel rows (independent of EPG live table). */\n'
+          method = '''  /** Active provider catalog ordered by persisted playlist position. */\n  fun activePlaylistChannels(): List<PlaylistChannelRow> {\n    val rows = ArrayList<PlaylistChannelRow>()\n    readableDatabase.rawQuery(\n      """\n      SELECT playlist_id, raw_tvg_id, name, COALESCE(logo, ''),\n             COALESCE(group_title, ''), stream_url, stream_type, provider_position\n      FROM $PLAYLIST_TABLE\n      WHERE deleted_at = 0 AND stream_url != ''\n      ORDER BY provider_position ASC, name COLLATE NOCASE ASC\n      """.trimIndent(),\n      null,\n    ).use { cursor ->\n      while (cursor.moveToNext()) {\n        rows.add(\n          PlaylistChannelRow(\n            playlistId = cursor.getString(0),\n            rawTvgId = cursor.getString(1),\n            name = cursor.getString(2),\n            logo = cursor.getString(3),\n            groupTitle = cursor.getString(4),\n            streamUrl = cursor.getString(5),\n            streamType = cursor.getString(6),\n            providerPosition = cursor.getInt(7),\n          )\n        )\n      }\n    }\n    return rows\n  }\n\n'''
+          if 'fun activePlaylistChannels()' not in s:
+              if marker not in s: raise SystemExit('playlist method marker not found')
+              s = s.replace(marker, method + marker, 1)
+          db.write_text(s)
+
+          sync = Path('frontend/android/app/src/main/java/com/charmiptv/app/PlaylistSyncCoordinator.kt')
+          t = sync.read_text()
+          old = '      writeMeta(db, "playlist_epoch", playlistEpoch.toString())\n      if (fingerprint.isNotEmpty()) writeMeta(db, FINGERPRINT_KEY, fingerprint)\n'
+          new = '      writeMeta(db, "playlist_epoch", playlistEpoch.toString())\n      writeMeta(db, "playlist_refreshed_at", now.toString())\n      if (fingerprint.isNotEmpty()) writeMeta(db, FINGERPRINT_KEY, fingerprint)\n'
+          if 'writeMeta(db, "playlist_refreshed_at"' not in t:
+              if old not in t: raise SystemExit('playlist meta marker not found')
+              t = t.replace(old, new, 1)
+          sync.write_text(t)
+
+          native = Path('frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt')
+          n = native.read_text()
+          marker2 = '  @ReactMethod\n  fun isPlaylistCurrent(contentFingerprint: String, promise: Promise) {\n'
+          method2 = '''  @ReactMethod\n  fun getStoredPlaylist(promise: Promise) {\n    queryExecutor.execute {\n      try {\n        val rows = database.activePlaylistChannels()\n        val channels = Arguments.createArray()\n        for (row in rows) {\n          channels.pushMap(Arguments.createMap().apply {\n            putString("id", row.playlistId)\n            putString("raw_tvg_id", row.rawTvgId)\n            putString("tvg_id", row.rawTvgId)\n            putString("name", row.name)\n            putString("logo", row.logo)\n            putString("playlist_logo", row.logo)\n            putString("group", row.groupTitle)\n            putString("url", row.streamUrl)\n            putString("stream_type", row.streamType)\n          })\n        }\n        promise.resolve(Arguments.createMap().apply {\n          putArray("channels", channels)\n          putDouble("playlistEpoch", (database.getMeta("playlist_epoch")?.toLongOrNull() ?: 0L).toDouble())\n          putDouble("playlistRefreshedAt", (database.getMeta("playlist_refreshed_at")?.toLongOrNull() ?: 0L).toDouble())\n          putDouble("guideEpoch", (database.getMeta("guide_epoch")?.toLongOrNull() ?: 0L).toDouble())\n          putDouble("guideRefreshedAt", (database.getMeta("guide_refreshed_at")?.toLongOrNull() ?: 0L).toDouble())\n          putDouble("epgProgramCount", database.count().toDouble())\n        })\n      } catch (t: Throwable) {\n        promise.reject("PLAYLIST_STORED_READ_FAILED", t.message ?: "Could not read stored playlist", t)\n      }\n    }\n  }\n\n'''
+          if 'fun getStoredPlaylist(promise: Promise)' not in n:
+              if marker2 not in n: raise SystemExit('isPlaylistCurrent marker not found')
+              n = n.replace(marker2, method2 + marker2, 1)
+          native.write_text(n)
+
+          bridge = Path('frontend/src/nativeEpg.ts')
+          b = bridge.read_text()
+          b = b.replace(
+              '  fetchPlaylist?(url: string): Promise<NativePlaylistResult>;\n',
+              '  fetchPlaylist?(url: string): Promise<NativePlaylistResult>;\n  getStoredPlaylist?(): Promise<{ channels: Channel[]; playlistEpoch?: number; playlistRefreshedAt?: number; guideEpoch?: number; guideRefreshedAt?: number; epgProgramCount?: number }>;\n',
+              1,
+          ) if 'getStoredPlaylist?()' not in b else b
+          marker3 = '''export async function fetchNativePlaylist(url: string): Promise<NativePlaylistResult> {\n  if (!nativeModule || typeof nativeModule.fetchPlaylist !== "function") {\n    throw new Error("Native playlist engine is unavailable");\n  }\n  return nativeModule.fetchPlaylist(url);\n}\n'''
+          method3 = marker3 + '''\nexport async function readNativeStoredPlaylist(): Promise<{\n  channels: Channel[];\n  playlistEpoch: number;\n  playlistRefreshedAt: number;\n  guideEpoch: number;\n  guideRefreshedAt: number;\n  epgProgramCount: number;\n} | null> {\n  if (!nativeModule?.getStoredPlaylist) return null;\n  const value = await nativeModule.getStoredPlaylist();\n  const channels = Array.isArray(value?.channels) ? value.channels : [];\n  if (!channels.length) return null;\n  return {\n    channels,\n    playlistEpoch: Number(value.playlistEpoch || 0),\n    playlistRefreshedAt: Number(value.playlistRefreshedAt || 0),\n    guideEpoch: Number(value.guideEpoch || 0),\n    guideRefreshedAt: Number(value.guideRefreshedAt || 0),\n    epgProgramCount: Number(value.epgProgramCount || 0),\n  };\n}\n'''
+          if 'export async function readNativeStoredPlaylist' not in b:
+              if marker3 not in b: raise SystemExit('fetchNativePlaylist wrapper marker not found')
+              b = b.replace(marker3, method3, 1)
+          bridge.write_text(b)
+          PY
+      - name: Commit native playlist read
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/android/app/src/main/java/com/charmiptv/app/EpgDatabase.kt frontend/android/app/src/main/java/com/charmiptv/app/PlaylistSyncCoordinator.kt frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt frontend/src/nativeEpg.ts
+          git commit -m "phase9: add native playlist cold-start snapshot"
+          git push origin HEAD:phase9/purple-next
