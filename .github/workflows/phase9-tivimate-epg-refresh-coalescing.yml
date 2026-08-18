@@ -47,3 +47,5 @@ jobs:
           git add frontend/src/source.native.ts frontend/tests/memoryCrossAudit.test.mjs
           git commit -m "phase9: coalesce EPG refresh ownership"
           git push origin HEAD:phase9/purple-next
+
+# retry after concurrent Phase 9 helper commits
