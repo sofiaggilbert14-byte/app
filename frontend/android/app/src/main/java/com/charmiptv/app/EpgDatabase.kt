@@ -603,6 +603,17 @@ internal class EpgDatabase(context: Context) :
    * a slow XMLTV refresh and a failed/empty refresh never destroys it.
    */
   fun replaceBatches(batches: Sequence<List<NativeEpgProgram>>) {
+    replaceNamespaceBatches(batches, userNamespace = false)
+  }
+
+  fun replaceUserBatches(batches: Sequence<List<NativeEpgProgram>>) {
+    replaceNamespaceBatches(batches, userNamespace = true)
+  }
+
+  private fun replaceNamespaceBatches(
+    batches: Sequence<List<NativeEpgProgram>>,
+    userNamespace: Boolean,
+  ) {
     val db = writableDatabase
     db.beginTransaction()
     try {
@@ -634,7 +645,12 @@ internal class EpgDatabase(context: Context) :
 
       db.beginTransaction()
       try {
-        db.delete(LIVE_TABLE, null, null)
+        if (userNamespace) {
+          db.delete(LIVE_TABLE, "channel_id LIKE ?", arrayOf("${USER_EPG_PREFIX}%"))
+        } else {
+          // Built-in refresh never destroys user-owned programme rows.
+          db.delete(LIVE_TABLE, "channel_id NOT LIKE ?", arrayOf("${USER_EPG_PREFIX}%"))
+        }
         db.execSQL(
           """
           INSERT INTO $LIVE_TABLE(channel_id, title, description, category, start_time, end_time)
@@ -665,6 +681,32 @@ internal class EpgDatabase(context: Context) :
         // Preserve the original failure and last-good LIVE data.
       }
       throw failure
+    }
+  }
+
+  fun clearBuiltInPrograms() {
+    val db = writableDatabase
+    db.beginTransaction()
+    try {
+      db.delete(LIVE_TABLE, "channel_id NOT LIKE ?", arrayOf("${USER_EPG_PREFIX}%"))
+      db.delete(STAGING_TABLE, null, null)
+      rebuildProgrammeSearch(db)
+      db.setTransactionSuccessful()
+    } finally {
+      db.endTransaction()
+    }
+  }
+
+  fun clearUserPrograms() {
+    val db = writableDatabase
+    db.beginTransaction()
+    try {
+      db.delete(LIVE_TABLE, "channel_id LIKE ?", arrayOf("${USER_EPG_PREFIX}%"))
+      db.delete(STAGING_TABLE, null, null)
+      rebuildProgrammeSearch(db)
+      db.setTransactionSuccessful()
+    } finally {
+      db.endTransaction()
     }
   }
 
@@ -817,6 +859,7 @@ internal class EpgDatabase(context: Context) :
     private const val MATCH_TABLE = "playlist_epg_matches"
     private const val STOP_UPDATE_TABLE = "epg_stop_updates"
     private const val FTS_TABLE = "epg_programmes_fts"
+    private const val USER_EPG_PREFIX = "user:"
     private const val PLAYLIST_CONTENT_FINGERPRINT_KEY = "playlist_content_fingerprint"
     private const val MATCH_CONTENT_FINGERPRINT_KEY = "match_content_fingerprint"
     private const val IN_CLAUSE_CHUNK = 400
