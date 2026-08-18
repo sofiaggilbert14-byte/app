@@ -45,14 +45,12 @@ import { pickDefaultSubtitleTrack, useSubtitlePreferences } from "@/src/core/sub
 import { pickPreferredAudioTrack, useAudioTrackPreferences } from "@/src/core/audioTrackPreferences";
 import { clearStreamFailure, noteStreamFailure } from "@/src/core/streamFailureRegistry";
 import * as FileSystem from "expo-file-system/legacy";
-import { refreshPlaylistOnly } from "@/src/source";
 import type { Channel } from "@/src/api";
 
 const CHANNEL_PREVIEW_DELAY_MS = 650;
 const CHANNEL_ZAP_SETTLE_MS = 850;
 const STREAM_RETRY_DELAYS_MS = [1000, 2000, 4000] as const;
 const MAX_AUTO_STREAM_RETRIES = 4;
-const MAX_TOKEN_REFRESH_CHANNELS = 128;
 const SWITCH_NOTICE_MS = 1800;
 const STABLE_HISTORY_DELAY_MS = 5000;
 
@@ -157,7 +155,6 @@ export default function PlayerScreen() {
   const subtitleDefaultLanguageRef = useRef(subtitleDefaultLanguage);
   const subtitleAutoAppliedRef = useRef<string | null>(null);
   const audioAutoAppliedRef = useRef<string | null>(null);
-  const tokenRefreshAttemptedRef = useRef(new Set<string>());
 
   const isTV = Platform.OS !== "web" && Platform.isTV;
   useEffect(() => {
@@ -567,24 +564,14 @@ export default function PlayerScreen() {
         reason !== "circuit-open"
       ) {
         noteStreamFailure(channelIdRef.current);
-        const failedChannelId = channelIdRef.current;
-        if (!tokenRefreshAttemptedRef.current.has(failedChannelId)) {
-          tokenRefreshAttemptedRef.current.add(failedChannelId);
-          while (tokenRefreshAttemptedRef.current.size > MAX_TOKEN_REFRESH_CHANNELS) {
-            const oldest = tokenRefreshAttemptedRef.current.values().next().value;
-            if (!oldest) break;
-            tokenRefreshAttemptedRef.current.delete(oldest);
-          }
-          // Provider URLs often embed short-lived tokens. Refresh source data
-          // silently once, then normal store propagation remounts only if the
-          // channel URL actually changed.
-          void refreshPlaylistOnly().catch(() => undefined);
-        }
+        // Keep generic playback recovery local to the active decoder. A transient
+        // live-stream stall must not trigger a full 6k+ playlist download/parse
+        // while Media3/VLC is simultaneously retrying. Source refresh remains an
+        // explicit Settings/source operation instead of competing with playback.
       }
       if (next === "playing") {
         setFailReason(null);
         clearStreamFailure(channelIdRef.current);
-        tokenRefreshAttemptedRef.current.delete(channelIdRef.current);
       }
     },
     [setTracksOpen],
