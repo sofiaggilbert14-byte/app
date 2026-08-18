@@ -33,7 +33,12 @@ import { sanitizeFavoriteIds, toggleFavoriteId } from "@/src/utils/favoriteIds";
 import { pushRecentId, sanitizeRecentIds } from "@/src/utils/recentIds";
 import { sanitizeReminders } from "@/src/utils/reminderIds";
 import { remapStoredChannelIds } from "@/src/utils/channelIdentityMigrate";
-import { getPowerProfileTuning, resolvePowerProfile, type PowerProfile } from "@/src/core/devicePowerProfile";
+import {
+  getPowerProfileTuning,
+  resolvePowerProfile,
+  setDeviceLowRamCacheCap,
+  type PowerProfile,
+} from "@/src/core/devicePowerProfile";
 import { readDeviceMemoryProfile, shouldUseLowRamTuning } from "@/src/core/deviceMemoryProfile";
 import { resolveStoredGuideLayout } from "@/src/core/guideLayoutDefault";
 import { applyManualEpgRemaps, resolveEpgGuideFilter, sanitizeEpgManualRemap, type EpgGuideFilter } from "@/src/core/epgUserOverrides";
@@ -404,12 +409,17 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     const next = resolvePowerProfile(v);
     setPowerProfileState(next);
     storage.setItem(POWER_PROFILE_KEY, next);
-    const tuning = getPowerProfileTuning(next);
+    const visualTuning = getPowerProfileTuning(next);
     void readDeviceMemoryProfile().then((memory) => {
-      setChannelLogoMemoryProfile(next === "weak" || shouldUseLowRamTuning(memory), memory?.logoMemoryBytes);
+      const lowRam = shouldUseLowRamTuning(memory);
+      setDeviceLowRamCacheCap(lowRam);
+      const memorySafeTuning = getPowerProfileTuning(next);
+      setGuideProgramRowLimit(memorySafeTuning.programmeRowCacheLimit);
+      setProgrammeWindowCacheLimit(memorySafeTuning.programmeRowCacheLimit);
+      setChannelLogoMemoryProfile(next === "weak" || lowRam, memory?.logoMemoryBytes);
     });
-    setLogosOffWhileSurfingState(tuning.logosOffWhileSurfingDefault);
-    storage.setItem(LOGOS_OFF_SURF_KEY, tuning.logosOffWhileSurfingDefault);
+    setLogosOffWhileSurfingState(visualTuning.logosOffWhileSurfingDefault);
+    storage.setItem(LOGOS_OFF_SURF_KEY, visualTuning.logosOffWhileSurfingDefault);
   }, []);
 
   const setLogosOffWhileSurfing = useCallback((v: boolean) => {
@@ -989,8 +999,13 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       const profile = resolvePowerProfile(await storage.getItem<string>(POWER_PROFILE_KEY, "normal"));
       setPowerProfileState(profile);
       const deviceMemory = await readDeviceMemoryProfile();
+      const lowRamDevice = shouldUseLowRamTuning(deviceMemory);
+      setDeviceLowRamCacheCap(lowRamDevice);
+      const memorySafeTuning = getPowerProfileTuning(profile);
+      setGuideProgramRowLimit(memorySafeTuning.programmeRowCacheLimit);
+      setProgrammeWindowCacheLimit(memorySafeTuning.programmeRowCacheLimit);
       setChannelLogoMemoryProfile(
-        profile === "weak" || shouldUseLowRamTuning(deviceMemory),
+        profile === "weak" || lowRamDevice,
         deviceMemory?.logoMemoryBytes,
       );
       const rawLogosOffWhileSurfing = await storage.getItem<boolean | null>(LOGOS_OFF_SURF_KEY, null);
