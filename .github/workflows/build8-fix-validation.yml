@@ -1,0 +1,43 @@
+name: Build 8 Repair Validation
+
+on:
+  push:
+    branches:
+      - fix/purple-next-build8-tester-pass
+    paths:
+      - "frontend/**"
+      - ".github/workflows/build8-fix-validation.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build8-repair-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Verify native config
+        run: npm run verify:native-config
+      - name: Expo doctor
+        run: npm run doctor
+      - name: Unit and wiring tests
+        run: npm test
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
