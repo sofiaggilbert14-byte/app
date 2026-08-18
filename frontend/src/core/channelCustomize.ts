@@ -5,8 +5,8 @@ const HIDDEN_KEY = "gs_hidden_channel_ids";
 const ORDER_KEY = "gs_channel_custom_order";
 const NUMBERS_KEY = "gs_channel_custom_numbers";
 
-const MAX_HIDDEN = 2000;
-const MAX_ORDER = 4000;
+const MAX_HIDDEN = 10000;
+const MAX_ORDER = 10000;
 
 type Snapshot = {
   hiddenIds: string[];
@@ -92,6 +92,25 @@ async function persist(next: Snapshot): Promise<void> {
   ]);
 }
 
+function mergeCustomOrder(current: string[], channelIds: string[]): string[] {
+  const available = sanitizeIds(channelIds, MAX_ORDER);
+  const availableSet = new Set(available);
+  const next: string[] = [];
+  const seen = new Set<string>();
+
+  for (const id of current) {
+    if (!availableSet.has(id) || seen.has(id)) continue;
+    seen.add(id);
+    next.push(id);
+  }
+  for (const id of available) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    next.push(id);
+  }
+  return next.slice(0, MAX_ORDER);
+}
+
 export function useChannelCustomize() {
   const [value, setValue] = useState(cached);
   useEffect(() => {
@@ -138,15 +157,37 @@ export function useChannelCustomize() {
     });
   }, []);
 
-  const moveInCustomOrder = useCallback((channelId: string, direction: -1 | 1) => {
+  const initializeCustomOrder = useCallback((channelIds: string[]) => {
+    setValue((prev) => {
+      const customOrder = mergeCustomOrder(prev.customOrder, channelIds);
+      if (
+        customOrder.length === prev.customOrder.length &&
+        customOrder.every((id, index) => id === prev.customOrder[index])
+      ) {
+        return prev;
+      }
+      const next = { ...prev, customOrder };
+      void persist(next);
+      return next;
+    });
+  }, []);
+
+  const moveInCustomOrder = useCallback((channelId: string, direction: -1 | 1, channelIds?: string[]) => {
     const id = String(channelId || "").trim();
     if (!id) return;
     setValue((prev) => {
-      const order = prev.customOrder.length ? prev.customOrder.slice() : [];
+      const order = channelIds?.length
+        ? mergeCustomOrder(prev.customOrder, channelIds)
+        : prev.customOrder.slice();
       if (!order.includes(id)) order.push(id);
       const index = order.indexOf(id);
       const target = index + direction;
-      if (target < 0 || target >= order.length) return prev;
+      if (target < 0 || target >= order.length) {
+        if (order.length === prev.customOrder.length && order.every((item, i) => item === prev.customOrder[i])) return prev;
+        const next = { ...prev, customOrder: order.slice(0, MAX_ORDER) };
+        void persist(next);
+        return next;
+      }
       const [item] = order.splice(index, 1);
       order.splice(target, 0, item);
       const next = { ...prev, customOrder: order.slice(0, MAX_ORDER) };
@@ -155,11 +196,23 @@ export function useChannelCustomize() {
     });
   }, []);
 
+  const setCustomOrder = useCallback((channelIds: string[]) => {
+    const customOrder = sanitizeIds(channelIds, MAX_ORDER);
+    setValue((prev) => {
+      const next = { ...prev, customOrder };
+      void persist(next);
+      return next;
+    });
+  }, []);
+
   const clearCustomOrder = useCallback(() => {
-    const next = { ...value, customOrder: [] };
-    setValue(next);
-    void persist(next);
-  }, [value]);
+    setValue((prev) => {
+      if (!prev.customOrder.length) return prev;
+      const next = { ...prev, customOrder: [] };
+      void persist(next);
+      return next;
+    });
+  }, []);
 
   return {
     hiddenIds: value.hiddenIds,
@@ -168,7 +221,9 @@ export function useChannelCustomize() {
     hiddenSet,
     toggleHidden,
     setCustomNumber,
+    initializeCustomOrder,
     moveInCustomOrder,
+    setCustomOrder,
     clearCustomOrder,
   };
 }
