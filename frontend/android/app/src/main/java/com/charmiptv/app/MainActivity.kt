@@ -39,6 +39,25 @@ class MainActivity : ReactActivity() {
       emittedLongPressKeyCode = -1
     }
 
+    // Once a held OK/Select has become a semantic long press, suppress the
+    // remaining repeat DOWN events for that same physical hold. Otherwise the
+    // fullscreen player's raw TvRemoteKey stream can wake/move controls while
+    // the long-OK Favorite action is firing. Do not apply this to directional
+    // keys: held Guide Up/Down must keep their bounded native repeat cadence.
+    val selectKey =
+      event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER ||
+        event.keyCode == android.view.KeyEvent.KEYCODE_ENTER ||
+        event.keyCode == android.view.KeyEvent.KEYCODE_NUMPAD_ENTER ||
+        event.keyCode == android.view.KeyEvent.KEYCODE_BUTTON_A
+    if (
+      event.action == android.view.KeyEvent.ACTION_DOWN &&
+        event.repeatCount > 0 &&
+        selectKey &&
+        emittedLongPressKeyCode == event.keyCode
+    ) {
+      return true
+    }
+
     // Phase 9 remote ownership. Drawers own only their boundary transitions;
     // Up/Down/OK remain native focus events inside the active drawer.
     if (event.action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount == 0 && !TvRemoteModule.pointerActive) {
