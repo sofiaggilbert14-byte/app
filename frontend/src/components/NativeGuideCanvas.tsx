@@ -17,22 +17,58 @@ type Props = {
 };
 const Native = Platform.OS === "android" ? requireNativeComponent<any>("CharmNativeGuide") : null;
 
-export const NativeGuideCanvas = memo(function NativeGuideCanvas(props: Props) {
-  const channelById = useMemo(() => new Map(props.channels.map((channel) => [channel.id, channel])), [props.channels]);
-  const nativeChannels = useMemo(() => props.channels.map((channel) => ({ id: channel.id, name: channel.name, number: String(props.channelNumberById[channel.id] || "") })), [props.channelNumberById, props.channels]);
-  const windowStartMs = Date.parse(props.windowStart);
-  const windowEndMs = Date.parse(props.windowEnd);
+export const NativeGuideCanvas = memo(function NativeGuideCanvas({
+  channels,
+  windowStart,
+  windowEnd,
+  active,
+  restoreChannelId,
+  restoreTimeMs,
+  channelNumberById,
+  onChannelFocus,
+  onProgramFocus,
+  onChannelPress,
+  onProgramPress,
+  onViewportChannelIds,
+  onLeftBoundary,
+  onUpBoundary,
+}: Props) {
+  // Build the lookup directly. `new Map(channels.map(...))` materialized a
+  // second 6k-entry tuple array before Map construction on large playlists.
+  const channelById = useMemo(() => {
+    const map = new Map<string, Channel>();
+    for (const channel of channels) map.set(channel.id, channel);
+    return map;
+  }, [channels]);
+
+  // This is the one unavoidable full-list bridge payload. Keep it deliberately
+  // lean: native Guide owns only id/name/number, never stream URLs/logos/programs.
+  const nativeChannels = useMemo(() => {
+    const rows = new Array<{ id: string; name: string; number: string }>(channels.length);
+    for (let index = 0; index < channels.length; index++) {
+      const channel = channels[index];
+      rows[index] = {
+        id: channel.id,
+        name: channel.name,
+        number: String(channelNumberById[channel.id] || ""),
+      };
+    }
+    return rows;
+  }, [channelNumberById, channels]);
+
+  const windowStartMs = Date.parse(windowStart);
+  const windowEndMs = Date.parse(windowEnd);
   const validRestoreChannelId = useMemo(() => {
-    const requested = String(props.restoreChannelId || "").trim();
+    const requested = String(restoreChannelId || "").trim();
     if (requested && channelById.has(requested)) return requested;
-    return props.channels[0]?.id || "";
-  }, [channelById, props.channels, props.restoreChannelId]);
+    return channels[0]?.id || "";
+  }, [channelById, channels, restoreChannelId]);
   const validRestoreTimeMs = useMemo(() => {
-    const requested = Number(props.restoreTimeMs || 0);
+    const requested = Number(restoreTimeMs || 0);
     if (!Number.isFinite(requested) || requested <= 0) return 0;
     if (!Number.isFinite(windowStartMs) || !Number.isFinite(windowEndMs) || windowEndMs <= windowStartMs) return 0;
     return Math.max(windowStartMs, Math.min(windowEndMs - 1, requested));
-  }, [props.restoreTimeMs, windowEndMs, windowStartMs]);
+  }, [restoreTimeMs, windowEndMs, windowStartMs]);
   const [deferredRestoreChannelId, setDeferredRestoreChannelId] = useState("");
   const [deferredRestoreTimeMs, setDeferredRestoreTimeMs] = useState(0);
 
@@ -44,15 +80,46 @@ export const NativeGuideCanvas = memo(function NativeGuideCanvas(props: Props) {
     setDeferredRestoreTimeMs(validRestoreTimeMs);
   }, [validRestoreChannelId, validRestoreTimeMs]);
 
-  const onSelectionChange = useCallback((event: NativeSyntheticEvent<SelectionEvent>) => {
-    const value = event.nativeEvent; const channel = channelById.get(value.channelId); if (!channel) return;
-    const program = value.program ? { title: value.program.title, desc: value.program.desc, category: value.program.category, start: new Date(value.program.startMs).toISOString(), stop: new Date(value.program.endMs).toISOString() } : null;
-    if (program) props.onProgramFocus(program, channel, value.settled); else props.onChannelFocus(channel, value.settled);
-    if (value.pressed) { if (program) props.onProgramPress(program, channel); else props.onChannelPress(channel); }
-  }, [channelById, props]);
-  const onRunwayChange = useCallback((event: NativeSyntheticEvent<RunwayEvent>) => {
-    const value = event.nativeEvent; props.onViewportChannelIds(value.ids || [], value.priorityIds || [], value.pageSize || 8);
-  }, [props]);
+  const handleSelectionChange = useCallback((event: NativeSyntheticEvent<SelectionEvent>) => {
+    const value = event.nativeEvent;
+    const channel = channelById.get(value.channelId);
+    if (!channel) return;
+    const program = value.program
+      ? {
+          title: value.program.title,
+          desc: value.program.desc,
+          category: value.program.category,
+          start: new Date(value.program.startMs).toISOString(),
+          stop: new Date(value.program.endMs).toISOString(),
+        }
+      : null;
+    if (program) onProgramFocus(program, channel, value.settled);
+    else onChannelFocus(channel, value.settled);
+    if (value.pressed) {
+      if (program) onProgramPress(program, channel);
+      else onChannelPress(channel);
+    }
+  }, [channelById, onChannelFocus, onChannelPress, onProgramFocus, onProgramPress]);
+
+  const handleRunwayChange = useCallback((event: NativeSyntheticEvent<RunwayEvent>) => {
+    const value = event.nativeEvent;
+    onViewportChannelIds(value.ids || [], value.priorityIds || [], value.pageSize || 8);
+  }, [onViewportChannelIds]);
+
   if (!Native) return <View style={{ flex: 1 }} />;
-  return <Native style={{ flex: 1 }} channels={nativeChannels} windowStartMs={windowStartMs} windowEndMs={windowEndMs} active={props.active} restoreChannelId={deferredRestoreChannelId} restoreTimeMs={deferredRestoreTimeMs} onSelectionChange={onSelectionChange} onRunwayChange={onRunwayChange} onLeftBoundary={props.onLeftBoundary} onUpBoundary={props.onUpBoundary} />;
+  return (
+    <Native
+      style={{ flex: 1 }}
+      channels={nativeChannels}
+      windowStartMs={windowStartMs}
+      windowEndMs={windowEndMs}
+      active={active}
+      restoreChannelId={deferredRestoreChannelId}
+      restoreTimeMs={deferredRestoreTimeMs}
+      onSelectionChange={handleSelectionChange}
+      onRunwayChange={handleRunwayChange}
+      onLeftBoundary={onLeftBoundary}
+      onUpBoundary={onUpBoundary}
+    />
+  );
 });
