@@ -23,6 +23,19 @@ jobs:
           python-version: '3.12'
       - name: Apply guarded native redirect patch
         run: python ci/patch-build8-http-redirects.py
+      - name: Ensure Locale import for EPG redirect code
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt')
+          s = p.read_text(encoding='utf-8')
+          if 'Locale.US' in s and 'import java.util.Locale' not in s:
+              anchor = 'import java.security.MessageDigest\n'
+              if anchor not in s:
+                  raise SystemExit('Locale import anchor not found')
+              s = s.replace(anchor, anchor + 'import java.util.Locale\n', 1)
+              p.write_text(s, encoding='utf-8')
+          PY
       - name: Commit redirect repair
         run: |
           if git diff --quiet; then
