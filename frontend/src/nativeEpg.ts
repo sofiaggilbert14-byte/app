@@ -76,6 +76,16 @@ type CharmEpgModule = {
   clear(): Promise<boolean>;
 };
 
+type CharmCustomEpgModule = {
+  setGuideChannelBinding?(channelId: string, xmltvId: string): Promise<number>;
+  listUserGuideChannels?(query: string, offset: number, limit: number): Promise<{ total: number; rows: { id: string; name: string }[] }>;
+  refreshUserGuide?(url: string): Promise<{
+    count: number;
+    directoryCount?: number;
+    bindingCount?: number;
+  }>;
+};
+
 type CharmEpgRamModule = {
   replaceMatches(matches: NativePlaylistEpgMatchRow[]): Promise<boolean>;
   queryGuideWindow(startMs: number, endMs: number, playlistChannelIds: string[]): Promise<NativeWindow | null>;
@@ -85,6 +95,7 @@ type CharmEpgRamModule = {
 };
 
 const nativeModule = NativeModules.CharmEpg as CharmEpgModule | undefined;
+const customEpgModule = NativeModules.CharmCustomEpg as CharmCustomEpgModule | undefined;
 const ramModule = NativeModules.CharmEpgRam as CharmEpgRamModule | undefined;
 
 export const nativeEpgAvailable = Platform.OS === "android" && !!nativeModule;
@@ -280,8 +291,9 @@ export async function configureNativeGuideOwnership(
 }
 
 export async function setNativeGuideChannelBinding(channelId: string, xmltvId: string | null): Promise<number> {
-  if (!nativeModule?.setGuideChannelBinding) return 0;
-  const count = Math.max(0, Math.round(await nativeModule.setGuideChannelBinding(channelId, xmltvId?.trim() || "")));
+  const bindingModule = customEpgModule?.setGuideChannelBinding ? customEpgModule : nativeModule;
+  if (!bindingModule?.setGuideChannelBinding) return 0;
+  const count = Math.max(0, Math.round(await bindingModule.setGuideChannelBinding(channelId, xmltvId?.trim() || "")));
   ownershipRequiresSqlite = !primaryGuideEnabled || (userGuideEnabled && count > 0);
   if (ramModule) await ramModule.clearMemory().catch(() => undefined);
   return count;
@@ -292,8 +304,9 @@ export async function listNativeUserGuideChannels(
   offset = 0,
   limit = 50,
 ): Promise<{ total: number; rows: { id: string; name: string }[] }> {
-  if (!nativeModule?.listUserGuideChannels) return { total: 0, rows: [] };
-  return nativeModule.listUserGuideChannels(query, Math.max(0, offset), Math.max(1, Math.min(100, limit)));
+  const directoryModule = customEpgModule?.listUserGuideChannels ? customEpgModule : nativeModule;
+  if (!directoryModule?.listUserGuideChannels) return { total: 0, rows: [] };
+  return directoryModule.listUserGuideChannels(query, Math.max(0, offset), Math.max(1, Math.min(100, limit)));
 }
 
 export async function refreshNativeUserGuide(url: string): Promise<{
@@ -301,8 +314,9 @@ export async function refreshNativeUserGuide(url: string): Promise<{
   channelNames?: Record<string, string>;
   channelIdsWithPrograms?: string[];
 }> {
-  if (!nativeModule?.refreshUserGuide) throw new Error("Custom native EPG engine is unavailable");
-  return nativeModule.refreshUserGuide(url);
+  const refreshModule = customEpgModule?.refreshUserGuide ? customEpgModule : nativeModule;
+  if (!refreshModule?.refreshUserGuide) throw new Error("Custom native EPG engine is unavailable");
+  return refreshModule.refreshUserGuide(url);
 }
 
 export async function clearNativeEpg(): Promise<void> {
