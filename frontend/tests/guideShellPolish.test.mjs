@@ -166,6 +166,16 @@ test("shared page focus has a deterministic Left-edge drawer handoff", async () 
   assert.match(reminders, /hasTVPreferredFocus=\{preferInitialFocus\}/);
 });
 
+test("Live preview has an explicit D-pad bridge into the recent channel list", async () => {
+  const live = await source("app/(tabs)/index.tsx");
+  assert.match(live, /findNodeHandle/);
+  assert.match(live, /nextFocusDown=\{firstRecentTag\}/);
+  assert.match(live, /inputRef=\{index === 0 \? bindFirstRecentRef : undefined\}/);
+  assert.match(live, /nextFocusUp=\{index === 0 \? heroButtonTag : undefined\}/);
+  assert.match(live, /ref=\{bindHeroButtonRef as any\}/);
+  assert.match(live, /ref=\{inputRef as any\}/);
+});
+
 test("automatic refresh stays away from guide and player screens", async () => {
   const [scheduler, preferences] = await Promise.all([
     source("src/components/SourceRefreshScheduler.tsx"),

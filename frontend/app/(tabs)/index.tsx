@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { findNodeHandle, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
@@ -22,6 +22,8 @@ function RecentChannelCard({
   channelNumbers,
   channelNumber,
   onPlay,
+  inputRef,
+  nextFocusUp,
 }: {
   channel: Channel;
   now: Date;
@@ -30,11 +32,15 @@ function RecentChannelCard({
   channelNumbers: boolean;
   channelNumber?: number;
   onPlay: (channel: Channel) => void;
+  inputRef?: (node: unknown) => void;
+  nextFocusUp?: number;
 }) {
   const programs = useGuidePrograms(channel.id);
   const current = nowNext(programs, now).current;
   return (
     <Pressable
+      ref={inputRef as any}
+      nextFocusUp={nextFocusUp}
       onPress={() => onPlay(channel)}
       style={({ focused }: any) => [styles.channelCard, focused && styles.focused]}
       testID={`home-recent-${channel.id}`}
@@ -75,6 +81,21 @@ export default function LiveTvHomeScreen() {
   void clock24h;
   const [now, setNow] = useState(() => new Date());
   const [preferInitialFocus, setPreferInitialFocus] = useState(true);
+  const heroButtonRef = useRef<unknown>(null);
+  const firstRecentRef = useRef<unknown>(null);
+  const [heroButtonTag, setHeroButtonTag] = useState<number | undefined>();
+  const [firstRecentTag, setFirstRecentTag] = useState<number | undefined>();
+
+  const bindHeroButtonRef = useCallback((node: unknown) => {
+    heroButtonRef.current = node;
+    const tag = node ? findNodeHandle(node as any) : null;
+    setHeroButtonTag(tag || undefined);
+  }, []);
+  const bindFirstRecentRef = useCallback((node: unknown) => {
+    firstRecentRef.current = node;
+    const tag = node ? findNodeHandle(node as any) : null;
+    setFirstRecentTag(tag || undefined);
+  }, []);
 
   useEffect(() => {
     if (!isFocused) return;
@@ -186,7 +207,9 @@ export default function LiveTvHomeScreen() {
             </View>
             {heroChannel ? (
               <Pressable
+                ref={bindHeroButtonRef as any}
                 hasTVPreferredFocus={preferInitialFocus}
+                nextFocusDown={firstRecentTag}
                 onPress={() => play(heroChannel)}
                 style={({ focused }: any) => [styles.primaryButton, focused && styles.focused]}
                 testID="home-continue-watching"
@@ -212,6 +235,7 @@ export default function LiveTvHomeScreen() {
 
           <Pressable
             disabled={!heroChannel}
+            nextFocusDown={firstRecentTag}
             onPress={() => heroChannel && play(heroChannel)}
             style={({ focused }: any) => [styles.heroArtwork, focused && styles.heroArtworkFocused]}
             testID="home-last-channel-logo"
@@ -232,10 +256,12 @@ export default function LiveTvHomeScreen() {
           <Text style={styles.sectionHint}>Currently airing on channels you watched</Text>
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.recentRow}>
-          {recentLive.map((channel) => (
+          {recentLive.map((channel, index) => (
             <RecentChannelCard
               key={channel.id}
               channel={channel}
+              inputRef={index === 0 ? bindFirstRecentRef : undefined}
+              nextFocusUp={index === 0 ? heroButtonTag : undefined}
               now={now}
               isFocused={isFocused}
               channelLogos={channelLogos}
