@@ -90,3 +90,5 @@ jobs:
           git add frontend/app/'(tabs)'/index.tsx frontend/tests/guideShellPolish.test.mjs
           git commit -m "phase9: bridge Live preview focus into recent channels"
           git push origin HEAD:phase9/purple-next
+
+# retry after concurrent Phase 9 source commits
