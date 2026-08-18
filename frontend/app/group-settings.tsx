@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -8,6 +8,7 @@ import { useCustomGuideGroups } from "@/src/core/customGuideGroups";
 import { CURATED_GROUPS, SMART_GROUPS } from "@/src/core/guideGroups";
 import { useGuideUiPreferences } from "@/src/core/guideUiPreferences";
 import { fonts, radius, tvColors } from "@/src/theme";
+import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
 
 const PAGE_SIZE = 100;
 const BUILT_INS = ["Favorites", ...SMART_GROUPS, ...CURATED_GROUPS] as string[];
@@ -22,7 +23,28 @@ export default function GroupSettingsScreen() {
   const [renameDraft, setRenameDraft] = useState("");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
+  const [preferBackFocus, setPreferBackFocus] = useState(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setPreferBackFocus(false), 360);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const returnToSettings = useCallback(() => {
+    router.replace("/settings" as any);
+  }, [router]);
+
+  useTvBackHandler(useCallback(() => {
+    returnToSettings();
+    return true;
+  }, [returnToSettings]));
   const selected = custom.groups.find((group) => group.id === selectedId) || null;
+  useEffect(() => {
+    if (selectedId && !custom.groups.some((group) => group.id === selectedId)) {
+      setSelectedId(custom.groups[0]?.id || null);
+      setPage(0);
+    }
+  }, [custom.groups, selectedId]);
   const memberSet = useMemo(() => new Set(selected?.channelIds || []), [selected?.channelIds]);
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -51,7 +73,7 @@ export default function GroupSettingsScreen() {
             <Text style={styles.kicker}>PHASE 9</Text>
             <Text style={styles.title}>Guide Groups & Tabs</Text>
           </View>
-          <Pressable hasTVPreferredFocus onPress={() => router.replace("/settings" as any)} style={({ focused }: any) => [styles.back, focused && styles.focused]}>
+          <Pressable hasTVPreferredFocus={preferBackFocus} onPress={returnToSettings} style={({ focused }: any) => [styles.back, focused && styles.focused]}>
             <Ionicons name="arrow-back" size={14} color="#fff" />
             <Text style={styles.backText}>Settings</Text>
           </Pressable>
@@ -141,14 +163,14 @@ export default function GroupSettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: tvColors.background, padding: 18 },
+  page: { flex: 1, backgroundColor: tvColors.canvas, padding: 18 },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
   kicker: { color: tvColors.purpleSoft, fontFamily: fonts.bold, fontSize: 10, letterSpacing: 1.2 },
   title: { color: tvColors.text, fontFamily: fonts.bold, fontSize: 24 },
-  back: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, minHeight: 36, borderRadius: radius.sm, borderWidth: 1, borderColor: tvColors.border },
+  back: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, minHeight: 36, borderRadius: radius.sm, borderWidth: 1, borderColor: tvColors.line },
   backText: { color: "#fff", fontFamily: fonts.medium, fontSize: 11 },
   content: { gap: 12, paddingBottom: 40 },
-  card: { backgroundColor: tvColors.card, borderWidth: 1, borderColor: tvColors.border, borderRadius: radius.md, padding: 12, gap: 6 },
+  card: { backgroundColor: tvColors.panel, borderWidth: 1, borderColor: tvColors.line, borderRadius: radius.md, padding: 12, gap: 6 },
   cardTitle: { color: tvColors.text, fontFamily: fonts.bold, fontSize: 14 },
   help: { color: tvColors.textMuted, fontFamily: fonts.regular, fontSize: 10, lineHeight: 15, marginBottom: 4 },
   row: { minHeight: 40, paddingHorizontal: 10, borderRadius: radius.sm, borderWidth: 1, borderColor: "transparent", flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
@@ -158,12 +180,12 @@ const styles = StyleSheet.create({
   sub: { color: tvColors.textMuted, fontFamily: fonts.regular, fontSize: 9, marginTop: 2 },
   value: { color: tvColors.purpleSoft, fontFamily: fonts.medium, fontSize: 10 },
   inputRow: { flexDirection: "row", gap: 8, alignItems: "center" },
-  input: { flex: 1, minHeight: 38, borderRadius: radius.sm, borderWidth: 1, borderColor: tvColors.border, color: tvColors.text, paddingHorizontal: 10, fontFamily: fonts.regular, fontSize: 11 },
-  action: { minHeight: 38, paddingHorizontal: 14, alignItems: "center", justifyContent: "center", borderRadius: radius.sm, borderWidth: 1, borderColor: tvColors.border },
+  input: { flex: 1, minHeight: 38, borderRadius: radius.sm, borderWidth: 1, borderColor: tvColors.line, color: tvColors.text, paddingHorizontal: 10, fontFamily: fonts.regular, fontSize: 11 },
+  action: { minHeight: 38, paddingHorizontal: 14, alignItems: "center", justifyContent: "center", borderRadius: radius.sm, borderWidth: 1, borderColor: tvColors.line },
   actionText: { color: "#fff", fontFamily: fonts.medium, fontSize: 10 },
   groupBlock: { gap: 4 },
   groupActions: { flexDirection: "row", gap: 6, paddingLeft: 10 },
-  mini: { minHeight: 32, paddingHorizontal: 10, alignItems: "center", justifyContent: "center", borderRadius: radius.sm, borderWidth: 1, borderColor: tvColors.border },
+  mini: { minHeight: 32, paddingHorizontal: 10, alignItems: "center", justifyContent: "center", borderRadius: radius.sm, borderWidth: 1, borderColor: tvColors.line },
   pager: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, marginVertical: 4 },
   disabled: { opacity: 0.35 },
 });
