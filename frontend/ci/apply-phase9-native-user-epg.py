@@ -18,8 +18,25 @@ rep(
 )
 rep(
     db,
-    '        db.delete(LIVE_TABLE, null, null)\n        db.execSQL(\n',
-    '        if (userNamespace) {\n          db.delete(LIVE_TABLE, "channel_id LIKE ?", arrayOf("${USER_EPG_PREFIX}%"))\n        } else {\n          // Built-in refresh never destroys user-owned programme rows.\n          db.delete(LIVE_TABLE, "channel_id NOT LIKE ?", arrayOf("${USER_EPG_PREFIX}%"))\n        }\n        db.execSQL(\n',
+    '''      db.beginTransaction()
+      try {
+        db.delete(LIVE_TABLE, null, null)
+        db.execSQL(
+          """
+          INSERT INTO $LIVE_TABLE(channel_id, title, description, category, start_time, end_time)
+''',
+    '''      db.beginTransaction()
+      try {
+        if (userNamespace) {
+          db.delete(LIVE_TABLE, "channel_id LIKE ?", arrayOf("${USER_EPG_PREFIX}%"))
+        } else {
+          // Built-in refresh never destroys user-owned programme rows.
+          db.delete(LIVE_TABLE, "channel_id NOT LIKE ?", arrayOf("${USER_EPG_PREFIX}%"))
+        }
+        db.execSQL(
+          """
+          INSERT INTO $LIVE_TABLE(channel_id, title, description, category, start_time, end_time)
+''',
 )
 rep(
     db,
@@ -210,8 +227,8 @@ rep(
 )
 rep(
     mod,
-    '    private const val MAX_HTTP_REDIRECTS = 5\n',
-    '    private const val MAX_HTTP_REDIRECTS = 5\n    private const val USER_EPG_PREFIX = "user:"\n    private const val MAX_INSPECT_CHANNELS = 25_000\n',
+    '    private const val MAX_HTTP_REDIRECTS = 6\n',
+    '    private const val MAX_HTTP_REDIRECTS = 6\n    private const val USER_EPG_PREFIX = "user:"\n    private const val MAX_INSPECT_CHANNELS = 25_000\n',
 )
 
 print('Phase 9 native user EPG namespaces applied')
