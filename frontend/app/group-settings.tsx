@@ -26,7 +26,7 @@ export default function GroupSettingsScreen() {
   const [preferBackFocus, setPreferBackFocus] = useState(true);
 
   useEffect(() => {
-    const timer = setTimeout(() => setPreferBackFocus(false), 360);
+    const timer = setTimeout(() => setPreferBackFocus(false), 180);
     return () => clearTimeout(timer);
   }, []);
 

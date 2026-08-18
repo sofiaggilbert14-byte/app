@@ -175,7 +175,7 @@ export default function SettingsScreen() {
 
   useEffect(() => {
     if (!preferTileFocus) return;
-    const timer = setTimeout(() => setPreferTileFocus(false), 700);
+    const timer = setTimeout(() => setPreferTileFocus(false), 180);
     return () => clearTimeout(timer);
   }, [preferTileFocus]);
 
@@ -183,7 +183,7 @@ export default function SettingsScreen() {
     if (!section) return;
     setClearFavoritesArmed(false);
     setPreferBackFocus(true);
-    const timer = setTimeout(() => setPreferBackFocus(false), 700);
+    const timer = setTimeout(() => setPreferBackFocus(false), 180);
     return () => clearTimeout(timer);
   }, [section]);
 
