@@ -5,6 +5,7 @@ import { clearGuidePrograms } from "@/src/core/guideProgramsStore";
 import {
   clearNativeEpg,
   fetchNativePlaylist,
+  readNativeStoredPlaylist,
   loadNativeEpgWindow,
   nativeEpgAvailable,
   nativePlaylistIsCurrent,
@@ -580,6 +581,37 @@ async function readMetaFile(path: string): Promise<NativeMeta | null> {
   }
 }
 
+async function readNativeChannelCache(): Promise<NativeMeta | null> {
+  if (!nativeEpgAvailable) return null;
+  try {
+    const stored = await readNativeStoredPlaylist();
+    if (!stored?.channels?.length) return null;
+    const logoPriority = await getLogoPriority();
+    for (const channel of stored.channels) {
+      const playlistLogo = channel.playlist_logo || channel.logo || "";
+      const epgLogo = channel.epg_logo || "";
+      channel.playlist_logo = playlistLogo;
+      channel.logo = logoPriority === "epg" ? (epgLogo || playlistLogo) : (playlistLogo || epgLogo);
+    }
+    sortChannelsInPlace(stored.channels);
+    const guideRefreshedAt = stored.guideRefreshedAt || 0;
+    const playlistRefreshedAt = stored.playlistRefreshedAt || 0;
+    return {
+      ts: guideRefreshedAt || playlistRefreshedAt,
+      channels: stored.channels,
+      epgProgramCount: stored.epgProgramCount || 0,
+      epgChannelCount: 0,
+      playlistEpoch: stored.playlistEpoch || 0,
+      guideEpoch: stored.guideEpoch || 0,
+      playlistRefreshedAt,
+      guideRefreshedAt,
+      playlistIdentityFingerprint: playlistIdentityFingerprint(stored.channels),
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function readChannelCache(): Promise<NativeMeta | null> {
   const primary = await readMetaFile(CHANNEL_CACHE);
   if (primary) {
@@ -652,7 +684,8 @@ async function ensureLoaded(): Promise<NativeMeta> {
   void cleanupLegacyEpgArtifactsOnce();
 
   if (MEM && MEM.channels.length > 0) return MEM;
-  const cached = await readChannelCache();
+  const nativeCached = await readNativeChannelCache();
+  const cached = nativeCached || (await readChannelCache());
   if (cached) {
     if (cached.channels.length === 0) {
       return refreshInternal(true);

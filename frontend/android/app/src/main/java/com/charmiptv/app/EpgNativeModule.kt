@@ -444,7 +444,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
           channels.pushMap(Arguments.createMap().apply {
             putString("id", row.playlistId)
             putString("raw_tvg_id", row.rawTvgId)
-            putString("tvg_id", row.rawTvgId)
+            putString("tvg_id", row.matchedXmltvId.ifBlank { row.rawTvgId })
             putString("name", row.name)
             putString("logo", row.logo)
             putString("playlist_logo", row.logo)

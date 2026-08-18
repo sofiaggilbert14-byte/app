@@ -26,6 +26,7 @@ internal data class PlaylistChannelRow(
   val streamType: String,
   val providerPosition: Int,
   val epgLogo: String = "",
+  val matchedXmltvId: String = "",
 )
 
 internal data class PlaylistEpgMatchRow(
@@ -476,7 +477,8 @@ internal class EpgDatabase(context: Context, private val databaseName: String = 
       SELECT c.playlist_id, c.raw_tvg_id, c.name, COALESCE(c.logo, ''),
              COALESCE(c.group_title, ''), c.stream_url, c.stream_type, c.provider_position,
              COALESCE((SELECT a.alias_value FROM $ALIAS_TABLE a
-                       WHERE a.channel_id = m.xmltv_id AND a.alias_kind = 'icon_url' LIMIT 1), '')
+                       WHERE a.channel_id = m.xmltv_id AND a.alias_kind = 'icon_url' LIMIT 1), ''),
+             COALESCE(m.xmltv_id, '')
       FROM $PLAYLIST_TABLE c
       LEFT JOIN $MATCH_TABLE m ON m.playlist_id = c.playlist_id
       WHERE c.deleted_at = 0 AND c.stream_url != ''
@@ -496,6 +498,7 @@ internal class EpgDatabase(context: Context, private val databaseName: String = 
             streamType = cursor.getString(6),
             providerPosition = cursor.getInt(7),
             epgLogo = cursor.getString(8),
+            matchedXmltvId = cursor.getString(9),
           )
         )
       }
