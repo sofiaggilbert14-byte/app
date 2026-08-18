@@ -88,7 +88,7 @@ type DrawerContextValue = {
   drawerOpen: boolean;
   drawerProgress: Animated.Value;
   openDrawer: (options?: OpenDrawerOptions) => void;
-  closeDrawer: () => void;
+  closeDrawer: (options?: { force?: boolean }) => void;
   focusDrawerTop: boolean;
   consumeFocusDrawerTop: () => void;
 };
@@ -111,9 +111,9 @@ export function PurpleTvDrawerProvider({ children }: { children: React.ReactNode
     setDrawerOpen(true);
   }, []);
 
-  const closeDrawer = useCallback(() => {
+  const closeDrawer = useCallback((options?: { force?: boolean }) => {
     if (!drawerOpenRef.current) return;
-    if (Date.now() - openedAtRef.current < PURPLE_DRAWER_ANIMATION_MS + 70) return;
+    if (!options?.force && Date.now() - openedAtRef.current < PURPLE_DRAWER_ANIMATION_MS + 70) return;
     drawerOpenRef.current = false;
     setFocusDrawerTop(false);
     setDrawerOpen(false);
@@ -206,8 +206,11 @@ export function PurpleTvShell({
     const off = active === "/guide"
       ? addTvKeyListener((key) => {
           if (key !== "RIGHT") return;
-          closeDrawer();
-          DeviceEventEmitter.emit("CharmGuideGroupsRequestOpen");
+          // This is an intentional drawer-to-drawer boundary transition, not an
+          // accidental close during animation. Main must be gone before Groups
+          // becomes remote owner or both focus trees can be live at once.
+          closeDrawer({ force: true });
+          requestAnimationFrame(() => DeviceEventEmitter.emit("CharmGuideGroupsRequestOpen"));
         })
       : () => undefined;
     return () => {
