@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useRouter } from "expo-router";
+import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { PurpleTvShell } from "@/src/components/PurpleTvShell";
@@ -40,6 +41,11 @@ export default function CustomEpgScreen() {
   const [xmltvRows, setXmltvRows] = useState<XmltvRow[]>([]);
   const [xmltvTotal, setXmltvTotal] = useState(0);
   const queryGeneration = useRef(0);
+
+  useTvBackHandler(useCallback(() => {
+    router.replace("/epg-sources" as any);
+    return true;
+  }, [router]));
 
   useEffect(() => {
     if (!urlTouched) setUrlDraft(prefs.userUrl);
@@ -313,14 +319,14 @@ export default function CustomEpgScreen() {
 }
 
 const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: tvColors.background, padding: 18 },
+  page: { flex: 1, backgroundColor: tvColors.canvas, padding: 18 },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
   kicker: { color: tvColors.purpleSoft, fontFamily: fonts.bold, fontSize: 9, letterSpacing: 1.1 },
   title: { color: tvColors.text, fontFamily: fonts.bold, fontSize: 22, marginTop: 2 },
-  back: { minHeight: 36, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, borderRadius: radius.sm, borderWidth: 1, borderColor: tvColors.border },
+  back: { minHeight: 36, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, borderRadius: radius.sm, borderWidth: 1, borderColor: tvColors.line },
   backText: { color: "#fff", fontFamily: fonts.medium, fontSize: 10 },
   content: { gap: 12, paddingBottom: 50 },
-  card: { backgroundColor: tvColors.card, borderWidth: 1, borderColor: tvColors.border, borderRadius: radius.md, padding: 12, gap: 6 },
+  card: { backgroundColor: tvColors.panel, borderWidth: 1, borderColor: tvColors.line, borderRadius: radius.md, padding: 12, gap: 6 },
   cardTitle: { color: tvColors.text, fontFamily: fonts.bold, fontSize: 14 },
   help: { color: tvColors.textMuted, fontFamily: fonts.regular, fontSize: 10, lineHeight: 15 },
   row: { minHeight: 42, paddingHorizontal: 10, borderRadius: radius.sm, borderWidth: 1, borderColor: "transparent", flexDirection: "row", alignItems: "center", gap: 10 },
@@ -330,10 +336,10 @@ const styles = StyleSheet.create({
   flex: { flex: 1, minWidth: 0 },
   selected: { backgroundColor: "rgba(120,80,210,0.22)", borderColor: "rgba(168,132,245,0.30)" },
   focused: { borderColor: tvColors.purpleBright, backgroundColor: "rgba(126,84,218,0.32)" },
-  input: { minHeight: 40, borderRadius: radius.sm, borderWidth: 1, borderColor: tvColors.border, color: tvColors.text, paddingHorizontal: 10, fontFamily: fonts.regular, fontSize: 10.5 },
+  input: { minHeight: 40, borderRadius: radius.sm, borderWidth: 1, borderColor: tvColors.line, color: tvColors.text, paddingHorizontal: 10, fontFamily: fonts.regular, fontSize: 10.5 },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
-  action: { minHeight: 36, paddingHorizontal: 12, alignItems: "center", justifyContent: "center", borderRadius: radius.sm, borderWidth: 1, borderColor: tvColors.border },
-  small: { minHeight: 32, paddingHorizontal: 10, alignItems: "center", justifyContent: "center", borderRadius: radius.sm, borderWidth: 1, borderColor: tvColors.border },
+  action: { minHeight: 36, paddingHorizontal: 12, alignItems: "center", justifyContent: "center", borderRadius: radius.sm, borderWidth: 1, borderColor: tvColors.line },
+  small: { minHeight: 32, paddingHorizontal: 10, alignItems: "center", justifyContent: "center", borderRadius: radius.sm, borderWidth: 1, borderColor: tvColors.line },
   actionText: { color: "#fff", fontFamily: fonts.medium, fontSize: 9.5 },
   pager: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, marginVertical: 3 },
   disabled: { opacity: 0.35 },

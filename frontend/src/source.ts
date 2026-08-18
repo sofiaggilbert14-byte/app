@@ -94,6 +94,9 @@ export function trimProgrammeWindowCacheForMemoryPressure(
 ): void {
   /* native-only */
 }
+export function invalidateGuideOwnershipCaches(): void {
+  /* native ownership is Android-only; shared export keeps settings type-safe. */
+}
 export async function loadGuideProgramsForChannelIds(
   _channelIds: string[],
   _startISO?: string,

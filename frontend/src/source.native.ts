@@ -1357,6 +1357,13 @@ export async function sourceDiagnostics(): Promise<SourceDiagnostics> {
  * Safe guide maintenance — clears native EPG + channel meta cache only.
  * Never touches favorites / recents / reminders.
  */
+export function invalidateGuideOwnershipCaches(): void {
+  clearProgrammeWindowCache();
+  clearGuidePrograms();
+  if (MEM) MEM = { ...MEM, guideEpoch: (MEM.guideEpoch || 0) + 1 };
+  emit();
+}
+
 export async function clearGuideCache(): Promise<void> {
   MEM = null;
   lastNativeMatchWriteFingerprint = "";
