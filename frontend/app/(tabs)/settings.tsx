@@ -162,6 +162,7 @@ export default function SettingsScreen() {
   const [codecCapabilities, setCodecCapabilities] = useState<DeviceCodecCapabilities | null>(null);
   const [pinDraft, setPinDraft] = useState("");
   const [focusedCustomizeId, setFocusedCustomizeId] = useState<string | null>(null);
+  const [channelEditPage, setChannelEditPage] = useState(0);
   const clearFavoritesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Mount-once preferred focus — sticky hasTVPreferredFocus steals focus on re-render.
   const [preferTileFocus, setPreferTileFocus] = useState(true);
@@ -221,7 +222,8 @@ export default function SettingsScreen() {
   const versionCode = (Constants.expoConfig as any)?.android?.versionCode;
   const selected = useMemo(() => TILES.find((item) => item.id === section), [section]);
 
-  const customizeChannels = useMemo(() => channels.slice(0, 30), [channels]);
+  const channelEditPageCount = Math.max(1, Math.ceil(channels.length / 100));
+  const customizeChannels = useMemo(() => channels.slice(channelEditPage * 100, channelEditPage * 100 + 100), [channelEditPage, channels]);
   const hiddenSet = useMemo(() => new Set(channelCustomize.hiddenIds), [channelCustomize.hiddenIds]);
   const failedChannelRows = useMemo(() => {
     if (section !== "health") return [] as { id: string; name: string }[];
@@ -721,8 +723,14 @@ export default function SettingsScreen() {
             {section === "channels" ? (
               <SettingsCard title="Channels" icon="list-circle-outline">
                 <Text style={styles.help}>
-                  Cap of 30 rows for TV memory. Focus a channel, then Hide, Move, or set a custom number. Clear custom order resets sort.
+                  All channels are available in 100-row pages so very large playlists stay memory-safe. Focus a channel, then Hide, Move, or set a custom number.
                 </Text>
+                <Action label="Manage Guide groups & tabs" icon="albums-outline" onPress={() => router.push("/group-settings" as any)} />
+                <View style={styles.backupActions}>
+                  <Action label="Previous 100" icon="chevron-up-outline" disabled={channelEditPage <= 0} onPress={() => { setFocusedCustomizeId(null); setChannelEditPage((value) => Math.max(0, value - 1)); }} />
+                  <InfoRow label="Channel page" value={`${channelEditPage + 1} / ${channelEditPageCount}`} />
+                  <Action label="Next 100" icon="chevron-down-outline" disabled={channelEditPage + 1 >= channelEditPageCount} onPress={() => { setFocusedCustomizeId(null); setChannelEditPage((value) => Math.min(channelEditPageCount - 1, value + 1)); }} />
+                </View>
                 <Action
                   label="Clear custom order"
                   icon="refresh-outline"
@@ -737,7 +745,7 @@ export default function SettingsScreen() {
                   const hidden = hiddenSet.has(channel.id);
                   const focused = focusedCustomizeId === channel.id;
                   const customNumber = channelCustomize.customNumbers[channel.id];
-                  const displayNumber = customNumber || index + 1;
+                  const displayNumber = customNumber || channelEditPage * 100 + index + 1;
                   return (
                     <View key={channel.id} style={styles.channelEditBlock}>
                       <Pressable

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  DeviceEventEmitter,
   Pressable,
   StyleSheet,
   Text,
@@ -17,6 +18,7 @@ import {
   type PurpleGuideGroup,
 } from "@/src/components/PurpleTvShell";
 import { NativeGuideCanvas } from "@/src/components/NativeGuideCanvas";
+import { PurpleGuideGroupDrawer } from "@/src/components/PurpleGuideGroupDrawer";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { GuidePreviewRail } from "@/src/components/GuidePreviewRail";
 import { EpgProgressBar } from "@/src/components/EpgProgressBar";
@@ -32,6 +34,7 @@ import {
   expandRunwayKeepSet,
 } from "@/src/core/guideSlidingCache";
 import {
+  getGuideSelection,
   resetGuideSelection,
   setGuideFocusedProgram,
   useGuideSelection,
@@ -48,6 +51,7 @@ import {
   unpinGroup,
 } from "@/src/core/guideGroups";
 import { GUIDE_START_LAST_USED, useGuideUiPreferences } from "@/src/core/guideUiPreferences";
+import { useCustomGuideGroups } from "@/src/core/customGuideGroups";
 import { resolveChannelNumber, useChannelCustomize } from "@/src/core/channelCustomize";
 import { useParentalPin } from "@/src/core/parentalPin";
 import {
@@ -63,7 +67,7 @@ import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
 import type { StreamStatus } from "@/src/components/StreamPlayer";
 import { subscribeAndroidMemoryPressure } from "@/src/utils/androidMemoryPressure";
-import { setGuideNavigationActive, setGuideRepeatInterval } from "@/src/utils/tvRemote";
+import { addTvLongPressListener, setGuideNavigationActive, setGuideRepeatInterval, setRemoteContext } from "@/src/utils/tvRemote";
 import { focusGuidePreviewSurface } from "@/src/utils/guidePreviewFocus";
 
 // Session-only guide position survives the root player route unmounting tabs.
@@ -199,14 +203,17 @@ export default function PurpleGuideScreen() {
   const router = useRouter();
   const isFocused = useIsFocused();
   const { drawerOpen, openDrawer, closeDrawer } = usePurpleTvDrawer();
+  const [groupDrawerOpen, setGroupDrawerOpen] = useState(false);
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   useFocusEffect(
     useCallback(() => {
       setGuideScreenActive(true);
+      setRemoteContext("guide");
       setGuideNavigationActive(true);
       return () => {
         setGuideScreenActive(false);
         setGuideNavigationActive(false);
+        setRemoteContext("default");
       };
     }, []),
   );
@@ -247,7 +254,10 @@ export default function PurpleGuideScreen() {
     setPinnedGroups,
     setHidePreview,
     setMutePreview,
+    showProviderGroups,
+    hiddenGroups,
   } = useGuideUiPreferences();
+  const customGuideGroups = useCustomGuideGroups();
   const { hiddenIds, customOrder, customNumbers } = useChannelCustomize();
   const hiddenIdSet = useMemo(() => new Set(hiddenIds), [hiddenIds]);
   const { isGroupLocked, unlockGroup, verifyPin, hasPin } = useParentalPin();
@@ -349,17 +359,39 @@ export default function PurpleGuideScreen() {
     if (origin?.channelId) guideSessionChannelId = origin.channelId;
   }, [activeProgram]);
 
-  // Guide Back behavior: when the Guide owns the remote and no
-  // modal is blocking, one Back opens the group/navigation drawer immediately.
-  // The drawer itself consumes the next Back to close and Guide focus is restored
-  // through the native logical session-channel restoration path.
+  // Phase 9 navigation ladder: Guide -> Groups drawer -> Main drawer.
+  // Native remote ownership consumes group-drawer boundary keys, so the Guide
+  // cannot also move underneath the drawer.
   useTvBackHandler(
     useCallback(() => {
       if (drawerOpen || activeProgram) return false;
-      openDrawer();
+      if (groupDrawerOpen) {
+        setGroupDrawerOpen(false);
+        openDrawer();
+        return true;
+      }
+      setGroupDrawerOpen(true);
       return true;
-    }, [activeProgram, drawerOpen, openDrawer]),
+    }, [activeProgram, drawerOpen, groupDrawerOpen, openDrawer]),
   );
+
+  useEffect(() => {
+    if (!isFocused) return;
+    const sub = DeviceEventEmitter.addListener("CharmGuideGroupsRequestOpen", () => {
+      closeDrawer();
+      setGroupDrawerOpen(true);
+    });
+    return () => sub.remove();
+  }, [closeDrawer, isFocused]);
+
+  useEffect(() => {
+    if (!isFocused || drawerOpen || groupDrawerOpen || activeProgram) return;
+    return addTvLongPressListener((key) => {
+      if (key !== "SELECT") return;
+      const channelId = getGuideSelection().channelId || guideSessionChannelId;
+      if (channelId) toggleFavorite(channelId);
+    });
+  }, [activeProgram, drawerOpen, groupDrawerOpen, isFocused, toggleFavorite]);
 
   useEffect(() => {
     if (loading || refreshing || channels.length > 0) return;
@@ -451,10 +483,11 @@ export default function PurpleGuideScreen() {
         hasEpgMatch: channelHasEpgMatch,
         isFailed: isFailedChannel,
         hiddenIds: hiddenIdSet,
+        customGroups: customGuideGroups.byName,
       }),
     // failedCount invalidates when the in-memory failure registry grows/shrinks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [channels, favoriteSet, recentIdSet, hiddenIdSet, failedCount, epgGuideFilter],
+    [channels, favoriteSet, recentIdSet, hiddenIdSet, failedCount, epgGuideFilter, customGuideGroups.byName],
   );
 
   const playlistGroups = useMemo(
@@ -468,9 +501,12 @@ export default function PurpleGuideScreen() {
         counts: groupCounts,
         pinned: pinnedGroups,
         playlistGroups,
+        customGroups: customGuideGroups.groups.map((item) => item.name),
+        hiddenGroups: new Set(hiddenGroups),
+        showProviderGroups,
         maxPlaylistTabs: 10,
       }),
-    [groupCounts, pinnedGroups, playlistGroups],
+    [customGuideGroups.groups, groupCounts, hiddenGroups, pinnedGroups, playlistGroups, showProviderGroups],
   );
 
   // Apply a fixed start group once per normal Guide entry. "Last used" keeps
@@ -499,13 +535,14 @@ export default function PurpleGuideScreen() {
       isFailed: isFailedChannel,
       hiddenIds: hiddenIdSet,
       customOrder,
+      customGroups: customGuideGroups.byName,
     });
     if (epgGuideFilter === "all") return list;
     if (epgGuideFilter === "matched") {
       return list.filter(channelHasEpgMatch);
     }
     return list.filter((c) => !channelHasEpgMatch(c));
-  }, [channels, customOrder, epgGuideFilter, favoriteSet, group, hiddenIdSet, recent, recentIdSet]);
+  }, [channels, customGuideGroups.byName, customOrder, epgGuideFilter, favoriteSet, group, hiddenIdSet, recent, recentIdSet]);
 
   // Keep the complete selected group identity stable.
   const filtered = filteredMeta;
@@ -785,6 +822,7 @@ export default function PurpleGuideScreen() {
     setRestoreTimeMs(null);
     setPreviewId(null);
     setResetToken((value) => value + 1);
+    setGroupDrawerOpen(false);
     closeDrawer();
   }, [closeDrawer, group]);
 
@@ -829,11 +867,10 @@ export default function PurpleGuideScreen() {
   );
 
   const onGuideLeftBoundary = useCallback(() => {
-    // From the left-most channel/logo column, another Left enters the drawer.
-    // Do not focus the preview rail first: group navigation is the Guide's
-    // deterministic left boundary and the active group receives drawer focus.
-    if (!drawerOpen && !activeProgram) openDrawer();
-  }, [activeProgram, drawerOpen, openDrawer]);
+    // Guide -> dedicated groups drawer. The main application drawer is one
+    // additional Left/Back away and never shares focus ownership with the grid.
+    if (!drawerOpen && !groupDrawerOpen && !activeProgram) setGroupDrawerOpen(true);
+  }, [activeProgram, drawerOpen, groupDrawerOpen]);
 
   const onGuideUpBoundary = useCallback(() => {
     setPreviewFocusRequestToken((value) => value + 1);
@@ -898,7 +935,6 @@ export default function PurpleGuideScreen() {
     <PurpleTvShell
       active="/guide"
       watchingChannelId={lastChannelId}
-      guideGroups={drawerGroups}
       footerAction={{
         label: "Guide Sources",
         icon: "refresh-outline",
@@ -907,6 +943,15 @@ export default function PurpleGuideScreen() {
       }}
     >
       <View style={styles.page}>
+        <PurpleGuideGroupDrawer
+          open={groupDrawerOpen}
+          groups={drawerGroups}
+          onCloseToGuide={() => setGroupDrawerOpen(false)}
+          onOpenMainDrawer={() => {
+            setGroupDrawerOpen(false);
+            openDrawer();
+          }}
+        />
         <EpgProgressBar />
         {loading && channels.length === 0 ? (
           <View style={styles.center}>
@@ -967,7 +1012,7 @@ export default function PurpleGuideScreen() {
               hidePreview={hidePreview}
               muted={mutePreview}
               onToggleMute={() => setMutePreview(!mutePreview)}
-              previewId={safePreviewMode === "off" || drawerOpen || !!activeProgram || !isFocused ? null : previewId}
+              previewId={safePreviewMode === "off" || drawerOpen || groupDrawerOpen || !!activeProgram || !isFocused ? null : previewId}
               previewStatus={previewStatus}
               previewEpoch={previewEpoch}
               onPreviewStatus={onPreviewStatus}

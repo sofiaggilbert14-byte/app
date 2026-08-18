@@ -22,6 +22,7 @@ import { useStore } from "@/src/store";
 import { evaluateDrawerBack } from "@/src/core/drawerNavigationPolicy";
 import { isGuideScreenActive, isGuideSurfing } from "@/src/utils/guideSurfGate";
 import { useTvCalibration } from "@/src/tvCalibration";
+import { addTvKeyListener, setGuideNavigationActive, setRemoteContext } from "@/src/utils/tvRemote";
 
 type Route =
   | "/"
@@ -197,6 +198,28 @@ export function PurpleTvShell({
   const isWatching = !!watchingChannelId;
   const [drawerAutoFocus, setDrawerAutoFocus] = useState(drawerOpen);
   const [drawerPreferredRoute, setDrawerPreferredRoute] = useState<Route | null>(drawerOpen ? active : null);
+
+  useEffect(() => {
+    if (!drawerOpen) return;
+    setRemoteContext("main_drawer");
+    if (active === "/guide") setGuideNavigationActive(false);
+    const off = active === "/guide"
+      ? addTvKeyListener((key) => {
+          if (key !== "RIGHT") return;
+          closeDrawer();
+          DeviceEventEmitter.emit("CharmGuideGroupsRequestOpen");
+        })
+      : () => undefined;
+    return () => {
+      off();
+      if (active === "/guide") {
+        setRemoteContext("guide");
+        setGuideNavigationActive(true);
+      } else {
+        setRemoteContext("default");
+      }
+    };
+  }, [active, closeDrawer, drawerOpen]);
 
   useEffect(() => {
     if (!drawerOpen) {
