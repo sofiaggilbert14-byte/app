@@ -460,7 +460,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
           )
         }
         promise.resolve(
-          database.replacePlaylistChannels(rows, playlistEpoch.toLong(), contentFingerprint.trim())
+          PlaylistSyncCoordinator.sync(database, rows, playlistEpoch.toLong(), contentFingerprint.trim())
         )
       } catch (t: Throwable) {
         promise.reject("EPG_PLAYLIST_UPSERT_FAILED", t.message ?: "Could not upsert playlist channels", t)
