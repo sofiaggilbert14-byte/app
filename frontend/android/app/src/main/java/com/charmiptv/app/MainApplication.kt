@@ -61,7 +61,7 @@ class MainApplication : Application(), ReactApplication {
 
   override fun onConfigurationChanged(newConfig: Configuration) {
     super.onConfigurationChanged(newConfig)
-    ApplicationLifecycleDispatcher.onApplicationCreate(this)
+    ApplicationLifecycleDispatcher.onConfigurationChanged(this, newConfig)
   }
 
   override fun onTrimMemory(level: Int) {
