@@ -1,0 +1,54 @@
+name: Phase 9 TiviMate Drawer Route Handoff
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-drawer-route-handoff.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Make drawer route handoff single-owner
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          shell = Path('frontend/src/components/PurpleTvShell.tsx')
+          s = shell.read_text()
+          old = '''  const navigate = useCallback(\n    (route: Route) => {\n      void Haptics.selectionAsync().catch(() => undefined);\n      if (route === "/settings") DeviceEventEmitter.emit("CharmShowAllSettings");\n      closeDrawer();\n      if (deferredDrawerCloseTimer.current) clearTimeout(deferredDrawerCloseTimer.current);\n      deferredDrawerCloseTimer.current = setTimeout(() => {\n        deferredDrawerCloseTimer.current = null;\n        closeDrawer();\n      }, PURPLE_DRAWER_ANIMATION_MS + 80);\n      if (route !== active) router.replace(route as any);\n    },\n    [active, closeDrawer, router],\n  );\n'''
+          new = '''  const navigate = useCallback(\n    (route: Route) => {\n      void Haptics.selectionAsync().catch(() => undefined);\n      if (deferredDrawerCloseTimer.current) {\n        clearTimeout(deferredDrawerCloseTimer.current);\n        deferredDrawerCloseTimer.current = null;\n      }\n\n      // TiviMate-style focus ownership: the drawer must fully relinquish the\n      // remote/focus tree before a different route mounts and claims focus.\n      // A normal close can be rejected by the anti-bounce opening guard, which\n      // previously allowed two live focus owners during rapid drawer selection.\n      closeDrawer({ force: true });\n      if (route === active) return;\n\n      requestAnimationFrame(() => {\n        if (route === "/settings") DeviceEventEmitter.emit("CharmShowAllSettings");\n        router.replace(route as any);\n      });\n    },\n    [active, closeDrawer, router],\n  );\n'''
+          if old not in s:
+              if 'TiviMate-style focus ownership' not in s:
+                  raise SystemExit('drawer navigate marker not found')
+          else:
+              s = s.replace(old, new, 1)
+          shell.write_text(s)
+
+          test = Path('frontend/tests/guideShellPolish.test.mjs')
+          t = test.read_text()
+          marker = '''test("shared page focus has a deterministic Left-edge drawer handoff", async () => {\n'''
+          case = '''test("drawer route changes release drawer focus ownership before mounting the next screen", async () => {\n  const shell = await source("src/components/PurpleTvShell.tsx");\n  const navigate = shell.match(/const navigate = useCallback\\([\\s\\S]*?\\n  \\);/)?.[0] || "";\n  assert.match(navigate, /closeDrawer\\(\\{ force: true \\}\\)/);\n  assert.match(navigate, /if \\(route === active\\) return/);\n  assert.match(navigate, /requestAnimationFrame\\(\\(\\) => \\{/);\n  assert.match(navigate, /router\\.replace\\(route as any\\)/);\n  assert.ok(\n    navigate.indexOf('closeDrawer({ force: true })') < navigate.indexOf('requestAnimationFrame'),\n    "drawer must close before route handoff",\n  );\n  assert.doesNotMatch(navigate, /closeDrawer\\(\\);[\\s\\S]*router\\.replace/);\n});\n\n'''
+          if 'drawer route changes release drawer focus ownership' not in t:
+              if marker not in t:
+                  raise SystemExit('guide shell test insertion marker not found')
+              t = t.replace(marker, case + marker, 1)
+          test.write_text(t)
+          PY
+      - name: Commit focus ownership handoff
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/components/PurpleTvShell.tsx frontend/tests/guideShellPolish.test.mjs
+          git commit -m "phase9: release drawer focus before route handoff"
+          git push origin HEAD:phase9/purple-next
