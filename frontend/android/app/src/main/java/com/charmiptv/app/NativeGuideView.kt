@@ -330,10 +330,21 @@ class NativeGuideView(context: Context) : View(context) {
       KeyEvent.KEYCODE_DPAD_LEFT -> {
         if (event.repeatCount > 0 && event.eventTime - lastHorizontalMoveAt < 55L) return true
         lastHorizontalMoveAt = event.eventTime
+        if (selectedTimeMs <= windowStartMs + 60_000L) {
+          emit("topLeftBoundary", null)
+          return true
+        }
         val current = selectedProgram()
-        if (current == null || selectedTimeMs <= windowStartMs + 60_000L) { emit("topLeftBoundary", null); return true }
-        selectedTimeMs = max(windowStartMs, current.startMs - 1)
+        // A missing painted programme means the newest bounded SQLite runway is
+        // still arriving; it is not evidence that the cursor reached Guide Left.
+        val nextTime = max(
+          windowStartMs,
+          current?.let { it.startMs - 1L } ?: (selectedTimeMs - 30L * 60_000L),
+        )
+        if (nextTime == selectedTimeMs) return true
+        selectedTimeMs = nextTime
         ensureSelectedTimeVisible()
+        loadPrograms()
         invalidate(); emitSelection(false)
       }
       KeyEvent.KEYCODE_DPAD_RIGHT -> {
@@ -344,6 +355,9 @@ class NativeGuideView(context: Context) : View(context) {
         if (nextTime == selectedTimeMs) return true
         selectedTimeMs = nextTime
         ensureSelectedTimeVisible()
+        // Horizontal cache misses must request the newest runway even when the
+        // viewport guard did not move. scheduleQueryDrain coalesces old requests.
+        loadPrograms()
         invalidate(); emitSelection(false)
       }
       KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_BUTTON_A -> emitSelection(true, pressed = true)

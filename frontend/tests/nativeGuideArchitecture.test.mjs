@@ -117,3 +117,14 @@ test("native Guide precomputes row labels outside the repaint loop", async () =>
   assert.match(view, /drawClippedText\(canvas, row\.label/);
   assert.doesNotMatch(view, /val rowLabel = if \(row\.number\.isBlank\(\)\)/);
 });
+
+test("native Guide treats horizontal cache misses as loading, not false boundaries", async () => {
+  const view = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");
+  const keys = view.match(/override fun onKeyDown[\s\S]*?override fun onKeyUp/)?.[0] || "";
+  assert.doesNotMatch(keys, /current == null \|\| selectedTimeMs <= windowStartMs/);
+  assert.match(keys, /selectedTimeMs <= windowStartMs \+ 60_000L/);
+  assert.match(keys, /current\?\.let \{ it\.startMs - 1L \} \?: \(selectedTimeMs - 30L \* 60_000L\)/);
+  const horizontalLoads = keys.match(/loadPrograms\(\)/g) || [];
+  assert.ok(horizontalLoads.length >= 2, "left and right navigation must both refresh the bounded runway");
+  assert.match(view, /Keep at most one active read plus the newest requested runway/);
+});
