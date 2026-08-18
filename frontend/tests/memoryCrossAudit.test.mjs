@@ -44,10 +44,14 @@ test("low-RAM device cap wins over larger user performance profiles", () => {
 
 test("channel customization writes only the state blob that changed", async () => {
   const customize = await readFile(join(root, "src/core/channelCustomize.ts"), "utf8");
-  assert.match(customize, /async function persist\(previous: Snapshot, next: Snapshot\)/);
+  assert.match(customize, /function persist\(previous: Snapshot, next: Snapshot\): void/);
   assert.match(customize, /previous\.hiddenIds !== next\.hiddenIds/);
   assert.match(customize, /previous\.customOrder !== next\.customOrder/);
   assert.match(customize, /previous\.customNumbers !== next\.customNumbers/);
+  assert.match(customize, /pendingDirty\.hiddenIds = true/);
+  assert.match(customize, /pendingDirty\.customOrder = true/);
+  assert.match(customize, /pendingDirty\.customNumbers = true/);
+  assert.match(customize, /void flushPersistence\(\)/);
   assert.doesNotMatch(
     customize,
     /Promise\.all\(\[\s*storage\.setItem\(HIDDEN_KEY[\s\S]*storage\.setItem\(ORDER_KEY[\s\S]*storage\.setItem\(NUMBERS_KEY/,
