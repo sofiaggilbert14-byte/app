@@ -439,7 +439,10 @@ export default function PurpleGuideScreen() {
       // Refocus after blur/player: rewarm the last runway so soft-trim on blur
       // does not leave an empty Guide waiting for the first D-pad event.
       const last = lastRunwayRef.current;
-      if (last.ids.length) {
+      // Search/fullscreen jumps own re-entry. Do not spend SQLite/bridge/cache
+      // work rewarming the old Guide runway first; the jump reset will seed the
+      // requested channel immediately and avoids wrong-row contention/black return.
+      if (!peekGuideJump() && last.ids.length) {
         setViewportGuideChannelIds(last.ids);
         setPriorityMatchChannelIds(
           channels.length >= 400
