@@ -95,10 +95,27 @@ internal interface EpgControlDao {
   @Query("SELECT COUNT(*) FROM epg_channel_bindings WHERE playlistId = :playlistId")
   fun channelBindingCount(playlistId: String): Int
 
+  /**
+   * Compatibility bulk path used by older JS ownership configuration.
+   *
+   * Once any native binding exists, Room is authoritative: an old/stale JS map
+   * may be identical (no-op) but it can never replace or clear the native set.
+   * An empty table may still be seeded for legacy migration compatibility.
+   */
   @Transaction
   fun replaceChannelBindings(playlistId: String, bindings: List<EpgChannelBindingEntity>) {
-    clearChannelBindings(playlistId)
-    if (bindings.isNotEmpty()) putChannelBindings(bindings)
+    val existing = allChannelBindings(playlistId)
+    if (existing.isEmpty()) {
+      if (bindings.isNotEmpty()) putChannelBindings(bindings)
+      return
+    }
+    val existingMap = existing.associate { it.channelId to it.xmltvId }
+    val incomingMap = bindings
+      .filter { it.channelId.isNotBlank() && it.xmltvId.isNotBlank() }
+      .associate { it.channelId to it.xmltvId }
+    if (existingMap == incomingMap) return
+    // Deliberately ignore a divergent legacy bulk snapshot. All live edits use
+    // setChannelBinding()/clearChannelBindings() through the native binding API.
   }
 
   @Transaction
