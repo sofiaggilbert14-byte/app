@@ -1,0 +1,29 @@
+name: Phase 9 Native User EPG
+
+on:
+  push:
+    branches: [phase9/remote-groups-epg-player]
+    paths: [frontend/ci/phase9-native-user-epg-trigger.txt]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: phase9/remote-groups-epg-player
+          fetch-depth: 0
+      - run: python3 frontend/ci/apply-phase9-native-user-epg.py
+      - run: git diff --check
+      - shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/android/app/src/main/java/com/charmiptv/app/EpgDatabase.kt \
+                  frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt
+          git commit -m "phase9: add source-owned user EPG namespaces"
+          git push origin HEAD:phase9/remote-groups-epg-player
