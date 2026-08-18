@@ -36,6 +36,22 @@ test("Guide is a single native logical canvas with predictive prefetch", async (
   assert.match(app, /add\(NativeGuidePackage\(\)\)/);
 });
 
+test("Guide logical resets force a bounded native reload without remounting", async () => {
+  const [guide, bridge, manager, view] = await Promise.all([
+    source("app/(tabs)/guide.tsx"),
+    source("src/components/NativeGuideCanvas.tsx"),
+    source("android/app/src/main/java/com/charmiptv/app/NativeGuidePackage.kt"),
+    source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt"),
+  ]);
+  assert.match(guide, /reloadGeneration=\{resetToken\}/);
+  assert.match(bridge, /reloadGeneration\?: number/);
+  assert.match(bridge, /reloadGeneration=\{reloadGeneration\}/);
+  assert.match(manager, /@ReactProp\(name = "reloadGeneration", defaultInt = 0\)/);
+  assert.match(view, /fun setReloadGeneration\(value: Int\)/);
+  assert.match(view, /pendingQuery = null[\s\S]{0,260}loadPrograms\(\)/);
+  assert.doesNotMatch(guide, /key=\{resetToken\}/);
+});
+
 test("native Guide timeline uses real program duration and queries the visible runway", async () => {
   const view = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");
   assert.match(view, /visibleWindowMs = 3L \* 60L \* 60_000L/);

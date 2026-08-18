@@ -52,6 +52,7 @@ class NativeGuideView(context: Context) : View(context) {
   private var moveVelocity = 0
   private var pendingRestoreChannelId: String? = null
   private var pendingRestoreTimeMs: Long? = null
+  private var reloadGeneration = 0
 
   private val unregisterMemoryListener = CharmMemoryCoordinator.register { level, _ ->
     if (level != CharmTrimLevel.CRITICAL) return@register
@@ -179,6 +180,19 @@ class NativeGuideView(context: Context) : View(context) {
     loadPrograms()
     invalidate()
     if (enabled) emitSelection(true)
+  }
+
+  fun setReloadGeneration(value: Int) {
+    if (value == reloadGeneration) return
+    reloadGeneration = value
+    generation += 1
+    pendingQuery = null
+    // Logical Guide resets (group switch/Search/fullscreen return) keep the
+    // same native view and cursor, but must always request a fresh bounded
+    // visible runway even when the channel array itself is unchanged.
+    loadPrograms()
+    invalidate()
+    if (enabled && rows.isNotEmpty()) emitSelection(true)
   }
 
   fun restoreTime(value: Double) {
