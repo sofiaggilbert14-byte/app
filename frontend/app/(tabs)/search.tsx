@@ -82,7 +82,7 @@ export default function SearchScreen() {
     useCallback(() => {
       focusZoneRef.current = null;
       setPreferKeyFocus(true);
-      const clearPreferred = setTimeout(() => setPreferKeyFocus(false), 700);
+      const clearPreferred = setTimeout(() => setPreferKeyFocus(false), 180);
       const cancelFocus = requestNativeFocusWithRetry(firstKeyRef.current, [0, 80, 180, 320]);
       return () => {
         clearTimeout(clearPreferred);
@@ -92,7 +92,7 @@ export default function SearchScreen() {
   );
 
   useEffect(() => {
-    if (!isTV) return;
+    if (!isTV || !isFocused) return;
     return addTvKeyListener((key) => {
       if (key !== "LEFT") return;
       // Ten fixed-width normal keys fit each TV keyboard row. At the first
@@ -102,7 +102,7 @@ export default function SearchScreen() {
         openDrawer({ focusTop: true });
       }
     });
-  }, [isTV, openDrawer]);
+  }, [isFocused, isTV, openDrawer]);
 
   // Keep cursor in range if query is replaced (suggestions / clear).
   useEffect(() => {
@@ -162,7 +162,9 @@ export default function SearchScreen() {
       void Haptics.selectionAsync().catch(() => undefined);
       requestGuideJump({
         channelId: channel.id,
-        group: channel.group || "All",
+        // Provider/M3U groups can be hidden in Phase 9. Anchor the exact
+        // channel through All so Search never targets an invisible raw group.
+        group: "All",
         programStart: opts?.programStart || opts?.program?.start,
       });
       router.replace("/guide" as any);
