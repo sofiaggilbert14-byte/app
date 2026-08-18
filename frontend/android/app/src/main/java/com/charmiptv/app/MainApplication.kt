@@ -16,6 +16,7 @@ import com.facebook.react.defaults.DefaultReactNativeHost
 import com.facebook.react.modules.core.DeviceEventManagerModule
 
 import expo.modules.ApplicationLifecycleDispatcher
+import expo.modules.ReactActivityDelegateWrapper
 import expo.modules.ReactNativeHostWrapper
 
 class MainApplication : Application(), ReactApplication {
@@ -30,6 +31,7 @@ class MainApplication : Application(), ReactApplication {
               add(EpgRamPackage())
               add(NativeGuidePackage())
               add(CustomizationNativePackage())
+              add(CustomEpgNativePackage())
             }
 
           override fun getJSMainModuleName(): String = ".expo/.virtual-metro-entry"
