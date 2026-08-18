@@ -20,6 +20,7 @@ export default function TabsLayout() {
       <Tabs.Screen name="search" options={{ title: "Search" }} />
       <Tabs.Screen name="settings" options={{ title: "Settings" }} />
       <Tabs.Screen name="epg-sources" options={{ title: "EPG Sources" }} />
+      <Tabs.Screen name="group-settings" options={{ title: "Groups & Tabs" }} />
     </Tabs>
   );
 }
