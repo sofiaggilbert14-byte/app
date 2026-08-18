@@ -1,5 +1,5 @@
-import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FlatList, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
@@ -13,6 +13,8 @@ import { fonts, radius, tvColors } from "@/src/theme";
 import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 import { nextFavoriteFolderName } from "@/src/core/favoriteFolders";
+import { useGuidePrograms } from "@/src/core/guideProgramsStore";
+import { addTvLongPressListener } from "@/src/utils/tvRemote";
 
 function byName(a: Channel, b: Channel) {
   return (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" });
@@ -27,6 +29,7 @@ const FavoriteRow = memo(function FavoriteRow({
   folderMode,
   onPlay,
   onLongPress,
+  onFocusChannel,
 }: {
   channel: Channel;
   number: number;
@@ -36,13 +39,18 @@ const FavoriteRow = memo(function FavoriteRow({
   folderMode: boolean;
   onPlay: (channel: Channel) => void;
   onLongPress: (id: string) => void;
+  onFocusChannel: (id: string | null) => void;
 }) {
-  const current = nowNext(channel.programs, now).current;
+  const programmes = useGuidePrograms(channel.id);
+  const current = nowNext(programmes.length ? programmes : channel.programs, now).current;
+  const isTV = Platform.OS !== "web" && Platform.isTV;
   const progress = current ? progressPct(current, now) : 0;
   return (
     <Pressable
+      onFocus={() => onFocusChannel(channel.id)}
+      onBlur={() => onFocusChannel(null)}
       onPress={() => onPlay(channel)}
-      onLongPress={() => onLongPress(channel.id)}
+      onLongPress={isTV ? undefined : () => onLongPress(channel.id)}
       delayLongPress={450}
       style={({ focused }: any) => [styles.row, focused && styles.focused]}
     >
@@ -112,6 +120,8 @@ export default function FavoritesScreen() {
   }, [channels, favoriteSet, folderMemberSet]);
   const [now, setNow] = useState(() => new Date());
   const [preferInitialFocus, setPreferInitialFocus] = useState(true);
+  const focusedChannelIdRef = useRef<string | null>(null);
+  const isTV = Platform.OS !== "web" && Platform.isTV;
 
   useEffect(() => {
     if (!isFocused) return;
@@ -139,6 +149,19 @@ export default function FavoritesScreen() {
     if (folderMode) toggleFavoriteFolderChannel(folderId, id);
     else toggleFavorite(id);
   }, [folderId, folderMode, toggleFavorite, toggleFavoriteFolderChannel]);
+
+  const noteChannelFocus = useCallback((id: string | null) => {
+    focusedChannelIdRef.current = id;
+  }, []);
+
+  useEffect(() => {
+    if (!isTV || !isFocused) return;
+    return addTvLongPressListener((key) => {
+      if (key !== "SELECT") return;
+      const id = focusedChannelIdRef.current;
+      if (id) onLongPress(id);
+    });
+  }, [isFocused, isTV, onLongPress]);
 
   const onRenameSelectedFolder = useCallback(() => {
     if (!folderMode) return;
@@ -227,6 +250,7 @@ export default function FavoritesScreen() {
                 inFolder={!!folderMemberSet?.has(item.id)}
                 onPlay={play}
                 onLongPress={onLongPress}
+                onFocusChannel={noteChannelFocus}
               />
             )}
           />
