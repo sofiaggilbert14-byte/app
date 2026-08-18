@@ -1,0 +1,43 @@
+name: Phase 9 TiviMate Playlist Incremental Sync
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-playlist-incremental.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Route playlist persistence through incremental sync coordinator
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt')
+          s = p.read_text()
+          old = 'database.replacePlaylistChannels(rows, playlistEpoch.toLong(), contentFingerprint.trim())'
+          new = 'PlaylistSyncCoordinator.sync(database, rows, playlistEpoch.toLong(), contentFingerprint.trim())'
+          if new in s:
+              print('already applied')
+          elif old in s:
+              p.write_text(s.replace(old, new, 1))
+          else:
+              raise SystemExit('expected playlist replace call not found')
+          PY
+      - name: Commit repair
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt
+          git commit -m "phase9: use incremental native playlist sync"
+          git push origin HEAD:phase9/purple-next
