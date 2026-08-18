@@ -1,0 +1,7 @@
+source_sha=77c5204f2e450b112823fc0756f6fd6763f061ec
+install=success
+native_config=success
+doctor=failure
+tests=failure
+typecheck=success
+lint=success
