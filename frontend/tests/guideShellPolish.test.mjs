@@ -131,6 +131,20 @@ test("drawer shell boots closed without an icon rail", async () => {
   assert.match(shell, /autoFocus=\{!drawerOpen && active !== "\/guide"\}/);
 });
 
+test("drawer route changes release drawer focus ownership before mounting the next screen", async () => {
+  const shell = await source("src/components/PurpleTvShell.tsx");
+  const navigate = shell.match(/const navigate = useCallback\([\s\S]*?\n  \);/)?.[0] || "";
+  assert.match(navigate, /closeDrawer\(\{ force: true \}\)/);
+  assert.match(navigate, /if \(route === active\) return/);
+  assert.match(navigate, /requestAnimationFrame\(\(\) => \{/);
+  assert.match(navigate, /router\.replace\(route as any\)/);
+  assert.ok(
+    navigate.indexOf('closeDrawer({ force: true })') < navigate.indexOf('requestAnimationFrame'),
+    "drawer must close before route handoff",
+  );
+  assert.doesNotMatch(navigate, /closeDrawer\(\);[\s\S]*router\.replace/);
+});
+
 test("shared page focus has a deterministic Left-edge drawer handoff", async () => {
   const [shell, collection, favorites, reminders, live, channels] = await Promise.all([
     source("src/components/PurpleTvShell.tsx"),

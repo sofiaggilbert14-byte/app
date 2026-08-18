@@ -281,14 +281,22 @@ export function PurpleTvShell({
   const navigate = useCallback(
     (route: Route) => {
       void Haptics.selectionAsync().catch(() => undefined);
-      if (route === "/settings") DeviceEventEmitter.emit("CharmShowAllSettings");
-      closeDrawer();
-      if (deferredDrawerCloseTimer.current) clearTimeout(deferredDrawerCloseTimer.current);
-      deferredDrawerCloseTimer.current = setTimeout(() => {
+      if (deferredDrawerCloseTimer.current) {
+        clearTimeout(deferredDrawerCloseTimer.current);
         deferredDrawerCloseTimer.current = null;
-        closeDrawer();
-      }, PURPLE_DRAWER_ANIMATION_MS + 80);
-      if (route !== active) router.replace(route as any);
+      }
+
+      // TiviMate-style focus ownership: the drawer must fully relinquish the
+      // remote/focus tree before a different route mounts and claims focus.
+      // A normal close can be rejected by the anti-bounce opening guard, which
+      // previously allowed two live focus owners during rapid drawer selection.
+      closeDrawer({ force: true });
+      if (route === active) return;
+
+      requestAnimationFrame(() => {
+        if (route === "/settings") DeviceEventEmitter.emit("CharmShowAllSettings");
+        router.replace(route as any);
+      });
     },
     [active, closeDrawer, router],
   );
