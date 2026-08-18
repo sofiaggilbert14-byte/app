@@ -1,0 +1,79 @@
+name: Phase 9 TiviMate Player Guide Return
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-player-guide-return.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Preserve current tuned channel when fullscreen returns to Guide
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          helper = Path('frontend/src/utils/openFullscreenPlayer.ts')
+          h = helper.read_text()
+          h = h.replace(
+              '''export function openFullscreenPlayer(\n  router: Pick<Router, "push">,\n  channelId: string,\n): void {''',
+              '''export function openFullscreenPlayer(\n  router: Pick<Router, "push">,\n  channelId: string,\n  options?: { returnToGuide?: boolean },\n): void {''',
+              1,
+          )
+          h = h.replace(
+              '''    router.push({ pathname: "/player", params: { channelId } });''',
+              '''    router.push({\n      pathname: "/player",\n      params: { channelId, returnToGuide: options?.returnToGuide ? "1" : undefined },\n    });''',
+              1,
+          )
+          if 'returnToGuide: options?.returnToGuide ? "1"' not in h:
+              raise SystemExit('fullscreen helper return intent marker not found')
+          helper.write_text(h)
+
+          guide = Path('frontend/app/(tabs)/guide.tsx')
+          g = guide.read_text()
+          old = '      openFullscreenPlayer(router, channel.id);\n'
+          new = '      openFullscreenPlayer(router, channel.id, { returnToGuide: true });\n'
+          if new not in g:
+              if old not in g: raise SystemExit('Guide fullscreen call marker not found')
+              g = g.replace(old, new, 1)
+          guide.write_text(g)
+
+          player = Path('frontend/app/player.tsx')
+          p = player.read_text()
+          p = p.replace(
+              '  const params = useLocalSearchParams<{ channelId: string }>();\n',
+              '  const params = useLocalSearchParams<{ channelId: string; returnToGuide?: string }>();\n',
+              1,
+          )
+          old_exit = '''  const stopAndExit = useCallback(() => {\n    void Haptics.selectionAsync().catch(() => undefined);\n    if (zapTimer.current) clearTimeout(zapTimer.current);\n    if (previewTimer.current) clearTimeout(previewTimer.current);\n    if (retryTimer.current) clearTimeout(retryTimer.current);\n    generationRef.current += 1;\n    setDecoderArmed(false);\n    stopFullscreenSession();\n    router.back();\n  }, [router]);\n'''
+          new_exit = '''  const stopAndExit = useCallback(() => {\n    void Haptics.selectionAsync().catch(() => undefined);\n    if (zapTimer.current) clearTimeout(zapTimer.current);\n    if (previewTimer.current) clearTimeout(previewTimer.current);\n    if (retryTimer.current) clearTimeout(retryTimer.current);\n    const currentChannelId = pendingChannelIdRef.current || channelIdRef.current;\n    generationRef.current += 1;\n    setDecoderArmed(false);\n    stopFullscreenSession();\n\n    // A fullscreen session launched from Guide owns a Guide return anchor.\n    // Use the currently tuned channel (including rapid zaps), not the channel\n    // that originally opened the player. Other entry points keep normal Back.\n    if (params.returnToGuide === "1" && currentChannelId) {\n      requestGuideJump({ channelId: currentChannelId, group: "All" });\n      router.replace("/guide" as any);\n      return;\n    }\n    router.back();\n  }, [params.returnToGuide, router]);\n'''
+          if 'params.returnToGuide === "1"' not in p:
+              if old_exit not in p: raise SystemExit('player stopAndExit marker not found')
+              p = p.replace(old_exit, new_exit, 1)
+          player.write_text(p)
+
+          test = Path('frontend/tests/playbackSession.test.mjs')
+          t = test.read_text()
+          case = '''\ntest("fullscreen launched from Guide returns the currently tuned channel to Guide", async () => {\n  const [guide, player, handoff] = await Promise.all([\n    readFile(join(root, "app/(tabs)/guide.tsx"), "utf8"),\n    readFile(join(root, "app/player.tsx"), "utf8"),\n    readFile(join(root, "src/utils/openFullscreenPlayer.ts"), "utf8"),\n  ]);\n  assert.match(guide, /openFullscreenPlayer\\(router, channel\\.id, \\{ returnToGuide: true \\}\\)/);\n  assert.match(handoff, /returnToGuide: options\\?\\.returnToGuide \\? "1" : undefined/);\n  const exit = player.match(/const stopAndExit = useCallback\\([\\s\\S]*?\\n  \\}, \\[params\\.returnToGuide, router\\]\\);/)?.[0] || "";\n  assert.match(exit, /pendingChannelIdRef\\.current \\|\\| channelIdRef\\.current/);\n  assert.match(exit, /params\\.returnToGuide === "1"/);\n  assert.match(exit, /requestGuideJump\\(\\{ channelId: currentChannelId, group: "All" \\}\\)/);\n  assert.match(exit, /router\\.replace\\("\\/guide" as any\\)/);\n  assert.match(exit, /router\\.back\\(\\)/);\n});\n'''
+          if 'fullscreen launched from Guide returns the currently tuned channel to Guide' not in t:
+              t += case
+          test.write_text(t)
+          PY
+      - name: Commit player Guide return anchor
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/utils/openFullscreenPlayer.ts frontend/app/'(tabs)'/guide.tsx frontend/app/player.tsx frontend/tests/playbackSession.test.mjs
+          git commit -m "phase9: return fullscreen zaps to current Guide channel"
+          git push origin HEAD:phase9/purple-next
