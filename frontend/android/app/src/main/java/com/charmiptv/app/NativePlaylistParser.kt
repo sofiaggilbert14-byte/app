@@ -141,47 +141,81 @@ internal object NativePlaylistParser {
   }
 
   private fun openPlaylist(urlString: String): InputStream {
-    val connection = URL(urlString).openConnection() as HttpURLConnection
-    connection.connectTimeout = 15_000
-    connection.readTimeout = 45_000
-    connection.instanceFollowRedirects = true
-    connection.setRequestProperty("User-Agent", "CharmIPTV/Experimental-v3")
-    connection.setRequestProperty("Accept-Encoding", "gzip")
-    connection.connect()
-    val status = connection.responseCode
-    if (status !in 200..299) {
-      connection.disconnect()
-      throw IllegalStateException("M3U HTTP $status")
-    }
-    val declared = connection.contentLengthLong
-    if (declared > MAX_PLAYLIST_BYTES) {
-      connection.disconnect()
-      throw IllegalStateException("Playlist exceeds size limit ($MAX_PLAYLIST_BYTES bytes)")
-    }
+    var currentUrl = URL(urlString)
+    var redirects = 0
 
-    try {
-      val connectionStream = object : FilterInputStream(connection.inputStream) {
-        override fun close() {
-          try {
-            super.close()
-          } finally {
-            connection.disconnect()
+    while (true) {
+      val scheme = currentUrl.protocol.lowercase(Locale.US)
+      if (scheme != "http" && scheme != "https") {
+        throw IllegalStateException("M3U redirect used unsupported scheme: $scheme")
+      }
+
+      val connection = currentUrl.openConnection() as HttpURLConnection
+      connection.connectTimeout = 15_000
+      connection.readTimeout = 45_000
+      // Android/Java automatic redirect handling is inconsistent for some IPTV
+      // endpoints (especially cross-protocol/port and relative Location values).
+      // Follow redirects explicitly so a valid Xtream get.php 302 does not fail.
+      connection.instanceFollowRedirects = false
+      connection.setRequestProperty("User-Agent", "CharmIPTV/Experimental-v3")
+      connection.setRequestProperty("Accept", "*/*")
+      connection.setRequestProperty("Accept-Encoding", "gzip")
+      connection.connect()
+
+      val status = connection.responseCode
+      if (isRedirectStatus(status)) {
+        val location = connection.getHeaderField("Location")?.trim().orEmpty()
+        connection.disconnect()
+        if (location.isEmpty()) throw IllegalStateException("M3U HTTP $status redirect missing Location")
+        redirects += 1
+        if (redirects > MAX_HTTP_REDIRECTS) {
+          throw IllegalStateException("M3U redirect limit exceeded ($MAX_HTTP_REDIRECTS)")
+        }
+        currentUrl = URL(currentUrl, location)
+        continue
+      }
+
+      if (status !in 200..299) {
+        connection.disconnect()
+        throw IllegalStateException("M3U HTTP $status")
+      }
+      val declared = connection.contentLengthLong
+      if (declared > MAX_PLAYLIST_BYTES) {
+        connection.disconnect()
+        throw IllegalStateException("Playlist exceeds size limit ($MAX_PLAYLIST_BYTES bytes)")
+      }
+
+      try {
+        val connectionStream = object : FilterInputStream(connection.inputStream) {
+          override fun close() {
+            try {
+              super.close()
+            } finally {
+              connection.disconnect()
+            }
           }
         }
+        val compressed = BoundedInputStream(connectionStream, MAX_PLAYLIST_BYTES)
+        val buffered = BufferedInputStream(compressed, NETWORK_BUFFER_SIZE)
+        buffered.mark(2)
+        val b1 = buffered.read()
+        val b2 = buffered.read()
+        buffered.reset()
+        val decoded = if (b1 == 0x1f && b2 == 0x8b) GZIPInputStream(buffered, NETWORK_BUFFER_SIZE) else buffered
+        return BoundedInputStream(decoded, MAX_PLAYLIST_BYTES)
+      } catch (t: Throwable) {
+        connection.disconnect()
+        throw t
       }
-      val compressed = BoundedInputStream(connectionStream, MAX_PLAYLIST_BYTES)
-      val buffered = BufferedInputStream(compressed, NETWORK_BUFFER_SIZE)
-      buffered.mark(2)
-      val b1 = buffered.read()
-      val b2 = buffered.read()
-      buffered.reset()
-      val decoded = if (b1 == 0x1f && b2 == 0x8b) GZIPInputStream(buffered, NETWORK_BUFFER_SIZE) else buffered
-      return BoundedInputStream(decoded, MAX_PLAYLIST_BYTES)
-    } catch (t: Throwable) {
-      connection.disconnect()
-      throw t
     }
   }
+
+  private fun isRedirectStatus(status: Int): Boolean =
+    status == HttpURLConnection.HTTP_MOVED_PERM ||
+      status == HttpURLConnection.HTTP_MOVED_TEMP ||
+      status == HttpURLConnection.HTTP_SEE_OTHER ||
+      status == 307 ||
+      status == 308
 
   /** Small direct attribute scanner; avoids regex allocation in the #EXTINF hot loop. */
   private fun attribute(line: String, key: String): String {
@@ -292,6 +326,7 @@ internal object NativePlaylistParser {
   }
 
   private const val NETWORK_BUFFER_SIZE = 64 * 1024
+  private const val MAX_HTTP_REDIRECTS = 6
   private const val MAX_PLAYLIST_BYTES = 32L * 1024L * 1024L
   private const val MAX_CHANNELS = 25_000
   private const val MAX_CHANNEL_ID_LEN = 160

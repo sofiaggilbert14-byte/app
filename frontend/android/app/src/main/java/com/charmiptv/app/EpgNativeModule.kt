@@ -619,82 +619,113 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   ): InputStream {
     val sourceHash = sha256(urlString)
     validators.sourceHash = sourceHash
-    val connection = URL(urlString).openConnection() as HttpURLConnection
-    connection.connectTimeout = 15_000
-    connection.readTimeout = 45_000
-    connection.instanceFollowRedirects = true
-    connection.setRequestProperty("User-Agent", "CharmIPTV/Experimental-v3")
-    connection.setRequestProperty("Accept-Encoding", "gzip")
     val canUseValidators =
       allowNotModified && database.count() > 0L && database.getMeta(HTTP_SOURCE_HASH_KEY) == sourceHash
-    if (canUseValidators) {
-      database.getMeta(HTTP_ETAG_KEY)?.takeIf { it.isNotBlank() }?.let {
-        connection.setRequestProperty("If-None-Match", it)
-      }
-      database.getMeta(HTTP_LAST_MODIFIED_KEY)?.takeIf { it.isNotBlank() }?.let {
-        connection.setRequestProperty("If-Modified-Since", it)
-      }
-    }
-    connection.connect()
-    val status = connection.responseCode
-    if (status == HttpURLConnection.HTTP_NOT_MODIFIED && canUseValidators) {
-      connection.disconnect()
-      throw EpgNotModifiedException()
-    }
-    if (status !in 200..299) {
-      connection.disconnect()
-      throw IllegalStateException("EPG HTTP $status")
-    }
-    validators.etag = connection.getHeaderField("ETag")?.trim().orEmpty()
-    validators.lastModified = connection.getHeaderField("Last-Modified")?.trim().orEmpty()
-    val declaredLength = connection.contentLengthLong
-    if (declaredLength > MAX_COMPRESSED_EPG_BYTES) {
-      connection.disconnect()
-      throw IllegalStateException(
-        "EPG download exceeds the ${MAX_COMPRESSED_EPG_BYTES / (1024L * 1024L)} MiB compressed safety limit"
-      )
-    }
-    database.assertRefreshStorageAvailable(declaredLength)
 
-    try {
-      val connectionStream = object : FilterInputStream(connection.inputStream) {
-        override fun close() {
-          try {
-            super.close()
-          } finally {
-            connection.disconnect()
+    var currentUrl = URL(urlString)
+    var redirects = 0
+    while (true) {
+      val scheme = currentUrl.protocol.lowercase(Locale.US)
+      if (scheme != "http" && scheme != "https") {
+        throw IllegalStateException("EPG redirect used unsupported scheme: $scheme")
+      }
+
+      val connection = currentUrl.openConnection() as HttpURLConnection
+      connection.connectTimeout = 15_000
+      connection.readTimeout = 45_000
+      connection.instanceFollowRedirects = false
+      connection.setRequestProperty("User-Agent", "CharmIPTV/Experimental-v3")
+      connection.setRequestProperty("Accept", "*/*")
+      connection.setRequestProperty("Accept-Encoding", "gzip")
+      if (canUseValidators) {
+        database.getMeta(HTTP_ETAG_KEY)?.takeIf { it.isNotBlank() }?.let {
+          connection.setRequestProperty("If-None-Match", it)
+        }
+        database.getMeta(HTTP_LAST_MODIFIED_KEY)?.takeIf { it.isNotBlank() }?.let {
+          connection.setRequestProperty("If-Modified-Since", it)
+        }
+      }
+      connection.connect()
+
+      val status = connection.responseCode
+      if (isHttpRedirect(status)) {
+        val location = connection.getHeaderField("Location")?.trim().orEmpty()
+        connection.disconnect()
+        if (location.isEmpty()) throw IllegalStateException("EPG HTTP $status redirect missing Location")
+        redirects += 1
+        if (redirects > MAX_HTTP_REDIRECTS) {
+          throw IllegalStateException("EPG redirect limit exceeded ($MAX_HTTP_REDIRECTS)")
+        }
+        currentUrl = URL(currentUrl, location)
+        continue
+      }
+
+      if (status == HttpURLConnection.HTTP_NOT_MODIFIED && canUseValidators) {
+        connection.disconnect()
+        throw EpgNotModifiedException()
+      }
+      if (status !in 200..299) {
+        connection.disconnect()
+        throw IllegalStateException("EPG HTTP $status")
+      }
+      validators.etag = connection.getHeaderField("ETag")?.trim().orEmpty()
+      validators.lastModified = connection.getHeaderField("Last-Modified")?.trim().orEmpty()
+      val declaredLength = connection.contentLengthLong
+      if (declaredLength > MAX_COMPRESSED_EPG_BYTES) {
+        connection.disconnect()
+        throw IllegalStateException(
+          "EPG download exceeds the ${MAX_COMPRESSED_EPG_BYTES / (1024L * 1024L)} MiB compressed safety limit"
+        )
+      }
+      database.assertRefreshStorageAvailable(declaredLength)
+
+      try {
+        val connectionStream = object : FilterInputStream(connection.inputStream) {
+          override fun close() {
+            try {
+              super.close()
+            } finally {
+              connection.disconnect()
+            }
           }
         }
-      }
-      val networkStream = BoundedInputStream(
-        connectionStream,
-        MAX_COMPRESSED_EPG_BYTES,
-        "compressed EPG download",
-      ) { bytesRead ->
-        val fraction = if (declaredLength > 0L) {
-          bytesRead.toDouble() / declaredLength.toDouble()
-        } else {
-          1.0 - exp(-bytesRead.toDouble() / UNKNOWN_LENGTH_PROGRESS_SCALE_BYTES)
+        val networkStream = BoundedInputStream(
+          connectionStream,
+          MAX_COMPRESSED_EPG_BYTES,
+          "compressed EPG download",
+        ) { bytesRead ->
+          val fraction = if (declaredLength > 0L) {
+            bytesRead.toDouble() / declaredLength.toDouble()
+          } else {
+            1.0 - exp(-bytesRead.toDouble() / UNKNOWN_LENGTH_PROGRESS_SCALE_BYTES)
+          }
+          emitImportProgress("downloading", 0.2 + (0.28 * fraction.coerceIn(0.0, 1.0)))
         }
-        emitImportProgress("downloading", 0.2 + (0.28 * fraction.coerceIn(0.0, 1.0)))
-      }
-      val buffered = BufferedInputStream(networkStream, NETWORK_BUFFER_SIZE)
-      buffered.mark(2)
-      val b1 = buffered.read()
-      val b2 = buffered.read()
-      buffered.reset()
+        val buffered = BufferedInputStream(networkStream, NETWORK_BUFFER_SIZE)
+        buffered.mark(2)
+        val b1 = buffered.read()
+        val b2 = buffered.read()
+        buffered.reset()
 
-      val decoded = if (b1 == 0x1f && b2 == 0x8b) {
-        GZIPInputStream(buffered, NETWORK_BUFFER_SIZE)
-      } else {
-        buffered
+        val decoded = if (b1 == 0x1f && b2 == 0x8b) {
+          GZIPInputStream(buffered, NETWORK_BUFFER_SIZE)
+        } else {
+          buffered
+        }
+        return BoundedInputStream(decoded, MAX_DECOMPRESSED_EPG_BYTES, "decompressed EPG data")
+      } catch (t: Throwable) {
+        connection.disconnect()
+        throw t
       }
-      return BoundedInputStream(decoded, MAX_DECOMPRESSED_EPG_BYTES, "decompressed EPG data")
-    } catch (t: Throwable) {
-      connection.disconnect()
-      throw t
     }
   }
+
+  private fun isHttpRedirect(status: Int): Boolean =
+    status == HttpURLConnection.HTTP_MOVED_PERM ||
+      status == HttpURLConnection.HTTP_MOVED_TEMP ||
+      status == HttpURLConnection.HTTP_SEE_OTHER ||
+      status == 307 ||
+      status == 308
 
   private fun sha256(value: String): String {
     return MessageDigest.getInstance("SHA-256")
@@ -857,6 +888,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     private const val DB_BLACKOUT_MS = 60L * 60L * 1000L
     private const val BATCH_SIZE = 1000
     private const val NETWORK_BUFFER_SIZE = 64 * 1024
+    private const val MAX_HTTP_REDIRECTS = 6
     private const val MAX_COMPRESSED_EPG_BYTES = 256L * 1024L * 1024L
     private const val MAX_DECOMPRESSED_EPG_BYTES = 1024L * 1024L * 1024L
     private const val MAX_PROGRAMME_COUNT = 2_000_000L
