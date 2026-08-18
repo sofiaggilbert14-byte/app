@@ -18,15 +18,16 @@ concurrency:
 jobs:
   validate-and-build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 100
     defaults:
       run:
         working-directory: frontend
     env:
       CI: "1"
-      EXPO_PUBLIC_M3U_URL: ${{ secrets.EXPO_PUBLIC_M3U_URL || vars.EXPO_PUBLIC_M3U_URL }}
-      EXPO_PUBLIC_EPG_URL: ${{ secrets.EXPO_PUBLIC_EPG_URL || vars.EXPO_PUBLIC_EPG_URL }}
-      GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx3g -Dorg.gradle.workers.max=1"
+      CMAKE_BUILD_PARALLEL_LEVEL: "1"
+      EXPO_PUBLIC_M3U_URL: ${{ secrets.M3U_URL || vars.EXPO_PUBLIC_M3U_URL }}
+      EXPO_PUBLIC_EPG_URL: ${{ secrets.EPG_URL || vars.EXPO_PUBLIC_EPG_URL }}
+      EXPO_PUBLIC_GUIDE_WINDOW_HOURS: ${{ vars.EXPO_PUBLIC_GUIDE_WINDOW_HOURS || '6' }}
 
     steps:
       - name: Checkout exact branch head
@@ -61,17 +62,19 @@ jobs:
         shell: bash
         run: |
           if [ -z "${EXPO_PUBLIC_M3U_URL}" ]; then
-            echo "EXPO_PUBLIC_M3U_URL is missing from repository secrets/variables" >&2
+            echo "Locked M3U source is missing" >&2
             exit 1
           fi
           if [ -z "${EXPO_PUBLIC_EPG_URL}" ]; then
-            echo "EXPO_PUBLIC_EPG_URL is missing from repository secrets/variables" >&2
+            echo "Locked EPG source is missing" >&2
             exit 1
           fi
           echo "Locked M3U and EPG build values are present."
 
-      - name: Verify native config
-        run: npm run verify:native-config
+      - name: Verify native guide architecture and config
+        run: |
+          npm run verify:native-guide
+          npm run verify:native-config
 
       - name: Expo Doctor
         run: npm run doctor
@@ -90,38 +93,45 @@ jobs:
           chmod +x scripts/build-media3-ffmpeg-audio.sh
           ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/27.1.12297006" ./scripts/build-media3-ffmpeg-audio.sh
 
-      - name: Compile native Kotlin and Java
+      - name: Apply deterministic low-memory build limits
+        run: |
+          cat >> android/gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx5g -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8
+          org.gradle.parallel=false
+          org.gradle.workers.max=1
+          org.gradle.vfs.watch=false
+          kotlin.compiler.execution.strategy=in-process
+          kotlin.daemon.enabled=false
+          reactNativeArchitectures=armeabi-v7a,arm64-v8a
+          EOF
+
+      - name: Compile sideload Kotlin and Java
         run: |
           chmod +x android/gradlew
-          ./android/gradlew -p android \
-            :ffmpeg-audio:compileDebugJavaWithJavac \
-            :app:compileDebugKotlin \
-            :app:compileDebugJavaWithJavac \
-            --no-daemon --max-workers=1 --stacktrace
+          ./android/gradlew -p android :app:compileSideloadKotlin :app:compileSideloadJavaWithJavac --no-daemon --max-workers=1 --stacktrace
 
-      - name: Build sideload APK
+      - name: Build universal sideload APK
         run: ./android/gradlew -p android assembleSideload --no-daemon --max-workers=1 --stacktrace
 
-      - name: Verify embedded React Native bundle
+      - name: Verify and checksum APK
         run: |
           APK="android/app/build/outputs/apk/sideload/app-sideload.apk"
           test -f "$APK"
-          unzip -l "$APK" | grep -E "(index\.android\.bundle|assets/.*\.bundle|resources\.arsc)" >/dev/null
-
-      - name: Rename tester APK
-        run: |
+          unzip -l "$APK" > apk-contents.txt
+          grep -Eq 'assets/index.android.bundle|assets/.*\.bundle' apk-contents.txt
+          grep -q 'lib/armeabi-v7a/' apk-contents.txt
+          grep -q 'lib/arm64-v8a/' apk-contents.txt
+          grep -Eq 'libffmpeg|ffmpeg' apk-contents.txt
           mkdir -p android/app/build/outputs/apk/tester
-          cp android/app/build/outputs/apk/sideload/app-sideload.apk \
-            android/app/build/outputs/apk/tester/CharmIPTV-Build8-Final-Sideload.apk
-          sha256sum android/app/build/outputs/apk/tester/CharmIPTV-Build8-Final-Sideload.apk \
-            > android/app/build/outputs/apk/tester/CharmIPTV-Build8-Final-Sideload.sha256
+          cp "$APK" android/app/build/outputs/apk/tester/CharmIPTV-Build8-Final-Sideload.apk
+          sha256sum android/app/build/outputs/apk/tester/CharmIPTV-Build8-Final-Sideload.apk > android/app/build/outputs/apk/tester/CharmIPTV-Build8-Final-Sideload.sha256
 
       - name: Upload sideload APK
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: CharmIPTV-Build8-Final-Sideload
+          name: CharmIPTV-Build8-Final-Sideload-${{ github.sha }}
           path: |
             frontend/android/app/build/outputs/apk/tester/CharmIPTV-Build8-Final-Sideload.apk
             frontend/android/app/build/outputs/apk/tester/CharmIPTV-Build8-Final-Sideload.sha256
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
