@@ -116,7 +116,10 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
             // non-empty ingest, preserving the prior last-good guide on network/parser failure.
             userDatabase.replaceBatches(batches)
           } catch (t: IllegalStateException) {
-            if (acceptedProgrammeCount > 0L) throw t
+            val emptyFeed =
+              acceptedProgrammeCount == 0L &&
+                t.message.orEmpty().contains("Refusing to replace live EPG with an empty feed")
+            if (!emptyFeed) throw t
             // A valid XMLTV directory can legitimately have no current/future rows for the
             // selected ids. Keep last-good programmes, but still refresh the assignment list.
           }
