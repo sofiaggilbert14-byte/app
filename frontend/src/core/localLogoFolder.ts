@@ -134,7 +134,9 @@ export function resolveLocalLogo(channelName: string): string | undefined {
 
 export function useLocalLogo(channelName: string): string | undefined {
   const [, setVersion] = useState(0);
+  const active = !!channelName;
   useEffect(() => {
+    if (!active) return;
     let cancelled = false;
     void loadLocalLogoFolder().then(() => {
       if (!cancelled) setVersion((value) => value + 1);
@@ -147,6 +149,6 @@ export function useLocalLogo(channelName: string): string | undefined {
       cancelled = true;
       listeners.delete(listener);
     };
-  }, []);
-  return resolveLocalLogo(channelName);
+  }, [active]);
+  return active ? resolveLocalLogo(channelName) : undefined;
 }
