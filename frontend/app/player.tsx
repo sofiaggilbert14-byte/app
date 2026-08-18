@@ -620,18 +620,20 @@ export default function PlayerScreen() {
     if (previewTimer.current) clearTimeout(previewTimer.current);
     if (retryTimer.current) clearTimeout(retryTimer.current);
     const currentChannelId = pendingChannelIdRef.current || channelIdRef.current;
-    const currentChannel = channelById(currentChannelId);
     if (currentChannelId) {
       requestGuideJump({
         channelId: currentChannelId,
-        group: currentChannel?.group || "All",
+        // Raw provider groups can be hidden in Phase 9. Restore the exact
+        // channel through All so fullscreen -> Guide never depends on an
+        // invisible M3U category.
+        group: "All",
       });
     }
     generationRef.current += 1;
     setDecoderArmed(false);
     stopFullscreenSession();
     router.replace("/guide" as any);
-  }, [channelById, router]);
+  }, [router]);
 
   useEffect(() => {
     if (!isTV) return;
