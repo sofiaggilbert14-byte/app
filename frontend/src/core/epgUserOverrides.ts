@@ -27,15 +27,31 @@ export function applyManualEpgRemaps<T extends { id: string; tvg_id: string }>(
   channels: T[],
   remaps: EpgManualRemap,
 ): T[] {
-  if (!remaps || !Object.keys(remaps).length) return channels;
-  let changed = false;
-  const next = channels.map((channel) => {
+  if (!remaps) return channels;
+
+  // Native source already applies remaps before Store sees the list. The old
+  // channels.map(...) path still allocated a second full 6k array on Store's
+  // defensive pass even when every tvg_id already matched. Find the first real
+  // change before allocating anything.
+  let firstChanged = -1;
+  for (let index = 0; index < channels.length; index++) {
+    const channel = channels[index];
     const mapped = remaps[channel.id];
-    if (!mapped || mapped === channel.tvg_id) return channel;
-    changed = true;
-    return { ...channel, tvg_id: mapped };
-  });
-  return changed ? next : channels;
+    if (mapped && mapped !== channel.tvg_id) {
+      firstChanged = index;
+      break;
+    }
+  }
+  if (firstChanged < 0) return channels;
+
+  const next = channels.slice();
+  for (let index = firstChanged; index < channels.length; index++) {
+    const channel = channels[index];
+    const mapped = remaps[channel.id];
+    if (!mapped || mapped === channel.tvg_id) continue;
+    next[index] = { ...channel, tvg_id: mapped };
+  }
+  return next;
 }
 
 export function channelHasEpgMatch(channel: { tvg_id?: string; id: string; programs?: unknown[] }): boolean {
