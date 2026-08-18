@@ -223,8 +223,18 @@ export default function SettingsScreen() {
   const selected = useMemo(() => TILES.find((item) => item.id === section), [section]);
 
   const channelEditPageCount = Math.max(1, Math.ceil(channels.length / 100));
+  const channelEditIds = useMemo(
+    () => section === "channels" ? channels.map((channel) => channel.id) : [],
+    [channels, section],
+  );
   const customizeChannels = useMemo(() => channels.slice(channelEditPage * 100, channelEditPage * 100 + 100), [channelEditPage, channels]);
   const hiddenSet = useMemo(() => new Set(channelCustomize.hiddenIds), [channelCustomize.hiddenIds]);
+
+  useEffect(() => {
+    if (section !== "channels") return;
+    setChannelEditPage((current) => Math.max(0, Math.min(channelEditPageCount - 1, current)));
+    setFocusedCustomizeId(null);
+  }, [channelEditPageCount, channels, section]);
   const failedChannelRows = useMemo(() => {
     if (section !== "health") return [] as { id: string; name: string }[];
     return listFailedChannelIds()
@@ -771,13 +781,13 @@ export default function SettingsScreen() {
                               <Text style={styles.miniActionText}>{hidden ? "Show" : "Hide"}</Text>
                             </Pressable>
                             <Pressable
-                              onPress={() => channelCustomize.moveInCustomOrder(channel.id, -1)}
+                              onPress={() => channelCustomize.moveInCustomOrder(channel.id, -1, channelEditIds)}
                               style={({ focused: btnFocused }: any) => [styles.miniAction, btnFocused && styles.focused]}
                             >
                               <Text style={styles.miniActionText}>Up</Text>
                             </Pressable>
                             <Pressable
-                              onPress={() => channelCustomize.moveInCustomOrder(channel.id, 1)}
+                              onPress={() => channelCustomize.moveInCustomOrder(channel.id, 1, channelEditIds)}
                               style={({ focused: btnFocused }: any) => [styles.miniAction, btnFocused && styles.focused]}
                             >
                               <Text style={styles.miniActionText}>Down</Text>
