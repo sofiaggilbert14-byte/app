@@ -73,7 +73,7 @@ const NON_CIRCUIT_REASONS = new Set<SessionFailReason>([
 ]);
 /** After Media3 reports playing, wait this long for audio tracks before VLC swap. */
 const SILENT_AUDIO_GRACE_MS = 2200;
-const FROZEN_VIDEO_WATCHDOG_MS = 5000;
+const FROZEN_VIDEO_WATCHDOG_MS = 15_000;
 
 function pruneFailureMap(now = Date.now()) {
   for (const [key, state] of failureStateByKey) {
@@ -303,8 +303,8 @@ function VlcStream({
   const deviceMemory = useDeviceMemoryProfile();
   const lowRam = shouldUseLowRamTuning(deviceMemory);
   const initOptions = useMemo(() => {
-    const requestedMs = bufferProfile === "low_latency" ? 900 : bufferProfile === "stable" ? 3200 : 1800;
-    const fullMs = lowRam ? Math.min(requestedMs, 1800) : requestedMs;
+    const requestedMs = bufferProfile === "low_latency" ? 1200 : bufferProfile === "stable" ? 5000 : 3000;
+    const fullMs = lowRam ? Math.min(requestedMs, 2800) : requestedMs;
     const networkCaching = mode === "preview" ? 1000 : fullMs;
     const liveCaching = mode === "preview" ? 1000 : fullMs;
     const fileCaching = mode === "preview" ? 700 : Math.round(fullMs * 0.62);
@@ -466,6 +466,7 @@ function ExpoStream({
   const tracksCallbackRef = useRef(onTracksAvailable);
   const lastPlaybackTimeRef = useRef(-1);
   const lastPlaybackAdvanceAtRef = useRef(Date.now());
+  const playbackTransportStateRef = useRef<"idle" | "loading" | "ready">("idle");
   tracksCallbackRef.current = onTracksAvailable;
   const [mediaReady, setMediaReady] = useState(false);
   const { uri, headers } = useMemo(() => parsePipeHeaders(rawUri), [rawUri]);
@@ -502,8 +503,8 @@ function ExpoStream({
         : profile === "stable"
           ? { preferredForwardBufferDuration: lowRam ? 3.5 : 6, maxBufferBytes: (lowRam ? 28 : 48) * 1024 * 1024 }
           : {
-              preferredForwardBufferDuration: lowRam ? 2.2 : (media3Audio === "ffmpeg" ? 3.5 : 3),
-              maxBufferBytes: (lowRam ? 24 : (media3Audio === "ffmpeg" ? 56 : 48)) * 1024 * 1024,
+              preferredForwardBufferDuration: lowRam ? 3.0 : (media3Audio === "ffmpeg" ? 5.5 : 5.0),
+              maxBufferBytes: (lowRam ? 28 : (media3Audio === "ffmpeg" ? 64 : 56)) * 1024 * 1024,
             };
       const coordinatedCacheBudget = Math.max(
         8 * 1024 * 1024,
@@ -805,6 +806,7 @@ function ExpoStream({
       if (!mountedRef.current || tearingDownRef.current || blocked) return;
       if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
       if (status === "readyToPlay") {
+        playbackTransportStateRef.current = "ready";
         lastPlaybackTimeRef.current = player.currentTime;
         lastPlaybackAdvanceAtRef.current = Date.now();
         setMediaReady(true);
@@ -812,8 +814,13 @@ function ExpoStream({
         recordStablePlayback(sessionRole, engine, uri);
         emit("playing");
       } else if (status === "loading") {
+        // A provider/HLS rebuffer is not a frozen decoder. Reset the watchdog
+        // clock and let Media3 refill rather than tearing down a healthy session.
+        playbackTransportStateRef.current = "loading";
+        lastPlaybackAdvanceAtRef.current = Date.now();
         emit("loading");
       } else if (error || status === "error") {
+        playbackTransportStateRef.current = "idle";
         recordFailure(sessionRole, engine, uri, "stream-error");
         if (isCircuitOpen(sessionRole, engine, uri)) {
           setBlocked(true);
@@ -841,6 +848,7 @@ function ExpoStream({
     const watchdog = setInterval(() => {
       if (!mountedRef.current || tearingDownRef.current || paused || blocked) return;
       if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
+      if (playbackTransportStateRef.current !== "ready") return;
       if (Date.now() - lastPlaybackAdvanceAtRef.current < FROZEN_VIDEO_WATCHDOG_MS) return;
       lastPlaybackAdvanceAtRef.current = Date.now();
       recordFailure(sessionRole, engine, uri, "stream-error");

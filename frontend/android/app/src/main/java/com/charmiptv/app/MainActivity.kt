@@ -18,6 +18,7 @@ class MainActivity : ReactActivity() {
   private var lastAcceptedDirectionalKeyCode = -1
 
   override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+    val remoteOwner = TvRemoteModule.remoteOwner
     // Dedicated Channel/Page buttons provide safe one-page Guide jumps. They
     // never overload ordinary D-pad taps, so channel-by-channel focus remains
     // deterministic and a held arrow cannot accidentally trigger a page jump.
@@ -95,7 +96,25 @@ class MainActivity : ReactActivity() {
         else -> null
       }
     } else null
-    if (key != null && (!TvRemoteModule.guideNavigationActive || TvRemoteModule.pointerActive)) {
+    // The Groups drawer owns only its horizontal boundary keys. Up/Down and
+    // Select continue through Android TV focus so one physical event cannot move
+    // both the Guide and the drawer.
+    if (
+      key != null &&
+        event.repeatCount == 0 &&
+        remoteOwner == "GROUP_DRAWER" &&
+        (key == "LEFT" || key == "RIGHT")
+    ) {
+      emitRemoteEvent("TvRemoteKey", key)
+      return true
+    }
+
+    if (
+      key != null &&
+        remoteOwner != "GROUP_DRAWER" &&
+        remoteOwner != "MAIN_DRAWER" &&
+        (!TvRemoteModule.guideNavigationActive || TvRemoteModule.pointerActive)
+    ) {
       emitRemoteEvent("TvRemoteKey", key)
       // Pointer mode owns the D-pad entirely. Guide Up/Down must NOT be consumed —
       // Android's focus engine moves between guide cells; JS only handles boundaries
@@ -138,6 +157,7 @@ class MainActivity : ReactActivity() {
     // A stale pointer flag consumes every D-pad key before Android focus sees it.
     TvRemoteModule.pointerActive = false
     TvRemoteModule.guideNavigationActive = false
+    TvRemoteModule.remoteOwner = "APP"
     super.onDestroy()
   }
 
