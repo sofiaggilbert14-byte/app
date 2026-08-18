@@ -6,7 +6,7 @@ import { PurpleTvShell } from "@/src/components/PurpleTvShell";
 import { useStore } from "@/src/store";
 import { useCustomGuideGroups } from "@/src/core/customGuideGroups";
 import { CURATED_GROUPS, SMART_GROUPS } from "@/src/core/guideGroups";
-import { useGuideUiPreferences } from "@/src/core/guideUiPreferences";
+import { GUIDE_START_LAST_USED, useGuideUiPreferences } from "@/src/core/guideUiPreferences";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
 
@@ -70,6 +70,27 @@ export default function GroupSettingsScreen() {
     guideUi.setHiddenGroups(Array.from(hidden));
   };
 
+  const renameSelectedGroup = useCallback(() => {
+    if (!selected) return;
+    const nextName = renameDraft.replace(/[\r\n\t]/g, " ").replace(/\s+/g, " ").trim().slice(0, 48);
+    if (!nextName || !custom.renameGroup(selected.id, nextName)) return;
+    if (guideUi.startGroup === selected.name) guideUi.setStartGroup(nextName);
+    if (guideUi.pinnedGroups.includes(selected.name)) {
+      guideUi.setPinnedGroups(guideUi.pinnedGroups.map((name) => name === selected.name ? nextName : name));
+    }
+    setRenameDraft(nextName);
+  }, [custom, guideUi, renameDraft, selected]);
+
+  const deleteSelectedGroup = useCallback((groupId: string, groupName: string) => {
+    custom.deleteGroup(groupId);
+    if (guideUi.startGroup === groupName) guideUi.setStartGroup(GUIDE_START_LAST_USED);
+    if (guideUi.pinnedGroups.includes(groupName)) {
+      guideUi.setPinnedGroups(guideUi.pinnedGroups.filter((name) => name !== groupName));
+    }
+    setSelectedId(null);
+    setPage(0);
+  }, [custom, guideUi]);
+
   return (
     <PurpleTvShell active="/settings">
       <View style={styles.page}>
@@ -127,7 +148,7 @@ export default function GroupSettingsScreen() {
                   <View style={styles.groupActions}>
                     <Pressable onPress={() => custom.moveGroup(group.id, -1)} style={({ focused }: any) => [styles.mini, focused && styles.focused]}><Text style={styles.actionText}>Up</Text></Pressable>
                     <Pressable onPress={() => custom.moveGroup(group.id, 1)} style={({ focused }: any) => [styles.mini, focused && styles.focused]}><Text style={styles.actionText}>Down</Text></Pressable>
-                    <Pressable onPress={() => { custom.deleteGroup(group.id); setSelectedId(null); }} style={({ focused }: any) => [styles.mini, focused && styles.focused]}><Text style={styles.actionText}>Delete</Text></Pressable>
+                    <Pressable onPress={() => deleteSelectedGroup(group.id, group.name)} style={({ focused }: any) => [styles.mini, focused && styles.focused]}><Text style={styles.actionText}>Delete</Text></Pressable>
                   </View>
                 ) : null}
               </View>
@@ -139,7 +160,7 @@ export default function GroupSettingsScreen() {
               <Text style={styles.cardTitle}>Edit {selected.name}</Text>
               <View style={styles.inputRow}>
                 <TextInput value={renameDraft} onChangeText={setRenameDraft} placeholder={selected.name} placeholderTextColor={tvColors.textMuted} style={styles.input} maxLength={48} />
-                <Pressable onPress={() => custom.renameGroup(selected.id, renameDraft)} style={({ focused }: any) => [styles.action, focused && styles.focused]}><Text style={styles.actionText}>Rename</Text></Pressable>
+                <Pressable onPress={renameSelectedGroup} style={({ focused }: any) => [styles.action, focused && styles.focused]}><Text style={styles.actionText}>Rename</Text></Pressable>
               </View>
               <TextInput value={query} onChangeText={(value) => { setQuery(value); setPage(0); }} placeholder="Search channels" placeholderTextColor={tvColors.textMuted} style={styles.input} />
               <View style={styles.pager}>
