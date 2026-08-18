@@ -1,7 +1,139 @@
-source_sha=4d6614376048817d475dd064b6db650b936288d3
+source_sha=45de554c9db15ced02965c164180606030636870
 install=success
 native_config=success
-doctor=success
-tests=success
+doctor=failure
+tests=failure
 typecheck=success
 lint=success
+native_compile=success
+
+--- doctor tail ---
+
+> frontend@1.0.0 doctor
+> expo-doctor
+
+The appConfigFieldsNotSyncedCheck is disabled. Set expo.doctor.appConfigFieldsNotSyncedCheck.enabled to true in package.json to re-enable this check.
+Running 17 checks on your project...
+16/17 checks passed. 1 checks failed. Possible issues detected:
+Use the --verbose flag to see more details about passed checks.
+
+✖ Check that packages match versions required by installed Expo SDK
+
+🔧 Patch version mismatches
+package           expected  found    
+expo              ~54.0.37  54.0.36  
+expo-constants    ~18.0.14  18.0.13  
+expo-file-system  ~19.0.24  19.0.23  
+
+Changelogs:
+- expo-constants → https://github.com/expo/expo/blob/sdk-54/packages/expo-constants/CHANGELOG.md
+- expo-file-system → https://github.com/expo/expo/blob/sdk-54/packages/expo-file-system/CHANGELOG.md
+
+3 packages out of date.
+Advice:
+Use 'npx expo install --check' to review and upgrade your dependencies.
+To ignore specific packages, add them to "expo.install.exclude" in package.json. Learn more: https://expo.fyi/dependency-validation
+
+1 check failed, indicating possible issues with the project.
+
+--- tests tail ---
+    '  const safePhase: LoadPhase =\n' +
+    '    phase === "decompressing" || phase === "parsing" || phase === "indexing"\n' +
+    '      ? phase\n' +
+    '      : "downloading";\n' +
+    '  setProgress({ phase: safePhase, ratio: Math.max(0.2, Math.min(0.9, ratio)), etaSeconds: null });\n' +
+    '}\n' +
+    '\n' +
+    'function hashFields(value: string, state: { h1: number; h2: number; chars: number }): void {\n' +
+    '  state.chars += value.length;\n' +
+    '  for (let index = 0; index < value.length; index++) {\n' +
+    '    const code = value.charCodeAt(index);\n' +
+    '    state.h1 = Math.imul(state.h1 ^ code, 0x01000193);\n' +
+    '    state.h2 = Math.imul(state.h2 ^ (code + index), 0x85ebca6b);\n' +
+    '  }\n' +
+    '}\n' +
+    '\n' +
+    '/** Two independent 32-bit hashes keep the cold-start native handshake compact. */\n' +
+    'function playlistNativeContentFingerprint(channels: Channel[]): string {\n' +
+    '  const state = { h1: 0x811c9dc5, h2: 0x9e3779b9, chars: 0 };\n' +
+    '  for (const channel of channels) {\n' +
+    '    hashFields(\n' +
+    '      `${channel.id}\\0${channel.raw_tvg_id || channel.tvg_id || ""}\\0${channel.name || ""}\\0${channel.logo || ""}\\0${channel.group || ""}\\x01`,\n' +
+    '      state,\n' +
+    '    );\n' +
+    '  }\n' +
+    '  return `playlist-v1:${channels.length}:${state.chars}:${(state.h1 >>> 0).toString(16)}:${(state.h2 >>> 0).toString(16)}`;\n' +
+    '}\n' +
+    '\n' +
+    'async function syncMatchesToNative(channels: Channel[], guideEpoch: number): Promise<void> {\n' +
+    '  if (!nativeEpgAvailable || !channels.length) return;\n' +
+    '  const remapped = withManualRemaps(channels);\n' +
+    '  const policy = matchPolicyKey();\n' +
+    '  const rows: {\n' +
+    '    playlistId: string;\n' +
+    '    xmltvId: string;\n' +
+    '    logoXmltvId: string;\n' +
+    '    ambiguous: boolean;\n' +
+    '    matchPolicy: string;\n' +
+    '    manual: boolean;\n' +
+    '  }[] = [];\n' +
+    '  const fingerprintState = { h1: 0x811c9dc5, h2: 0x9e3779b9, chars: 0 };\n' +
+    '  for (const channel of remapped) {\n' +
+    '    const manual = Object.prototype.hasOwnProperty.call(manualEpgRemaps, channel.id);\n' +
+    '    const xmltvId = (channel.tvg_id || "").trim();\n' +
+    '    rows.push({\n' +
+    '      playlistId: channel.id,\n' +
+    '      xmltvId,\n' +
+    '      logoXmltvId: xmltvId,\n' +
+    '      ambiguous: false,\n' +
+    '      matchPolicy: policy,\n' +
+    '      manual,\n' +
+    '    });\n' +
+    '    hashFields(`${channel.id}\\u0001${xmltvId}\\u0001${policy}\\u0001${manual ? 1 : 0}\\u0002`, fingerprintState);\n' +
+    '  }\n' +
+    '  const writeFingerprint = `matches-v2:${rows.length}:${fingerprintState.chars}:${(fingerprintState.h1 >>> 0).toString(16)}:${(fingerprintState.h2 >>> 0).toString(16)}`;\n' +
+    '  if (writeFingerprint === lastNativeMatchWriteFingerprint) return;\n' +
+    '  await upsertNativePlaylistEpgMatches(rows, guideEpoch);\n' +
+    '  lastNativeMatchWriteFingerprint = writeFingerprint;\n' +
+    '}\n' +
+    '\n' +
+    'function resolveGuideWindowBounds(startISO?: string, hours = 6): {\n' +
+    '  winStart: dayjs.Dayjs;\n' +
+    '  winEnd: dayjs.Dayjs;\n' +
+    '  startMs: number;\n' +
+    '  endMs: number;\n' +
+    '  now: dayjs.Dayjs;\n' +
+    '} {\n' +
+    '  const now = dayjs();\n' +
+    '  // A live guide must keep one stable time window while focus moves. Including\n' +
+    '  // the current millisecond in the cache key cleared every programme row on\n' +
+    '  // every D-pad patch. Minute alignment is only a cold-start fallback; Store\n' +
+    '  // subsequently passes the exact rendered window start back to us.\n' +
+    '  const winStart = startISO ? dayjs(startISO) : now.startOf("minute").subtract(1, "hour");\n' +
+    '  const winEnd = winStart.add(hours, "hour");\n' +
+    '  return {\n' +
+    '    winStart,\n' +
+    '    winEnd,\n' +
+    '    startMs: winStart.valueOf(),\n' +
+    '    endMs: winEnd.valueOf(),\n' +
+    '    now,\n' +
+    '  };\n' +
+    '}\n' +
+    '\n' +
+    'function clearProgrammeWindowCache(): void {\n' +
+    '  programmeWindowCache = {};\n' +
+    '  programmeWindowEmptyKeys.clear();\n' +
+    '  programmeWindowAccessOrder.clear();\n' +
+    '  programmeWindowCacheKey = "";\n' +
+    '  // In-flight native reads canno'... 39972 more characters
+  
+      at TestContext.<anonymous> (file:///home/runner/work/app/app/frontend/tests/epgMatching.test.mjs:185:10)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'import dayjs from "dayjs";\nimport * as FileSystem from "expo-file-system/legacy";\nimport type { Channel, GuideResponse, Program, SourceStatus } from "@/src/api";\nimport { clearGuidePrograms } from "@/src/core/guideProgramsStore";\nimport {\n  clearNativeEpg,\n  fetchNativePlaylist,\n  loadNativeEpgWindow,\n  nativeEpgAvailable,\n  nativePlaylistIsCurrent,\n...',
+    expected: /Never mutate EMPTY_PROGRAMS/,
+    operator: 'match',
+    diff: 'simple'
+  }
