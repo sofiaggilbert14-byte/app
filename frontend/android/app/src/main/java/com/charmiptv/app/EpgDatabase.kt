@@ -80,6 +80,7 @@ internal class EpgDatabase(context: Context, private val databaseName: String = 
     db.setForeignKeyConstraintsEnabled(false)
     db.rawQuery("PRAGMA journal_mode=WAL", null).close()
     db.execSQL("PRAGMA synchronous=NORMAL")
+    db.execSQL("PRAGMA busy_timeout=3000")
     db.execSQL("PRAGMA temp_store=MEMORY")
     // Incremental vacuum frees pages later via rare PRAGMA incremental_vacuum — not every refresh.
     try {
@@ -104,6 +105,7 @@ internal class EpgDatabase(context: Context, private val databaseName: String = 
     db.execSQL("CREATE INDEX IF NOT EXISTS idx_epg_alias_norm ON $ALIAS_TABLE(normalized_key)")
     db.execSQL("CREATE INDEX IF NOT EXISTS idx_playlist_norm_id ON $PLAYLIST_TABLE(norm_id)")
     db.execSQL("CREATE INDEX IF NOT EXISTS idx_playlist_norm_name ON $PLAYLIST_TABLE(norm_name)")
+    db.execSQL("CREATE INDEX IF NOT EXISTS idx_playlist_deleted ON $PLAYLIST_TABLE(deleted_at)")
     db.execSQL("CREATE INDEX IF NOT EXISTS idx_match_xmltv ON $MATCH_TABLE(xmltv_id)")
   }
 
