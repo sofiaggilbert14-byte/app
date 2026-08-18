@@ -10,6 +10,7 @@ import { PurpleDrawerButton } from "@/src/components/PurpleDrawerButton";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { Channel } from "@/src/api";
 import { useStore } from "@/src/store";
+import { useGuidePrograms } from "@/src/core/guideProgramsStore";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { nowNext } from "@/src/utils/time";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
@@ -29,7 +30,8 @@ const Card = memo(function Card({
   onPress: (channel: Channel) => void;
   preferredFocus?: boolean;
 }) {
-  const current = nowNext(channel.programs, now).current;
+  const programs = useGuidePrograms(channel.id);
+  const current = nowNext(programs, now).current;
   return (
     <Pressable
       hasTVPreferredFocus={preferredFocus}
@@ -78,7 +80,7 @@ export function PurpleChannelCollection({
   useFocusEffect(
     useCallback(() => {
       setPreferInitialFocus(true);
-      const timer = setTimeout(() => setPreferInitialFocus(false), 700);
+      const timer = setTimeout(() => setPreferInitialFocus(false), 180);
       return () => clearTimeout(timer);
     }, []),
   );
