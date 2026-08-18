@@ -73,8 +73,12 @@ const NON_CIRCUIT_REASONS = new Set<SessionFailReason>([
 ]);
 /** After Media3 reports playing, wait this long for audio tracks before VLC swap. */
 const SILENT_AUDIO_GRACE_MS = 2200;
-const STALL_RECOVERY_NUDGE_MS = 7000;
-const FROZEN_VIDEO_WATCHDOG_MS = 18000;
+// TiviMate-style recovery adapted to Charm: only an actual post-playback
+// BUFFERING/loading state arms the watchdog. A silent internal re-prepare gets
+// first chance before the parent retry/failure machinery is notified.
+const BUFFERING_RESYNC_MS = 7000;
+const BUFFERING_FAIL_MS = 22000;
+const MAX_SILENT_BUFFERING_RESYNCS = 2;
 
 function pruneFailureMap(now = Date.now()) {
   for (const [key, state] of failureStateByKey) {
@@ -467,7 +471,10 @@ function ExpoStream({
   const tracksCallbackRef = useRef(onTracksAvailable);
   const lastPlaybackTimeRef = useRef(-1);
   const lastPlaybackAdvanceAtRef = useRef(Date.now());
-  const lastStallNudgeAtRef = useRef(0);
+  const hasPlayedRef = useRef(false);
+  const bufferingSinceRef = useRef<number | null>(null);
+  const silentResyncCountRef = useRef(0);
+  const silentResyncInFlightRef = useRef(false);
   tracksCallbackRef.current = onTracksAvailable;
   const [mediaReady, setMediaReady] = useState(false);
   const { uri, headers } = useMemo(() => parsePipeHeaders(rawUri), [rawUri]);
@@ -722,6 +729,10 @@ function ExpoStream({
     mountedRef.current = true;
     tearingDownRef.current = false;
     setMediaReady(false);
+    hasPlayedRef.current = false;
+    bufferingSinceRef.current = null;
+    silentResyncCountRef.current = 0;
+    silentResyncInFlightRef.current = false;
     emit("loading");
     (async () => {
       try {
@@ -809,11 +820,20 @@ function ExpoStream({
       if (status === "readyToPlay") {
         lastPlaybackTimeRef.current = player.currentTime;
         lastPlaybackAdvanceAtRef.current = Date.now();
+        hasPlayedRef.current = true;
+        bufferingSinceRef.current = null;
+        silentResyncCountRef.current = 0;
+        silentResyncInFlightRef.current = false;
         setMediaReady(true);
         reportAndSelectMedia3Tracks();
         recordStablePlayback(sessionRole, engine, uri);
         emit("playing");
       } else if (status === "loading") {
+        // Startup loading is handled by the separate start timeout. Only a
+        // rebuffer after actual playback arms freeze recovery.
+        if (hasPlayedRef.current && bufferingSinceRef.current == null) {
+          bufferingSinceRef.current = Date.now();
+        }
         emit("loading");
       } else if (error || status === "error") {
         recordFailure(sessionRole, engine, uri, "stream-error");
@@ -833,6 +853,8 @@ function ExpoStream({
       if (currentTime > lastPlaybackTimeRef.current + 0.05) {
         lastPlaybackTimeRef.current = currentTime;
         lastPlaybackAdvanceAtRef.current = Date.now();
+        // Frames/time are advancing again, so any buffering watchdog is stale.
+        bufferingSinceRef.current = null;
       }
     });
     if (mode === "preview" || paused || blocked || !mediaReady) {
@@ -843,20 +865,34 @@ function ExpoStream({
     const watchdog = setInterval(() => {
       if (!mountedRef.current || tearingDownRef.current || paused || blocked) return;
       if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
-      const stalledFor = Date.now() - lastPlaybackAdvanceAtRef.current;
-      if (stalledFor >= STALL_RECOVERY_NUDGE_MS && stalledFor < FROZEN_VIDEO_WATCHDOG_MS) {
-        // A live HLS/TS source can legitimately stop advancing for several
-        // seconds while waiting for the next provider segment. Nudge play once
-        // without tearing down sockets/decoders; only escalate a sustained stall.
-        if (Date.now() - lastStallNudgeAtRef.current >= STALL_RECOVERY_NUDGE_MS) {
-          lastStallNudgeAtRef.current = Date.now();
-          try { player.play(); } catch {}
-        }
+      const bufferingSince = bufferingSinceRef.current;
+      if (bufferingSince == null) return;
+      const bufferingFor = Date.now() - bufferingSince;
+      if (bufferingFor < BUFFERING_RESYNC_MS) return;
+
+      if (
+        silentResyncCountRef.current < MAX_SILENT_BUFFERING_RESYNCS &&
+        !silentResyncInFlightRef.current
+      ) {
+        silentResyncCountRef.current += 1;
+        silentResyncInFlightRef.current = true;
+        bufferingSinceRef.current = Date.now();
+        const contentType = media3ContentType(kind);
+        replaceQueueRef.current = replaceQueueRef.current
+          .catch(() => undefined)
+          .then(async () => {
+            if (!mountedRef.current || tearingDownRef.current || paused || blocked) return;
+            if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
+            await player.replaceAsync({ uri, headers, contentType });
+            if (!paused) player.play();
+          })
+          .catch(() => undefined)
+          .finally(() => { silentResyncInFlightRef.current = false; });
         return;
       }
-      if (stalledFor < FROZEN_VIDEO_WATCHDOG_MS) return;
-      lastPlaybackAdvanceAtRef.current = Date.now();
-      lastStallNudgeAtRef.current = 0;
+
+      if (bufferingFor < BUFFERING_FAIL_MS) return;
+      bufferingSinceRef.current = null;
       recordFailure(sessionRole, engine, uri, "stream-error");
       emit("error", "stream-error");
     }, 1000);
@@ -864,7 +900,7 @@ function ExpoStream({
       progressSub.remove();
       clearInterval(watchdog);
     };
-  }, [blocked, emit, engine, mediaReady, mode, paused, player, sessionGeneration, sessionRole, uri]);
+  }, [blocked, emit, engine, headers, kind, mediaReady, mode, paused, player, sessionGeneration, sessionRole, uri]);
 
   useEffect(() => {
     const onTracksChanged = () => {
