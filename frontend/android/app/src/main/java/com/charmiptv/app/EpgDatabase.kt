@@ -529,54 +529,12 @@ internal class EpgDatabase(context: Context, private val databaseName: String = 
     return fingerprint.isNotBlank() && getMeta(PLAYLIST_CONTENT_FINGERPRINT_KEY) == fingerprint
   }
 
+  @Deprecated("Use incremental PlaylistSyncCoordinator; kept only for source compatibility")
   fun replacePlaylistChannels(
     rows: List<PlaylistChannelRow>,
     playlistEpoch: Long,
     contentFingerprint: String,
-  ): Boolean {
-    val fingerprint = contentFingerprint.ifBlank { fingerprintPlaylistChannels(rows) }
-    if (getMeta(PLAYLIST_CONTENT_FINGERPRINT_KEY) == fingerprint) return false
-    val db = writableDatabase
-    val now = System.currentTimeMillis()
-    db.beginTransaction()
-    try {
-      db.delete(PLAYLIST_TABLE, null, null)
-      if (rows.isNotEmpty()) {
-        val statement = db.compileStatement(
-          """
-          INSERT OR REPLACE INTO $PLAYLIST_TABLE(
-            playlist_id, raw_tvg_id, name, logo, group_title, norm_id, norm_name, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-          """.trimIndent()
-        )
-        try {
-          for (row in rows) {
-            if (row.playlistId.isBlank()) continue
-            val rawTvg = row.rawTvgId.trim()
-            val normSource = if (rawTvg.isNotEmpty()) rawTvg else row.playlistId
-            statement.clearBindings()
-            statement.bindString(1, row.playlistId)
-            statement.bindString(2, rawTvg)
-            statement.bindString(3, row.name)
-            statement.bindString(4, row.logo)
-            statement.bindString(5, row.groupTitle)
-            statement.bindString(6, normalizeKey(normSource))
-            statement.bindString(7, normalizeKey(row.name))
-            statement.bindLong(8, now)
-            statement.executeInsert()
-          }
-        } finally {
-          statement.close()
-        }
-      }
-      setMeta("playlist_epoch", playlistEpoch.toString())
-      setMeta(PLAYLIST_CONTENT_FINGERPRINT_KEY, fingerprint)
-      db.setTransactionSuccessful()
-    } finally {
-      db.endTransaction()
-    }
-    return true
-  }
+  ): Boolean = PlaylistSyncCoordinator.sync(this, rows, playlistEpoch, contentFingerprint)
 
   private fun fingerprintPlaylistChannels(rows: List<PlaylistChannelRow>): String {
     val digest = MessageDigest.getInstance("SHA-256")
