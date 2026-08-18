@@ -10,7 +10,9 @@ import {
   nativePlaylistIsCurrent,
   queryNativeGuideWindow,
   refreshNativeEpg,
+  refreshNativeUserGuide,
   configureNativeEpgSource,
+  configureNativeGuideOwnership,
   upsertNativePlaylistChannels,
   upsertNativePlaylistEpgMatches,
 } from "@/src/nativeEpg";
@@ -31,6 +33,7 @@ import {
   nextRefreshAt,
 } from "@/src/core/sourceRefreshPreferences";
 import { getLogoPriority, type LogoPriority } from "@/src/core/logoPreferences";
+import { getEpgSourcePreferences, type EpgSourcePreferences } from "@/src/core/epgSourcePreferences";
 
 export const API_BASE = "";
 /** Playlist URL — set via EXPO_PUBLIC_M3U_URL at build time. Never hardcode provider URLs. */
@@ -147,16 +150,31 @@ async function syncPlaylistToNative(channels: Channel[], playlistEpoch: number):
   );
 }
 
-function activeEpgBindings(channels: Channel[]): { ids: string[]; names: string[] } {
+function activeEpgBindings(
+  channels: Channel[],
+  excludedPlaylistIds: ReadonlySet<string> = new Set(),
+): { ids: string[]; names: string[] } {
   const ids = new Set<string>();
   const names = new Set<string>();
   for (const channel of channels) {
+    if (excludedPlaylistIds.has(channel.id)) continue;
     const id = (channel.raw_tvg_id || channel.tvg_id || "").trim();
     const name = (channel.name || "").trim();
     if (id) ids.add(id);
     if (name) names.add(name);
   }
   return { ids: Array.from(ids), names: Array.from(names) };
+}
+
+async function applyPersistedGuideOwnership(): Promise<EpgSourcePreferences> {
+  const prefs = await getEpgSourcePreferences();
+  await configureNativeGuideOwnership(
+    prefs.primaryEnabled,
+    prefs.userEnabled,
+    prefs.userUrl,
+    prefs.userOverrides,
+  );
+  return prefs;
 }
 
 function applyNativeImportProgress(phase: string, ratio: number): void {
@@ -627,6 +645,7 @@ async function ensureLoaded(): Promise<NativeMeta> {
       return refreshInternal(true);
     }
     MEM = cached;
+    void applyPersistedGuideOwnership().catch(() => undefined);
     if (cached.epgError) {
       lastSourceError = cached.epgError;
       setProgress({ phase: "error", ratio: 0, etaSeconds: null, message: cached.epgError }, true);
@@ -698,10 +717,34 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
       emit();
 
       if (!nativeEpgAvailable) throw new Error("Native EPG engine is unavailable in this Android build");
+      const ownership = await applyPersistedGuideOwnership();
+      const userOverrideIds = ownership.userEnabled
+        ? new Set(Object.keys(ownership.userOverrides))
+        : new Set<string>();
+      const refreshPreferences = await getSourceRefreshPreferences();
+      if (ownership.userEnabled && ownership.userUrl) {
+        await refreshNativeUserGuide(ownership.userUrl);
+      }
+      if (!ownership.primaryEnabled) {
+        // Built-in EPG is truly off: no download, parse, match, or background
+        // refresh. User-bound channels are served solely from the user DB.
+        const guideRefreshedAt = Date.now();
+        clearProgrammeWindowCache();
+        MEM = {
+          ...MEM,
+          ts: guideRefreshedAt,
+          epgError: undefined,
+          guideEpoch: (MEM.guideEpoch || 0) + 1,
+          guideRefreshedAt,
+        };
+        await persistMeta(MEM);
+        emit();
+        setProgress({ phase: "ready", ratio: 1, etaSeconds: 0, message: null }, true);
+        return MEM;
+      }
       if (!SOURCE_EPG) throw new Error("EPG is not configured for this build (missing EXPO_PUBLIC_EPG_URL).");
       setProgress({ phase: "downloading", ratio: 0.2, etaSeconds: null, message: null }, true);
-      const activeBindings = activeEpgBindings(channels);
-      const refreshPreferences = await getSourceRefreshPreferences();
+      const activeBindings = activeEpgBindings(channels, userOverrideIds);
       await configureNativeEpgSource(sourceUrl(SOURCE_EPG), refreshPreferences.epgHours);
       const epg = await refreshNativeEpg(
         sourceUrl(SOURCE_EPG),

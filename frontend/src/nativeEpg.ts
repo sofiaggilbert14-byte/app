@@ -87,6 +87,7 @@ const ramModule = NativeModules.CharmEpgRam as CharmEpgRamModule | undefined;
 
 export const nativeEpgAvailable = Platform.OS === "android" && !!nativeModule;
 export const nativeEpgRamAvailable = Platform.OS === "android" && !!ramModule;
+let ownershipRequiresSqlite = false;
 
 function toProgram(program: NativeProgramme): Program {
   const startMs = Number(program.startMs);
@@ -215,7 +216,7 @@ export async function queryNativeGuideWindow(
   const uniqueIds = Array.from(new Set(playlistChannelIds.filter(Boolean)));
   if (!uniqueIds.length) return {};
 
-  if (ramModule) {
+  if (ramModule && !ownershipRequiresSqlite) {
     const ramWindow = await ramModule.queryGuideWindow(startMs, endMs, uniqueIds);
     if (ramWindow) return windowToPrograms(ramWindow, uniqueIds);
   }
@@ -258,6 +259,13 @@ export async function configureNativeGuideOwnership(
   userUrl: string,
   userOverrides: Record<string, string>,
 ): Promise<void> {
+  const hasUserBindings = userEnabled && !!userUrl.trim() && Object.keys(userOverrides).length > 0;
+  ownershipRequiresSqlite = !primaryEnabled || hasUserBindings;
+  if (ownershipRequiresSqlite && ramModule) {
+    // Primary-only RAM rows must not survive an ownership switch. SQLite remains
+    // bounded to the requested Guide runway and resolves exactly one source/channel.
+    await ramModule.clearMemory().catch(() => undefined);
+  }
   if (!nativeModule?.configureGuideOwnership) return;
   await nativeModule.configureGuideOwnership(primaryEnabled, userEnabled, userUrl, userOverrides);
 }
