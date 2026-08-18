@@ -4,7 +4,7 @@ import { useRouter } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { PurpleTvShell } from "@/src/components/PurpleTvShell";
+import { PurpleTvShell, usePurpleTvDrawer } from "@/src/components/PurpleTvShell";
 import { PurpleDrawerButton } from "@/src/components/PurpleDrawerButton";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
@@ -15,14 +15,18 @@ import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 import { requestGuideJump } from "@/src/core/guideSearchJump";
 import { searchNativeEpg } from "@/src/nativeEpg";
 import { requestNativeFocusWithRetry } from "@/src/utils/tvFocus";
+import { addTvKeyListener } from "@/src/utils/tvRemote";
 
 const KEYS = ["Q","W","E","R","T","Y","U","I","O","P","A","S","D","F","G","H","J","K","L","Z","X","C","V","B","N","M"];
 const DIGITS = ["1","2","3","4","5","6","7","8","9","0"];
 const SUGGESTIONS = ["News", "Sports", "Movies", "Kids", "Discovery"];
 
+type FocusZone = "keyboard" | "results" | "header" | null;
+
 export default function SearchScreen() {
   const router = useRouter();
   const isFocused = useIsFocused();
+  const { openDrawer } = usePurpleTvDrawer();
   const { channels, addRecent, channelLogos } = useStore();
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
@@ -30,7 +34,10 @@ export default function SearchScreen() {
   const [preferKeyFocus, setPreferKeyFocus] = useState(true);
   const [nativePrograms, setNativePrograms] = useState<{ channel: Channel; program: Program }[]>([]);
   const firstResultRef = useRef<unknown>(null);
+  const firstKeyRef = useRef<unknown>(null);
   const focusResultsWhenReadyRef = useRef(false);
+  const focusZoneRef = useRef<FocusZone>(null);
+  const keyboardIndexRef = useRef(0);
   const isTV = Platform.OS !== "web" && Platform.isTV;
 
   useEffect(() => {
@@ -67,6 +74,19 @@ export default function SearchScreen() {
     const timer = setTimeout(() => setPreferKeyFocus(false), 700);
     return () => clearTimeout(timer);
   }, [preferKeyFocus]);
+
+  useEffect(() => {
+    if (!isTV) return;
+    return addTvKeyListener((key) => {
+      if (key !== "LEFT") return;
+      // Ten fixed-width normal keys fit each TV keyboard row. At the first
+      // column, Left is a navigation-boundary action: open Drawer instead of
+      // letting Android search outside the React focus tree.
+      if (focusZoneRef.current === "keyboard" && keyboardIndexRef.current % 10 === 0) {
+        openDrawer({ focusTop: true });
+      }
+    });
+  }, [isTV, openDrawer]);
 
   // Keep cursor in range if query is replaced (suggestions / clear).
   useEffect(() => {
@@ -159,6 +179,12 @@ export default function SearchScreen() {
     setCursor((value) => Math.max(0, Math.min(query.length, value + delta)));
   }, [query.length]);
 
+  const noteKeyboardFocus = useCallback((index: number) => {
+    focusZoneRef.current = "keyboard";
+    keyboardIndexRef.current = index;
+  }, []);
+  const noteResultsFocus = useCallback(() => { focusZoneRef.current = "results"; }, []);
+
   const before = query.slice(0, cursor);
   const after = query.slice(cursor);
 
@@ -167,7 +193,9 @@ export default function SearchScreen() {
       <View style={styles.page}>
         <View style={styles.header}>
           <View style={styles.headerLeft}>
-            <PurpleDrawerButton testID="search-open-drawer" />
+            <View onFocus={() => { focusZoneRef.current = "header"; }}>
+              <PurpleDrawerButton testID="search-open-drawer" />
+            </View>
             <View>
               <Text style={styles.kicker}>FIND CHANNELS & PROGRAMS</Text>
               <Text style={styles.title}>Search</Text>
@@ -222,19 +250,25 @@ export default function SearchScreen() {
               {KEYS.map((key, index) => (
                 <Pressable
                   key={key}
+                  ref={(node) => { if (index === 0) firstKeyRef.current = node; }}
                   hasTVPreferredFocus={preferKeyFocus && index === 0}
+                  onFocus={() => noteKeyboardFocus(index)}
                   onPress={() => insertAtCursor(key)}
                   style={({ focused }: any) => [styles.key, focused && styles.focused]}
                 >
                   <Text style={styles.keyText}>{key}</Text>
                 </Pressable>
               ))}
-              {DIGITS.map((key) => (
-                <Pressable key={key} onPress={() => insertAtCursor(key)} style={({ focused }: any) => [styles.key, focused && styles.focused]}>
-                  <Text style={styles.keyText}>{key}</Text>
-                </Pressable>
-              ))}
+              {DIGITS.map((key, index) => {
+                const focusIndex = KEYS.length + index;
+                return (
+                  <Pressable key={key} onFocus={() => noteKeyboardFocus(focusIndex)} onPress={() => insertAtCursor(key)} style={({ focused }: any) => [styles.key, focused && styles.focused]}>
+                    <Text style={styles.keyText}>{key}</Text>
+                  </Pressable>
+                );
+              })}
               <Pressable
+                onFocus={() => noteKeyboardFocus(KEYS.length + DIGITS.length)}
                 onPress={() => moveCursor(-1)}
                 style={({ focused }: any) => [styles.key, styles.navKey, focused && styles.focused]}
                 testID="search-cursor-left"
@@ -242,6 +276,7 @@ export default function SearchScreen() {
                 <Ionicons name="arrow-back" size={14} color="#fff" />
               </Pressable>
               <Pressable
+                onFocus={() => noteKeyboardFocus(KEYS.length + DIGITS.length + 1)}
                 onPress={() => moveCursor(1)}
                 style={({ focused }: any) => [styles.key, styles.navKey, focused && styles.focused]}
                 testID="search-cursor-right"
@@ -249,16 +284,18 @@ export default function SearchScreen() {
                 <Ionicons name="arrow-forward" size={14} color="#fff" />
               </Pressable>
               <Pressable
+                onFocus={() => noteKeyboardFocus(KEYS.length + DIGITS.length + 2)}
                 onPress={backspaceAtCursor}
                 style={({ focused }: any) => [styles.key, styles.wideKey, focused && styles.focused]}
                 testID="search-backspace"
               >
                 <Ionicons name="backspace-outline" size={14} color="#fff" />
               </Pressable>
-              <Pressable onPress={() => insertAtCursor(" ")} style={({ focused }: any) => [styles.key, styles.spaceKey, focused && styles.focused]}>
+              <Pressable onFocus={() => noteKeyboardFocus(KEYS.length + DIGITS.length + 3)} onPress={() => insertAtCursor(" ")} style={({ focused }: any) => [styles.key, styles.spaceKey, focused && styles.focused]}>
                 <Text style={styles.keyText}>Space</Text>
               </Pressable>
               <Pressable
+                onFocus={() => noteKeyboardFocus(KEYS.length + DIGITS.length + 4)}
                 onPress={() => replaceQuery(query.trim())}
                 style={({ focused }: any) => [styles.key, styles.searchKey, focused && styles.focused]}
               >
@@ -272,7 +309,7 @@ export default function SearchScreen() {
               <>
                 <Text style={styles.resultsTitle}>Suggested</Text>
                 {SUGGESTIONS.map((item) => (
-                  <Pressable key={item} onPress={() => chooseSuggestion(item)} style={({ focused }: any) => [styles.suggestion, focused && styles.focused]}>
+                  <Pressable key={item} onFocus={noteResultsFocus} onPress={() => chooseSuggestion(item)} style={({ focused }: any) => [styles.suggestion, focused && styles.focused]}>
                     <Text style={styles.suggestionText}>{item}</Text>
                   </Pressable>
                 ))}
@@ -284,6 +321,7 @@ export default function SearchScreen() {
                   <FocusGuide key={channel.id} style={styles.resultBlock} trapFocusRight>
                     <Pressable
                       ref={(node) => { if (index === 0) firstResultRef.current = node; }}
+                      onFocus={noteResultsFocus}
                       onPress={() => play(channel)}
                       onLongPress={() => jumpToGuide(channel)}
                       delayLongPress={420}
@@ -294,7 +332,7 @@ export default function SearchScreen() {
                       <Ionicons name="play" size={13} color={tvColors.purpleSoft} />
                     </Pressable>
                     <Pressable
-                      ref={(node) => { if (!results.channels.length && index === 0) firstResultRef.current = node; }}
+                      onFocus={noteResultsFocus}
                       onPress={() => jumpToGuide(channel)}
                       style={({ focused }: any) => [styles.guideAction, focused && styles.focused]}
                       testID={`search-guide-${channel.id}`}
@@ -308,6 +346,8 @@ export default function SearchScreen() {
                 {results.programs.map(({ channel, program }, index) => (
                   <FocusGuide key={`${channel.id}-${program.start}-${index}`} style={styles.resultBlock} trapFocusRight>
                     <Pressable
+                      ref={(node) => { if (!results.channels.length && index === 0) firstResultRef.current = node; }}
+                      onFocus={noteResultsFocus}
                       onPress={() => jumpToGuide(channel, { program, programStart: program.start })}
                       onLongPress={() => play(channel)}
                       delayLongPress={420}
@@ -321,6 +361,7 @@ export default function SearchScreen() {
                       <Ionicons name="grid-outline" size={13} color={tvColors.purpleSoft} />
                     </Pressable>
                     <Pressable
+                      onFocus={noteResultsFocus}
                       onPress={() => play(channel)}
                       style={({ focused }: any) => [styles.guideAction, focused && styles.focused]}
                     >
@@ -370,21 +411,22 @@ const styles = StyleSheet.create({
   suggestion: { minHeight: 31, justifyContent: "center", paddingHorizontal: 8, borderRadius: 5, borderWidth: 2, borderColor: "transparent" },
   suggestionText: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 9 },
   resultsScroll: { paddingBottom: 20 },
-  resultBlock: { marginBottom: 6, gap: 3 },
-  resultRow: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 5, borderWidth: 2, borderColor: "transparent", paddingHorizontal: 6, backgroundColor: tvColors.panel },
+  resultBlock: { marginBottom: 6, gap: 5, flexDirection: "row", alignItems: "stretch" },
+  resultRow: { flex: 1, minWidth: 0, minHeight: 42, flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 5, borderWidth: 2, borderColor: "transparent", paddingHorizontal: 6, backgroundColor: tvColors.panel },
   guideAction: {
-    alignSelf: "flex-start",
-    minHeight: 28,
+    width: 104,
+    minHeight: 42,
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 5,
-    paddingHorizontal: 8,
+    paddingHorizontal: 7,
     borderRadius: 5,
     borderWidth: 2,
     borderColor: "transparent",
     backgroundColor: tvColors.panelRaised,
   },
-  guideActionText: { color: "#fff", fontFamily: fonts.medium, fontSize: 8 },
+  guideActionText: { color: "#fff", fontFamily: fonts.medium, fontSize: 8, textAlign: "center" },
   resultName: { flex: 1, color: "#fff", fontFamily: fonts.medium, fontSize: 9 },
   resultSub: { color: tvColors.textMuted, fontFamily: fonts.regular, fontSize: 7.5, marginTop: 2 },
   noResults: { alignItems: "center", gap: 8, paddingTop: 45 },
