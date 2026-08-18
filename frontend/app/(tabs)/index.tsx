@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -87,17 +87,19 @@ export default function LiveTvHomeScreen() {
     return () => clearInterval(timer);
   }, [isFocused]);
 
-  useEffect(() => {
-    if (!preferInitialFocus) return;
-    const timer = setTimeout(() => setPreferInitialFocus(false), 700);
-    return () => clearTimeout(timer);
-  }, [preferInitialFocus]);
+  useFocusEffect(
+    useCallback(() => {
+      setPreferInitialFocus(true);
+      const timer = setTimeout(() => setPreferInitialFocus(false), 700);
+      return () => clearTimeout(timer);
+    }, []),
+  );
 
   const channelNumberById = useMemo(() => {
     const result: Record<string, number> = {};
-    [...channels].sort(channelSort).forEach((channel, index) => {
-      result[channel.id] = index + 1;
-    });
+    const sorted = channels.slice();
+    sorted.sort(channelSort);
+    for (let index = 0; index < sorted.length; index++) result[sorted[index].id] = index + 1;
     return result;
   }, [channels]);
 
@@ -120,10 +122,10 @@ export default function LiveTvHomeScreen() {
 
   useEffect(() => {
     if (!isFocused || !channels.length) return;
-    const ids = Array.from(new Set([
-      heroChannel?.id || "",
-      ...recentLive.map((channel) => channel.id),
-    ].filter(Boolean)));
+    const idSet = new Set<string>();
+    if (heroChannel?.id) idSet.add(heroChannel.id);
+    for (const channel of recentLive) if (channel.id) idSet.add(channel.id);
+    const ids = Array.from(idSet);
     if (!ids.length) return;
     void patchProgramsForChannelIds(ids, heroChannel?.id ? [heroChannel.id] : ids.slice(0, 1));
   }, [channels.length, heroChannel?.id, isFocused, patchProgramsForChannelIds, recentLive]);
