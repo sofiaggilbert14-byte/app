@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -54,26 +54,39 @@ export default function SearchScreen() {
     }
     const byEpgId = new Map<string, Channel>();
     for (const channel of channels) {
-      const ids = [channel.id, channel.tvg_id, channel.raw_tvg_id].filter(Boolean) as string[];
-      for (const id of ids) if (!byEpgId.has(id)) byEpgId.set(id, channel);
+      // Avoid allocating [id,tvg,raw].filter(...) for every channel in a 6k list.
+      if (channel.id && !byEpgId.has(channel.id)) byEpgId.set(channel.id, channel);
+      if (channel.tvg_id && !byEpgId.has(channel.tvg_id)) byEpgId.set(channel.tvg_id, channel);
+      if (channel.raw_tvg_id && !byEpgId.has(channel.raw_tvg_id)) byEpgId.set(channel.raw_tvg_id, channel);
     }
     void searchNativeEpg(value, 24)
       .then((rows) => {
         if (cancelled) return;
-        setNativePrograms(rows.flatMap(({ channelId, program }) => {
+        const next: { channel: Channel; program: Program }[] = [];
+        for (const { channelId, program } of rows) {
           const channel = byEpgId.get(channelId);
-          return channel ? [{ channel, program }] : [];
-        }));
+          if (channel) next.push({ channel, program });
+        }
+        setNativePrograms(next);
       })
       .catch(() => { if (!cancelled) setNativePrograms([]); });
     return () => { cancelled = true; };
   }, [channels, debouncedQuery]);
 
-  useEffect(() => {
-    if (!preferKeyFocus) return;
-    const timer = setTimeout(() => setPreferKeyFocus(false), 700);
-    return () => clearTimeout(timer);
-  }, [preferKeyFocus]);
+  // Search is a persistent tab. Explicitly reclaim a known key on every entry;
+  // returning from Guide/player must never inherit a detached Android focus node.
+  useFocusEffect(
+    useCallback(() => {
+      focusZoneRef.current = null;
+      setPreferKeyFocus(true);
+      const clearPreferred = setTimeout(() => setPreferKeyFocus(false), 700);
+      const cancelFocus = requestNativeFocusWithRetry(firstKeyRef.current, [0, 80, 180, 320]);
+      return () => {
+        clearTimeout(clearPreferred);
+        cancelFocus?.();
+      };
+    }, []),
+  );
 
   useEffect(() => {
     if (!isTV) return;
@@ -96,15 +109,15 @@ export default function SearchScreen() {
   const results = useMemo(() => {
     const q = debouncedQuery.trim().toLowerCase();
     if (!q) return { channels: [] as Channel[], programs: [] as { channel: Channel; program: Program }[] };
-    // Search channel names/groups primarily. Programs are no longer nested on Channel when
-    // guideProgramsStore owns EPG rows — only scan channel.programs when present (legacy/web).
-    // Do not import the whole EPG for Search.
-    const channelMatches = channels
-      .filter((channel) => {
-        const haystack = `${channel.name || ""} ${channel.group || ""}`.toLowerCase();
-        return haystack.includes(q);
-      })
-      .slice(0, 18);
+    // Bound channel results while scanning instead of filter(...).slice(0,18),
+    // which materialized every matching channel before discarding the tail.
+    const channelMatches: Channel[] = [];
+    for (const channel of channels) {
+      const haystack = `${channel.name || ""} ${channel.group || ""}`.toLowerCase();
+      if (!haystack.includes(q)) continue;
+      channelMatches.push(channel);
+      if (channelMatches.length >= 18) break;
+    }
     const programs: { channel: Channel; program: Program }[] = [];
     const now = Date.now();
     for (const channel of channels) {
