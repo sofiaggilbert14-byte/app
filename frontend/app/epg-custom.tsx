@@ -53,7 +53,7 @@ export default function CustomEpgScreen() {
   }, [prefs.userUrl, urlTouched]);
 
   useEffect(() => {
-    const timer = setTimeout(() => setPreferBackFocus(false), 550);
+    const timer = setTimeout(() => setPreferBackFocus(false), 180);
     return () => clearTimeout(timer);
   }, []);
 
@@ -181,7 +181,12 @@ export default function CustomEpgScreen() {
       const result = await refreshNativeUserGuide(url);
       invalidateGuideOwnershipCaches();
       setXmltvPage(0);
-      await reloadXmltvPage();
+      // State updates are async; do not call reloadXmltvPage() here because it may
+      // still capture the previous page. Read page 0 explicitly, then the normal
+      // effect owns subsequent query/page changes.
+      const firstPage = await listNativeUserGuideChannels(xmltvQuery, 0, XMLTV_PAGE_SIZE);
+      setXmltvRows(firstPage.rows || []);
+      setXmltvTotal(Math.max(0, Number(firstPage.total) || 0));
       setStatus(`Custom EPG indexed ${Math.max(0, Math.round(result.count || 0))} programmes.`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Custom EPG refresh failed.");
