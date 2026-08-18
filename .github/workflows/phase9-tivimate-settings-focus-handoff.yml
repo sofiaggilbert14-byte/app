@@ -1,0 +1,58 @@
+name: Phase 9 TiviMate Settings Focus Handoff
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-settings-focus-handoff.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Claim Settings destination focus before replacing focus tree
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('frontend/app/(tabs)/settings.tsx')
+          s = p.read_text()
+
+          old_back = '''      if (section) {\n        setBackupStatus(null);\n        setClearFavoritesArmed(false);\n        setSection(null);\n        return true;\n      }\n'''
+          new_back = '''      if (section) {\n        setBackupStatus(null);\n        setClearFavoritesArmed(false);\n        // Arm the destination before this detail focus tree unmounts. Android TV\n        // otherwise has one frame with no valid focus owner and may lose the cursor.\n        setPreferTileFocus(true);\n        setSection(null);\n        return true;\n      }\n'''
+          if 'Arm the destination before this detail focus tree unmounts' not in s:
+              if old_back not in s: raise SystemExit('Settings Back focus marker not found')
+              s = s.replace(old_back, new_back, 1)
+
+          old_choose = '''    if (id === "epg") {\n      router.push("/epg-sources" as any);\n      return;\n    }\n    setSection(id);\n'''
+          new_choose = '''    if (id === "epg") {\n      router.push("/epg-sources" as any);\n      return;\n    }\n    // TiviMate-style focus handoff: the tile about to disappear cannot remain\n    // Android's focus owner. Mark the section Back control preferred first.\n    setPreferBackFocus(true);\n    setSection(id);\n'''
+          if 'Mark the section Back control preferred first' not in s:
+              if old_choose not in s: raise SystemExit('Settings choose focus marker not found')
+              s = s.replace(old_choose, new_choose, 1)
+          p.write_text(s)
+
+          test = Path('frontend/tests/nativeGuideArchitecture.test.mjs')
+          t = test.read_text()
+          marker = '''test("native Guide precomputes row labels outside the repaint loop", async () => {\n'''
+          case = '''test("Settings claims destination focus before swapping tile/detail trees", async () => {\n  const settings = await source("app/(tabs)/settings.tsx");\n  const choose = settings.match(/const choose = useCallback\\([\\s\\S]*?\\n  \\}, \\[router\\]\\);/)?.[0] || "";\n  assert.match(choose, /setPreferBackFocus\\(true\\);[\\s\\S]{0,100}setSection\\(id\\)/);\n  const back = settings.match(/useTvBackHandler\\([\\s\\S]*?\\n  \\);/)?.[0] || "";\n  assert.match(back, /setPreferTileFocus\\(true\\);[\\s\\S]{0,100}setSection\\(null\\)/);\n  assert.match(settings, /hasTVPreferredFocus=\\{preferBackFocus\\}/);\n  assert.match(settings, /hasTVPreferredFocus=\\{preferTileFocus && index === 0\\}/);\n});\n\n'''
+          if 'Settings claims destination focus before swapping tile/detail trees' not in t:
+              if marker not in t: raise SystemExit('Settings focus test insertion marker not found')
+              t = t.replace(marker, case + marker, 1)
+          test.write_text(t)
+          PY
+      - name: Commit Settings focus handoff
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/app/'(tabs)'/settings.tsx frontend/tests/nativeGuideArchitecture.test.mjs
+          git commit -m "phase9: preserve Settings focus across section swaps"
+          git push origin HEAD:phase9/purple-next
