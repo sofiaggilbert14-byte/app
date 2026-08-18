@@ -29,8 +29,7 @@ class MainApplication : Application(), ReactApplication {
               add(EpgNativePackage())
               add(EpgRamPackage())
               add(NativeGuidePackage())
-              // Packages that cannot be autolinked yet can be added manually here, for example:
-              // add(MyReactNativePackage())
+              add(CustomizationNativePackage())
             }
 
           override fun getJSMainModuleName(): String = ".expo/.virtual-metro-entry"
