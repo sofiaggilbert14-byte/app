@@ -159,7 +159,8 @@ internal class EpgDatabase(context: Context, private val databaseName: String = 
         group_title TEXT,
         norm_id TEXT NOT NULL,
         norm_name TEXT NOT NULL,
-        updated_at INTEGER NOT NULL
+        updated_at INTEGER NOT NULL,
+        deleted_at INTEGER NOT NULL DEFAULT 0
       )
       """.trimIndent()
     )
@@ -228,6 +229,12 @@ internal class EpgDatabase(context: Context, private val databaseName: String = 
       db.execSQL("UPDATE $STAGING_TABLE SET start_time = start_time / 1000, end_time = end_time / 1000 WHERE start_time > 100000000000")
       createProgrammeSearchTable(db)
       rebuildProgrammeSearch(db)
+    }
+    if (oldVersion < 8) {
+      // Provider refreshes use a TiViMate-style soft-delete marker so row
+      // identities and user-owned relationships survive temporary removals.
+      ensureColumn(db, PLAYLIST_TABLE, "deleted_at", "INTEGER NOT NULL DEFAULT 0")
+      db.execSQL("CREATE INDEX IF NOT EXISTS idx_playlist_deleted ON $PLAYLIST_TABLE(deleted_at)")
     }
   }
 
@@ -862,7 +869,7 @@ internal class EpgDatabase(context: Context, private val databaseName: String = 
 
   companion object {
     private const val STORAGE_RECHECK_BATCHES = 32
-    private const val DATABASE_VERSION = 7
+    private const val DATABASE_VERSION = 8
     private const val LIVE_TABLE = "epg_programmes"
     private const val STAGING_TABLE = "epg_programmes_staging"
     private const val ALIAS_TABLE = "epg_channel_aliases"

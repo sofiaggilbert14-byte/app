@@ -29,7 +29,6 @@ internal object PlaylistSyncCoordinator {
     }
 
     val db = database.writableDatabase
-    ensureSoftDeleteColumn(db)
     val fingerprint = contentFingerprint.trim()
     if (fingerprint.isNotEmpty() && readMeta(db, FINGERPRINT_KEY) == fingerprint) return false
 
@@ -100,23 +99,6 @@ internal object PlaylistSyncCoordinator {
       db.endTransaction()
     }
     return true
-  }
-
-  private fun ensureSoftDeleteColumn(db: SQLiteDatabase) {
-    var present = false
-    db.rawQuery("PRAGMA table_info($PLAYLIST_TABLE)", null).use { cursor ->
-      val nameIndex = cursor.getColumnIndex("name")
-      while (cursor.moveToNext()) {
-        if (nameIndex >= 0 && cursor.getString(nameIndex) == "deleted_at") {
-          present = true
-          break
-        }
-      }
-    }
-    if (!present) {
-      db.execSQL("ALTER TABLE $PLAYLIST_TABLE ADD COLUMN deleted_at INTEGER NOT NULL DEFAULT 0")
-      db.execSQL("CREATE INDEX IF NOT EXISTS idx_playlist_deleted ON $PLAYLIST_TABLE(deleted_at)")
-    }
   }
 
   private fun readMeta(db: SQLiteDatabase, key: String): String? {
