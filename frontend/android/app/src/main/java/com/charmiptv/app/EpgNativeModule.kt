@@ -19,6 +19,7 @@ import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.zip.GZIPInputStream
 import kotlin.math.exp
