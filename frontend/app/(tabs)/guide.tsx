@@ -254,6 +254,7 @@ export default function PurpleGuideScreen() {
   } = useGuideUiPreferences();
   const { hiddenIds, customOrder, customNumbers } = useChannelCustomize();
   const hiddenIdSet = useMemo(() => new Set(hiddenIds), [hiddenIds]);
+  const [groupDrawerOpen, setGroupDrawerOpen] = useState(false);
   const { isGroupLocked, unlockGroup, verifyPin, hasPin } = useParentalPin();
 
   const deviceMemoryProfile = useDeviceMemoryProfile();
@@ -283,7 +284,6 @@ export default function PurpleGuideScreen() {
 
   const [now, setNow] = useState(() => new Date().toISOString());
   const [group, setGroup] = useState(() => guideSessionGroup);
-  const [groupDrawerOpen, setGroupDrawerOpen] = useState(false);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewStatus, setPreviewStatus] = useState<StreamStatus>("loading");
   const [previewFocusRequestToken, setPreviewFocusRequestToken] = useState(0);
