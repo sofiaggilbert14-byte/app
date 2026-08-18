@@ -1,5 +1,5 @@
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { FlatList, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
@@ -14,10 +14,7 @@ import { useChannelCustomize } from "@/src/core/channelCustomize";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
-
-function byName(a: Channel, b: Channel) {
-  return (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" });
-}
+import { addTvLongPressListener } from "@/src/utils/tvRemote";
 
 const ChannelListRow = memo(function ChannelListRow({
   channel,
@@ -31,6 +28,7 @@ const ChannelListRow = memo(function ChannelListRow({
   onPlay,
   onFavorite,
   onMove,
+  onFocusChannel,
   preferredFocus,
 }: {
   channel: Channel;
@@ -44,6 +42,7 @@ const ChannelListRow = memo(function ChannelListRow({
   onPlay: (channel: Channel) => void;
   onFavorite: (id: string) => void;
   onMove: (id: string, direction: -1 | 1) => void;
+  onFocusChannel: (id: string) => void;
   preferredFocus?: boolean;
 }) {
   const programs = useGuidePrograms(channel.id);
@@ -53,8 +52,9 @@ const ChannelListRow = memo(function ChannelListRow({
     <View style={styles.rowShell}>
       <Pressable
         hasTVPreferredFocus={preferredFocus}
+        onFocus={() => onFocusChannel(channel.id)}
         onPress={() => { if (!editMode) onPlay(channel); }}
-        onLongPress={() => { if (!editMode) onFavorite(channel.id); }}
+        onLongPress={Platform.isTV ? undefined : () => { if (!editMode) onFavorite(channel.id); }}
         delayLongPress={450}
         style={({ focused }: any) => [styles.row, editMode && styles.rowEditing, focused && styles.focused]}
         testID={`purple-channel-${channel.id}`}
@@ -108,8 +108,10 @@ export default function ChannelsScreen() {
   const { channels, favorites, toggleFavorite, addRecent, channelLogos, hardRefresh, loading, refreshing, error, clock24h } = useStore();
   void clock24h;
   const customize = useChannelCustomize();
-  const alphabetical = useMemo(() => [...channels].sort(byName), [channels]);
-  const alphabeticalIds = useMemo(() => alphabetical.map((channel) => channel.id), [alphabetical]);
+  // Native source/cache rows are already name-sorted. Reuse the authoritative
+  // array instead of cloning/sorting 6k+ channels every Channels-screen render.
+  const alphabetical = channels;
+  const alphabeticalIds = useMemo(() => channels.map((channel) => channel.id), [channels]);
   const ordered = useMemo(() => {
     if (!customize.customOrder.length) return alphabetical;
     // Build directly instead of channels.map(...)->Map, avoiding a full tuple
@@ -135,6 +137,7 @@ export default function ChannelsScreen() {
   const [now, setNow] = useState(() => new Date());
   const [preferInitialFocus, setPreferInitialFocus] = useState(true);
   const [editMode, setEditMode] = useState(false);
+  const [focusedChannelId, setFocusedChannelId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isFocused) return;
@@ -148,7 +151,7 @@ export default function ChannelsScreen() {
   useFocusEffect(
     useCallback(() => {
       setPreferInitialFocus(true);
-      const timer = setTimeout(() => setPreferInitialFocus(false), 700);
+      const timer = setTimeout(() => setPreferInitialFocus(false), 180);
       return () => clearTimeout(timer);
     }, []),
   );
@@ -164,6 +167,15 @@ export default function ChannelsScreen() {
     toggleFavorite(id);
   }, [toggleFavorite]);
 
+  useEffect(() => {
+    if (!isFocused || editMode || !Platform.isTV) return;
+    return addTvLongPressListener((key) => {
+      if (key !== "SELECT") return;
+      const id = focusedChannelId;
+      if (id) favorite(id);
+    });
+  }, [editMode, favorite, focusedChannelId, isFocused]);
+
   const toggleEditMode = useCallback(() => {
     void Haptics.selectionAsync().catch(() => undefined);
     setEditMode((current) => {
@@ -177,6 +189,11 @@ export default function ChannelsScreen() {
     void Haptics.selectionAsync().catch(() => undefined);
     customize.moveInCustomOrder(id, direction);
   }, [customize]);
+
+  const listExtraData = useMemo(
+    () => ({ favorites, editMode, order: customize.customOrder }),
+    [customize.customOrder, editMode, favorites],
+  );
 
   const clearOrder = useCallback(() => {
     void Haptics.selectionAsync().catch(() => undefined);
@@ -248,7 +265,7 @@ export default function ChannelsScreen() {
           <FlatList
             data={ordered}
             keyExtractor={(item) => item.id}
-            extraData={[favorites, editMode, customize.customOrder]}
+            extraData={listExtraData}
             initialNumToRender={12}
             maxToRenderPerBatch={10}
             windowSize={7}
@@ -268,6 +285,7 @@ export default function ChannelsScreen() {
                 onPlay={play}
                 onFavorite={favorite}
                 onMove={move}
+                onFocusChannel={setFocusedChannelId}
                 preferredFocus={preferInitialFocus && index === 0}
               />
             )}
