@@ -53,3 +53,14 @@ test("channel customization writes only the state blob that changed", async () =
     /Promise\.all\(\[\s*storage\.setItem\(HIDDEN_KEY[\s\S]*storage\.setItem\(ORDER_KEY[\s\S]*storage\.setItem\(NUMBERS_KEY/,
   );
 });
+
+test("playlist-only refresh reuses native parser rows instead of cloning the full playlist", async () => {
+  const source = await readFile(join(root, "src/source.native.ts"), "utf8");
+  const refreshOnly = source.match(/export async function refreshPlaylistOnly[\s\S]*?\n}\n\n\/\*\* Check persisted/)?.[0] || "";
+  assert.match(refreshOnly, /const oldById = new Map<string, Channel>\(\)/);
+  assert.match(refreshOnly, /for \(const channel of fresh\)/);
+  assert.match(refreshOnly, /channel\.tvg_id = previous\.tvg_id \|\| channel\.tvg_id/);
+  assert.match(refreshOnly, /const channels = fresh/);
+  assert.doesNotMatch(refreshOnly, /new Map\(\(cached\?\.channels \|\| \[\]\)\.map/);
+  assert.doesNotMatch(refreshOnly, /const channels = fresh\.map/);
+});
