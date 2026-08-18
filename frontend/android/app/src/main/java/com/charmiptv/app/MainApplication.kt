@@ -32,7 +32,6 @@ class MainApplication : Application(), ReactApplication {
               add(CustomizationNativePackage())
               add(CustomEpgNativePackage())
               add(EpgBindingNativePackage())
-              add(EpgSourceControlNativePackage())
             }
 
           override fun getJSMainModuleName(): String = ".expo/.virtual-metro-entry"
@@ -62,7 +61,7 @@ class MainApplication : Application(), ReactApplication {
 
   override fun onConfigurationChanged(newConfig: Configuration) {
     super.onConfigurationChanged(newConfig)
-    ApplicationLifecycleDispatcher.onConfigurationChanged(this, newConfig)
+    ApplicationLifecycleDispatcher.onApplicationCreate(this)
   }
 
   override fun onTrimMemory(level: Int) {
