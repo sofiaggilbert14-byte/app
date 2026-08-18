@@ -1,0 +1,127 @@
+name: Build 8 Final Sideload APK
+
+on:
+  push:
+    branches:
+      - fix/purple-next-build8-tester-pass
+    paths:
+      - "frontend/.build8-final-sideload-trigger"
+      - ".github/workflows/build8-final-sideload.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build8-final-sideload-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      CI: "1"
+      EXPO_PUBLIC_M3U_URL: ${{ secrets.EXPO_PUBLIC_M3U_URL || vars.EXPO_PUBLIC_M3U_URL }}
+      EXPO_PUBLIC_EPG_URL: ${{ secrets.EXPO_PUBLIC_EPG_URL || vars.EXPO_PUBLIC_EPG_URL }}
+      GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx3g -Dorg.gradle.workers.max=1"
+
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+
+      - name: Install Android SDK and pinned NDK
+        run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006" "cmake;3.22.1"
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: Verify locked build sources are present
+        shell: bash
+        run: |
+          if [ -z "${EXPO_PUBLIC_M3U_URL}" ]; then
+            echo "EXPO_PUBLIC_M3U_URL is missing from repository secrets/variables" >&2
+            exit 1
+          fi
+          if [ -z "${EXPO_PUBLIC_EPG_URL}" ]; then
+            echo "EXPO_PUBLIC_EPG_URL is missing from repository secrets/variables" >&2
+            exit 1
+          fi
+          echo "Locked M3U and EPG build values are present."
+
+      - name: Verify native config
+        run: npm run verify:native-config
+
+      - name: Expo Doctor
+        run: npm run doctor
+
+      - name: Unit and wiring tests
+        run: npm test
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build pinned LGPL FFmpeg audio extension
+        run: |
+          chmod +x scripts/build-media3-ffmpeg-audio.sh
+          ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/27.1.12297006" ./scripts/build-media3-ffmpeg-audio.sh
+
+      - name: Compile native Kotlin and Java
+        run: |
+          chmod +x android/gradlew
+          ./android/gradlew -p android \
+            :ffmpeg-audio:compileDebugJavaWithJavac \
+            :app:compileDebugKotlin \
+            :app:compileDebugJavaWithJavac \
+            --no-daemon --max-workers=1 --stacktrace
+
+      - name: Build sideload APK
+        run: ./android/gradlew -p android assembleSideload --no-daemon --max-workers=1 --stacktrace
+
+      - name: Verify embedded React Native bundle
+        run: |
+          APK="android/app/build/outputs/apk/sideload/app-sideload.apk"
+          test -f "$APK"
+          unzip -l "$APK" | grep -E "(index\.android\.bundle|assets/.*\.bundle|resources\.arsc)" >/dev/null
+
+      - name: Rename tester APK
+        run: |
+          mkdir -p android/app/build/outputs/apk/tester
+          cp android/app/build/outputs/apk/sideload/app-sideload.apk \
+            android/app/build/outputs/apk/tester/CharmIPTV-Build8-Final-Sideload.apk
+          sha256sum android/app/build/outputs/apk/tester/CharmIPTV-Build8-Final-Sideload.apk \
+            > android/app/build/outputs/apk/tester/CharmIPTV-Build8-Final-Sideload.sha256
+
+      - name: Upload sideload APK
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: CharmIPTV-Build8-Final-Sideload
+          path: |
+            frontend/android/app/build/outputs/apk/tester/CharmIPTV-Build8-Final-Sideload.apk
+            frontend/android/app/build/outputs/apk/tester/CharmIPTV-Build8-Final-Sideload.sha256
+          if-no-files-found: error
+          retention-days: 14
