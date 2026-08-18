@@ -1,1 +1,1 @@
-Build 8 final validation and sideload trigger — 2026-08-18 retry after transient Maven Central HTTP 429 during native compile.
+Build 8 final validation and sideload trigger — 2026-08-18 retry after HTTP redirect Locale import fix.
