@@ -49,6 +49,17 @@ test("native Guide timeline uses real program duration and queries the visible r
   assert.doesNotMatch(view, /pixelsPerMinute/);
 });
 
+test("native Guide draw loop reuses formatter/date objects instead of allocating per frame", async () => {
+  const view = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");
+  assert.match(view, /private val timeFormatter = SimpleDateFormat\("h:mm a", Locale\.getDefault\(\)\)/);
+  assert.match(view, /private val tickDate = Date\(\)/);
+  const drawHeader = view.match(/private fun drawHeader[\s\S]*?\n  }\n\n  private fun drawClippedText/)?.[0] || "";
+  assert.match(drawHeader, /tickDate\.time = tick/);
+  assert.match(drawHeader, /timeFormatter\.format\(tickDate\)/);
+  assert.doesNotMatch(drawHeader, /SimpleDateFormat\(|Date\(/);
+  assert.doesNotMatch(view, /listOfNotNull\(row\.number/);
+});
+
 test("preview tuning only follows settled native selection", async () => {
   const guide = await source("app/(tabs)/guide.tsx");
   assert.match(guide, /if \(settled\) armPreviewForChannel\(channel\)/);
