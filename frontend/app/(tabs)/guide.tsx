@@ -285,6 +285,9 @@ export default function PurpleGuideScreen() {
   const [previewFocusRequestToken, setPreviewFocusRequestToken] = useState(0);
   const [resetToken, setResetToken] = useState(0);
   const [restoreTimeMs, setRestoreTimeMs] = useState<number | null>(null);
+  // Explicit Search/player jumps may target a channel hidden by the saved Matched/Unmatched filter.
+  // Keep one session-only bypass row until the user manually navigates away; never rewrite the saved filter.
+  const [jumpFilterBypassId, setJumpFilterBypassId] = useState<string | null>(null);
   const [pinPromptGroup, setPinPromptGroup] = useState<string | null>(null);
   const [pinDigits, setPinDigits] = useState("");
   const [pinError, setPinError] = useState(false);
@@ -545,11 +548,19 @@ export default function PurpleGuideScreen() {
       customGroups: customGuideGroups.byName,
     });
     if (epgGuideFilter === "all") return list;
-    if (epgGuideFilter === "matched") {
-      return list.filter(hasOwnedEpgMatch);
+    const filteredList = epgGuideFilter === "matched"
+      ? list.filter(hasOwnedEpgMatch)
+      : list.filter((c) => !hasOwnedEpgMatch(c));
+    if (!jumpFilterBypassId || filteredList.some((channel) => channel.id === jumpFilterBypassId)) {
+      return filteredList;
     }
-    return list.filter((c) => !hasOwnedEpgMatch(c));
-  }, [channels, customGuideGroups.byName, customOrder, epgGuideFilter, favoriteSet, group, hiddenIdSet, recent, recentIdSet]);
+    const target = list.find((channel) => channel.id === jumpFilterBypassId);
+    if (!target) return filteredList;
+    // Preserve the selected group's existing order while temporarily admitting only the requested row.
+    const visibleIds = new Set(filteredList.map((channel) => channel.id));
+    visibleIds.add(target.id);
+    return list.filter((channel) => visibleIds.has(channel.id));
+  }, [channels, customGuideGroups.byName, customOrder, epgGuideFilter, favoriteSet, group, hiddenIdSet, jumpFilterBypassId, recent, recentIdSet]);
 
   // Keep the complete selected group identity stable.
   const filtered = filteredMeta;
@@ -787,17 +798,19 @@ export default function PurpleGuideScreen() {
 
   const onFocusChannel = useCallback((channel: Channel, settled = true) => {
     guideSessionChannelId = channel.id;
+    if (jumpFilterBypassId && channel.id !== jumpFilterBypassId) setJumpFilterBypassId(null);
     rememberGuideGroupChannel(group, channel.id);
     resetGuideSelection(channel.id);
     if (settled) armPreviewForChannel(channel);
-  }, [armPreviewForChannel, group]);
+  }, [armPreviewForChannel, group, jumpFilterBypassId]);
 
   const onFocusProgram = useCallback((program: Program, channel: Channel, settled = true) => {
     guideSessionChannelId = channel.id;
+    if (jumpFilterBypassId && channel.id !== jumpFilterBypassId) setJumpFilterBypassId(null);
     rememberGuideGroupChannel(group, channel.id);
     setGuideFocusedProgram(channel.id, program);
     if (settled) armPreviewForChannel(channel);
-  }, [armPreviewForChannel, group]);
+  }, [armPreviewForChannel, group, jumpFilterBypassId]);
 
   const openGuideProgram = useCallback((program: Program, channel: Channel) => {
     modalOriginRef.current = { channelId: channel.id, programStart: program.start };
@@ -825,6 +838,7 @@ export default function PurpleGuideScreen() {
     guideSessionGroup = next;
     guideSessionChannelId = rememberedChannelId;
     setGroup(next);
+    setJumpFilterBypassId(null);
     resetGuideSelection(rememberedChannelId);
     setRestoreTimeMs(null);
     setPreviewId(null);
@@ -900,6 +914,7 @@ export default function PurpleGuideScreen() {
       }
       guideSessionGroup = nextGroup;
       guideSessionChannelId = jump.channelId;
+      setJumpFilterBypassId(jump.channelId);
       rememberGuideGroupChannel(nextGroup, jump.channelId);
       setGroup(nextGroup);
       const requestedTime = jump.programStart ? Date.parse(jump.programStart) : NaN;
