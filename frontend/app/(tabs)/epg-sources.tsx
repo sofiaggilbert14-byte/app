@@ -15,6 +15,7 @@ import { type LogoPriority, useLogoPriority } from "@/src/core/logoPreferences";
 import { chooseLocalLogoFolder, clearLocalLogoFolder } from "@/src/core/localLogoFolder";
 import { channelHasOwnedEpgMatch } from "@/src/core/epgUserOverrides";
 import { useEpgSourcePreferences } from "@/src/core/epgSourcePreferences";
+import { useCustomGuideGroups } from "@/src/core/customGuideGroups";
 import { GUIDE_START_LAST_USED, useGuideUiPreferences } from "@/src/core/guideUiPreferences";
 import { formatRelativeAge } from "@/src/utils/time";
 import { fonts, radius, tvColors } from "@/src/theme";
@@ -34,6 +35,7 @@ export default function EpgSourcesScreen() {
   const sourceRefresh = useSourceRefreshPreferences();
   const guideUi = useGuideUiPreferences();
   const epgOwnership = useEpgSourcePreferences();
+  const customGuideGroups = useCustomGuideGroups();
   const [logoPriority, setLogoPriority] = useLogoPriority();
   const [status, setStatus] = useState<SourceStatus>(() => sourceStatus());
   const [diagnostics, setDiagnostics] = useState<SourceDiagnostics | null>(null);
@@ -133,16 +135,18 @@ export default function EpgSourcesScreen() {
     const names = Array.from(new Set<string>([
       ...STANDARD_GUIDE_GROUPS,
       ...guideUi.pinnedGroups,
+      ...customGuideGroups.groups.map((item) => item.name),
       guideUi.startGroup !== GUIDE_START_LAST_USED ? guideUi.startGroup : "",
     ])).filter((name) =>
       !!name &&
-      (name === "All" || name === "Favorites" || actualGroups.has(name) || STANDARD_GUIDE_GROUPS.includes(name as any)),
+      !guideUi.hiddenGroups.includes(name) &&
+      (name === "All" || name === "Favorites" || customGuideGroups.byName.has(name) || actualGroups.has(name) || STANDARD_GUIDE_GROUPS.includes(name as any)),
     );
     return [
       { label: "Last used", value: GUIDE_START_LAST_USED },
       ...names.map((name) => ({ label: name, value: name })),
     ];
-  }, [channels, guideUi.pinnedGroups, guideUi.startGroup]);
+  }, [channels, customGuideGroups.byName, customGuideGroups.groups, guideUi.hiddenGroups, guideUi.pinnedGroups, guideUi.startGroup]);
 
   const timeFormat = clock24h ? "MMM D, HH:mm" : "MMM D, h:mm A";
 
@@ -165,7 +169,8 @@ export default function EpgSourcesScreen() {
             contentContainerStyle={styles.content}
           >
             <Card title="Sources" icon="server-outline">
-              <SourceRow title="Primary XMLTV Guide" subtitle="Managed by CharmIPTV · locked source" status={status.error ? "Guide error — see below" : "Active"} />
+              <SourceRow title="Primary XMLTV Guide" subtitle="Managed by CharmIPTV · locked source" status={!epgOwnership.primaryEnabled ? "Disabled" : status.error ? "Guide error — see below" : "Active"} />
+              <SourceRow title="User XMLTV Guide" subtitle="Optional custom source · per-channel overrides" status={!epgOwnership.userEnabled ? "Disabled" : epgOwnership.userUrl ? `${Object.keys(epgOwnership.userOverrides).length} assigned channels` : "Enabled · URL required"} />
               <SourceRow title="Playlist Channel Map" subtitle="Managed by CharmIPTV · locked source" status={`${status.channel_count || 0} channels`} />
               <SourceRow title="Native EPG Cache" subtitle="Streamed XMLTV on-device (Android)" status={status.error ? "Unavailable" : `${diagnostics?.programs || 0} cached programs`} />
             </Card>
