@@ -47,7 +47,7 @@ import {
   pinGroup,
   unpinGroup,
 } from "@/src/core/guideGroups";
-import { useGuideUiPreferences } from "@/src/core/guideUiPreferences";
+import { GUIDE_START_LAST_USED, useGuideUiPreferences } from "@/src/core/guideUiPreferences";
 import { resolveChannelNumber, useChannelCustomize } from "@/src/core/channelCustomize";
 import { useParentalPin } from "@/src/core/parentalPin";
 import {
@@ -70,6 +70,7 @@ import { focusGuidePreviewSurface } from "@/src/utils/guidePreviewFocus";
 // Do not persist to disk: this is navigation state, not a user preference.
 let guideSessionGroup = "All";
 let guideSessionChannelId: string | null = null;
+let guideStartPreferenceApplied = false;
 const guideSessionChannelByGroup = new Map<string, string>();
 const MAX_REMEMBERED_GUIDE_GROUPS = 128;
 function rememberGuideGroupChannel(groupName: string, channelId: string): void {
@@ -247,6 +248,7 @@ export default function PurpleGuideScreen() {
     pinnedGroups,
     hidePreview,
     mutePreview,
+    startGroup,
     setPinnedGroups,
     setHidePreview,
     setMutePreview,
@@ -325,7 +327,6 @@ export default function PurpleGuideScreen() {
   useEffect(() => {
     if (activeProgram) hadProgramModalRef.current = true;
   }, [activeProgram]);
-
 
   const openDrawerFromPreview = useCallback(() => {
     void Haptics.selectionAsync().catch(() => undefined);
@@ -471,6 +472,22 @@ export default function PurpleGuideScreen() {
     [groupCounts, pinnedGroups, playlistGroups],
   );
 
+  // Apply a configured start group once per app process. Explicit Search/player
+  // jumps set the same session state and therefore take priority over this.
+  useEffect(() => {
+    if (guideStartPreferenceApplied || !isFocused || !channels.length) return;
+    if (!startGroup || startGroup === GUIDE_START_LAST_USED) return;
+    const available = groups.includes(startGroup) || overflowGroups.includes(startGroup);
+    const next = available ? startGroup : "All";
+    guideStartPreferenceApplied = true;
+    guideSessionGroup = next;
+    guideSessionChannelId = guideSessionChannelByGroup.get(next) || null;
+    setGroup(next);
+    resetGuideSelection(guideSessionChannelId);
+    setRestoreTimeMs(null);
+    setResetToken((value) => value + 1);
+  }, [channels.length, groups, isFocused, overflowGroups, startGroup]);
+
   const filteredMeta = useMemo(() => {
     let list = filterChannelsByGroup(channels, group, {
       favoriteSet,
@@ -552,14 +569,21 @@ export default function PurpleGuideScreen() {
       channelLogos,
     ).rowHeight;
     const visibleRows = Math.max(6, Math.min(24, Math.ceil(screenHeight / rowHeight)));
-    // Warm the complete initial direction-aware runway before the first focus
-    // event instead of waiting on row 1. Compatibility shortens ahead pages.
-    const ids = buildGuideRunwayIds(filtered, 0, visibleRows, 1, powerProfile);
+    const restoreIndex = guideSessionChannelId
+      ? (filteredIdIndex.get(guideSessionChannelId) ?? 0)
+      : 0;
+    // Warm the runway around the actual restore/focus row. Warming index 0 while
+    // restoring row 5000 made the native canvas and JS cache disagree and is a
+    // direct path to black/empty metadata after Search, All, or fullscreen return.
+    const ids = buildGuideRunwayIds(filtered, restoreIndex, visibleRows, 1, powerProfile);
+    const priorityFrom = Math.max(0, restoreIndex);
+    const priority = filtered
+      .slice(priorityFrom, Math.min(filtered.length, priorityFrom + visibleRows))
+      .map((channel) => channel.id)
+      .filter(Boolean);
     lastRunwayRef.current = {
       ids,
-      priority: [ids[0], ids[1], ids[2], ...ids.slice(0, visibleRows)].filter(
-        (id): id is string => !!id,
-      ),
+      priority: Array.from(new Set([guideSessionChannelId, ...priority, ...ids.slice(0, 3)].filter((id): id is string => !!id))),
       pageSize: visibleRows,
     };
     setViewportGuideChannelIds(ids);
@@ -572,7 +596,7 @@ export default function PurpleGuideScreen() {
       expandRunwayKeepSet(orderedFilteredIds, ids, visibleRows, 1, filteredIdIndex),
     );
     // Prewarm immediately on Guide/group entry, before the first native focus
-    // event. SQLite and the bridge can populate the first visible runway early.
+    // event. SQLite and the bridge can populate the restore runway early.
     void patchProgramsForChannelIds(
       ids,
       lastRunwayRef.current.priority,
@@ -751,6 +775,7 @@ export default function PurpleGuideScreen() {
     guideSessionChannelId = rememberedChannelId;
     setGroup(next);
     resetGuideSelection(rememberedChannelId);
+    setRestoreTimeMs(null);
     setPreviewId(null);
     setResetToken((value) => value + 1);
     closeDrawer();
@@ -808,11 +833,12 @@ export default function PurpleGuideScreen() {
     focusGuidePreviewSurface();
   }, []);
 
-  // One-shot Search/Health jump — apply on focus/mount only.
+  // One-shot Search/Health/player jump — apply on focus/mount only.
   useFocusEffect(
     useCallback(() => {
       const jump = consumeGuideJump();
       if (!jump) return;
+      guideStartPreferenceApplied = true;
       const nextGroup = jump.group || "All";
       if (hasPin && isGroupLocked(nextGroup)) {
         setPinPromptGroup(nextGroup);
