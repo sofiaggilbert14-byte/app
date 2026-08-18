@@ -41,7 +41,8 @@ import {
 } from "@/src/core/guideSelectionStore";
 import { getPowerProfileTuning } from "@/src/core/devicePowerProfile";
 import { shouldUseLowRamTuning, useDeviceMemoryProfile } from "@/src/core/deviceMemoryProfile";
-import { channelHasEpgMatch } from "@/src/core/epgUserOverrides";
+import { channelHasOwnedEpgMatch } from "@/src/core/epgUserOverrides";
+import { useEpgSourcePreferences } from "@/src/core/epgSourcePreferences";
 import {
   buildGroupCounts,
   buildVisibleGroups,
@@ -258,6 +259,11 @@ export default function PurpleGuideScreen() {
     hiddenGroups,
   } = useGuideUiPreferences();
   const customGuideGroups = useCustomGuideGroups();
+  const epgOwnership = useEpgSourcePreferences();
+  const hasOwnedEpgMatch = useCallback(
+    (channel: Channel) => channelHasOwnedEpgMatch(channel, epgOwnership),
+    [epgOwnership.primaryEnabled, epgOwnership.userEnabled, epgOwnership.userOverrides],
+  );
   const { hiddenIds, customOrder, customNumbers } = useChannelCustomize();
   const hiddenIdSet = useMemo(() => new Set(hiddenIds), [hiddenIds]);
   const { isGroupLocked, unlockGroup, verifyPin, hasPin } = useParentalPin();
@@ -480,7 +486,7 @@ export default function PurpleGuideScreen() {
       buildGroupCounts(channels, {
         favoriteSet,
         recentIds: recentIdSet,
-        hasEpgMatch: channelHasEpgMatch,
+        hasEpgMatch: hasOwnedEpgMatch,
         isFailed: isFailedChannel,
         hiddenIds: hiddenIdSet,
         customGroups: customGuideGroups.byName,
@@ -531,7 +537,7 @@ export default function PurpleGuideScreen() {
       favoriteSet,
       recent,
       recentIds: recentIdSet,
-      hasEpgMatch: channelHasEpgMatch,
+      hasEpgMatch: hasOwnedEpgMatch,
       isFailed: isFailedChannel,
       hiddenIds: hiddenIdSet,
       customOrder,
@@ -539,9 +545,9 @@ export default function PurpleGuideScreen() {
     });
     if (epgGuideFilter === "all") return list;
     if (epgGuideFilter === "matched") {
-      return list.filter(channelHasEpgMatch);
+      return list.filter(hasOwnedEpgMatch);
     }
-    return list.filter((c) => !channelHasEpgMatch(c));
+    return list.filter((c) => !hasOwnedEpgMatch(c));
   }, [channels, customGuideGroups.byName, customOrder, epgGuideFilter, favoriteSet, group, hiddenIdSet, recent, recentIdSet]);
 
   // Keep the complete selected group identity stable.

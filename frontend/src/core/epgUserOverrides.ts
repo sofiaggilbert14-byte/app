@@ -54,6 +54,15 @@ export function applyManualEpgRemaps<T extends { id: string; tvg_id: string }>(
   return next;
 }
 
+export function channelHasOwnedEpgMatch(
+  channel: { tvg_id?: string; id: string; programs?: unknown[] },
+  ownership: { primaryEnabled: boolean; userEnabled: boolean; userOverrides: Record<string, string> },
+): boolean {
+  if (ownership.userEnabled && !!ownership.userOverrides[channel.id]) return true;
+  if (!ownership.primaryEnabled) return false;
+  return channelHasEpgMatch(channel);
+}
+
 export function channelHasEpgMatch(channel: { tvg_id?: string; id: string; programs?: unknown[] }): boolean {
   const programs = channel.programs;
   if (Array.isArray(programs) && programs.length > 0) return true;
