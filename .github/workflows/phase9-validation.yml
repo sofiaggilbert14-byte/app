@@ -1,4 +1,5 @@
 name: Phase 9 Validation
+# scan-gate: latest Phase 9 ownership/focus/player state
 
 on:
   push:
