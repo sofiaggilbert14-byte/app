@@ -40,6 +40,7 @@ export default function CustomEpgScreen() {
   const [xmltvPage, setXmltvPage] = useState(0);
   const [xmltvRows, setXmltvRows] = useState<XmltvRow[]>([]);
   const [xmltvTotal, setXmltvTotal] = useState(0);
+  const [preferBackFocus, setPreferBackFocus] = useState(true);
   const queryGeneration = useRef(0);
 
   useTvBackHandler(useCallback(() => {
@@ -50,6 +51,11 @@ export default function CustomEpgScreen() {
   useEffect(() => {
     if (!urlTouched) setUrlDraft(prefs.userUrl);
   }, [prefs.userUrl, urlTouched]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setPreferBackFocus(false), 550);
+    return () => clearTimeout(timer);
+  }, []);
 
   const selectedChannel = useMemo(
     () => channels.find((channel) => channel.id === selectedChannelId) || null,
@@ -189,8 +195,15 @@ export default function CustomEpgScreen() {
     if (!channel || busy) return;
     setBusy(true);
     try {
+      const overrides = { ...prefs.userOverrides, [channel.id]: xmltvId };
       prefs.setUserOverride(channel.id, xmltvId);
       await setNativeGuideChannelBinding(channel.id, xmltvId);
+      await configureNativeGuideOwnership(
+        prefs.primaryEnabled,
+        prefs.userEnabled,
+        prefs.userUrl,
+        overrides,
+      );
       invalidateGuideOwnershipCaches();
       void Haptics.selectionAsync().catch(() => undefined);
       setStatus(`${channel.name} now uses custom EPG channel ${xmltvId}.`);
@@ -206,8 +219,16 @@ export default function CustomEpgScreen() {
     if (!channel || busy) return;
     setBusy(true);
     try {
+      const overrides = { ...prefs.userOverrides };
+      delete overrides[channel.id];
       prefs.setUserOverride(channel.id, null);
       await setNativeGuideChannelBinding(channel.id, null);
+      await configureNativeGuideOwnership(
+        prefs.primaryEnabled,
+        prefs.userEnabled,
+        prefs.userUrl,
+        overrides,
+      );
       invalidateGuideOwnershipCaches();
       setStatus(
         prefs.primaryEnabled
@@ -232,7 +253,7 @@ export default function CustomEpgScreen() {
             <Text style={styles.kicker}>PHASE 9 · GUIDE SOURCES</Text>
             <Text style={styles.title}>Custom EPG & Channel Assignments</Text>
           </View>
-          <Pressable hasTVPreferredFocus onPress={() => router.replace("/epg-sources" as any)} style={({ focused }: any) => [styles.back, focused && styles.focused]}>
+          <Pressable hasTVPreferredFocus={preferBackFocus} onPress={() => router.replace("/epg-sources" as any)} style={({ focused }: any) => [styles.back, focused && styles.focused]}>
             <Ionicons name="arrow-back" size={14} color="#fff" />
             <Text style={styles.backText}>EPG Settings</Text>
           </Pressable>
