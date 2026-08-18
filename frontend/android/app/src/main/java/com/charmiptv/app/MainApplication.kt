@@ -31,6 +31,7 @@ class MainApplication : Application(), ReactApplication {
               add(NativeGuidePackage())
               add(CustomizationNativePackage())
               add(CustomEpgNativePackage())
+              add(EpgBindingNativePackage())
             }
 
           override fun getJSMainModuleName(): String = ".expo/.virtual-metro-entry"
