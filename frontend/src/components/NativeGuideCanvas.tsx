@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useMemo } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, requireNativeComponent, type NativeSyntheticEvent, View } from "react-native";
 import type { Channel, Program } from "@/src/api";
 
@@ -22,17 +22,28 @@ export const NativeGuideCanvas = memo(function NativeGuideCanvas(props: Props) {
   const nativeChannels = useMemo(() => props.channels.map((channel) => ({ id: channel.id, name: channel.name, number: String(props.channelNumberById[channel.id] || "") })), [props.channelNumberById, props.channels]);
   const windowStartMs = Date.parse(props.windowStart);
   const windowEndMs = Date.parse(props.windowEnd);
-  const restoreChannelId = useMemo(() => {
+  const validRestoreChannelId = useMemo(() => {
     const requested = String(props.restoreChannelId || "").trim();
     if (requested && channelById.has(requested)) return requested;
     return props.channels[0]?.id || "";
   }, [channelById, props.channels, props.restoreChannelId]);
-  const restoreTimeMs = useMemo(() => {
+  const validRestoreTimeMs = useMemo(() => {
     const requested = Number(props.restoreTimeMs || 0);
     if (!Number.isFinite(requested) || requested <= 0) return 0;
     if (!Number.isFinite(windowStartMs) || !Number.isFinite(windowEndMs) || windowEndMs <= windowStartMs) return 0;
     return Math.max(windowStartMs, Math.min(windowEndMs - 1, requested));
   }, [props.restoreTimeMs, windowEndMs, windowStartMs]);
+  const [deferredRestoreChannelId, setDeferredRestoreChannelId] = useState("");
+  const [deferredRestoreTimeMs, setDeferredRestoreTimeMs] = useState(0);
+
+  // Apply restore props one render after the native channel/window props. This
+  // avoids Android prop-order races where restoreChannel is evaluated while the
+  // view still has its previous (or empty) row list and silently falls to row 1.
+  useEffect(() => {
+    setDeferredRestoreChannelId(validRestoreChannelId);
+    setDeferredRestoreTimeMs(validRestoreTimeMs);
+  }, [validRestoreChannelId, validRestoreTimeMs]);
+
   const onSelectionChange = useCallback((event: NativeSyntheticEvent<SelectionEvent>) => {
     const value = event.nativeEvent; const channel = channelById.get(value.channelId); if (!channel) return;
     const program = value.program ? { title: value.program.title, desc: value.program.desc, category: value.program.category, start: new Date(value.program.startMs).toISOString(), stop: new Date(value.program.endMs).toISOString() } : null;
@@ -43,5 +54,5 @@ export const NativeGuideCanvas = memo(function NativeGuideCanvas(props: Props) {
     const value = event.nativeEvent; props.onViewportChannelIds(value.ids || [], value.priorityIds || [], value.pageSize || 8);
   }, [props]);
   if (!Native) return <View style={{ flex: 1 }} />;
-  return <Native style={{ flex: 1 }} channels={nativeChannels} windowStartMs={windowStartMs} windowEndMs={windowEndMs} active={props.active} restoreChannelId={restoreChannelId} restoreTimeMs={restoreTimeMs} onSelectionChange={onSelectionChange} onRunwayChange={onRunwayChange} onLeftBoundary={props.onLeftBoundary} onUpBoundary={props.onUpBoundary} />;
+  return <Native style={{ flex: 1 }} channels={nativeChannels} windowStartMs={windowStartMs} windowEndMs={windowEndMs} active={props.active} restoreChannelId={deferredRestoreChannelId} restoreTimeMs={deferredRestoreTimeMs} onSelectionChange={onSelectionChange} onRunwayChange={onRunwayChange} onLeftBoundary={props.onLeftBoundary} onUpBoundary={props.onUpBoundary} />;
 });
