@@ -1,0 +1,34 @@
+name: Phase 9 EPG Transactional State
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - "ci/phase9-epg-transactional-state.py"
+      - ".github/workflows/phase9-epg-transactional-state.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: phase9-epg-transactional-state
+  cancel-in-progress: true
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Apply guarded transactional EPG repair
+        run: python ci/phase9-epg-transactional-state.py
+      - name: Commit repair
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/app/epg-custom.tsx
+          git commit -m "Phase 9: keep EPG ownership state transactional" || exit 0
+          git pull --rebase origin phase9/purple-next
+          git push origin HEAD:phase9/purple-next
