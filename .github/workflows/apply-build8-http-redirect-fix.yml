@@ -1,0 +1,36 @@
+name: Apply Build 8 HTTP Redirect Fix
+
+on:
+  push:
+    branches:
+      - fix/purple-next-build8-tester-pass
+    paths:
+      - ci/apply-build8-http-redirect-fix.txt
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: fix/purple-next-build8-tester-pass
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Apply guarded native redirect patch
+        run: python ci/patch-build8-http-redirects.py
+      - name: Commit redirect repair
+        run: |
+          if git diff --quiet; then
+            echo "No redirect patch changes needed"
+            exit 0
+          fi
+          git config user.name "Charm Build 8 Repair Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add frontend/android/app/src/main/java/com/charmiptv/app/NativePlaylistParser.kt frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt
+          git commit -m "fix(iptv): follow provider HTTP redirects explicitly"
+          git push origin HEAD:fix/purple-next-build8-tester-pass
