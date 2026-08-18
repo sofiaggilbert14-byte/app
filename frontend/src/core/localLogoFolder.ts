@@ -10,7 +10,7 @@ let folderUri = "";
 let loaded = false;
 let loadPromise: Promise<string> | null = null;
 let index = new Map<string, string>();
-let entries: [string, string][] = [];
+let entryKeys: string[] = [];
 const resolvedCache = new Map<string, string | null>();
 const listeners = new Set<() => void>();
 
@@ -41,7 +41,7 @@ function distance(a: string, b: string, limit = 4): number {
 
 async function rebuild(uri: string): Promise<void> {
   index = new Map();
-  entries = [];
+  entryKeys = [];
   resolvedCache.clear();
   if (!uri || Platform.OS !== "android") return;
   const uris = await FileSystem.StorageAccessFramework.readDirectoryAsync(uri).catch(() => [] as string[]);
@@ -52,7 +52,7 @@ async function rebuild(uri: string): Promise<void> {
     const normalized = key(decoded);
     if (!normalized || index.has(normalized)) continue;
     index.set(normalized, fileUri);
-    entries.push([normalized, fileUri]);
+    entryKeys.push(normalized);
   }
 }
 
@@ -89,7 +89,7 @@ export async function clearLocalLogoFolder(): Promise<void> {
   folderUri = "";
   loaded = true;
   index.clear();
-  entries = [];
+  entryKeys = [];
   resolvedCache.clear();
   await storage.removeItem(KEY);
   listeners.forEach((listener) => listener());
@@ -106,7 +106,9 @@ export function resolveLocalLogo(channelName: string): string | undefined {
   }
   let best: string | undefined;
   let bestDistance = Math.min(4, Math.max(1, Math.floor(normalized.length * 0.18)));
-  for (const [candidate, uri] of entries) {
+  for (const candidate of entryKeys) {
+    const uri = index.get(candidate);
+    if (!uri) continue;
     if (candidate.startsWith(normalized) || normalized.startsWith(candidate)) {
       resolvedCache.set(normalized, uri);
       return uri;
