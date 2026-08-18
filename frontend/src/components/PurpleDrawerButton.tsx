@@ -4,7 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { usePurpleTvDrawer } from "@/src/components/PurpleTvShell";
 import { fonts, radius, tvColors } from "@/src/theme";
-import { addTvKeyListener } from "@/src/utils/tvRemote";
+import { addTvKeyListener, setRemoteContext } from "@/src/utils/tvRemote";
 
 /** Consistent, explicit Drawer entry for full-bleed TV pages. */
 export function PurpleDrawerButton({ testID }: { testID: string }) {
@@ -21,9 +21,18 @@ export function PurpleDrawerButton({ testID }: { testID: string }) {
   // platform focus engine to search for a non-existent neighbour.
   useEffect(() => {
     if (!focused) return;
-    return addTvKeyListener((key) => {
+    // Declare this edge explicitly to the Activity-level router. Default TV
+    // pages do not mirror raw D-pad events into JS; the native router owns the
+    // LEFT boundary and emits exactly one semantic handoff while this control
+    // is focused.
+    setRemoteContext("drawer_edge");
+    const off = addTvKeyListener((key) => {
       if (key === "LEFT") open();
     });
+    return () => {
+      off();
+      setRemoteContext("default");
+    };
   }, [focused, open]);
 
   return (
