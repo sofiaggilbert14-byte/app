@@ -88,6 +88,9 @@ internal interface EpgControlDao {
   @Query("DELETE FROM epg_channel_bindings WHERE playlistId = :playlistId")
   fun clearChannelBindings(playlistId: String)
 
+  @Query("DELETE FROM epg_channel_bindings WHERE playlistId = :playlistId AND channelId = :channelId")
+  fun clearChannelBinding(playlistId: String, channelId: String)
+
   @Query("SELECT * FROM epg_import_state WHERE playlistId = :playlistId LIMIT 1")
   fun importState(playlistId: String): EpgImportStateEntity?
 

@@ -33,6 +33,9 @@ internal data class PlaylistEpgMatchRow(
   val manual: Boolean,
 )
 
+internal data class EpgAliasRow(val channelId: String, val displayName: String)
+internal data class EpgAliasPage(val total: Int, val rows: List<EpgAliasRow>)
+
 /**
  * Native EPG store for Fire TV.
  *
@@ -412,6 +415,33 @@ internal class EpgDatabase(context: Context, private val databaseName: String = 
     } finally {
       db.endTransaction()
     }
+  }
+
+  /** Paged XMLTV channel directory. Only id/name rows cross the bridge. */
+  fun listDisplayNameAliases(query: String, offset: Int, limit: Int): EpgAliasPage {
+    val safeLimit = limit.coerceIn(1, 100)
+    val safeOffset = offset.coerceAtLeast(0)
+    val normalized = normalizeKey(query.trim())
+    val where = if (normalized.isEmpty()) "alias_kind = ?" else "alias_kind = ? AND normalized_key LIKE ?"
+    val args = if (normalized.isEmpty()) arrayOf("display_name") else arrayOf("display_name", "%$normalized%")
+    val total = readableDatabase.rawQuery(
+      "SELECT COUNT(*) FROM $ALIAS_TABLE WHERE $where",
+      args,
+    ).use { cursor -> if (cursor.moveToFirst()) cursor.getInt(0) else 0 }
+    if (total <= 0) return EpgAliasPage(0, emptyList())
+    val rows = ArrayList<EpgAliasRow>(minOf(safeLimit, total))
+    val pageArgs = ArrayList<String>(args.size + 2).apply {
+      addAll(args)
+      add(safeLimit.toString())
+      add(safeOffset.toString())
+    }
+    readableDatabase.rawQuery(
+      "SELECT channel_id, alias_value FROM $ALIAS_TABLE WHERE $where ORDER BY alias_value COLLATE NOCASE ASC LIMIT ? OFFSET ?",
+      pageArgs.toTypedArray(),
+    ).use { cursor ->
+      while (cursor.moveToNext()) rows.add(EpgAliasRow(cursor.getString(0), cursor.getString(1)))
+    }
+    return EpgAliasPage(total, rows)
   }
 
   /** Replace playlist channel rows (independent of EPG live table). */

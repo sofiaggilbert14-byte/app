@@ -497,6 +497,48 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   }
 
   @ReactMethod
+  fun setGuideChannelBinding(channelId: String, xmltvId: String, promise: Promise) {
+    refreshExecutor.execute {
+      try {
+        val channel = channelId.trim()
+        val xmltv = xmltvId.trim()
+        if (channel.isEmpty()) throw IllegalArgumentException("Channel id is empty")
+        controlDao.clearChannelBinding(USER_SOURCE_ID, channel)
+        if (xmltv.isNotEmpty()) {
+          controlDao.putChannelBindings(listOf(EpgChannelBindingEntity(USER_SOURCE_ID, channel, xmltv)))
+        }
+        promise.resolve(true)
+      } catch (t: Throwable) {
+        promise.reject("EPG_BINDING_UPDATE_FAILED", t.message ?: "Could not update Guide channel assignment", t)
+      }
+    }
+  }
+
+  @ReactMethod
+  fun listUserGuideChannels(query: String, offset: Double, limit: Double, promise: Promise) {
+    queryExecutor.execute {
+      try {
+        val page = userDatabase.listDisplayNameAliases(
+          query,
+          offset.toInt().coerceAtLeast(0),
+          limit.toInt().coerceIn(1, 100),
+        )
+        val rows = Arguments.createArray()
+        for (row in page.rows) rows.pushMap(Arguments.createMap().apply {
+          putString("id", row.channelId)
+          putString("name", row.displayName)
+        })
+        promise.resolve(Arguments.createMap().apply {
+          putInt("total", page.total)
+          putArray("rows", rows)
+        })
+      } catch (t: Throwable) {
+        promise.reject("USER_EPG_DIRECTORY_FAILED", t.message ?: "Could not read custom Guide channels", t)
+      }
+    }
+  }
+
+  @ReactMethod
   fun refreshUserGuide(url: String, promise: Promise) {
     refreshExecutor.execute {
       try {
@@ -508,12 +550,23 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         val channelLogos = LinkedHashMap<String, String>()
         val channelNames = LinkedHashMap<String, String>()
         val channelIdsWithPrograms = LinkedHashSet<String>()
+        if (!userDatabase.ensureHealthy()) throw SQLiteException("Custom Guide database integrity check failed")
+        userDatabase.assertRefreshStorageAvailable()
         val validators = EpgHttpValidators()
         val batches = streamProgramBatches(
           sourceUrl, minStop, maxStart, channelLogos, channelNames, channelIdsWithPrograms,
           validators, false, emptySet(), emptySet(), 0L, emptyMap(), userDatabase
         )
         userDatabase.replaceBatches(batches)
+        val aliases = ArrayList<Triple<String, String, String>>(channelNames.size * 2)
+        for ((channelId, displayName) in channelNames) {
+          aliases.add(Triple(channelId, "display_name", displayName))
+          aliases.add(Triple(channelId, "xmltv_id", channelId))
+        }
+        for (channelId in channelIdsWithPrograms) {
+          if (!channelNames.containsKey(channelId)) aliases.add(Triple(channelId, "xmltv_id", channelId))
+        }
+        userDatabase.replaceChannelAliases(aliases)
         userDatabase.setMeta("guide_refreshed_at", now.toString())
         val names = Arguments.createMap()
         for ((channelId, name) in channelNames) names.putString(channelId, name)

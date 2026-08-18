@@ -70,6 +70,8 @@ type CharmEpgModule = {
   upsertPlaylistEpgMatches?(matches: NativePlaylistEpgMatchRow[], guideEpoch: number): Promise<boolean>;
   searchProgrammes?(query: string, limit: number): Promise<NativeProgramme[]>;
   configureGuideOwnership?(primaryEnabled: boolean, userEnabled: boolean, userUrl: string, userOverrides: Record<string, string>): Promise<boolean>;
+  setGuideChannelBinding?(channelId: string, xmltvId: string): Promise<boolean>;
+  listUserGuideChannels?(query: string, offset: number, limit: number): Promise<{ total: number; rows: { id: string; name: string }[] }>;
   refreshUserGuide?(url: string): Promise<{ count: number; channelNames?: Record<string, string>; channelIdsWithPrograms?: string[] }>;
   clear(): Promise<boolean>;
 };
@@ -268,6 +270,22 @@ export async function configureNativeGuideOwnership(
   }
   if (!nativeModule?.configureGuideOwnership) return;
   await nativeModule.configureGuideOwnership(primaryEnabled, userEnabled, userUrl, userOverrides);
+}
+
+export async function setNativeGuideChannelBinding(channelId: string, xmltvId: string | null): Promise<void> {
+  if (!nativeModule?.setGuideChannelBinding) return;
+  if (xmltvId?.trim()) ownershipRequiresSqlite = true;
+  if (ramModule) await ramModule.clearMemory().catch(() => undefined);
+  await nativeModule.setGuideChannelBinding(channelId, xmltvId?.trim() || "");
+}
+
+export async function listNativeUserGuideChannels(
+  query = "",
+  offset = 0,
+  limit = 50,
+): Promise<{ total: number; rows: { id: string; name: string }[] }> {
+  if (!nativeModule?.listUserGuideChannels) return { total: 0, rows: [] };
+  return nativeModule.listUserGuideChannels(query, Math.max(0, offset), Math.max(1, Math.min(100, limit)));
 }
 
 export async function refreshNativeUserGuide(url: string): Promise<{
