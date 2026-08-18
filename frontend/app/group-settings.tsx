@@ -57,6 +57,11 @@ export default function GroupSettingsScreen() {
     return out;
   }, [channels, query]);
   const maxPage = Math.max(0, Math.ceil(filtered.length / PAGE_SIZE) - 1);
+  useEffect(() => {
+    // A playlist refresh can shrink the result set while this screen stays mounted.
+    // Keep paging inside the new valid range instead of leaving an empty dead page.
+    setPage((current) => Math.max(0, Math.min(maxPage, current)));
+  }, [maxPage]);
   const pageRows = filtered.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
 
   const toggleBuiltIn = (name: string) => {
