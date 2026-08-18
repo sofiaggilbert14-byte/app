@@ -1,5 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { storage } from "@/src/utils/storage";
+import {
+  nativeCreateCustomGroup,
+  nativeCustomizationAvailable,
+  nativeDeleteCustomGroup,
+  nativeMoveCustomGroup,
+  nativeRenameCustomGroup,
+  nativeSetCustomGroupMembership,
+} from "@/src/nativeCustomization";
+import {
+  LEGACY_GROUPS_KEY,
+  loadNativeCustomizationWithMigration,
+  refreshNativeCustomizationSnapshot,
+} from "@/src/core/customizationPersistence";
 
 export type CustomGuideGroup = {
   id: string;
@@ -7,7 +20,6 @@ export type CustomGuideGroup = {
   channelIds: string[];
 };
 
-const KEY = "gs_phase9_custom_guide_groups_v1";
 const MAX_GROUPS = 32;
 const MAX_CHANNELS_PER_GROUP = 10000;
 const RESERVED = new Set([
@@ -18,8 +30,9 @@ const RESERVED = new Set([
 
 let cached: CustomGuideGroup[] = [];
 let loaded = false;
-let writeActive = false;
-let pendingWrite: CustomGuideGroup[] | null = null;
+let loadPromise: Promise<CustomGuideGroup[]> | null = null;
+let webWriteActive = false;
+let webPendingWrite: CustomGuideGroup[] | null = null;
 const listeners = new Set<(value: CustomGuideGroup[]) => void>();
 
 function cleanName(raw: string): string {
@@ -62,33 +75,54 @@ function emit() {
   }
 }
 
-async function flushWrites() {
-  if (writeActive) return;
-  writeActive = true;
-  try {
-    while (pendingWrite) {
-      const snapshot = pendingWrite;
-      pendingWrite = null;
-      await storage.setItem(KEY, snapshot);
-    }
-  } finally {
-    writeActive = false;
-  }
-}
-
 function commit(next: CustomGuideGroup[]) {
   cached = sanitize(next);
   loaded = true;
   emit();
-  pendingWrite = cached;
-  void flushWrites();
+  if (!nativeCustomizationAvailable) {
+    webPendingWrite = cached;
+    void flushWebWrites();
+  }
 }
 
-async function load() {
+async function flushWebWrites() {
+  if (nativeCustomizationAvailable || webWriteActive) return;
+  webWriteActive = true;
+  try {
+    while (webPendingWrite) {
+      const snapshot = webPendingWrite;
+      webPendingWrite = null;
+      await storage.setItem(LEGACY_GROUPS_KEY, snapshot);
+    }
+  } finally {
+    webWriteActive = false;
+    if (webPendingWrite) void flushWebWrites();
+  }
+}
+
+async function load(): Promise<CustomGuideGroup[]> {
   if (loaded) return cached;
-  cached = sanitize(await storage.getItem<CustomGuideGroup[]>(KEY, []));
-  loaded = true;
-  return cached;
+  if (loadPromise) return loadPromise;
+  loadPromise = (async () => {
+    if (nativeCustomizationAvailable) {
+      const native = await loadNativeCustomizationWithMigration();
+      cached = sanitize(native.groups);
+    } else {
+      cached = sanitize(await storage.getItem<CustomGuideGroup[]>(LEGACY_GROUPS_KEY, []));
+    }
+    loaded = true;
+    return cached;
+  })();
+  try { return await loadPromise; }
+  finally { loadPromise = null; }
+}
+
+async function reloadNativeAfterFailure() {
+  if (!nativeCustomizationAvailable) return;
+  try {
+    const native = await refreshNativeCustomizationSnapshot();
+    commit(native.groups);
+  } catch {}
 }
 
 export function useCustomGuideGroups() {
@@ -105,7 +139,11 @@ export function useCustomGuideGroups() {
     const name = cleanName(rawName);
     const key = name.toLowerCase();
     if (!name || RESERVED.has(key) || cached.some((group) => group.name.toLowerCase() === key) || cached.length >= MAX_GROUPS) return false;
-    commit([...cached, { id: `cg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`, name, channelIds: [] }]);
+    const id = `cg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+    commit([...cached, { id, name, channelIds: [] }]);
+    if (nativeCustomizationAvailable) {
+      void nativeCreateCustomGroup(id, name).catch(() => void reloadNativeAfterFailure());
+    }
     return true;
   }, []);
 
@@ -114,10 +152,19 @@ export function useCustomGuideGroups() {
     const key = name.toLowerCase();
     if (!name || RESERVED.has(key) || cached.some((group) => group.id !== id && group.name.toLowerCase() === key)) return false;
     commit(cached.map((group) => group.id === id ? { ...group, name } : group));
+    if (nativeCustomizationAvailable) {
+      void nativeRenameCustomGroup(id, name).catch(() => void reloadNativeAfterFailure());
+    }
     return true;
   }, []);
 
-  const deleteGroup = useCallback((id: string) => commit(cached.filter((group) => group.id !== id)), []);
+  const deleteGroup = useCallback((id: string) => {
+    if (!cached.some((group) => group.id === id)) return;
+    commit(cached.filter((group) => group.id !== id));
+    if (nativeCustomizationAvailable) {
+      void nativeDeleteCustomGroup(id).catch(() => void reloadNativeAfterFailure());
+    }
+  }, []);
 
   const moveGroup = useCallback((id: string, direction: -1 | 1) => {
     const from = cached.findIndex((group) => group.id === id);
@@ -128,6 +175,9 @@ export function useCustomGuideGroups() {
     const [item] = next.splice(from, 1);
     next.splice(to, 0, item);
     commit(next);
+    if (nativeCustomizationAvailable) {
+      void nativeMoveCustomGroup(id, direction).catch(() => void reloadNativeAfterFailure());
+    }
   }, []);
 
   const setChannelMembership = useCallback((groupId: string, channelId: string, include: boolean) => {
@@ -143,6 +193,9 @@ export function useCustomGuideGroups() {
       channelIds = group.channelIds.filter((id) => id !== channelId);
     }
     commit(cached.map((item) => item.id === groupId ? { ...item, channelIds } : item));
+    if (nativeCustomizationAvailable) {
+      void nativeSetCustomGroupMembership(groupId, channelId, include).catch(() => void reloadNativeAfterFailure());
+    }
   }, []);
 
   const byName = useMemo(() => {
