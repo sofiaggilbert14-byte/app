@@ -18,7 +18,6 @@ import {
   applyLogoOnlyUpdates,
   applyXmltvMatchesToChannels,
   buildXmltvMatchIndexes,
-  channelMatchIdentity,
   emptyMatchQuality,
   formatNativeEpgError,
   mergeMatchQuality,
@@ -166,46 +165,55 @@ function applyNativeImportProgress(phase: string, ratio: number): void {
   setProgress({ phase: safePhase, ratio: Math.max(0.2, Math.min(0.9, ratio)), etaSeconds: null });
 }
 
+function hashFields(value: string, state: { h1: number; h2: number; chars: number }): void {
+  state.chars += value.length;
+  for (let index = 0; index < value.length; index++) {
+    const code = value.charCodeAt(index);
+    state.h1 = Math.imul(state.h1 ^ code, 0x01000193);
+    state.h2 = Math.imul(state.h2 ^ (code + index), 0x85ebca6b);
+  }
+}
+
 /** Two independent 32-bit hashes keep the cold-start native handshake compact. */
 function playlistNativeContentFingerprint(channels: Channel[]): string {
-  let h1 = 0x811c9dc5;
-  let h2 = 0x9e3779b9;
-  let charCount = 0;
+  const state = { h1: 0x811c9dc5, h2: 0x9e3779b9, chars: 0 };
   for (const channel of channels) {
-    const value = `${channel.id}\0${channel.raw_tvg_id || channel.tvg_id || ""}\0${channel.name || ""}\0${channel.logo || ""}\0${channel.group || ""}\x01`;
-    charCount += value.length;
-    for (let i = 0; i < value.length; i++) {
-      const code = value.charCodeAt(i);
-      h1 = Math.imul(h1 ^ code, 0x01000193);
-      h2 = Math.imul(h2 ^ (code + i), 0x85ebca6b);
-    }
+    hashFields(
+      `${channel.id}\0${channel.raw_tvg_id || channel.tvg_id || ""}\0${channel.name || ""}\0${channel.logo || ""}\0${channel.group || ""}\x01`,
+      state,
+    );
   }
-  return `playlist-v1:${channels.length}:${charCount}:${(h1 >>> 0).toString(16)}:${(h2 >>> 0).toString(16)}`;
+  return `playlist-v1:${channels.length}:${state.chars}:${(state.h1 >>> 0).toString(16)}:${(state.h2 >>> 0).toString(16)}`;
 }
 
 async function syncMatchesToNative(channels: Channel[], guideEpoch: number): Promise<void> {
   if (!nativeEpgAvailable || !channels.length) return;
   const remapped = withManualRemaps(channels);
   const policy = matchPolicyKey();
-  const rows = remapped.map((channel) => {
+  const rows: {
+    playlistId: string;
+    xmltvId: string;
+    logoXmltvId: string;
+    ambiguous: boolean;
+    matchPolicy: string;
+    manual: boolean;
+  }[] = [];
+  const fingerprintState = { h1: 0x811c9dc5, h2: 0x9e3779b9, chars: 0 };
+  for (const channel of remapped) {
     const manual = Object.prototype.hasOwnProperty.call(manualEpgRemaps, channel.id);
     const xmltvId = (channel.tvg_id || "").trim();
-    return {
+    rows.push({
       playlistId: channel.id,
       xmltvId,
       logoXmltvId: xmltvId,
       ambiguous: false,
       matchPolicy: policy,
       manual,
-    };
-  });
-  const writeFingerprint = rows
-    .map((row) => `${row.playlistId}\u0001${row.xmltvId}\u0001${row.logoXmltvId}\u0001${row.matchPolicy}\u0001${row.manual ? 1 : 0}`)
-    .join("\u0002");
-  if (writeFingerprint === lastNativeMatchWriteFingerprint) {
-    lastNativeMatchWriteFingerprint = writeFingerprint;
-    return;
+    });
+    hashFields(`${channel.id}\u0001${xmltvId}\u0001${policy}\u0001${manual ? 1 : 0}\u0002`, fingerprintState);
   }
+  const writeFingerprint = `matches-v2:${rows.length}:${fingerprintState.chars}:${(fingerprintState.h1 >>> 0).toString(16)}:${(fingerprintState.h2 >>> 0).toString(16)}`;
+  if (writeFingerprint === lastNativeMatchWriteFingerprint) return;
   await upsertNativePlaylistEpgMatches(rows, guideEpoch);
   lastNativeMatchWriteFingerprint = writeFingerprint;
 }
@@ -324,7 +332,11 @@ function matchPolicyKey(): string {
 
 function playlistIdentityFingerprint(channels: Channel[]): string {
   // Logo URLs intentionally excluded — logo-only EPG drift must not force rematch.
-  return channels.map((channel) => channelMatchIdentity(channel)).join("\n");
+  const state = { h1: 0x811c9dc5, h2: 0x9e3779b9, chars: 0 };
+  for (const channel of channels) {
+    hashFields(`${channel.id}\0${(channel.raw_tvg_id || channel.tvg_id || "").trim()}\0${(channel.name || "").trim()}\x01`, state);
+  }
+  return `identity-v2:${channels.length}:${state.chars}:${(state.h1 >>> 0).toString(16)}:${(state.h2 >>> 0).toString(16)}`;
 }
 
 function withManualRemaps(channels: Channel[]): Channel[] {
@@ -362,7 +374,9 @@ async function matchChannelsWithPhases(
     });
     await onPartial(phase1.channels, phase1.quality);
     await nextTick();
-    const restIds = channels.map((c) => c.id).filter((id) => !priority.includes(id));
+    const prioritySet = new Set(priority);
+    const restIds: string[] = [];
+    for (const channel of channels) if (!prioritySet.has(channel.id)) restIds.push(channel.id);
     const phase2 = applyXmltvMatchesToChannels(phase1.channels, indexes, epgLogos, {
       preferTvgIdOnly,
       logoPriority,
@@ -478,10 +492,11 @@ function https(url: string): string {
   return url && url.startsWith("http://") ? `https://${url.slice(7)}` : url;
 }
 
-function sortChannels(channels: Channel[]): Channel[] {
-  return [...channels].sort((a, b) =>
+function sortChannelsInPlace(channels: Channel[]): Channel[] {
+  channels.sort((a, b) =>
     (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" }),
   );
+  return channels;
 }
 
 async function readMetaFile(path: string): Promise<NativeMeta | null> {
@@ -491,10 +506,15 @@ async function readMetaFile(path: string): Promise<NativeMeta | null> {
     if (!info.exists) return null;
     const parsed = JSON.parse(await FileSystem.readAsStringAsync(path)) as NativeMeta;
     if (!Array.isArray(parsed.channels) || !parsed.channels.length || !Number.isFinite(parsed.ts)) return null;
-    const normalizedChannels = parsed.channels.map((channel) => ({ ...channel, playlist_logo: channel.playlist_logo || (!channel.epg_logo ? channel.logo : "") || "" }));
+    // Normalize in place. The old path cloned every channel, then cloned the
+    // entire array again to sort it — a large transient heap spike at 6k+ rows.
+    for (const channel of parsed.channels) {
+      channel.playlist_logo = channel.playlist_logo || (!channel.epg_logo ? channel.logo : "") || "";
+    }
+    sortChannelsInPlace(parsed.channels);
     return {
       ts: parsed.ts,
-      channels: sortChannels(normalizedChannels),
+      channels: parsed.channels,
       epgProgramCount: Number(parsed.epgProgramCount || 0),
       epgChannelCount: Number(parsed.epgChannelCount || 0),
       epgError: parsed.epgError,
@@ -523,21 +543,28 @@ async function persistMeta(meta: NativeMeta): Promise<void> {
   if (!CHANNEL_CACHE || !CHANNEL_CACHE_TMP || !CHANNEL_CACHE_BAK) return;
   const json = JSON.stringify(meta);
   await FileSystem.writeAsStringAsync(CHANNEL_CACHE_TMP, json);
-  if (!(await readMetaFile(CHANNEL_CACHE_TMP))) {
+  const tmpInfo = await FileSystem.getInfoAsync(CHANNEL_CACHE_TMP).catch(() => null);
+  if (!tmpInfo?.exists || !(typeof tmpInfo.size === "number") || tmpInfo.size < 2) {
     await FileSystem.deleteAsync(CHANNEL_CACHE_TMP, { idempotent: true }).catch(() => undefined);
     throw new Error("Channel cache verification failed");
   }
+
+  // Parse at most the existing primary. We generate the temp JSON ourselves, so
+  // reparsing temp + promoted copies only duplicates the full 6k-channel graph.
+  // A corrupt primary is never rotated over a known last-good backup.
   const validCurrent = await readMetaFile(CHANNEL_CACHE);
   if (validCurrent) {
     await FileSystem.deleteAsync(CHANNEL_CACHE_BAK, { idempotent: true }).catch(() => undefined);
     await FileSystem.moveAsync({ from: CHANNEL_CACHE, to: CHANNEL_CACHE_BAK });
   } else {
-    // Never rotate a corrupt primary over a valid last-good backup.
     await FileSystem.deleteAsync(CHANNEL_CACHE, { idempotent: true }).catch(() => undefined);
   }
   try {
     await FileSystem.moveAsync({ from: CHANNEL_CACHE_TMP, to: CHANNEL_CACHE });
-    if (!(await readMetaFile(CHANNEL_CACHE))) throw new Error("Promoted channel cache is invalid");
+    const promoted = await FileSystem.getInfoAsync(CHANNEL_CACHE).catch(() => null);
+    if (!promoted?.exists || !(typeof promoted.size === "number") || promoted.size < 2) {
+      throw new Error("Promoted channel cache is invalid");
+    }
     await FileSystem.deleteAsync(CHANNEL_CACHE_BAK, { idempotent: true }).catch(() => undefined);
   } catch (error) {
     await FileSystem.deleteAsync(CHANNEL_CACHE, { idempotent: true }).catch(() => undefined);
@@ -556,9 +583,10 @@ async function fetchPlaylist(): Promise<Channel[]> {
   setProgress({ phase: "channels", ratio: 0.06, etaSeconds: null });
   const parsed = await fetchNativePlaylist(https(SOURCE_M3U));
   setProgress({ phase: "channels", ratio: 0.17, etaSeconds: null });
-  const sorted = sortChannels(Array.isArray(parsed.channels) ? parsed.channels : []);
-  if (!sorted.length) throw new Error("Playlist contained no playable channels");
-  return sorted;
+  const channels = Array.isArray(parsed.channels) ? parsed.channels : [];
+  sortChannelsInPlace(channels);
+  if (!channels.length) throw new Error("Playlist contained no playable channels");
+  return channels;
 }
 
 async function ensureLoaded(): Promise<NativeMeta> {
@@ -800,13 +828,21 @@ async function loadProgrammeCacheMisses(
       const merged: Record<string, Program[]> = { ...joined };
       const missingAfterJoin = owned.filter((id) => !merged[id]?.length);
 
-      // A native match-table write can race a cold app launch. Fall back per
-      // channel rather than only when the entire viewport is empty.
+      // A native match-table write can race a cold app launch. Build a lookup
+      // only for the missing subset instead of channels.map(...) across all 6k.
       if (missingAfterJoin.length) {
-        const byId = new Map(channels.map((channel) => [channel.id, channel]));
-        const xmltvIds = missingAfterJoin
-          .map((id) => (byId.get(id)?.tvg_id || id).trim())
-          .filter(Boolean);
+        const wanted = new Set(missingAfterJoin);
+        const byId = new Map<string, Channel>();
+        for (const channel of channels) {
+          if (!wanted.has(channel.id)) continue;
+          byId.set(channel.id, channel);
+          if (byId.size >= wanted.size) break;
+        }
+        const xmltvIds: string[] = [];
+        for (const id of missingAfterJoin) {
+          const xmltvId = (byId.get(id)?.tvg_id || id).trim();
+          if (xmltvId) xmltvIds.push(xmltvId);
+        }
         if (xmltvIds.length) {
           const byXmltv = await loadNativeEpgWindow(xmltvIds, startMs, endMs);
           for (const playlistId of missingAfterJoin) {
@@ -859,21 +895,19 @@ export async function loadGuide(startISO?: string, hours = 6, force = false): Pr
     programmeWindowCacheKey = cacheKey;
   }
 
-  const allPlaylistIds = remapped.map((channel) => channel.id).filter(Boolean);
-  let playlistIds = allPlaylistIds;
   const huge = remapped.length >= HUGE_PLAYLIST_MATCH_THRESHOLD;
+  let playlistIds: string[];
   if ((huge || viewportGuideChannelIds?.length) && viewportGuideChannelIds?.length) {
     const want = new Set<string>([
       ...viewportGuideChannelIds,
       ...priorityMatchChannelIds.slice(0, 192),
     ]);
-    const scoped = Array.from(want).filter((id) => id);
-    if (scoped.length) playlistIds = scoped;
+    playlistIds = Array.from(want).filter(Boolean);
   } else if (huge) {
-    // Do not bridge a whole 400+ channel guide before the screen has reported
-    // its first viewport. The leading page is immediately navigable through
-    // focusable pending cells and the queue fills the real viewport next.
-    playlistIds = allPlaylistIds.slice(0, 96);
+    // Do not allocate/map all playlist ids before the first viewport exists.
+    playlistIds = remapped.slice(0, 96).map((channel) => channel.id).filter(Boolean);
+  } else {
+    playlistIds = remapped.map((channel) => channel.id).filter(Boolean);
   }
   playlistIds = Array.from(new Set(playlistIds));
 
@@ -882,28 +916,19 @@ export async function loadGuide(startISO?: string, hours = 6, force = false): Pr
   // that retainProgrammeWindowCache(expandRunwayKeepSet(...)) intentionally keeps.
   trimProgrammeWindowCache(playlistIds, "soft");
 
-  // Shared empty list — avoid allocating tens of thousands of `[]` on big playlists.
-  // Never mutate EMPTY_PROGRAMS.
-  const emptyPrograms: Program[] = EMPTY_PROGRAMS;
+  // Programme data travels separately from channel metadata. Never clone every
+  // channel just to attach EMPTY_PROGRAMS; Store/Guide subscribe row-locally.
   const programsByChannelId: Record<string, Program[]> = {};
-  const queriedPlaylistIds = new Set(playlistIds);
-  const channels = remapped.map((channel) => {
-    const list = programmeWindowCache[channel.id];
-    if (list?.length) {
-      programsByChannelId[channel.id] = list;
-      return { ...channel, programs: list };
-    }
-    // Full refresh deltas must explicitly clear queried rows whose programmes
-    // disappeared. Off-screen rows remain stale-while-revalidate until scoped.
-    if (queriedPlaylistIds.has(channel.id)) programsByChannelId[channel.id] = emptyPrograms;
-    return { ...channel, programs: emptyPrograms };
-  });
+  for (const channelId of playlistIds) {
+    const list = programmeWindowCache[channelId];
+    programsByChannelId[channelId] = list?.length ? list : EMPTY_PROGRAMS;
+  }
 
   return {
     start: winStart.toISOString(),
     end: winEnd.toISOString(),
     now: now.toISOString(),
-    channels,
+    channels: remapped,
     programsByChannelId,
     guideEpoch: parsed.guideEpoch || 0,
   };
