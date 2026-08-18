@@ -1,6 +1,6 @@
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -73,11 +73,15 @@ export function PurpleChannelCollection({
     return () => clearInterval(timer);
   }, [isFocused]);
 
-  useEffect(() => {
-    if (!preferInitialFocus) return;
-    const timer = setTimeout(() => setPreferInitialFocus(false), 700);
-    return () => clearTimeout(timer);
-  }, [preferInitialFocus]);
+  // Tabs can stay mounted after navigation. Re-arm preferred focus on every
+  // route entry so Android TV never returns to a collection with no focus owner.
+  useFocusEffect(
+    useCallback(() => {
+      setPreferInitialFocus(true);
+      const timer = setTimeout(() => setPreferInitialFocus(false), 700);
+      return () => clearTimeout(timer);
+    }, []),
+  );
 
   const items = useMemo(() => channels.filter(matcher), [channels, matcher]);
   const playlistEmpty = channels.length === 0;
