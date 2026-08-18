@@ -34,12 +34,20 @@ export function requestNativeFocus(node: unknown): boolean {
 /** Retry focus a few times — virtualized lists often mount cells after the first frame. */
 export function requestNativeFocusWithRetry(node: unknown, delaysMs = [0, 32, 96, 200]): () => void {
   const timers: ReturnType<typeof setTimeout>[] = [];
+  let completed = false;
+  const cancel = () => {
+    completed = true;
+    for (const timer of timers) clearTimeout(timer);
+  };
   delaysMs.forEach((delay) => {
     timers.push(
       setTimeout(() => {
-        requestNativeFocus(node);
+        if (completed) return;
+        // Once native focus succeeds, never fire a later retry under the user's
+        // cursor. Late retries were a root cause of self-moving TV focus.
+        if (requestNativeFocus(node)) cancel();
       }, delay),
     );
   });
-  return () => timers.forEach(clearTimeout);
+  return cancel;
 }

@@ -238,13 +238,13 @@ export function PurpleTvShell({
     const clearPreferred = setTimeout(() => {
       setDrawerAutoFocus(false);
       setDrawerPreferredRoute(null);
-    }, 700);
+    }, 220);
     const preferredNode = preferredGuideGroup
       ? guideGroupRefs.current.get(preferredGuideGroup.name)
       : preferredRoute
         ? navRefs.current.get(preferredRoute)
         : null;
-    const cancelFocus = requestNativeFocusWithRetry(preferredNode, [0, PURPLE_DRAWER_ANIMATION_MS, 280, 420, 650]);
+    const cancelFocus = requestNativeFocusWithRetry(preferredNode, [0, PURPLE_DRAWER_ANIMATION_MS + 20]);
     return () => {
       clearTimeout(clearPreferred);
       cancelFocus?.();
