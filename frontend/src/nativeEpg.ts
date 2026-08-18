@@ -66,6 +66,7 @@ type CharmEpgModule = {
   getWindow(startMs: number, endMs: number, channelIds: string[]): Promise<NativeWindow>;
   queryGuideWindow?(startMs: number, endMs: number, playlistChannelIds: string[]): Promise<NativeWindow>;
   isPlaylistCurrent?(contentFingerprint: string): Promise<boolean>;
+  touchPlaylistRefresh?(playlistEpoch: number): Promise<boolean>;
   upsertPlaylistChannels?(
     channels: NativePlaylistChannelRow[],
     playlistEpoch: number,
@@ -267,6 +268,12 @@ export async function queryNativeGuideWindow(
     return windowToPrograms(window, uniqueIds);
   }
   return loadNativeEpgWindow(uniqueIds, startMs, endMs);
+}
+
+export async function touchNativePlaylistRefresh(playlistEpoch: number): Promise<void> {
+  if (nativeModule?.touchPlaylistRefresh) {
+    await nativeModule.touchPlaylistRefresh(playlistEpoch);
+  }
 }
 
 export async function upsertNativePlaylistChannels(

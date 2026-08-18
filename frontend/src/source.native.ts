@@ -9,6 +9,7 @@ import {
   loadNativeEpgWindow,
   nativeEpgAvailable,
   nativePlaylistIsCurrent,
+  touchNativePlaylistRefresh,
   queryNativeGuideWindow,
   refreshNativeEpg,
   refreshNativeUserGuide,
@@ -763,6 +764,7 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
       await persistMeta(MEM);
       // Sync raw playlist rows into SQLite before match rewrites tvg_id.
       await syncPlaylistToNative(channels, playlistEpoch);
+      await touchNativePlaylistRefresh(playlistEpoch);
       emit();
 
       if (!nativeEpgAvailable) throw new Error("Native EPG engine is unavailable in this Android build");

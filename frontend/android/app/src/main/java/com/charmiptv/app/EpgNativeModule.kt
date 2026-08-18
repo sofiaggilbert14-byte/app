@@ -469,6 +469,20 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   }
 
   @ReactMethod
+  fun touchPlaylistRefresh(playlistEpoch: Double, promise: Promise) {
+    refreshExecutor.execute {
+      try {
+        val now = System.currentTimeMillis()
+        database.setMeta("playlist_epoch", playlistEpoch.toLong().coerceAtLeast(0L).toString())
+        database.setMeta("playlist_refreshed_at", now.toString())
+        promise.resolve(true)
+      } catch (t: Throwable) {
+        promise.reject("EPG_PLAYLIST_TOUCH_FAILED", t.message ?: "Could not update playlist refresh clock", t)
+      }
+    }
+  }
+
+  @ReactMethod
   fun isPlaylistCurrent(contentFingerprint: String, promise: Promise) {
     queryExecutor.execute {
       try {
