@@ -212,42 +212,56 @@ export function filterChannelsByGroup(
     customOrder: string[];
   },
 ): Channel[] {
-  // Preserve identity when All has no hides/custom order (avoids grid rebuilds).
+  // Preserve identity when All has no hides/custom order (avoids native Guide rebuilds).
   if (group === "All" && opts.hiddenIds.size === 0 && opts.customOrder.length === 0) {
     return channels;
   }
 
-  const visible = channels.filter((channel) => !opts.hiddenIds.has(channel.id));
-  let list: Channel[];
-  if (group === "All") list = visible;
-  else if (group === "Favorites") {
-    list = visible.filter((channel) => opts.favoriteSet.has(channel.id));
-  } else if (group === "Recently Watched") {
-    list = opts.recent.filter((channel) => !opts.hiddenIds.has(channel.id));
-  } else {
-    list = visible.filter((channel) =>
+  // Recently Watched is already a tiny bounded list in Store. Preserve its order
+  // and avoid scanning the provider's full playlist just to rediscover those ids.
+  if (group === "Recently Watched") {
+    const list: Channel[] = [];
+    for (const channel of opts.recent) {
+      if (!opts.hiddenIds.has(channel.id)) list.push(channel);
+    }
+    return list;
+  }
+
+  // One provider-list pass. The former visible.filter(...).filter(...) chain held
+  // two full arrays during Guide group changes, exactly when runway/cache state is
+  // also being rebuilt on large IPTV playlists.
+  const list: Channel[] = [];
+  for (const channel of channels) {
+    if (opts.hiddenIds.has(channel.id)) continue;
+    if (
+      group === "All" ||
       channelInGroup(channel, group, {
         favoriteSet: opts.favoriteSet,
         recentIds: opts.recentIds,
         hasEpgMatch: opts.hasEpgMatch,
         isFailed: opts.isFailed,
-      }),
-    );
+      })
+    ) {
+      list.push(channel);
+    }
   }
 
   if (opts.customOrder.length && group === "All") {
-    const rank = new Map(opts.customOrder.map((id, index) => [id, index]));
-    list = list.slice().sort((a, b) => {
-      const ar = rank.has(a.id) ? rank.get(a.id)! : Number.MAX_SAFE_INTEGER;
-      const br = rank.has(b.id) ? rank.get(b.id)! : Number.MAX_SAFE_INTEGER;
+    const rank = new Map<string, number>();
+    for (let index = 0; index < opts.customOrder.length; index++) {
+      rank.set(opts.customOrder[index], index);
+    }
+    list.sort((a, b) => {
+      const ar = rank.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+      const br = rank.get(b.id) ?? Number.MAX_SAFE_INTEGER;
       if (ar !== br) return ar - br;
       return (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" });
     });
     return list;
   }
 
-  if (group !== "Recently Watched" && group !== "All") {
-    list = list.slice().sort((a, b) =>
+  if (group !== "All") {
+    list.sort((a, b) =>
       (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" }),
     );
   }
