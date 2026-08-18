@@ -113,10 +113,10 @@ export default function CustomEpgScreen() {
   const togglePrimary = useCallback(async () => {
     if (busy) return;
     const next = !prefs.primaryEnabled;
-    prefs.setPrimaryEnabled(next);
     setBusy(true);
     try {
       await applyOwnership(next, prefs.userEnabled, prefs.userUrl);
+      prefs.setPrimaryEnabled(next);
       setStatus(next ? "Charm built-in EPG enabled." : "Charm built-in EPG disabled. It will no longer be queried or refreshed while off.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not change built-in EPG state.");
@@ -133,10 +133,10 @@ export default function CustomEpgScreen() {
       return;
     }
     const url = (prefs.userUrl || urlDraft).trim();
-    prefs.setUserEnabled(next);
     setBusy(true);
     try {
       await applyOwnership(prefs.primaryEnabled, next, url);
+      prefs.setUserEnabled(next);
       setStatus(next ? "Custom EPG enabled." : "Custom EPG disabled. Its database remains saved but is no longer queried.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not change custom EPG state.");
@@ -154,9 +154,9 @@ export default function CustomEpgScreen() {
     }
     setBusy(true);
     try {
+      await applyOwnership(prefs.primaryEnabled, prefs.userEnabled, url);
       prefs.setUserUrl(url);
       setUrlTouched(false);
-      await applyOwnership(prefs.primaryEnabled, prefs.userEnabled, url);
       setStatus("Custom EPG URL saved.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not save custom EPG URL.");
@@ -175,9 +175,9 @@ export default function CustomEpgScreen() {
     setBusy(true);
     setStatus("Downloading and indexing custom XMLTV…");
     try {
+      await configureNativeGuideOwnership(prefs.primaryEnabled, true, url, prefs.userOverrides);
       prefs.setUserUrl(url);
       if (!prefs.userEnabled) prefs.setUserEnabled(true);
-      await configureNativeGuideOwnership(prefs.primaryEnabled, true, url, prefs.userOverrides);
       const result = await refreshNativeUserGuide(url);
       invalidateGuideOwnershipCaches();
       setXmltvPage(0);
@@ -200,15 +200,21 @@ export default function CustomEpgScreen() {
     if (!channel || busy) return;
     setBusy(true);
     try {
+      const previous = prefs.userOverrides[channel.id] || null;
       const overrides = { ...prefs.userOverrides, [channel.id]: xmltvId };
-      prefs.setUserOverride(channel.id, xmltvId);
       await setNativeGuideChannelBinding(channel.id, xmltvId);
-      await configureNativeGuideOwnership(
-        prefs.primaryEnabled,
-        prefs.userEnabled,
-        prefs.userUrl,
-        overrides,
-      );
+      try {
+        await configureNativeGuideOwnership(
+          prefs.primaryEnabled,
+          prefs.userEnabled,
+          prefs.userUrl,
+          overrides,
+        );
+      } catch (error) {
+        await setNativeGuideChannelBinding(channel.id, previous).catch(() => undefined);
+        throw error;
+      }
+      prefs.setUserOverride(channel.id, xmltvId);
       invalidateGuideOwnershipCaches();
       void Haptics.selectionAsync().catch(() => undefined);
       setStatus(`${channel.name} now uses custom EPG channel ${xmltvId}.`);
@@ -224,16 +230,22 @@ export default function CustomEpgScreen() {
     if (!channel || busy) return;
     setBusy(true);
     try {
+      const previous = prefs.userOverrides[channel.id] || null;
       const overrides = { ...prefs.userOverrides };
       delete overrides[channel.id];
-      prefs.setUserOverride(channel.id, null);
       await setNativeGuideChannelBinding(channel.id, null);
-      await configureNativeGuideOwnership(
-        prefs.primaryEnabled,
-        prefs.userEnabled,
-        prefs.userUrl,
-        overrides,
-      );
+      try {
+        await configureNativeGuideOwnership(
+          prefs.primaryEnabled,
+          prefs.userEnabled,
+          prefs.userUrl,
+          overrides,
+        );
+      } catch (error) {
+        await setNativeGuideChannelBinding(channel.id, previous).catch(() => undefined);
+        throw error;
+      }
+      prefs.setUserOverride(channel.id, null);
       invalidateGuideOwnershipCaches();
       setStatus(
         prefs.primaryEnabled
