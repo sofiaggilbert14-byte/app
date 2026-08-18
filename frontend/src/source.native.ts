@@ -138,12 +138,15 @@ async function syncPlaylistToNative(channels: Channel[], playlistEpoch: number):
   const contentFingerprint = playlistNativeContentFingerprint(channels);
   if (await nativePlaylistIsCurrent(contentFingerprint)) return;
   await upsertNativePlaylistChannels(
-    channels.map((channel) => ({
+    channels.map((channel, position) => ({
       playlistId: channel.id,
       rawTvgId: channel.raw_tvg_id || channel.tvg_id || "",
       name: channel.name || "",
       logo: channel.logo || "",
       group: channel.group || "",
+      url: channel.url || "",
+      streamType: channel.stream_type || "unknown",
+      position,
     })),
     playlistEpoch,
     contentFingerprint,

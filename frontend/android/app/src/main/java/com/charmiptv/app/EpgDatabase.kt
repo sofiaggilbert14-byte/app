@@ -22,6 +22,9 @@ internal data class PlaylistChannelRow(
   val name: String,
   val logo: String,
   val groupTitle: String,
+  val streamUrl: String,
+  val streamType: String,
+  val providerPosition: Int,
 )
 
 internal data class PlaylistEpgMatchRow(
@@ -161,6 +164,9 @@ internal class EpgDatabase(context: Context, private val databaseName: String = 
         group_title TEXT,
         norm_id TEXT NOT NULL,
         norm_name TEXT NOT NULL,
+        stream_url TEXT NOT NULL DEFAULT '',
+        stream_type TEXT NOT NULL DEFAULT 'unknown',
+        provider_position INTEGER NOT NULL DEFAULT 0,
         updated_at INTEGER NOT NULL,
         deleted_at INTEGER NOT NULL DEFAULT 0
       )
@@ -237,6 +243,14 @@ internal class EpgDatabase(context: Context, private val databaseName: String = 
       // identities and user-owned relationships survive temporary removals.
       ensureColumn(db, PLAYLIST_TABLE, "deleted_at", "INTEGER NOT NULL DEFAULT 0")
       db.execSQL("CREATE INDEX IF NOT EXISTS idx_playlist_deleted ON $PLAYLIST_TABLE(deleted_at)")
+    }
+    if (oldVersion < 9) {
+      // Persist the provider-owned playback fields relationally so Android cold
+      // start no longer depends on serializing the entire channel catalog to JSON.
+      ensureColumn(db, PLAYLIST_TABLE, "stream_url", "TEXT NOT NULL DEFAULT ''")
+      ensureColumn(db, PLAYLIST_TABLE, "stream_type", "TEXT NOT NULL DEFAULT 'unknown'")
+      ensureColumn(db, PLAYLIST_TABLE, "provider_position", "INTEGER NOT NULL DEFAULT 0")
+      db.execSQL("CREATE INDEX IF NOT EXISTS idx_playlist_active_position ON $PLAYLIST_TABLE(deleted_at, provider_position)")
     }
   }
 
@@ -871,7 +885,7 @@ internal class EpgDatabase(context: Context, private val databaseName: String = 
 
   companion object {
     private const val STORAGE_RECHECK_BATCHES = 32
-    private const val DATABASE_VERSION = 8
+    private const val DATABASE_VERSION = 9
     private const val LIVE_TABLE = "epg_programmes"
     private const val STAGING_TABLE = "epg_programmes_staging"
     private const val ALIAS_TABLE = "epg_channel_aliases"

@@ -36,6 +36,9 @@ export type NativePlaylistChannelRow = {
   name?: string;
   logo?: string;
   group?: string;
+  url?: string;
+  streamType?: string;
+  position?: number;
 };
 
 export type NativePlaylistEpgMatchRow = {

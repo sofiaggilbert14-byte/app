@@ -456,6 +456,9 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
               name = map.getString("name")?.trim().orEmpty(),
               logo = map.getString("logo")?.trim().orEmpty(),
               groupTitle = map.getString("group")?.trim().orEmpty(),
+              streamUrl = map.getString("url")?.trim().orEmpty(),
+              streamType = map.getString("streamType")?.trim().orEmpty().ifEmpty { "unknown" },
+              providerPosition = if (map.hasKey("position")) map.getDouble("position").toInt().coerceAtLeast(0) else i,
             )
           )
         }

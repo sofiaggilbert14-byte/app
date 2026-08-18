@@ -44,7 +44,8 @@ internal object PlaylistSyncCoordinator {
         """
         UPDATE $PLAYLIST_TABLE
         SET raw_tvg_id = ?, name = ?, logo = ?, group_title = ?,
-            norm_id = ?, norm_name = ?, updated_at = ?, deleted_at = 0
+            norm_id = ?, norm_name = ?, stream_url = ?, stream_type = ?,
+            provider_position = ?, updated_at = ?, deleted_at = 0
         WHERE playlist_id = ?
         """.trimIndent()
       )
@@ -52,8 +53,8 @@ internal object PlaylistSyncCoordinator {
         """
         INSERT INTO $PLAYLIST_TABLE(
           playlist_id, raw_tvg_id, name, logo, group_title,
-          norm_id, norm_name, updated_at, deleted_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+          norm_id, norm_name, stream_url, stream_type, provider_position, updated_at, deleted_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
         """.trimIndent()
       )
       try {
@@ -71,8 +72,11 @@ internal object PlaylistSyncCoordinator {
           update.bindString(4, row.groupTitle)
           update.bindString(5, normId)
           update.bindString(6, normName)
-          update.bindLong(7, now)
-          update.bindString(8, row.playlistId)
+          update.bindString(7, row.streamUrl)
+          update.bindString(8, row.streamType)
+          update.bindLong(9, row.providerPosition.toLong())
+          update.bindLong(10, now)
+          update.bindString(11, row.playlistId)
           val changed = update.executeUpdateDelete()
           if (changed > 0) continue
 
@@ -84,7 +88,10 @@ internal object PlaylistSyncCoordinator {
           insert.bindString(5, row.groupTitle)
           insert.bindString(6, normId)
           insert.bindString(7, normName)
-          insert.bindLong(8, now)
+          insert.bindString(8, row.streamUrl)
+          insert.bindString(9, row.streamType)
+          insert.bindLong(10, row.providerPosition.toLong())
+          insert.bindLong(11, now)
           insert.executeInsert()
         }
       } finally {
