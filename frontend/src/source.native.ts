@@ -726,7 +726,7 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
       // the user presses Refresh Custom EPG. Background/scheduled refreshes only
       // need to spend network/CPU/disk when at least one playlist channel is
       // actually owned by the custom source.
-      if (ownership.userEnabled && ownership.userUrl && overrideIds.size > 0) {
+      if (ownership.userEnabled && ownership.userUrl && userOverrideIds.size > 0) {
         await refreshNativeUserGuide(ownership.userUrl);
       }
       if (!ownership.primaryEnabled) {
@@ -1164,7 +1164,11 @@ export async function refreshEpgOnly(): Promise<SourceStatus> {
         : new Set<string>();
       const refreshPreferences = await getSourceRefreshPreferences();
 
-      if (ownership.userEnabled && ownership.userUrl) {
+      // Scheduled/background custom-guide work is only useful when at least one
+      // playlist channel is explicitly owned by the custom XMLTV source. Manual
+      // refresh in the Custom EPG manager still performs a full source index so
+      // users can discover XMLTV channels before creating assignments.
+      if (ownership.userEnabled && ownership.userUrl && overrideIds.size > 0) {
         await refreshNativeUserGuide(ownership.userUrl);
       }
 
