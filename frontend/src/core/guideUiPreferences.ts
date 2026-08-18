@@ -58,6 +58,12 @@ function sanitizeGroupList(raw: unknown, max = 48): string[] {
   return out;
 }
 
+function sanitizeHiddenGroups(raw: unknown): string[] {
+  // All is the Guide's invariant safety fallback. Never allow an old/corrupt
+  // preference payload to hide it even though the UI does not expose that action.
+  return sanitizeGroupList(raw).filter((name) => name !== "All");
+}
+
 async function load(): Promise<Snapshot> {
   if (loaded) return cached;
   if (loadPromise) return loadPromise;
@@ -76,7 +82,7 @@ async function load(): Promise<Snapshot> {
       mutePreview: mutePreview !== false,
       startGroup: sanitizeStartGroup(startGroup),
       showProviderGroups: showProviderGroups === true,
-      hiddenGroups: sanitizeGroupList(hiddenGroups),
+      hiddenGroups: sanitizeHiddenGroups(hiddenGroups),
     };
     loaded = true;
     return cached;
@@ -121,7 +127,7 @@ export async function setShowProviderGuideGroups(next: boolean): Promise<void> {
 }
 
 export async function setHiddenGuideGroups(next: string[]): Promise<void> {
-  cached = { ...cached, hiddenGroups: sanitizeGroupList(next) };
+  cached = { ...cached, hiddenGroups: sanitizeHiddenGroups(next) };
   loaded = true;
   emit();
   await storage.setItem(HIDDEN_GROUPS_KEY, cached.hiddenGroups);
@@ -168,7 +174,7 @@ export function useGuideUiPreferences(): Snapshot & {
       void setShowProviderGuideGroups(next);
     }, []),
     setHiddenGroups: useCallback((next: string[]) => {
-      const value = sanitizeGroupList(next);
+      const value = sanitizeHiddenGroups(next);
       setValue((prev) => ({ ...prev, hiddenGroups: value }));
       void setHiddenGuideGroups(value);
     }, []),
