@@ -37,11 +37,7 @@ jobs:
           if 'touchPlaylistRefresh?' not in b:
               type_marker = '  isPlaylistCurrent?(contentFingerprint: string): Promise<boolean>;\n'
               if type_marker not in b: raise SystemExit('isPlaylistCurrent type marker not found')
-              b = b.replace(
-                  type_marker,
-                  type_marker + '  touchPlaylistRefresh?(playlistEpoch: number): Promise<boolean>;\n',
-                  1,
-              )
+              b = b.replace(type_marker, type_marker + '  touchPlaylistRefresh?(playlistEpoch: number): Promise<boolean>;\n', 1)
           if 'export async function touchNativePlaylistRefresh' not in b:
               insert_marker = 'export async function upsertNativePlaylistChannels(\n'
               if insert_marker not in b: raise SystemExit('upsert playlist wrapper marker not found')
@@ -57,14 +53,19 @@ jobs:
               s = s.replace(import_marker, import_marker + '  touchNativePlaylistRefresh,\n', 1)
 
           # TiviMate keeps provider last-update time separate from row diffs.
-          # Advance it only after an actual successful M3U fetch path, never from
-          # a read-only SQLite cold start.
-          target = '      await syncPlaylistToNative(channels, playlistEpoch);\n'
-          replacement = target + '      await touchNativePlaylistRefresh(playlistEpoch);\n'
-          if replacement not in s:
-              count = s.count(target)
-              if count < 1: raise SystemExit('successful playlist sync marker not found')
-              s = s.replace(target, replacement)
+          # Advance it only after actual successful M3U fetch paths, never from
+          # read-only SQLite cold start or EPG-only refresh.
+          full_target = '      await syncPlaylistToNative(channels, playlistEpoch);\n'
+          full_replacement = full_target + '      await touchNativePlaylistRefresh(playlistEpoch);\n'
+          if full_replacement not in s:
+              if full_target not in s: raise SystemExit('full playlist sync marker not found')
+              s = s.replace(full_target, full_replacement, 1)
+
+          playlist_only_anchor = '''    await persistMeta(MEM);\n    await syncPlaylistToNative(channels, playlistEpoch);\n    await syncMatchesToNative(channels, MEM.guideEpoch || 0);'''
+          playlist_only_replacement = '''    await persistMeta(MEM);\n    await syncPlaylistToNative(channels, playlistEpoch);\n    await touchNativePlaylistRefresh(playlistEpoch);\n    await syncMatchesToNative(channels, MEM.guideEpoch || 0);'''
+          if playlist_only_replacement not in s:
+              if playlist_only_anchor not in s: raise SystemExit('playlist-only sync marker not found')
+              s = s.replace(playlist_only_anchor, playlist_only_replacement, 1)
           source.write_text(s)
           PY
       - name: Commit refresh clock fix
