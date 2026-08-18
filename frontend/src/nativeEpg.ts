@@ -52,6 +52,7 @@ export type NativePlaylistEpgMatchRow = {
 
 type CharmEpgModule = {
   fetchPlaylist?(url: string): Promise<NativePlaylistResult>;
+  getStoredPlaylist?(): Promise<{ channels: Channel[]; playlistEpoch?: number; playlistRefreshedAt?: number; guideEpoch?: number; guideRefreshedAt?: number; epgProgramCount?: number }>;
   configureSource?(
     playlistId: string,
     url: string,
@@ -140,6 +141,28 @@ export async function fetchNativePlaylist(url: string): Promise<NativePlaylistRe
     throw new Error("Native playlist engine is unavailable");
   }
   return nativeModule.fetchPlaylist(url);
+}
+
+export async function readNativeStoredPlaylist(): Promise<{
+  channels: Channel[];
+  playlistEpoch: number;
+  playlistRefreshedAt: number;
+  guideEpoch: number;
+  guideRefreshedAt: number;
+  epgProgramCount: number;
+} | null> {
+  if (!nativeModule?.getStoredPlaylist) return null;
+  const value = await nativeModule.getStoredPlaylist();
+  const channels = Array.isArray(value?.channels) ? value.channels : [];
+  if (!channels.length) return null;
+  return {
+    channels,
+    playlistEpoch: Number(value.playlistEpoch || 0),
+    playlistRefreshedAt: Number(value.playlistRefreshedAt || 0),
+    guideEpoch: Number(value.guideEpoch || 0),
+    guideRefreshedAt: Number(value.guideRefreshedAt || 0),
+    epgProgramCount: Number(value.epgProgramCount || 0),
+  };
 }
 
 export async function refreshNativeEpg(

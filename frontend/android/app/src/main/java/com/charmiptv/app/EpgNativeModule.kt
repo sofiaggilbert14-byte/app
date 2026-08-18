@@ -425,6 +425,39 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   }
 
   @ReactMethod
+  fun getStoredPlaylist(promise: Promise) {
+    queryExecutor.execute {
+      try {
+        val rows = database.activePlaylistChannels()
+        val channels = Arguments.createArray()
+        for (row in rows) {
+          channels.pushMap(Arguments.createMap().apply {
+            putString("id", row.playlistId)
+            putString("raw_tvg_id", row.rawTvgId)
+            putString("tvg_id", row.rawTvgId)
+            putString("name", row.name)
+            putString("logo", row.logo)
+            putString("playlist_logo", row.logo)
+            putString("group", row.groupTitle)
+            putString("url", row.streamUrl)
+            putString("stream_type", row.streamType)
+          })
+        }
+        promise.resolve(Arguments.createMap().apply {
+          putArray("channels", channels)
+          putDouble("playlistEpoch", (database.getMeta("playlist_epoch")?.toLongOrNull() ?: 0L).toDouble())
+          putDouble("playlistRefreshedAt", (database.getMeta("playlist_refreshed_at")?.toLongOrNull() ?: 0L).toDouble())
+          putDouble("guideEpoch", (database.getMeta("guide_epoch")?.toLongOrNull() ?: 0L).toDouble())
+          putDouble("guideRefreshedAt", (database.getMeta("guide_refreshed_at")?.toLongOrNull() ?: 0L).toDouble())
+          putDouble("epgProgramCount", database.count().toDouble())
+        })
+      } catch (t: Throwable) {
+        promise.reject("PLAYLIST_STORED_READ_FAILED", t.message ?: "Could not read stored playlist", t)
+      }
+    }
+  }
+
+  @ReactMethod
   fun isPlaylistCurrent(contentFingerprint: String, promise: Promise) {
     queryExecutor.execute {
       try {

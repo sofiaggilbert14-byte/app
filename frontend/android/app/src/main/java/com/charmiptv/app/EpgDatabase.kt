@@ -467,6 +467,37 @@ internal class EpgDatabase(context: Context, private val databaseName: String = 
     return EpgAliasPage(total, rows)
   }
 
+  /** Active provider catalog ordered by persisted playlist position. */
+  fun activePlaylistChannels(): List<PlaylistChannelRow> {
+    val rows = ArrayList<PlaylistChannelRow>()
+    readableDatabase.rawQuery(
+      """
+      SELECT playlist_id, raw_tvg_id, name, COALESCE(logo, ''),
+             COALESCE(group_title, ''), stream_url, stream_type, provider_position
+      FROM $PLAYLIST_TABLE
+      WHERE deleted_at = 0 AND stream_url != ''
+      ORDER BY provider_position ASC, name COLLATE NOCASE ASC
+      """.trimIndent(),
+      null,
+    ).use { cursor ->
+      while (cursor.moveToNext()) {
+        rows.add(
+          PlaylistChannelRow(
+            playlistId = cursor.getString(0),
+            rawTvgId = cursor.getString(1),
+            name = cursor.getString(2),
+            logo = cursor.getString(3),
+            groupTitle = cursor.getString(4),
+            streamUrl = cursor.getString(5),
+            streamType = cursor.getString(6),
+            providerPosition = cursor.getInt(7),
+          )
+        )
+      }
+    }
+    return rows
+  }
+
   /** Replace playlist channel rows (independent of EPG live table). */
   fun playlistFingerprintMatches(fingerprint: String): Boolean {
     return fingerprint.isNotBlank() && getMeta(PLAYLIST_CONTENT_FINGERPRINT_KEY) == fingerprint

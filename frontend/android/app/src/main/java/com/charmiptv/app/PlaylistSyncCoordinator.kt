@@ -100,6 +100,7 @@ internal object PlaylistSyncCoordinator {
       }
 
       writeMeta(db, "playlist_epoch", playlistEpoch.toString())
+      writeMeta(db, "playlist_refreshed_at", now.toString())
       if (fingerprint.isNotEmpty()) writeMeta(db, FINGERPRINT_KEY, fingerprint)
       db.setTransactionSuccessful()
     } finally {
