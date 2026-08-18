@@ -13,6 +13,16 @@ export const tvRemoteAvailable = !!TvRemote;
 
 export type TvKey = "UP" | "DOWN" | "LEFT" | "RIGHT" | "SELECT" | "BACK";
 export type TvLongPressKey = "DOWN" | "SELECT" | "BACK";
+export type TvRemoteOwner =
+  | "APP"
+  | "GUIDE"
+  | "GROUP_DRAWER"
+  | "MAIN_DRAWER"
+  | "PLAYER"
+  | "PLAYER_OSD"
+  | "SEARCH"
+  | "SETTINGS"
+  | "MODAL";
 export type DeviceMemoryProfile = {
   memoryClassMb: number;
   lowRamDevice: boolean;
@@ -107,6 +117,14 @@ export function addGuidePageKeyListener(cb: (key: "UP" | "DOWN") => void): () =>
 export function setGuideNavigationActive(active: boolean) {
   try {
     TvRemote?.setGuideNavigationActive?.(active);
+  } catch {}
+}
+
+/** One authoritative remote owner at a time. Native uses this to keep drawer/
+ * Guide boundary keys from being delivered to two navigation systems at once. */
+export function setNativeRemoteOwner(owner: TvRemoteOwner) {
+  try {
+    TvRemote?.setRemoteOwner?.(owner);
   } catch {}
 }
 
