@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { storage } from "@/src/utils/storage";
+import {
+  clearNativeEpgBindings,
+  importLegacyNativeEpgBindings,
+  nativeEpgBindingsAvailable,
+  readNativeEpgBindings,
+} from "@/src/nativeEpgBindings";
 
 export type UserEpgOverrideMap = Record<string, string>;
 
@@ -7,8 +13,11 @@ export type EpgSourcePreferences = {
   primaryEnabled: boolean;
   userEnabled: boolean;
   userUrl: string;
+  /** Session snapshot. On Android the durable source is epg_channel_bindings. */
   userOverrides: UserEpgOverrideMap;
 };
+
+type StoredEpgSourcePreferences = Partial<EpgSourcePreferences>;
 
 const KEY = "gs_phase9_epg_source_preferences_v1";
 const DEFAULTS: EpgSourcePreferences = {
@@ -20,8 +29,10 @@ const DEFAULTS: EpgSourcePreferences = {
 
 let cached = DEFAULTS;
 let loaded = false;
+let loadPromise: Promise<EpgSourcePreferences> | null = null;
 let writeActive = false;
 let pendingWrite: EpgSourcePreferences | null = null;
+let nativeBindingsHydrated = false;
 const listeners = new Set<(value: EpgSourcePreferences) => void>();
 
 function cleanUrl(value: unknown): string {
@@ -40,13 +51,12 @@ function cleanOverrides(value: unknown): UserEpgOverrideMap {
     const sourceId = String(xmltvId || "").trim().slice(0, 180);
     if (!id || !sourceId || id.includes("://") || sourceId.includes("://")) continue;
     out[id] = sourceId;
-    count += 1;
-    if (count >= 10000) break;
+    if (++count >= 10_000) break;
   }
   return out;
 }
 
-function normalize(value: Partial<EpgSourcePreferences> | null | undefined): EpgSourcePreferences {
+function normalize(value: StoredEpgSourcePreferences | null | undefined): EpgSourcePreferences {
   return {
     primaryEnabled: value?.primaryEnabled !== false,
     userEnabled: value?.userEnabled === true,
@@ -61,6 +71,19 @@ function emit() {
   }
 }
 
+function storedValue(value: EpgSourcePreferences): StoredEpgSourcePreferences {
+  if (nativeEpgBindingsAvailable && nativeBindingsHydrated) {
+    // Do not serialize thousands of assignments twice. Room owns them.
+    return {
+      primaryEnabled: value.primaryEnabled,
+      userEnabled: value.userEnabled,
+      userUrl: value.userUrl,
+    };
+  }
+  // Web/legacy fallback still needs the map because there is no native binding DB.
+  return value;
+}
+
 async function flush() {
   if (writeActive) return;
   writeActive = true;
@@ -68,10 +91,11 @@ async function flush() {
     while (pendingWrite) {
       const next = pendingWrite;
       pendingWrite = null;
-      await storage.setItem(KEY, next);
+      await storage.setItem(KEY, storedValue(next));
     }
   } finally {
     writeActive = false;
+    if (pendingWrite) void flush();
   }
 }
 
@@ -85,9 +109,48 @@ function commitPrepared(value: EpgSourcePreferences) {
 
 async function load(): Promise<EpgSourcePreferences> {
   if (loaded) return cached;
-  cached = normalize(await storage.getItem<EpgSourcePreferences>(KEY, DEFAULTS));
-  loaded = true;
-  return cached;
+  if (loadPromise) return loadPromise;
+  loadPromise = (async () => {
+    const legacy = normalize(await storage.getItem<StoredEpgSourcePreferences>(KEY, DEFAULTS));
+    if (!nativeEpgBindingsAvailable) {
+      cached = legacy;
+      loaded = true;
+      return cached;
+    }
+
+    try {
+      // One-time migration. The native bridge only imports when Room has no
+      // assignments, so an already-authoritative DB can never be overwritten by
+      // stale AsyncStorage data after a reinstall/update cycle.
+      await importLegacyNativeEpgBindings(legacy.userOverrides);
+      const nativeOverrides = cleanOverrides(await readNativeEpgBindings());
+      cached = { ...legacy, userOverrides: nativeOverrides };
+      nativeBindingsHydrated = true;
+      loaded = true;
+      // Rewrite the old preference object without the large override map only
+      // after native migration + read both succeeded.
+      pendingWrite = cached;
+      void flush();
+      return cached;
+    } catch {
+      // Keep the legacy map intact if the bridge/database was not ready. A later
+      // process start can retry migration without losing assignments.
+      cached = legacy;
+      loaded = true;
+      return cached;
+    }
+  })();
+  try { return await loadPromise; }
+  finally { loadPromise = null; }
+}
+
+async function reloadNativeOverridesAfterFailure() {
+  if (!nativeEpgBindingsAvailable) return;
+  try {
+    const userOverrides = cleanOverrides(await readNativeEpgBindings());
+    nativeBindingsHydrated = true;
+    commitPrepared({ ...cached, userOverrides });
+  } catch {}
 }
 
 export async function getEpgSourcePreferences(): Promise<EpgSourcePreferences> {
@@ -109,8 +172,6 @@ export function useEpgSourcePreferences() {
       primaryEnabled: patch.primaryEnabled === undefined ? cached.primaryEnabled : patch.primaryEnabled !== false,
       userEnabled: patch.userEnabled === undefined ? cached.userEnabled : patch.userEnabled === true,
       userUrl: patch.userUrl === undefined ? cached.userUrl : cleanUrl(patch.userUrl),
-      // Scalar toggles/URL edits retain the existing mapping object; do not walk
-      // 10k bindings unless a bulk override replacement was explicitly requested.
       userOverrides: patch.userOverrides === undefined ? cached.userOverrides : cleanOverrides(patch.userOverrides),
     };
     setValue(next);
@@ -120,8 +181,7 @@ export function useEpgSourcePreferences() {
   const setUserOverride = useCallback((channelId: string, xmltvId: string | null) => {
     const id = String(channelId || "").trim().slice(0, 180);
     const sourceId = String(xmltvId || "").trim().slice(0, 180);
-    if (!id || id.includes("://")) return;
-    if (sourceId.includes("://")) return;
+    if (!id || id.includes("://") || sourceId.includes("://")) return;
     const existing = cached.userOverrides[id] || "";
     if (existing === sourceId || (!sourceId && !existing)) return;
     const overrides = { ...cached.userOverrides };
@@ -131,12 +191,21 @@ export function useEpgSourcePreferences() {
     commitPrepared(next);
   }, []);
 
+  const clearUserOverrides = useCallback(() => {
+    const next = { ...cached, userOverrides: {} };
+    setValue(next);
+    commitPrepared(next);
+    if (nativeEpgBindingsAvailable) {
+      void clearNativeEpgBindings().catch(() => void reloadNativeOverridesAfterFailure());
+    }
+  }, []);
+
   return {
     ...value,
     setPrimaryEnabled: (next: boolean) => update({ primaryEnabled: next }),
     setUserEnabled: (next: boolean) => update({ userEnabled: next }),
     setUserUrl: (next: string) => update({ userUrl: next }),
     setUserOverride,
-    clearUserOverrides: () => update({ userOverrides: {} }),
+    clearUserOverrides,
   };
 }
