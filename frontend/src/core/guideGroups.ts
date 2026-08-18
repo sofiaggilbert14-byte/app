@@ -256,7 +256,7 @@ export function filterChannelsByGroup(
     ) list.push(channel);
   }
 
-  if (opts.customOrder.length && group === "All") {
+  if (opts.customOrder.length) {
     const rank = new Map<string, number>();
     for (let index = 0; index < opts.customOrder.length; index++) rank.set(opts.customOrder[index], index);
     list.sort((a, b) => {
