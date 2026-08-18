@@ -36,6 +36,7 @@ import { requestNativeFocus } from "@/src/utils/tvFocus";
 import { stopFullscreenSession, stopAllPlaybackSessions, pauseSessionDecoders, type SessionFailReason } from "@/src/core/playbackSession";
 import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
 import { useGuidePrograms } from "@/src/core/guideProgramsStore";
+import { requestGuideJump } from "@/src/core/guideSearchJump";
 import {
   audioDiagnosticsExtras,
   getLastAudioDiagnostics,
@@ -601,11 +602,19 @@ export default function PlayerScreen() {
     if (zapTimer.current) clearTimeout(zapTimer.current);
     if (previewTimer.current) clearTimeout(previewTimer.current);
     if (retryTimer.current) clearTimeout(retryTimer.current);
+    const currentChannelId = pendingChannelIdRef.current || channelIdRef.current;
+    const currentChannel = channelById(currentChannelId);
+    if (currentChannelId) {
+      requestGuideJump({
+        channelId: currentChannelId,
+        group: currentChannel?.group || "All",
+      });
+    }
     generationRef.current += 1;
     setDecoderArmed(false);
     stopFullscreenSession();
     router.replace("/guide" as any);
-  }, [router]);
+  }, [channelById, router]);
 
   useEffect(() => {
     if (!isTV) return;
