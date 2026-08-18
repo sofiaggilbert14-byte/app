@@ -36,6 +36,17 @@ internal data class EpgChannelOffsetEntity(
   val offsetMinutes: Int,
 )
 
+@Entity(
+  tableName = "epg_channel_bindings",
+  primaryKeys = ["playlistId", "channelId"],
+  indices = [Index("playlistId"), Index("channelId")],
+)
+internal data class EpgChannelBindingEntity(
+  val playlistId: String,
+  val channelId: String,
+  val xmltvId: String,
+)
+
 @Entity(tableName = "epg_import_state")
 internal data class EpgImportStateEntity(
   @PrimaryKey val playlistId: String,
@@ -65,6 +76,18 @@ internal interface EpgControlDao {
   @Query("DELETE FROM epg_channel_offsets WHERE playlistId = :playlistId")
   fun clearChannelOffsets(playlistId: String)
 
+  @Query("SELECT * FROM epg_channel_bindings WHERE playlistId = :playlistId AND channelId IN (:channelIds)")
+  fun channelBindings(playlistId: String, channelIds: List<String>): List<EpgChannelBindingEntity>
+
+  @Query("SELECT * FROM epg_channel_bindings WHERE playlistId = :playlistId")
+  fun allChannelBindings(playlistId: String): List<EpgChannelBindingEntity>
+
+  @Insert(onConflict = OnConflictStrategy.REPLACE)
+  fun putChannelBindings(bindings: List<EpgChannelBindingEntity>)
+
+  @Query("DELETE FROM epg_channel_bindings WHERE playlistId = :playlistId")
+  fun clearChannelBindings(playlistId: String)
+
   @Query("SELECT * FROM epg_import_state WHERE playlistId = :playlistId LIMIT 1")
   fun importState(playlistId: String): EpgImportStateEntity?
 
@@ -73,8 +96,8 @@ internal interface EpgControlDao {
 }
 
 @Database(
-  entities = [EpgSourceEntity::class, EpgChannelOffsetEntity::class, EpgImportStateEntity::class],
-  version = 2,
+  entities = [EpgSourceEntity::class, EpgChannelOffsetEntity::class, EpgChannelBindingEntity::class, EpgImportStateEntity::class],
+  version = 3,
   exportSchema = true,
 )
 internal abstract class EpgControlDatabase : RoomDatabase() {
@@ -88,7 +111,7 @@ internal abstract class EpgControlDatabase : RoomDatabase() {
         context.applicationContext,
         EpgControlDatabase::class.java,
         "charm_epg_control.db",
-      ).addMigrations(MIGRATION_1_2).build().also { instance = it }
+      ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
     }
 
     // Version 1 held source rows only. Version 2 adds per-channel offsets and
@@ -107,6 +130,18 @@ internal abstract class EpgControlDatabase : RoomDatabase() {
             "lastSuccessSeconds INTEGER NOT NULL, blackoutUntilSeconds INTEGER NOT NULL, " +
             "lastError TEXT NOT NULL, PRIMARY KEY(playlistId))"
         )
+      }
+    }
+
+    private val MIGRATION_2_3 = object : Migration(2, 3) {
+      override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+          "CREATE TABLE IF NOT EXISTS epg_channel_bindings (" +
+            "playlistId TEXT NOT NULL, channelId TEXT NOT NULL, xmltvId TEXT NOT NULL, " +
+            "PRIMARY KEY(playlistId, channelId))"
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_epg_channel_bindings_playlistId ON epg_channel_bindings(playlistId)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_epg_channel_bindings_channelId ON epg_channel_bindings(channelId)")
       }
     }
   }

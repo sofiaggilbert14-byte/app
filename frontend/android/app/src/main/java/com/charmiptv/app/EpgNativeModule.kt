@@ -28,6 +28,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   ReactContextBaseJavaModule(reactContext) {
 
   private val database = EpgDatabase(reactContext)
+  private val userDatabase = EpgDatabase(reactContext, "charm_epg_user_v1.db")
   private val controlDao = EpgControlDatabase.get(reactContext).dao()
 
   // Refresh/network/XML work is intentionally isolated from guide reads. A slow
@@ -94,6 +95,59 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         promise.resolve(true)
       } catch (t: Throwable) {
         promise.reject("EPG_SOURCE_CONFIG_FAILED", t.message ?: "Could not save Guide source settings", t)
+      }
+    }
+  }
+
+  @ReactMethod
+  fun configureGuideOwnership(
+    primaryEnabled: Boolean,
+    userEnabled: Boolean,
+    userUrl: String,
+    userOverrides: ReadableMap,
+    promise: Promise,
+  ) {
+    refreshExecutor.execute {
+      try {
+        val now = System.currentTimeMillis() / 1000L
+        val primary = controlDao.source(DEFAULT_PLAYLIST_ID)
+        controlDao.putSource(
+          EpgSourceEntity(
+            playlistId = DEFAULT_PLAYLIST_ID,
+            url = primary?.url.orEmpty(),
+            enabled = primaryEnabled,
+            refreshHours = primary?.refreshHours ?: 12,
+            serverOffsetMinutes = primary?.serverOffsetMinutes ?: 0,
+            playlistOffsetMinutes = primary?.playlistOffsetMinutes ?: 0,
+            updatedAtSeconds = now,
+          )
+        )
+        val previousUser = controlDao.source(USER_SOURCE_ID)
+        controlDao.putSource(
+          EpgSourceEntity(
+            playlistId = USER_SOURCE_ID,
+            url = userUrl.trim(),
+            enabled = userEnabled && userUrl.trim().isNotEmpty(),
+            refreshHours = previousUser?.refreshHours ?: 12,
+            serverOffsetMinutes = previousUser?.serverOffsetMinutes ?: 0,
+            playlistOffsetMinutes = previousUser?.playlistOffsetMinutes ?: 0,
+            updatedAtSeconds = now,
+          )
+        )
+        controlDao.clearChannelBindings(USER_SOURCE_ID)
+        val bindings = ArrayList<EpgChannelBindingEntity>()
+        val iterator = userOverrides.keySetIterator()
+        while (iterator.hasNextKey()) {
+          val channelId = iterator.nextKey().trim()
+          val xmltvId = userOverrides.getString(channelId)?.trim().orEmpty()
+          if (channelId.isEmpty() || xmltvId.isEmpty()) continue
+          bindings.add(EpgChannelBindingEntity(USER_SOURCE_ID, channelId, xmltvId))
+          if (bindings.size >= MAX_USER_BINDINGS) break
+        }
+        if (bindings.isNotEmpty()) controlDao.putChannelBindings(bindings)
+        promise.resolve(true)
+      } catch (t: Throwable) {
+        promise.reject("EPG_OWNERSHIP_CONFIG_FAILED", t.message ?: "Could not save Guide ownership", t)
       }
     }
   }
@@ -340,8 +394,31 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
           val id = playlistChannelIds.getString(i)?.trim()
           if (!id.isNullOrEmpty()) ids.add(id)
         }
-        val programmes = database.queryGuideWindow(start, end, ids)
-        promise.resolve(groupPrograms(programmes))
+        val primaryEnabled = controlDao.source(DEFAULT_PLAYLIST_ID)?.enabled ?: true
+        val userSource = controlDao.source(USER_SOURCE_ID)
+        val userEnabled = userSource?.enabled == true && userSource.url.isNotBlank()
+        val bindingRows = if (userEnabled && ids.isNotEmpty()) controlDao.channelBindings(USER_SOURCE_ID, ids) else emptyList()
+        val bindingByChannel = bindingRows.associate { it.channelId to it.xmltvId }
+        val combined = ArrayList<NativeEpgProgram>()
+
+        if (primaryEnabled) {
+          val primaryIds = ids.filterNot { bindingByChannel.containsKey(it) }
+          if (primaryIds.isNotEmpty()) combined.addAll(database.queryGuideWindow(start, end, primaryIds))
+        }
+
+        if (userEnabled && bindingByChannel.isNotEmpty()) {
+          val xmltvIds = bindingByChannel.values.toSet()
+          val userRows = userDatabase.queryWindow(start, end, xmltvIds)
+          val playlistIdsByXmltv = HashMap<String, MutableList<String>>()
+          for ((playlistId, xmltvId) in bindingByChannel) {
+            playlistIdsByXmltv.getOrPut(xmltvId) { ArrayList() }.add(playlistId)
+          }
+          for (program in userRows) {
+            val playlistIds = playlistIdsByXmltv[program.channelId] ?: continue
+            for (playlistId in playlistIds) combined.add(program.copy(channelId = playlistId))
+          }
+        }
+        promise.resolve(groupPrograms(combined))
       } catch (t: Throwable) {
         promise.reject("EPG_GUIDE_WINDOW_FAILED", t.message ?: "Could not read joined EPG window", t)
       }
@@ -420,10 +497,45 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   }
 
   @ReactMethod
+  fun refreshUserGuide(url: String, promise: Promise) {
+    refreshExecutor.execute {
+      try {
+        val sourceUrl = url.trim()
+        if (sourceUrl.isEmpty()) throw IllegalArgumentException("Custom EPG URL is empty")
+        val now = System.currentTimeMillis()
+        val minStop = now - GUIDE_HISTORY_MS
+        val maxStart = now + GUIDE_WINDOW_MS
+        val channelLogos = LinkedHashMap<String, String>()
+        val channelNames = LinkedHashMap<String, String>()
+        val channelIdsWithPrograms = LinkedHashSet<String>()
+        val validators = EpgHttpValidators()
+        val batches = streamProgramBatches(
+          sourceUrl, minStop, maxStart, channelLogos, channelNames, channelIdsWithPrograms,
+          validators, false, emptySet(), emptySet(), 0L, emptyMap(), userDatabase
+        )
+        userDatabase.replaceBatches(batches)
+        userDatabase.setMeta("guide_refreshed_at", now.toString())
+        val names = Arguments.createMap()
+        for ((channelId, name) in channelNames) names.putString(channelId, name)
+        val ids = Arguments.createArray()
+        for (channelId in channelIdsWithPrograms) ids.pushString(channelId)
+        promise.resolve(Arguments.createMap().apply {
+          putDouble("count", userDatabase.count().toDouble())
+          putMap("channelNames", names)
+          putArray("channelIdsWithPrograms", ids)
+        })
+      } catch (t: Throwable) {
+        promise.reject("USER_EPG_REFRESH_FAILED", t.message ?: "Custom Guide refresh failed", t)
+      }
+    }
+  }
+
+  @ReactMethod
   fun clear(promise: Promise) {
     refreshExecutor.execute {
       try {
         database.clear()
+        userDatabase.clear()
         promise.resolve(true)
       } catch (t: Throwable) {
         promise.reject("EPG_CLEAR_FAILED", t.message ?: "Could not clear native EPG cache", t)
@@ -468,8 +580,9 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     activeNames: Set<String>,
     baseOffsetMs: Long,
     channelOffsetMs: Map<String, Long>,
+    targetDatabase: EpgDatabase = database,
   ): Sequence<List<NativeEpgProgram>> = sequence {
-    openPossiblyGzipped(url, httpValidators, allowNotModified).use { input ->
+    openPossiblyGzipped(url, httpValidators, allowNotModified, targetDatabase).use { input ->
       emitImportProgress("decompressing", 0.25)
       val parser = Xml.newPullParser()
       parser.setInput(input, "UTF-8")
@@ -488,13 +601,14 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
       var category: String? = null
       var rawProgrammeCount = 0L
       val acceptedChannelIds = HashSet<String>(activeIds)
+      val acceptAllChannels = activeIds.isEmpty() && activeNames.isEmpty()
 
       while (event != XmlPullParser.END_DOCUMENT) {
         when (event) {
           XmlPullParser.START_TAG -> when (parser.name) {
             "channel" -> {
               metadataChannelId = parser.getAttributeValue(null, "id")?.trim()?.takeIf { it.isNotEmpty() }
-              metadataChannelAccepted = metadataChannelId?.lowercase()?.let { it in acceptedChannelIds } == true
+              metadataChannelAccepted = acceptAllChannels || metadataChannelId?.lowercase()?.let { it in acceptedChannelIds } == true
               metadataLogo = null
             }
             "display-name" -> {
@@ -502,7 +616,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
               if (!id.isNullOrBlank()) {
                 val displayName = parser.nextText().trim()
                 if (displayName.isNotEmpty()) {
-                  if (normalizeGuideKey(displayName) in activeNames) {
+                  if (acceptAllChannels || normalizeGuideKey(displayName) in activeNames) {
                     acceptedChannelIds.add(id.lowercase())
                     metadataChannelAccepted = true
                   }
@@ -540,7 +654,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
               endMs = resolveProgrammeStop(startMs, parsedStop)
               keepProgram =
                 !channelId.isNullOrBlank() &&
-                  channelId!!.lowercase() in acceptedChannelIds &&
+                  (acceptAllChannels || channelId!!.lowercase() in acceptedChannelIds) &&
                   startMs > 0L &&
                   endMs > startMs &&
                   endMs >= minStop &&
@@ -600,9 +714,29 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   fun searchProgrammes(query: String, limit: Double, promise: Promise) {
     queryExecutor.execute {
       try {
-        val rows = database.searchProgrammes(query, limit.toInt().coerceIn(1, 80))
+        val safeLimit = limit.toInt().coerceIn(1, 80)
+        val primaryEnabled = controlDao.source(DEFAULT_PLAYLIST_ID)?.enabled ?: true
+        val userSource = controlDao.source(USER_SOURCE_ID)
+        val userEnabled = userSource?.enabled == true && userSource.url.isNotBlank()
+        val rows = ArrayList<NativeEpgProgram>()
+        if (primaryEnabled) rows.addAll(database.searchProgrammes(query, safeLimit))
+        if (userEnabled && rows.size < safeLimit) {
+          val bindings = controlDao.allChannelBindings(USER_SOURCE_ID)
+          if (bindings.isNotEmpty()) {
+            val playlistIdsByXmltv = HashMap<String, MutableList<String>>()
+            for (binding in bindings) playlistIdsByXmltv.getOrPut(binding.xmltvId) { ArrayList() }.add(binding.channelId)
+            for (program in userDatabase.searchProgrammes(query, safeLimit - rows.size)) {
+              val targets = playlistIdsByXmltv[program.channelId] ?: continue
+              for (playlistId in targets) {
+                rows.add(program.copy(channelId = playlistId))
+                if (rows.size >= safeLimit) break
+              }
+              if (rows.size >= safeLimit) break
+            }
+          }
+        }
         val result = Arguments.createArray()
-        for (program in rows) result.pushMap(programToMap(program))
+        for (program in rows.take(safeLimit)) result.pushMap(programToMap(program))
         promise.resolve(result)
       } catch (t: Throwable) {
         promise.reject("EPG_SEARCH_FAILED", t.message ?: "Could not search programmes", t)
@@ -617,11 +751,12 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     urlString: String,
     validators: EpgHttpValidators,
     allowNotModified: Boolean,
+    targetDatabase: EpgDatabase = database,
   ): InputStream {
     val sourceHash = sha256(urlString)
     validators.sourceHash = sourceHash
     val canUseValidators =
-      allowNotModified && database.count() > 0L && database.getMeta(HTTP_SOURCE_HASH_KEY) == sourceHash
+      allowNotModified && targetDatabase.count() > 0L && targetDatabase.getMeta(HTTP_SOURCE_HASH_KEY) == sourceHash
 
     var currentUrl = URL(urlString)
     var redirects = 0
@@ -639,10 +774,10 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
       connection.setRequestProperty("Accept", "*/*")
       connection.setRequestProperty("Accept-Encoding", "gzip")
       if (canUseValidators) {
-        database.getMeta(HTTP_ETAG_KEY)?.takeIf { it.isNotBlank() }?.let {
+        targetDatabase.getMeta(HTTP_ETAG_KEY)?.takeIf { it.isNotBlank() }?.let {
           connection.setRequestProperty("If-None-Match", it)
         }
-        database.getMeta(HTTP_LAST_MODIFIED_KEY)?.takeIf { it.isNotBlank() }?.let {
+        targetDatabase.getMeta(HTTP_LAST_MODIFIED_KEY)?.takeIf { it.isNotBlank() }?.let {
           connection.setRequestProperty("If-Modified-Since", it)
         }
       }
@@ -678,7 +813,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
           "EPG download exceeds the ${MAX_COMPRESSED_EPG_BYTES / (1024L * 1024L)} MiB compressed safety limit"
         )
       }
-      database.assertRefreshStorageAvailable(declaredLength)
+      targetDatabase.assertRefreshStorageAvailable(declaredLength)
 
       try {
         val connectionStream = object : FilterInputStream(connection.inputStream) {
@@ -807,6 +942,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     playlistExecutor.shutdownNow()
     queryExecutor.shutdownNow()
     database.close()
+    userDatabase.close()
     super.invalidate()
   }
 
@@ -882,6 +1018,8 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
 
     private const val HTTP_SOURCE_HASH_KEY = "epg_http_source_hash"
     private const val DEFAULT_PLAYLIST_ID = "default"
+    private const val USER_SOURCE_ID = "user"
+    private const val MAX_USER_BINDINGS = 10_000
     private const val HTTP_ETAG_KEY = "epg_http_etag"
     private const val HTTP_LAST_MODIFIED_KEY = "epg_http_last_modified"
     private const val DB_BLACKOUT_UNTIL_KEY = "epg_database_blackout_until"

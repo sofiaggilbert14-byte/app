@@ -42,8 +42,8 @@ internal data class PlaylistEpgMatchRow(
  * - Staging → atomic LIVE swap; refuse empty replace
  * - Rare idle vacuum only (never on every refresh / surf)
  */
-internal class EpgDatabase(context: Context) :
-  SQLiteOpenHelper(context, "charm_epg_v3.db", null, DATABASE_VERSION) {
+internal class EpgDatabase(context: Context, private val databaseName: String = "charm_epg_v3.db") :
+  SQLiteOpenHelper(context, databaseName, null, DATABASE_VERSION) {
 
   private val appContext = context.applicationContext
 
@@ -52,7 +52,7 @@ internal class EpgDatabase(context: Context) :
    * refresh before writing when Android cannot keep the last-good table safe.
    */
   fun assertRefreshStorageAvailable(declaredCompressedBytes: Long = -1L) {
-    val dbFile = appContext.getDatabasePath("charm_epg_v3.db")
+    val dbFile = appContext.getDatabasePath(databaseName)
     val currentBytes = listOf(
       dbFile,
       java.io.File(dbFile.path + "-wal"),

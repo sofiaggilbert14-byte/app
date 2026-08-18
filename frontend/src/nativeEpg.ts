@@ -69,6 +69,8 @@ type CharmEpgModule = {
   ): Promise<boolean>;
   upsertPlaylistEpgMatches?(matches: NativePlaylistEpgMatchRow[], guideEpoch: number): Promise<boolean>;
   searchProgrammes?(query: string, limit: number): Promise<NativeProgramme[]>;
+  configureGuideOwnership?(primaryEnabled: boolean, userEnabled: boolean, userUrl: string, userOverrides: Record<string, string>): Promise<boolean>;
+  refreshUserGuide?(url: string): Promise<{ count: number; channelNames?: Record<string, string>; channelIdsWithPrograms?: string[] }>;
   clear(): Promise<boolean>;
 };
 
@@ -248,6 +250,25 @@ export async function upsertNativePlaylistEpgMatches(
     await nativeModule.upsertPlaylistEpgMatches(matches, guideEpoch);
   }
   if (ramModule) await ramModule.replaceMatches(matches);
+}
+
+export async function configureNativeGuideOwnership(
+  primaryEnabled: boolean,
+  userEnabled: boolean,
+  userUrl: string,
+  userOverrides: Record<string, string>,
+): Promise<void> {
+  if (!nativeModule?.configureGuideOwnership) return;
+  await nativeModule.configureGuideOwnership(primaryEnabled, userEnabled, userUrl, userOverrides);
+}
+
+export async function refreshNativeUserGuide(url: string): Promise<{
+  count: number;
+  channelNames?: Record<string, string>;
+  channelIdsWithPrograms?: string[];
+}> {
+  if (!nativeModule?.refreshUserGuide) throw new Error("Custom native EPG engine is unavailable");
+  return nativeModule.refreshUserGuide(url);
 }
 
 export async function clearNativeEpg(): Promise<void> {
