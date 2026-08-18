@@ -1,0 +1,1 @@
+apply=explicit-iptv-http-redirects-2026-08-18
