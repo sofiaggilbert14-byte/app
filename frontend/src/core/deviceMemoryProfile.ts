@@ -3,11 +3,55 @@ import { getDeviceMemoryProfile, type DeviceMemoryProfile } from "@/src/utils/tv
 
 let cached: DeviceMemoryProfile | null | undefined;
 let pending: Promise<DeviceMemoryProfile | null> | null = null;
+let capPromise: Promise<void> | null = null;
+
+export function shouldUseLowRamTuning(profile: DeviceMemoryProfile | null): boolean {
+  if (!profile) return false;
+  return profile.lowRamDevice || (profile.memoryClassMb > 0 && profile.memoryClassMb < 192);
+}
+
+/**
+ * Device memory is a hard safety boundary, separate from the user's preview/
+ * responsiveness preference. Store may request Normal/Max Preview timings, but
+ * a low-RAM stick must never regain the larger programme caches afterward.
+ *
+ * Lazy imports avoid introducing a startup cycle between Store → memory profile
+ * → source. On Android these resolve the existing platform modules and only
+ * adjust their row-count caps; SQLite remains authoritative and untouched.
+ */
+function enforceLowRamCacheCaps(profile: DeviceMemoryProfile | null): void {
+  if (!shouldUseLowRamTuning(profile) || capPromise) return;
+  capPromise = Promise.all([
+    import("@/src/core/guideProgramsStore"),
+    import("@/src/source"),
+  ])
+    .then(([guidePrograms, source]) => {
+      guidePrograms.setGuideProgramRowLimit(320);
+      source.setProgrammeWindowCacheLimit(320);
+    })
+    .catch(() => undefined)
+    .finally(() => {
+      capPromise = null;
+    });
+}
 
 export async function readDeviceMemoryProfile(): Promise<DeviceMemoryProfile | null> {
-  if (cached !== undefined) return cached;
-  if (!pending) pending = getDeviceMemoryProfile().then((value) => (cached = value));
-  return pending;
+  if (cached !== undefined) {
+    enforceLowRamCacheCaps(cached);
+    return cached;
+  }
+  if (!pending) {
+    pending = getDeviceMemoryProfile().then((value) => {
+      cached = value;
+      enforceLowRamCacheCaps(value);
+      return value;
+    });
+  }
+  const value = await pending;
+  // Re-apply after awaiting too. A Store profile change can race the first
+  // dynamic-import cap; this makes the device ceiling deterministic.
+  enforceLowRamCacheCaps(value);
+  return value;
 }
 
 export function useDeviceMemoryProfile(): DeviceMemoryProfile | null {
@@ -18,9 +62,4 @@ export function useDeviceMemoryProfile(): DeviceMemoryProfile | null {
     return () => { active = false; };
   }, []);
   return profile;
-}
-
-export function shouldUseLowRamTuning(profile: DeviceMemoryProfile | null): boolean {
-  if (!profile) return false;
-  return profile.lowRamDevice || (profile.memoryClassMb > 0 && profile.memoryClassMb < 192);
 }
