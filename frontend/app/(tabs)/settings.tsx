@@ -210,6 +210,9 @@ export default function SettingsScreen() {
       if (section) {
         setBackupStatus(null);
         setClearFavoritesArmed(false);
+        // Arm the destination before this detail focus tree unmounts. Android TV
+        // otherwise has one frame with no valid focus owner and may lose the cursor.
+        setPreferTileFocus(true);
         setSection(null);
         return true;
       }
@@ -265,6 +268,9 @@ export default function SettingsScreen() {
       router.push("/epg-sources" as any);
       return;
     }
+    // TiviMate-style focus handoff: the tile about to disappear cannot remain
+    // Android's focus owner. Mark the section Back control preferred first.
+    setPreferBackFocus(true);
     setSection(id);
   }, [router]);
 
