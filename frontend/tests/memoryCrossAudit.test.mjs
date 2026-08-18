@@ -1,10 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { applyManualEpgRemaps } from "../src/core/epgUserOverrides.ts";
 import {
   getPowerProfileTuning,
   setDeviceLowRamCacheCap,
 } from "../src/core/devicePowerProfile.ts";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 test("manual EPG remap no-op preserves the original channel array", () => {
   const channels = [
@@ -35,4 +40,16 @@ test("low-RAM device cap wins over larger user performance profiles", () => {
   assert.equal(getPowerProfileTuning("weak").programmeRowCacheLimit, 320);
 
   setDeviceLowRamCacheCap(false);
+});
+
+test("channel customization writes only the state blob that changed", async () => {
+  const customize = await readFile(join(root, "src/core/channelCustomize.ts"), "utf8");
+  assert.match(customize, /async function persist\(previous: Snapshot, next: Snapshot\)/);
+  assert.match(customize, /previous\.hiddenIds !== next\.hiddenIds/);
+  assert.match(customize, /previous\.customOrder !== next\.customOrder/);
+  assert.match(customize, /previous\.customNumbers !== next\.customNumbers/);
+  assert.doesNotMatch(
+    customize,
+    /Promise\.all\(\[\s*storage\.setItem\(HIDDEN_KEY[\s\S]*storage\.setItem\(ORDER_KEY[\s\S]*storage\.setItem\(NUMBERS_KEY/,
+  );
 });
