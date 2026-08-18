@@ -74,8 +74,6 @@ class CustomizationNativeModule(reactContext: ReactApplicationContext) :
   ) {
     executor.execute {
       try {
-        // Parse/validate bridge values before opening the transaction. If React
-        // supplied malformed legacy JSON, no native row is touched.
         val hidden = HashSet<String>()
         for (i in 0 until hiddenIds.size()) {
           if (hiddenIds.getType(i) != ReadableType.String) continue
@@ -119,13 +117,15 @@ class CustomizationNativeModule(reactContext: ReactApplicationContext) :
         val groupRows = ArrayList<UserCustomGroupEntity>()
         val mappingRows = ArrayList<UserGroupChannelMappingEntity>()
         val usedGroupNames = HashSet<String>()
+        val usedGroupIds = HashSet<String>()
         for (i in 0 until groups.size()) {
-          if (groupRows.size >= 32 || groups.getType(i) != ReadableType.Map) break
+          if (groupRows.size >= 32) break
+          if (groups.getType(i) != ReadableType.Map) continue
           val map = groups.getMap(i) ?: continue
           val id = if (map.hasKey("id") && map.getType("id") == ReadableType.String) cleanId(map.getString("id")) else ""
           val name = if (map.hasKey("name") && map.getType("name") == ReadableType.String) cleanName(map.getString("name")) else ""
           val normalized = name.lowercase()
-          if (id.isEmpty() || name.isEmpty() || !usedGroupNames.add(normalized)) continue
+          if (id.isEmpty() || name.isEmpty() || !usedGroupIds.add(id) || !usedGroupNames.add(normalized)) continue
           groupRows.add(UserCustomGroupEntity(id, name, groupRows.size))
           val ids = if (map.hasKey("channelIds") && map.getType("channelIds") == ReadableType.Array) map.getArray("channelIds") else null
           if (ids != null) {
@@ -143,8 +143,6 @@ class CustomizationNativeModule(reactContext: ReactApplicationContext) :
 
         var imported = false
         database.runInTransaction {
-          // All-or-nothing migration. A process kill or SQLite failure rolls the
-          // entire import back, so JS can safely keep the legacy keys and retry.
           if (dao.channelCustomizationCount() == 0 && dao.groupCount() == 0) {
             for (row in channelRows) dao.putChannelCustomization(row)
             for (row in groupRows) dao.putGroup(row)
