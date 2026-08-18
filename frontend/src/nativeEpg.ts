@@ -103,6 +103,7 @@ export const nativeEpgRamAvailable = Platform.OS === "android" && !!ramModule;
 let ownershipRequiresSqlite = false;
 let primaryGuideEnabled = true;
 let userGuideEnabled = false;
+let userGuideUrl = "";
 
 function toProgram(program: NativeProgramme): Program {
   const startMs = Number(program.startMs);
@@ -274,14 +275,16 @@ export async function configureNativeGuideOwnership(
   userUrl: string,
   userOverrides: Record<string, string>,
 ): Promise<void> {
-  const effectiveUserEnabled = userEnabled && !!userUrl.trim();
+  const normalizedUserUrl = userUrl.trim();
+  const effectiveUserEnabled = userEnabled && !!normalizedUserUrl;
   if (nativeModule?.configureGuideOwnership) {
     // Native ownership is authoritative. Do not flip the in-process routing flag
     // until the durable control-DB transaction has actually succeeded.
-    await nativeModule.configureGuideOwnership(primaryEnabled, userEnabled, userUrl, userOverrides);
+    await nativeModule.configureGuideOwnership(primaryEnabled, userEnabled, normalizedUserUrl, userOverrides);
   }
   primaryGuideEnabled = primaryEnabled;
   userGuideEnabled = effectiveUserEnabled;
+  userGuideUrl = normalizedUserUrl;
   ownershipRequiresSqlite = !primaryEnabled || (effectiveUserEnabled && Object.keys(userOverrides).length > 0);
   if (ramModule) {
     // Any ownership rewrite invalidates primary-only RAM joins, including the
@@ -293,8 +296,16 @@ export async function configureNativeGuideOwnership(
 export async function setNativeGuideChannelBinding(channelId: string, xmltvId: string | null): Promise<number> {
   const bindingModule = customEpgModule?.setGuideChannelBinding ? customEpgModule : nativeModule;
   if (!bindingModule?.setGuideChannelBinding) return 0;
-  const count = Math.max(0, Math.round(await bindingModule.setGuideChannelBinding(channelId, xmltvId?.trim() || "")));
+  const normalizedXmltvId = xmltvId?.trim() || "";
+  const count = Math.max(0, Math.round(await bindingModule.setGuideChannelBinding(channelId, normalizedXmltvId)));
   ownershipRequiresSqlite = !primaryGuideEnabled || (userGuideEnabled && count > 0);
+
+  // The filtered custom store intentionally did not keep programmes for an id
+  // before it was assigned. Populate the newly active binding set now so Guide
+  // re-entry never depends on the user remembering to press Refresh again.
+  if (normalizedXmltvId && userGuideEnabled && userGuideUrl) {
+    await refreshNativeUserGuide(userGuideUrl);
+  }
   if (ramModule) await ramModule.clearMemory().catch(() => undefined);
   return count;
 }
