@@ -1036,7 +1036,7 @@ export default function PurpleGuideScreen() {
                 channels={filtered}
                 windowStart={windowStart}
                 windowEnd={windowEnd}
-                active={isFocused && !activeProgram && !drawerOpen}
+                active={isFocused && !activeProgram && !drawerOpen && !groupDrawerOpen}
                 restoreChannelId={guideSessionChannelId}
                 restoreTimeMs={restoreTimeMs}
                 channelNumberById={channelNumberById}

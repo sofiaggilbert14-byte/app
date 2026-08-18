@@ -257,9 +257,10 @@ export function PurpleTvShell({
       if (Platform.OS === "web") return;
       const sub = BackHandler.addEventListener("hardwareBackPress", () => {
         if (active === "/guide" && !drawerOpen && !activeProgram) {
+          // PurpleGuideScreen owns closed-guide Back so it can enter the
+          // dedicated Groups drawer first. Never skip directly to main nav.
           reopenArmedAtRef.current = 0;
-          openDrawer();
-          return true;
+          return false;
         }
         const decision = evaluateDrawerBack({
           drawerOpen,

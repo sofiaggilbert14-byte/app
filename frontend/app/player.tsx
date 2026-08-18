@@ -29,7 +29,7 @@ import {
 } from "@/src/components/StreamPlayer";
 import { useStore } from "@/src/store";
 import { fonts, radius, tvColors } from "@/src/theme";
-import { addTvKeyListener, addTvLongPressListener } from "@/src/utils/tvRemote";
+import { addTvKeyListener, addTvLongPressListener, setRemoteContext } from "@/src/utils/tvRemote";
 import { useRemoteShortcutPreferences } from "@/src/core/remoteShortcutPreferences";
 import { getTvSafeInsets } from "@/src/utils/tvLayout";
 import { requestNativeFocus } from "@/src/utils/tvFocus";
@@ -160,6 +160,11 @@ export default function PlayerScreen() {
   const tokenRefreshAttemptedRef = useRef(new Set<string>());
 
   const isTV = Platform.OS !== "web" && Platform.isTV;
+  useEffect(() => {
+    if (!isTV) return;
+    setRemoteContext("player");
+    return () => setRemoteContext("default");
+  }, [isTV]);
   const overlayHideMs = playerControlsTimeoutMs;
   const safe = useMemo(
     () => getTvSafeInsets(width, height, deviceLayoutMode),

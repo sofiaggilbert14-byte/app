@@ -134,11 +134,12 @@ class MainActivity : ReactActivity() {
         else -> null
       }
     } else null
-    if (key != null && (!TvRemoteModule.guideNavigationActive || TvRemoteModule.pointerActive)) {
+    val mirrorToJs = TvRemoteModule.pointerActive || TvRemoteModule.remoteContext == "player"
+    if (key != null && mirrorToJs) {
       emitRemoteEvent("TvRemoteKey", key)
-      // Pointer mode owns the D-pad entirely. Guide Up/Down must NOT be consumed —
-      // Android's focus engine moves between guide cells; JS only handles boundaries
-      // (Up → group tabs, bottom lock). Consuming Up/Down freezes guide surfing.
+      // Pointer mode owns the D-pad entirely. Ordinary TV pages use Android's
+      // native focus engine and must not receive a duplicate JS copy of the
+      // same physical arrow; that duplicate was a source of focus drift.
       if (TvRemoteModule.pointerActive) return true
     }
     return super.dispatchKeyEvent(event)
