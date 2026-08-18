@@ -116,6 +116,7 @@ export function buildGroupCounts(
     isFailed: (channelId: string) => boolean;
     hiddenIds: Set<string>;
     customGroups?: ReadonlyMap<string, ReadonlySet<string>>;
+    includeProviderGroups?: boolean;
   },
 ): GroupCountMap {
   const counts: GroupCountMap = { All: 0, Favorites: 0, "Recently Watched": 0 };
@@ -135,8 +136,10 @@ export function buildGroupCounts(
     if (opts.isFailed(channel.id)) counts["Failed Streams"] += 1;
     counts[classifyCuratedGroup(channel)] += 1;
     for (const [name, ids] of opts.customGroups || []) if (ids.has(channel.id)) counts[name] += 1;
-    const raw = String(channel.group || "").trim();
-    if (raw) counts[raw] = (counts[raw] || 0) + 1;
+    if (opts.includeProviderGroups) {
+      const raw = String(channel.group || "").trim();
+      if (raw) counts[raw] = (counts[raw] || 0) + 1;
+    }
   }
   return counts;
 }

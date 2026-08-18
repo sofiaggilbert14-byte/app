@@ -490,15 +490,16 @@ export default function PurpleGuideScreen() {
         isFailed: isFailedChannel,
         hiddenIds: hiddenIdSet,
         customGroups: customGuideGroups.byName,
+        includeProviderGroups: showProviderGroups,
       }),
     // failedCount invalidates when the in-memory failure registry grows/shrinks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [channels, favoriteSet, recentIdSet, hiddenIdSet, failedCount, epgGuideFilter, customGuideGroups.byName],
+    [channels, favoriteSet, recentIdSet, hiddenIdSet, failedCount, epgGuideFilter, customGuideGroups.byName, showProviderGroups],
   );
 
   const playlistGroups = useMemo(
-    () => listPlaylistGroupNames(channels, hiddenIdSet),
-    [channels, hiddenIdSet],
+    () => showProviderGroups ? listPlaylistGroupNames(channels, hiddenIdSet) : [],
+    [channels, hiddenIdSet, showProviderGroups],
   );
 
   const { tabs: groups, overflow: overflowGroups } = useMemo(
