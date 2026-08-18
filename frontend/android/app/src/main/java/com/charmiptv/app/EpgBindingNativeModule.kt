@@ -43,10 +43,6 @@ class EpgBindingNativeModule(reactContext: ReactApplicationContext) :
   fun importLegacyIfEmpty(overrides: ReadableMap, promise: Promise) {
     executor.execute {
       try {
-        if (dao.channelBindingCount(USER_SOURCE_ID) > 0) {
-          promise.resolve(false)
-          return@execute
-        }
         val rows = ArrayList<EpgChannelBindingEntity>()
         val iterator = overrides.keySetIterator()
         val seen = HashSet<String>()
@@ -59,8 +55,7 @@ class EpgBindingNativeModule(reactContext: ReactApplicationContext) :
           if (channelId.contains("://") || xmltvId.contains("://")) continue
           rows.add(EpgChannelBindingEntity(USER_SOURCE_ID, channelId, xmltvId))
         }
-        if (rows.isNotEmpty()) dao.replaceChannelBindings(USER_SOURCE_ID, rows)
-        promise.resolve(rows.isNotEmpty())
+        promise.resolve(dao.importChannelBindingsIfEmpty(USER_SOURCE_ID, rows))
       } catch (t: Throwable) {
         promise.reject("EPG_BINDINGS_MIGRATION_FAILED", t.message ?: "Could not migrate Guide assignments", t)
       }
