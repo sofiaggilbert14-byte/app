@@ -30,6 +30,11 @@ type NativeRefreshResult = {
   channelIdsWithPrograms?: string[];
 };
 
+export type UserEpgChannel = {
+  id: string;
+  name: string;
+};
+
 export type NativePlaylistChannelRow = {
   playlistId: string;
   rawTvgId?: string;
@@ -59,6 +64,10 @@ type CharmEpgModule = {
   ): Promise<boolean>;
   consumeScheduledRefreshDue?(): Promise<boolean>;
   refresh(url: string, allowNotModified: boolean, activeXmltvIds: string[], activeChannelNames: string[]): Promise<NativeRefreshResult>;
+  inspectUserSource?(url: string): Promise<UserEpgChannel[]>;
+  refreshUserSource?(url: string, activeXmltvIds: string[], activeChannelNames: string[]): Promise<NativeRefreshResult>;
+  clearBuiltInPrograms?(): Promise<boolean>;
+  clearUserPrograms?(): Promise<boolean>;
   getWindow(startMs: number, endMs: number, channelIds: string[]): Promise<NativeWindow>;
   queryGuideWindow?(startMs: number, endMs: number, playlistChannelIds: string[]): Promise<NativeWindow>;
   isPlaylistCurrent?(contentFingerprint: string): Promise<boolean>;
@@ -140,6 +149,35 @@ export async function refreshNativeEpg(
     subscription?.remove();
   }
   return result;
+}
+
+export async function inspectNativeUserEpg(url: string): Promise<UserEpgChannel[]> {
+  if (!nativeModule?.inspectUserSource) throw new Error("User EPG inspection is unavailable in this Android build");
+  const rows = await nativeModule.inspectUserSource(url);
+  return Array.isArray(rows)
+    ? rows
+        .map((row) => ({ id: String(row?.id || "").trim(), name: String(row?.name || row?.id || "").trim() }))
+        .filter((row) => !!row.id)
+    : [];
+}
+
+export async function refreshNativeUserEpg(
+  url: string,
+  activeXmltvIds: string[],
+  activeChannelNames: string[] = [],
+): Promise<NativeRefreshResult> {
+  if (!nativeModule?.refreshUserSource) throw new Error("User EPG refresh is unavailable in this Android build");
+  return nativeModule.refreshUserSource(url, activeXmltvIds, activeChannelNames);
+}
+
+export async function clearNativeBuiltInEpgPrograms(): Promise<void> {
+  if (nativeModule?.clearBuiltInPrograms) await nativeModule.clearBuiltInPrograms();
+  if (ramModule) await ramModule.clearMemory();
+}
+
+export async function clearNativeUserEpgPrograms(): Promise<void> {
+  if (nativeModule?.clearUserPrograms) await nativeModule.clearUserPrograms();
+  if (ramModule) await ramModule.clearMemory();
 }
 
 export async function configureNativeEpgSource(
