@@ -1,0 +1,13 @@
+from pathlib import Path
+
+p = Path('frontend/app/group-settings.tsx')
+s = p.read_text()
+s = s.replace('import { useGuideUiPreferences } from "@/src/core/guideUiPreferences";','import { GUIDE_START_LAST_USED, useGuideUiPreferences } from "@/src/core/guideUiPreferences";')
+anchor = '''  const toggleBuiltIn = (name: string) => {\n    const hidden = new Set(guideUi.hiddenGroups);\n    if (hidden.has(name)) hidden.delete(name); else hidden.add(name);\n    guideUi.setHiddenGroups(Array.from(hidden));\n  };\n\n'''
+insert = '''  const toggleBuiltIn = (name: string) => {\n    const hidden = new Set(guideUi.hiddenGroups);\n    if (hidden.has(name)) hidden.delete(name); else hidden.add(name);\n    guideUi.setHiddenGroups(Array.from(hidden));\n  };\n\n  const renameSelectedGroup = useCallback(() => {\n    if (!selected) return;\n    const nextName = renameDraft.replace(/[\\r\\n\\t]/g, " ").replace(/\\s+/g, " ").trim().slice(0, 48);\n    if (!nextName || !custom.renameGroup(selected.id, nextName)) return;\n    if (guideUi.startGroup === selected.name) guideUi.setStartGroup(nextName);\n    if (guideUi.pinnedGroups.includes(selected.name)) {\n      guideUi.setPinnedGroups(guideUi.pinnedGroups.map((name) => name === selected.name ? nextName : name));\n    }\n    setRenameDraft(nextName);\n  }, [custom, guideUi, renameDraft, selected]);\n\n  const deleteSelectedGroup = useCallback((groupId: string, groupName: string) => {\n    custom.deleteGroup(groupId);\n    if (guideUi.startGroup === groupName) guideUi.setStartGroup(GUIDE_START_LAST_USED);\n    if (guideUi.pinnedGroups.includes(groupName)) {\n      guideUi.setPinnedGroups(guideUi.pinnedGroups.filter((name) => name !== groupName));\n    }\n    setSelectedId(null);\n    setPage(0);\n  }, [custom, guideUi]);\n\n'''
+if anchor not in s:
+    raise SystemExit('toggleBuiltIn anchor not found')
+s = s.replace(anchor, insert, 1)
+s = s.replace('''<Pressable onPress={() => { custom.deleteGroup(group.id); setSelectedId(null); }} style={({ focused }: any) => [styles.mini, focused && styles.focused]}><Text style={styles.actionText}>Delete</Text></Pressable>''','''<Pressable onPress={() => deleteSelectedGroup(group.id, group.name)} style={({ focused }: any) => [styles.mini, focused && styles.focused]}><Text style={styles.actionText}>Delete</Text></Pressable>''')
+s = s.replace('''<Pressable onPress={() => custom.renameGroup(selected.id, renameDraft)} style={({ focused }: any) => [styles.action, focused && styles.focused]}><Text style={styles.actionText}>Rename</Text></Pressable>''','''<Pressable onPress={renameSelectedGroup} style={({ focused }: any) => [styles.action, focused && styles.focused]}><Text style={styles.actionText}>Rename</Text></Pressable>''')
+p.write_text(s)
