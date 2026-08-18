@@ -110,6 +110,7 @@ internal class EpgDatabase(context: Context, private val databaseName: String = 
     db.execSQL("CREATE INDEX IF NOT EXISTS idx_epg_alias_norm ON $ALIAS_TABLE(normalized_key)")
     db.execSQL("CREATE INDEX IF NOT EXISTS idx_playlist_norm_id ON $PLAYLIST_TABLE(norm_id)")
     db.execSQL("CREATE INDEX IF NOT EXISTS idx_playlist_norm_name ON $PLAYLIST_TABLE(norm_name)")
+    db.execSQL("CREATE INDEX IF NOT EXISTS idx_playlist_active_position ON $PLAYLIST_TABLE(deleted_at, provider_position)")
     db.execSQL("CREATE INDEX IF NOT EXISTS idx_playlist_deleted ON $PLAYLIST_TABLE(deleted_at)")
     db.execSQL("CREATE INDEX IF NOT EXISTS idx_match_xmltv ON $MATCH_TABLE(xmltv_id)")
   }
