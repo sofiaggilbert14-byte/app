@@ -356,9 +356,9 @@ index 7e213f7..13bd7aa 100644
 +  }
 +  val client: OkHttpClient = OkHttpClient.Builder()
 +    .dispatcher(dispatcher)
-+    .connectionPool(ConnectionPool(8, 5, TimeUnit.MINUTES))
-+    .connectTimeout(8, TimeUnit.SECONDS)
-+    .readTimeout(15, TimeUnit.SECONDS)
++    .connectionPool(ConnectionPool(15, 5, TimeUnit.MINUTES))
++    .connectTimeout(5, TimeUnit.SECONDS)
++    .readTimeout(5, TimeUnit.SECONDS)
 +    .writeTimeout(15, TimeUnit.SECONDS)
 +    .retryOnConnectionFailure(true)
 +    .build()
@@ -413,50 +413,6 @@ index 204f98d..f10de9a 100644
  //# sourceMappingURL=VideoPlayer.types.d.ts.map
 \ No newline at end of file
 
-diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/DataSourceUtils.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/DataSourceUtils.kt
---- a/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/DataSourceUtils.kt
-+++ b/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/DataSourceUtils.kt
-@@ -13,7 +13,20 @@ import androidx.media3.exoplayer.source.MediaSource
- import expo.modules.video.records.VideoSource
-+import okhttp3.ConnectionPool
- import okhttp3.OkHttpClient
-+import java.util.concurrent.TimeUnit
-+
-+// CharmIPTV shared live-TV OkHttp pool. Reusing one client keeps TCP/TLS
-+// connections warm across channel zaps instead of constructing a fresh pool
-+// for every VideoSource. Short socket timeouts let the buffering watchdog
-+// recover a hung provider connection instead of waiting tens of seconds.
-+private val charmSharedVideoHttpClient: OkHttpClient by lazy {
-+  OkHttpClient.Builder()
-+    .connectionPool(ConnectionPool(15, 5, TimeUnit.MINUTES))
-+    .connectTimeout(5, TimeUnit.SECONDS)
-+    .readTimeout(5, TimeUnit.SECONDS)
-+    .followRedirects(true)
-+    .followSslRedirects(true)
-+    .retryOnConnectionFailure(true)
-+    .build()
-+}
- 
- @OptIn(UnstableApi::class)
- fun buildBaseDataSourceFactory(context: Context, videoSource: VideoSource): DataSource.Factory {
-@@ -26,8 +39,6 @@ fun buildBaseDataSourceFactory(context: Context, videoSource: VideoSource): Data
- 
- @OptIn(UnstableApi::class)
- fun buildOkHttpDataSourceFactory(context: Context, videoSource: VideoSource): OkHttpDataSource.Factory {
--  val client = OkHttpClient.Builder().build()
--
-   // If the application name has ANY non-ASCII characters, we need to strip them out. This is because using non-ASCII characters
-   // in the User-Agent header can cause issues with getting the media to play.
-   val applicationName = getApplicationName(context).filter { it.code in 0..127 }
-@@ -35,7 +46,7 @@ fun buildOkHttpDataSourceFactory(context: Context, videoSource: VideoSource): Ok
- 
-   val defaultUserAgent = Util.getUserAgent(context, applicationName)
- 
--  return OkHttpDataSource.Factory(client).apply {
-+  return OkHttpDataSource.Factory(charmSharedVideoHttpClient).apply {
-     val headers = videoSource.headers
-     headers?.takeIf { it.isNotEmpty() }?.let {
-       setDefaultRequestProperties(it)
 diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerLoadControl.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerLoadControl.kt
 --- a/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerLoadControl.kt
 +++ b/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerLoadControl.kt
