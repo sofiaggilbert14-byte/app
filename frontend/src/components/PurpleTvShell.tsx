@@ -64,12 +64,6 @@ export type PurpleGuideGroup = {
   onLongPress?: () => void;
 };
 
-export type PurpleRecentChannel = {
-  id: string;
-  name: string;
-  logo?: string | null;
-};
-
 const NAV: NavItem[] = [
   { route: "/", label: "Live TV", icon: "tv-outline" },
   { route: "/guide", label: "TV Guide", icon: "calendar-outline" },
@@ -118,8 +112,6 @@ export function PurpleTvDrawerProvider({ children }: { children: React.ReactNode
 
   const closeDrawer = useCallback(() => {
     if (!drawerOpenRef.current) return;
-    // Some Android TV firmwares deliver the opening Back/Left key to two
-    // listeners. Do not let the duplicate edge close an animating drawer.
     if (Date.now() - openedAtRef.current < PURPLE_DRAWER_ANIMATION_MS + 70) return;
     drawerOpenRef.current = false;
     setFocusDrawerTop(false);
@@ -170,15 +162,6 @@ function WatchingDot({ testID }: { testID?: string }) {
   return <View style={styles.watchingDot} testID={testID} />;
 }
 
-function RecentLetterAvatar({ name }: { name: string }) {
-  const letter = (name.trim().charAt(0) || "?").toUpperCase();
-  return (
-    <View style={styles.recentAvatar}>
-      <Text style={styles.recentAvatarText}>{letter}</Text>
-    </View>
-  );
-}
-
 export function PurpleTvShell({
   active,
   children,
@@ -188,8 +171,6 @@ export function PurpleTvShell({
   contextActions,
   guideGroups,
   watchingChannelId,
-  recentChannels,
-  onRecentPress,
 }: {
   active: Route;
   children: React.ReactNode;
@@ -199,8 +180,6 @@ export function PurpleTvShell({
   contextActions?: PurpleContextAction[];
   guideGroups?: PurpleGuideGroup[];
   watchingChannelId?: string | null;
-  recentChannels?: PurpleRecentChannel[];
-  onRecentPress?: (channelId: string) => void;
 }) {
   const router = useRouter();
   const { drawerOpen, drawerProgress, openDrawer, closeDrawer, focusDrawerTop, consumeFocusDrawerTop } = usePurpleTvDrawer();
@@ -216,7 +195,6 @@ export function PurpleTvShell({
   const guideGroupRefs = useRef(new Map<string, unknown>());
   const deferredDrawerCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isWatching = !!watchingChannelId;
-  const recentStrip = useMemo(() => (recentChannels ?? []).slice(0, 5), [recentChannels]);
   const [drawerAutoFocus, setDrawerAutoFocus] = useState(drawerOpen);
   const [drawerPreferredRoute, setDrawerPreferredRoute] = useState<Route | null>(drawerOpen ? active : null);
 
@@ -294,8 +272,6 @@ export function PurpleTvShell({
       void Haptics.selectionAsync().catch(() => undefined);
       if (route === "/settings") DeviceEventEmitter.emit("CharmShowAllSettings");
       closeDrawer();
-      // If a very fast selection lands during the open-transition guard, close
-      // once that guard expires instead of leaving the drawer over the new page.
       if (deferredDrawerCloseTimer.current) clearTimeout(deferredDrawerCloseTimer.current);
       deferredDrawerCloseTimer.current = setTimeout(() => {
         deferredDrawerCloseTimer.current = null;
@@ -437,28 +413,6 @@ export function PurpleTvShell({
             </View>
           ) : null}
 
-          {recentStrip.length > 0 ? (
-            <View style={styles.recentStrip}>
-              <Text style={styles.recentLabel}>Recent</Text>
-              <ScrollView style={styles.recentScroll} showsVerticalScrollIndicator={false}>
-                <View style={styles.recentRow}>
-                  {recentStrip.map((channel) => (
-                    <Pressable
-                      key={channel.id}
-                      focusable={drawerOpen}
-                      onPress={() => onRecentPress?.(channel.id)}
-                      style={({ focused }: any) => [styles.recentChip, focused && styles.navRowFocused]}
-                      testID={`purple-recent-${channel.id}`}
-                    >
-                      <RecentLetterAvatar name={channel.name} />
-                      <Text numberOfLines={1} style={styles.recentName}>{channel.name}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-              </ScrollView>
-            </View>
-          ) : null}
-
           <View style={styles.navSections} testID="purple-nav-bounded-sections">
             <View style={styles.primaryNavSection}>
               <ScrollView
@@ -477,8 +431,6 @@ export function PurpleTvShell({
                 focusable={drawerOpen}
                 disabled={footerAction.disabled}
                 onPress={footerAction.onPress}
-                onFocus={() => {
-                }}
                 style={({ focused }: any) => [
                   styles.footerCompact,
                   footerAction.disabled && styles.footerDisabled,
@@ -495,8 +447,6 @@ export function PurpleTvShell({
               onPress={promptHoldToExit}
               onLongPress={exit}
               delayLongPress={650}
-              onFocus={() => {
-              }}
               style={({ focused }: any) => [footerAction ? styles.footerCompact : styles.power, focused && styles.navRowFocused]}
               testID="purple-nav-power"
             >
@@ -609,48 +559,6 @@ const styles = StyleSheet.create({
   guideGroupText: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 10, flex: 1 },
   guideGroupTextActive: { color: "#fff", fontFamily: fonts.semibold },
   guideGroupCount: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 8 },
-  recentStrip: {
-    maxHeight: 86,
-    minHeight: 0,
-    marginBottom: 8,
-    paddingBottom: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: tvColors.line,
-    gap: 4,
-    overflow: "hidden",
-  },
-  recentLabel: {
-    color: tvColors.textMuted,
-    fontFamily: fonts.semibold,
-    fontSize: 8,
-    letterSpacing: 0.6,
-    paddingHorizontal: 6,
-    textTransform: "uppercase",
-  },
-  recentScroll: { minHeight: 0 },
-  recentRow: { gap: 2 },
-  recentChip: {
-    minHeight: 28,
-    borderRadius: radius.sm,
-    borderWidth: 2,
-    borderColor: "transparent",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-    paddingHorizontal: 7,
-  },
-  recentAvatar: {
-    width: 18,
-    height: 18,
-    borderRadius: 4,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: tvColors.purpleDeep,
-    borderWidth: 1,
-    borderColor: tvColors.lineStrong,
-  },
-  recentAvatarText: { color: "#fff", fontFamily: fonts.bold, fontSize: 9 },
-  recentName: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 9.5, flex: 1 },
   navSections: { flex: 1, minHeight: 0, overflow: "hidden" },
   primaryNavSection: { flex: 1, minHeight: 0, overflow: "hidden" },
   primaryNavList: { flex: 1, minHeight: 0 },
