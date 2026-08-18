@@ -83,7 +83,7 @@ function compactIndexFingerprint(ids: Iterable<string>, names: Record<string, st
     chars += value.length;
   };
   for (const id of ids) add(`i:${id}`);
-  for (const [id, name] of Object.entries(names)) add(`n:${id}=${name}`);
+  for (const id in names) add(`n:${id}=${names[id]}`);
   return `xmltv-v2:${count}:${chars}:${xorA.toString(16)}:${sumB.toString(16)}`;
 }
 
@@ -95,9 +95,12 @@ export function buildXmltvMatchIndexes(input: {
 }): XmltvMatchIndexes {
   const idByNormalizedId = new Map<string, string>();
   const idByNormalizedName = new Map<string, string>();
-  const idsWithPrograms = new Set(
-    Array.from(input.idsWithPrograms || []).filter((id) => typeof id === "string" && id.trim()),
-  );
+  const idsWithPrograms = new Set<string>();
+  for (const id of input.idsWithPrograms || []) {
+    if (typeof id !== "string") continue;
+    const value = id.trim();
+    if (value) idsWithPrograms.add(value);
+  }
 
   for (const id of input.channelIds) {
     if (typeof id !== "string" || !id.trim()) continue;

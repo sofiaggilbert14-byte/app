@@ -18,6 +18,9 @@ let cached: Snapshot = { hiddenIds: [], customOrder: [], customNumbers: {} };
 let loaded = false;
 let loadPromise: Promise<Snapshot> | null = null;
 const listeners = new Set<(value: Snapshot) => void>();
+type DirtyState = { hiddenIds: boolean; customOrder: boolean; customNumbers: boolean };
+let persistRunning = false;
+let pendingDirty: DirtyState = { hiddenIds: false, customOrder: false, customNumbers: false };
 
 function emit() {
   for (const listener of Array.from(listeners)) {
@@ -81,18 +84,39 @@ async function load(): Promise<Snapshot> {
   }
 }
 
-async function persist(previous: Snapshot, next: Snapshot): Promise<void> {
+async function flushPersistence(): Promise<void> {
+  if (persistRunning) return;
+  persistRunning = true;
+  try {
+    while (pendingDirty.hiddenIds || pendingDirty.customOrder || pendingDirty.customNumbers) {
+      const dirty = pendingDirty;
+      pendingDirty = { hiddenIds: false, customOrder: false, customNumbers: false };
+      // Capture the newest snapshot only after the prior write finished. Rapid
+      // remote moves therefore collapse into one latest order write instead of
+      // building a queue of 6k-10k ID JSON serializations.
+      const snapshot = cached;
+      const writes: Promise<boolean>[] = [];
+      if (dirty.hiddenIds) writes.push(storage.setItem(HIDDEN_KEY, snapshot.hiddenIds));
+      if (dirty.customOrder) writes.push(storage.setItem(ORDER_KEY, snapshot.customOrder));
+      if (dirty.customNumbers) writes.push(storage.setItem(NUMBERS_KEY, snapshot.customNumbers));
+      if (writes.length) await Promise.all(writes);
+    }
+  } finally {
+    persistRunning = false;
+    if (pendingDirty.hiddenIds || pendingDirty.customOrder || pendingDirty.customNumbers) {
+      void flushPersistence();
+    }
+  }
+}
+
+function persist(previous: Snapshot, next: Snapshot): void {
   cached = next;
   loaded = true;
   emit();
-
-  // Channel order may contain thousands of IDs. Do not JSON-serialize and write
-  // every customization blob when a focus action changed only one of them.
-  const writes: Promise<boolean>[] = [];
-  if (previous.hiddenIds !== next.hiddenIds) writes.push(storage.setItem(HIDDEN_KEY, next.hiddenIds));
-  if (previous.customOrder !== next.customOrder) writes.push(storage.setItem(ORDER_KEY, next.customOrder));
-  if (previous.customNumbers !== next.customNumbers) writes.push(storage.setItem(NUMBERS_KEY, next.customNumbers));
-  if (writes.length) await Promise.all(writes);
+  if (previous.hiddenIds !== next.hiddenIds) pendingDirty.hiddenIds = true;
+  if (previous.customOrder !== next.customOrder) pendingDirty.customOrder = true;
+  if (previous.customNumbers !== next.customNumbers) pendingDirty.customNumbers = true;
+  void flushPersistence();
 }
 
 function mergeCustomOrder(current: string[], channelIds: string[]): string[] {

@@ -93,3 +93,11 @@ test("settings recovery and drawer transition guard are wired", async () => {
   assert.match(shell, /openedAtRef/);
   assert.match(shell, /PURPLE_DRAWER_ANIMATION_MS \+ 70/);
 });
+
+
+test("native Guide precomputes row labels outside the repaint loop", async () => {
+  const view = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");
+  assert.match(view, /ChannelRow\(val id: String, val name: String, val number: String, val label: String\)/);
+  assert.match(view, /drawClippedText\(canvas, row\.label/);
+  assert.doesNotMatch(view, /val rowLabel = if \(row\.number\.isBlank\(\)\)/);
+});

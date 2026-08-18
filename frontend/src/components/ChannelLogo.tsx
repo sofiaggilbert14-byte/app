@@ -172,7 +172,7 @@ function ChannelLogoComponent({
   disabled?: boolean;
   visible?: boolean;
 }) {
-  const localLogo = useLocalLogo(name);
+  const localLogo = useLocalLogo(!disabled && visible ? name : "");
   const candidates = React.useMemo(() => logoCandidates(logo, localLogo), [localLogo, logo]);
   const [attemptIndex, setAttemptIndex] = React.useState(0);
   const [retryGeneration, setRetryGeneration] = React.useState(0);

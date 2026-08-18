@@ -20,9 +20,11 @@ function key(value: string): string {
 
 function distance(a: string, b: string, limit = 4): number {
   if (Math.abs(a.length - b.length) > limit) return limit + 1;
-  const previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+  let previous = new Uint16Array(b.length + 1);
+  let current = new Uint16Array(b.length + 1);
+  for (let j = 0; j <= b.length; j += 1) previous[j] = j;
   for (let i = 1; i <= a.length; i += 1) {
-    const current = [i];
+    current[0] = i;
     let rowMin = i;
     for (let j = 1; j <= b.length; j += 1) {
       const value = Math.min(
@@ -34,7 +36,9 @@ function distance(a: string, b: string, limit = 4): number {
       rowMin = Math.min(rowMin, value);
     }
     if (rowMin > limit) return limit + 1;
-    previous.splice(0, previous.length, ...current);
+    const swap = previous;
+    previous = current;
+    current = swap;
   }
   return previous[b.length];
 }

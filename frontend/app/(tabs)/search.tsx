@@ -52,16 +52,19 @@ export default function SearchScreen() {
       setNativePrograms([]);
       return;
     }
-    const byEpgId = new Map<string, Channel>();
-    for (const channel of channels) {
-      // Avoid allocating [id,tvg,raw].filter(...) for every channel in a 6k list.
-      if (channel.id && !byEpgId.has(channel.id)) byEpgId.set(channel.id, channel);
-      if (channel.tvg_id && !byEpgId.has(channel.tvg_id)) byEpgId.set(channel.tvg_id, channel);
-      if (channel.raw_tvg_id && !byEpgId.has(channel.raw_tvg_id)) byEpgId.set(channel.raw_tvg_id, channel);
-    }
     void searchNativeEpg(value, 24)
       .then((rows) => {
         if (cancelled) return;
+        const wanted = new Set(rows.map((row) => row.channelId).filter(Boolean));
+        const byEpgId = new Map<string, Channel>();
+        if (wanted.size) {
+          for (const channel of channels) {
+            if (channel.id && wanted.has(channel.id)) byEpgId.set(channel.id, channel);
+            if (channel.tvg_id && wanted.has(channel.tvg_id)) byEpgId.set(channel.tvg_id, channel);
+            if (channel.raw_tvg_id && wanted.has(channel.raw_tvg_id)) byEpgId.set(channel.raw_tvg_id, channel);
+            if (byEpgId.size >= wanted.size) break;
+          }
+        }
         const next: { channel: Channel; program: Program }[] = [];
         for (const { channelId, program } of rows) {
           const channel = byEpgId.get(channelId);
@@ -119,17 +122,23 @@ export default function SearchScreen() {
       if (channelMatches.length >= 18) break;
     }
     const programs: { channel: Channel; program: Program }[] = [];
-    const now = Date.now();
-    for (const channel of channels) {
-      const nested = channel.programs;
-      if (!nested?.length) continue;
-      for (const program of nested) {
-        const stop = program.stop ? Date.parse(program.stop) : Date.parse(program.start);
-        if (Number.isFinite(stop) && stop < now) continue;
-        if ((program.title || "").toLowerCase().includes(q)) programs.push({ channel, program });
+    // Android programme search is native FTS. The new Guide architecture keeps
+    // programme rows outside Channel objects, so walking all 6k channels looking
+    // for legacy nested arrays is wasted TV-thread work. Preserve that fallback
+    // only for web/non-native development.
+    if (Platform.OS === "web") {
+      const now = Date.now();
+      for (const channel of channels) {
+        const nested = channel.programs;
+        if (!nested?.length) continue;
+        for (const program of nested) {
+          const stop = program.stop ? Date.parse(program.stop) : Date.parse(program.start);
+          if (Number.isFinite(stop) && stop < now) continue;
+          if ((program.title || "").toLowerCase().includes(q)) programs.push({ channel, program });
+          if (programs.length >= 24) break;
+        }
         if (programs.length >= 24) break;
       }
-      if (programs.length >= 24) break;
     }
     const mergedPrograms = nativePrograms.length ? nativePrograms : programs;
     return { channels: channelMatches, programs: mergedPrograms };

@@ -64,3 +64,49 @@ test("playlist-only refresh reuses native parser rows instead of cloning the ful
   assert.doesNotMatch(refreshOnly, /new Map\(\(cached\?\.channels \|\| \[\]\)\.map/);
   assert.doesNotMatch(refreshOnly, /const channels = fresh\.map/);
 });
+
+
+test("direct IPTV sources preserve HTTP and cache writes avoid reparsing the old full channel graph", async () => {
+  const source = await readFile(join(root, "src/source.native.ts"), "utf8");
+  assert.match(source, /function sourceUrl\(url: string\)/);
+  assert.doesNotMatch(source, /startsWith\("http:\/\/"\).*https:/s);
+  assert.match(source, /fetchNativePlaylist\(sourceUrl\(SOURCE_M3U\)\)/);
+  assert.match(source, /refreshNativeEpg\([\s\S]*?sourceUrl\(SOURCE_EPG\)/);
+  assert.doesNotMatch(source, /const validCurrent = await readMetaFile\(CHANNEL_CACHE\)/);
+  assert.match(source, /channelCacheKnownGood/);
+  assert.match(source, /priorityMatchChannelIds = \[\]/);
+});
+
+test("large-list UI paths skip redundant whole-list sorting and Android legacy programme scans", async () => {
+  const [guide, home, player, search, logo] = await Promise.all([
+    readFile(join(root, "app/(tabs)/guide.tsx"), "utf8"),
+    readFile(join(root, "app/(tabs)/index.tsx"), "utf8"),
+    readFile(join(root, "app/player.tsx"), "utf8"),
+    readFile(join(root, "app/(tabs)/search.tsx"), "utf8"),
+    readFile(join(root, "src/components/ChannelLogo.tsx"), "utf8"),
+  ]);
+  assert.match(guide, /if \(!channelNumbers\) return result/);
+  assert.doesNotMatch(guide, /\[\.\.\.channels\]\.sort\(/);
+  assert.match(home, /if \(!channelNumbers\) return result/);
+  assert.doesNotMatch(home, /channels\.slice\(\)[\s\S]{0,100}\.sort\(/);
+  assert.doesNotMatch(player, /\[\.\.\.channels\]\.sort\(/);
+  assert.doesNotMatch(player, /\[\.\.\.recent, \.\.\.streamChannels\]/);
+  assert.match(search, /if \(Platform\.OS === "web"\)/);
+  assert.match(logo, /useLocalLogo\(!disabled && visible \? name : ""\)/);
+});
+
+test("custom ordering uses one coalescing storage writer", async () => {
+  const customize = await readFile(join(root, "src/core/channelCustomize.ts"), "utf8");
+  assert.match(customize, /let persistRunning = false/);
+  assert.match(customize, /async function flushPersistence\(\)/);
+  assert.match(customize, /const snapshot = cached/);
+  assert.match(customize, /void flushPersistence\(\)/);
+});
+
+test("Guide fixed start preference is entry-scoped and explicit jumps override it", async () => {
+  const guide = await readFile(join(root, "app/(tabs)/guide.tsx"), "utf8");
+  assert.match(guide, /peekGuideJump/);
+  assert.match(guide, /startPreferenceAppliedRef/);
+  assert.doesNotMatch(guide, /let guideStartPreferenceApplied = false/);
+  assert.match(guide, /startPreferenceAppliedRef\.current = true;[\s\S]{0,120}const nextGroup = jump\.group/);
+});

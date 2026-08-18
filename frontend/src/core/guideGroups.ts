@@ -114,11 +114,14 @@ export function buildGroupCounts(
     counts.All += 1;
     if (opts.favoriteSet.has(channel.id)) counts.Favorites += 1;
     if (opts.recentIds.has(channel.id)) counts["Recently Watched"] += 1;
-    for (const smart of SMART_GROUPS) {
-      if (channelMatchesSmart(channel, smart, opts)) counts[smart] += 1;
-    }
+    const combined = `${channel.name || ""} ${channel.group || ""}`;
+    if (HD_RE.test(combined)) counts["HD Only"] += 1;
+    if (ALLDAY_RE.test(combined)) counts["24/7"] += 1;
+    if (!opts.hasEpgMatch(channel)) counts["Unmatched EPG"] += 1;
+    if (opts.isFailed(channel.id)) counts["Failed Streams"] += 1;
+    const curatedValue = combined.toLowerCase();
     for (const curated of CURATED_GROUPS) {
-      if (channelMatchesCurated(channel, curated)) counts[curated] += 1;
+      if (CURATED_MATCH[curated]?.test(curatedValue)) counts[curated] += 1;
     }
     const raw = String(channel.group || "").trim();
     if (raw) counts[raw] = (counts[raw] || 0) + 1;

@@ -96,6 +96,8 @@ let programmeWindowCacheKey = "";
 /** Coalesce overlapping warm/viewport reads so one channel is never queried twice. */
 const programmeWindowInFlight = new Map<string, Promise<void>>();
 let lastNativeMatchWriteFingerprint = "";
+/** True only when this process successfully parsed or promoted the primary channel cache. */
+let channelCacheKnownGood = false;
 
 export function setPreferTvgIdOnlyMatching(value: boolean): void {
   preferTvgIdOnly = !!value;
@@ -330,6 +332,18 @@ function matchPolicyKey(): string {
   return preferTvgIdOnly ? "tvg" : "full";
 }
 
+function buildXmltvChannelIdSet(
+  logos: Record<string, string>,
+  names: Record<string, string>,
+  programIds: Iterable<string>,
+): Set<string> {
+  const ids = new Set<string>();
+  for (const id in logos) if (id) ids.add(id);
+  for (const id in names) if (id) ids.add(id);
+  for (const id of programIds) if (id) ids.add(id);
+  return ids;
+}
+
 function playlistIdentityFingerprint(channels: Channel[]): string {
   // Logo URLs intentionally excluded — logo-only EPG drift must not force rematch.
   const state = { h1: 0x811c9dc5, h2: 0x9e3779b9, chars: 0 };
@@ -488,8 +502,11 @@ export function subscribeSource(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
-function https(url: string): string {
-  return url && url.startsWith("http://") ? `https://${url.slice(7)}` : url;
+function sourceUrl(url: string): string {
+  // Preserve provider protocol exactly. Sideload builds intentionally allow
+  // cleartext HTTP for Xtream-style servers (often :25461); forcing HTTPS here
+  // makes otherwise valid M3U/XMLTV endpoints unreachable.
+  return (url || "").trim();
 }
 
 function sortChannelsInPlace(channels: Channel[]): Channel[] {
@@ -534,7 +551,11 @@ async function readMetaFile(path: string): Promise<NativeMeta | null> {
 
 async function readChannelCache(): Promise<NativeMeta | null> {
   const primary = await readMetaFile(CHANNEL_CACHE);
-  if (primary) return primary;
+  if (primary) {
+    channelCacheKnownGood = true;
+    return primary;
+  }
+  channelCacheKnownGood = false;
   const backup = await readMetaFile(CHANNEL_CACHE_BAK);
   return backup || null;
 }
@@ -549,11 +570,12 @@ async function persistMeta(meta: NativeMeta): Promise<void> {
     throw new Error("Channel cache verification failed");
   }
 
-  // Parse at most the existing primary. We generate the temp JSON ourselves, so
-  // reparsing temp + promoted copies only duplicates the full 6k-channel graph.
-  // A corrupt primary is never rotated over a known last-good backup.
-  const validCurrent = await readMetaFile(CHANNEL_CACHE);
-  if (validCurrent) {
+  // Do not parse the previous 6k+ channel JSON while the new metadata graph and
+  // serialized JSON are both live. `channelCacheKnownGood` is set only by a
+  // successful primary parse/promotion; an existing backup remains untouched when
+  // the primary was not proven good in this process.
+  const currentInfo = await FileSystem.getInfoAsync(CHANNEL_CACHE).catch(() => null);
+  if (channelCacheKnownGood && currentInfo?.exists) {
     await FileSystem.deleteAsync(CHANNEL_CACHE_BAK, { idempotent: true }).catch(() => undefined);
     await FileSystem.moveAsync({ from: CHANNEL_CACHE, to: CHANNEL_CACHE_BAK });
   } else {
@@ -566,7 +588,9 @@ async function persistMeta(meta: NativeMeta): Promise<void> {
       throw new Error("Promoted channel cache is invalid");
     }
     await FileSystem.deleteAsync(CHANNEL_CACHE_BAK, { idempotent: true }).catch(() => undefined);
+    channelCacheKnownGood = true;
   } catch (error) {
+    channelCacheKnownGood = false;
     await FileSystem.deleteAsync(CHANNEL_CACHE, { idempotent: true }).catch(() => undefined);
     const backup = await FileSystem.getInfoAsync(CHANNEL_CACHE_BAK).catch(() => null);
     if (backup?.exists) {
@@ -581,7 +605,7 @@ async function fetchPlaylist(): Promise<Channel[]> {
     throw new Error("Playlist is not configured for this build (missing EXPO_PUBLIC_M3U_URL).");
   }
   setProgress({ phase: "channels", ratio: 0.06, etaSeconds: null });
-  const parsed = await fetchNativePlaylist(https(SOURCE_M3U));
+  const parsed = await fetchNativePlaylist(sourceUrl(SOURCE_M3U));
   setProgress({ phase: "channels", ratio: 0.17, etaSeconds: null });
   const channels = Array.isArray(parsed.channels) ? parsed.channels : [];
   sortChannelsInPlace(channels);
@@ -675,9 +699,9 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
       setProgress({ phase: "downloading", ratio: 0.2, etaSeconds: null, message: null }, true);
       const activeBindings = activeEpgBindings(channels);
       const refreshPreferences = await getSourceRefreshPreferences();
-      await configureNativeEpgSource(https(SOURCE_EPG), refreshPreferences.epgHours);
+      await configureNativeEpgSource(sourceUrl(SOURCE_EPG), refreshPreferences.epgHours);
       const epg = await refreshNativeEpg(
-        https(SOURCE_EPG),
+        sourceUrl(SOURCE_EPG),
         false,
         activeBindings.ids,
         activeBindings.names,
@@ -689,11 +713,11 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
       const epgNames = epg.channelNames || {};
       const logoPriority = await getLogoPriority();
       const indexes = buildXmltvMatchIndexes({
-        channelIds: new Set([
-          ...Object.keys(epgLogos),
-          ...Object.keys(epgNames),
-          ...(epg.channelIdsWithPrograms || []),
-        ]),
+        channelIds: buildXmltvChannelIdSet(
+          epgLogos,
+          epgNames,
+          epg.channelIdsWithPrograms || [],
+        ),
         channelNames: epgNames,
         idsWithPrograms: epg.channelIdsWithPrograms || [],
       });
@@ -1076,9 +1100,9 @@ export async function refreshEpgOnly(): Promise<SourceStatus> {
       await syncPlaylistToNative(cached.channels, cached.playlistEpoch || 0);
       const activeBindings = activeEpgBindings(cached.channels);
       const refreshPreferences = await getSourceRefreshPreferences();
-      await configureNativeEpgSource(https(SOURCE_EPG), refreshPreferences.epgHours);
+      await configureNativeEpgSource(sourceUrl(SOURCE_EPG), refreshPreferences.epgHours);
       const epg = await refreshNativeEpg(
-        https(SOURCE_EPG),
+        sourceUrl(SOURCE_EPG),
         true,
         activeBindings.ids,
         activeBindings.names,
@@ -1108,11 +1132,11 @@ export async function refreshEpgOnly(): Promise<SourceStatus> {
       const epgLogos = epg.channelLogos || {};
       const epgNames = epg.channelNames || {};
       const indexes = buildXmltvMatchIndexes({
-        channelIds: new Set([
-          ...Object.keys(epgLogos),
-          ...Object.keys(epgNames),
-          ...(epg.channelIdsWithPrograms || []),
-        ]),
+        channelIds: buildXmltvChannelIdSet(
+          epgLogos,
+          epgNames,
+          epg.channelIdsWithPrograms || [],
+        ),
         channelNames: epgNames,
         idsWithPrograms: epg.channelIdsWithPrograms || [],
       });
@@ -1265,6 +1289,8 @@ export async function clearGuideCache(): Promise<void> {
   clearProgrammeWindowCache();
   clearGuidePrograms();
   viewportGuideChannelIds = null;
+  priorityMatchChannelIds = [];
+  channelCacheKnownGood = false;
   if (progressTimer) {
     clearTimeout(progressTimer);
     progressTimer = null;

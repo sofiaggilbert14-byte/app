@@ -174,7 +174,7 @@ export default function EpgSourcesScreen() {
                 options={guideStartOptions}
                 onChange={guideUi.setStartGroup}
               />
-              <Text style={styles.help}>Choose which Guide group opens first after a fresh app launch. Last used keeps your previous Guide tab. Search and returning from fullscreen always open on the requested/current channel instead.</Text>
+              <Text style={styles.help}>Choose which Guide group opens first on a normal Guide entry. Last used keeps your previous Guide tab. Search and returning from fullscreen always open on the requested/current channel instead.</Text>
               <ChoiceRow<EpgGuideFilter> label="Guide EPG filter" value={epgGuideFilter} options={[{ label: "All", value: "all" }, { label: "Matched", value: "matched" }, { label: "Unmatched", value: "unmatched" }]} onChange={setEpgGuideFilter} />
               <ChoiceRow<GuideWindowHours> label="Guide window" value={guideWindowHours} options={[{ label: "6h", value: 6 }, { label: "8h", value: 8 }, { label: "12h", value: 12 }, { label: "24h", value: 24 }]} onChange={setGuideWindowHours} />
               <ToggleRow label="Prefer tvg-id matching only" value={preferTvgIdOnly} onChange={setPreferTvgIdOnly} />

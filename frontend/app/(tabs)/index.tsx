@@ -14,10 +14,6 @@ import { fonts, radius, tvColors } from "@/src/theme";
 import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 
-function channelSort(a: Channel, b: Channel) {
-  return (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" });
-}
-
 function RecentChannelCard({
   channel,
   now,
@@ -97,11 +93,10 @@ export default function LiveTvHomeScreen() {
 
   const channelNumberById = useMemo(() => {
     const result: Record<string, number> = {};
-    const sorted = channels.slice();
-    sorted.sort(channelSort);
-    for (let index = 0; index < sorted.length; index++) result[sorted[index].id] = index + 1;
+    if (!channelNumbers) return result;
+    for (let index = 0; index < channels.length; index += 1) result[channels[index].id] = index + 1;
     return result;
-  }, [channels]);
+  }, [channelNumbers, channels]);
 
   const heroChannel = useMemo(() => {
     const last = lastChannelId ? channelById(lastChannelId) : null;

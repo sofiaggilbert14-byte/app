@@ -56,7 +56,7 @@ import {
   isFailedChannel,
   noteStreamFailure,
 } from "@/src/core/streamFailureRegistry";
-import { consumeGuideJump } from "@/src/core/guideSearchJump";
+import { consumeGuideJump, peekGuideJump } from "@/src/core/guideSearchJump";
 import { fonts, spacing, tvColors } from "@/src/theme";
 import { nowNext } from "@/src/utils/time";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
@@ -70,7 +70,6 @@ import { focusGuidePreviewSurface } from "@/src/utils/guidePreviewFocus";
 // Do not persist to disk: this is navigation state, not a user preference.
 let guideSessionGroup = "All";
 let guideSessionChannelId: string | null = null;
-let guideStartPreferenceApplied = false;
 const guideSessionChannelByGroup = new Map<string, string>();
 const MAX_REMEMBERED_GUIDE_GROUPS = 128;
 function rememberGuideGroupChannel(groupName: string, channelId: string): void {
@@ -82,10 +81,6 @@ function rememberGuideGroupChannel(groupName: string, channelId: string): void {
     if (!oldest) break;
     guideSessionChannelByGroup.delete(oldest);
   }
-}
-
-function byName(a: Channel, b: Channel) {
-  return (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" });
 }
 
 /**
@@ -295,6 +290,12 @@ export default function PurpleGuideScreen() {
     pageSize: 8,
   });
   const [previewEpoch, setPreviewEpoch] = useState(0);
+  const startPreferenceAppliedRef = useRef(false);
+  const wasFocusedRef = useRef(false);
+  useEffect(() => {
+    if (isFocused && !wasFocusedRef.current) startPreferenceAppliedRef.current = false;
+    wasFocusedRef.current = isFocused;
+  }, [isFocused]);
   useEffect(() => {
     resetGuideSelection(guideSessionChannelId);
   }, []);
@@ -472,14 +473,15 @@ export default function PurpleGuideScreen() {
     [groupCounts, pinnedGroups, playlistGroups],
   );
 
-  // Apply a configured start group once per app process. Explicit Search/player
-  // jumps set the same session state and therefore take priority over this.
+  // Apply a fixed start group once per normal Guide entry. "Last used" keeps
+  // session state; explicit Search/player jumps always win over this preference.
   useEffect(() => {
-    if (guideStartPreferenceApplied || !isFocused || !channels.length) return;
+    if (startPreferenceAppliedRef.current || !isFocused || !channels.length) return;
+    if (peekGuideJump()) return;
+    startPreferenceAppliedRef.current = true;
     if (!startGroup || startGroup === GUIDE_START_LAST_USED) return;
     const available = groups.includes(startGroup) || overflowGroups.includes(startGroup);
     const next = available ? startGroup : "All";
-    guideStartPreferenceApplied = true;
     guideSessionGroup = next;
     guideSessionChannelId = guideSessionChannelByGroup.get(next) || null;
     setGroup(next);
@@ -508,10 +510,11 @@ export default function PurpleGuideScreen() {
   // Keep the complete selected group identity stable.
   const filtered = filteredMeta;
 
-  const orderedFilteredIds = useMemo(
-    () => filtered.map((channel) => channel.id).filter(Boolean),
-    [filtered],
-  );
+  const orderedFilteredIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const channel of filtered) if (channel.id) ids.push(channel.id);
+    return ids;
+  }, [filtered]);
   const filteredIdIndex = useMemo(
     () => buildChannelIndexMap(orderedFilteredIds),
     [orderedFilteredIds],
@@ -632,11 +635,15 @@ export default function PurpleGuideScreen() {
 
   const channelNumberById = useMemo(() => {
     const result: Record<string, number> = {};
-    [...channels].sort(byName).forEach((channel, index) => {
+    if (!channelNumbers) return result;
+    // Native source/cache rows are already name-sorted; do not clone/sort all
+    // 6k+ channels again just to produce optional display numbers.
+    for (let index = 0; index < channels.length; index += 1) {
+      const channel = channels[index];
       result[channel.id] = resolveChannelNumber(channel.id, index + 1, customNumbers);
-    });
+    }
     return result;
-  }, [channels, customNumbers]);
+  }, [channelNumbers, channels, customNumbers]);
 
   // Repeated focus uses this O(1) lookup through the external selection store;
   // it never scans the complete filtered channel array.
@@ -838,7 +845,7 @@ export default function PurpleGuideScreen() {
     useCallback(() => {
       const jump = consumeGuideJump();
       if (!jump) return;
-      guideStartPreferenceApplied = true;
+      startPreferenceAppliedRef.current = true;
       const nextGroup = jump.group || "All";
       if (hasPin && isGroupLocked(nextGroup)) {
         setPinPromptGroup(nextGroup);

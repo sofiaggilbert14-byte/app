@@ -169,20 +169,30 @@ export default function PlayerScreen() {
     () => (channelMeta ? { ...channelMeta, programs: channelPrograms } : undefined),
     [channelMeta, channelPrograms],
   );
-  const sortedChannels = useMemo(
-    () => [...channels].sort((a, b) => (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" })),
-    [channels],
-  );
-  const streamChannels = useMemo(() => sortedChannels.filter((item) => !!item.url), [sortedChannels]);
+  // Native source/cache channels are already name-sorted and playable. Avoid
+  // cloning/sorting several 6k+ arrays while the fullscreen decoder is starting.
+  const streamChannels = channels;
   const historyChannels = useMemo(() => {
     const seen = new Set<string>();
-    return [...recent, ...streamChannels].filter((item) => !!item.url && !seen.has(item.id) && !!seen.add(item.id));
+    const out: Channel[] = [];
+    for (const item of recent) {
+      if (!item.url || seen.has(item.id)) continue;
+      seen.add(item.id);
+      out.push(item);
+    }
+    for (const item of streamChannels) {
+      if (!item.url || seen.has(item.id)) continue;
+      seen.add(item.id);
+      out.push(item);
+    }
+    return out;
   }, [recent, streamChannels]);
   const numberById = useMemo(() => {
     const result: Record<string, number> = {};
-    sortedChannels.forEach((item, index) => { result[item.id] = index + 1; });
+    if (!channelNumbers) return result;
+    for (let index = 0; index < channels.length; index += 1) result[channels[index].id] = index + 1;
     return result;
-  }, [sortedChannels]);
+  }, [channelNumbers, channels]);
 
   useEffect(() => {
     const timer = setInterval(() => setPlayerNow(new Date()), 30_000);

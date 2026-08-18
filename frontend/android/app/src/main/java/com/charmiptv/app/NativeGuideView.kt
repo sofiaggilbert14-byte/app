@@ -28,7 +28,7 @@ import kotlin.math.min
  * outrun the queried EPG window and expose false empty columns.
  */
 class NativeGuideView(context: Context) : View(context) {
-  private data class ChannelRow(val id: String, val name: String, val number: String)
+  private data class ChannelRow(val id: String, val name: String, val number: String, val label: String)
   private data class GuideQuery(val token: Int, val startMs: Long, val endMs: Long, val ids: List<String>)
 
   private val database = EpgDatabase(context.applicationContext)
@@ -100,7 +100,9 @@ class NativeGuideView(context: Context) : View(context) {
     if (value != null) for (index in 0 until value.size()) {
       val item = value.getMap(index) ?: continue
       val id = item.getString("id") ?: continue
-      nextRows.add(ChannelRow(id, item.getString("name") ?: "Channel", item.getString("number") ?: ""))
+      val name = item.getString("name") ?: "Channel"
+      val number = item.getString("number") ?: ""
+      nextRows.add(ChannelRow(id, name, number, if (number.isBlank()) name else "$number  $name"))
     }
     if (rows == nextRows) {
       applyPendingRestoreChannel()
@@ -437,8 +439,7 @@ class NativeGuideView(context: Context) : View(context) {
       channel.color = if (rowIndex == selectedRow) Color.rgb(61, 43, 92) else Color.rgb(26, 22, 38)
       canvas.drawRect(0f, top, channelWidth, top + rowHeight - density, channel)
       canvas.drawRect(channelWidth, top, width.toFloat(), top + rowHeight - density, rowSurface)
-      val rowLabel = if (row.number.isBlank()) row.name else "${row.number}  ${row.name}"
-      drawClippedText(canvas, rowLabel, pad, top + rowHeight * .62f, channelWidth - pad, title)
+      drawClippedText(canvas, row.label, pad, top + rowHeight * .62f, channelWidth - pad, title)
 
       val list = programs[row.id].orEmpty()
       for (program in list) {
