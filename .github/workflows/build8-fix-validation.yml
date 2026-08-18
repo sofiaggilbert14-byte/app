@@ -9,7 +9,7 @@ on:
       - ".github/workflows/build8-fix-validation.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: build8-repair-${{ github.ref }}
@@ -30,14 +30,54 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Install dependencies
+        id: install
+        continue-on-error: true
         run: npm ci --legacy-peer-deps --no-audit --no-fund
       - name: Verify native config
+        id: native_config
+        continue-on-error: true
         run: npm run verify:native-config
       - name: Expo doctor
+        id: doctor
+        continue-on-error: true
         run: npm run doctor
       - name: Unit and wiring tests
+        id: tests
+        continue-on-error: true
         run: npm test
       - name: Typecheck
+        id: typecheck
+        continue-on-error: true
         run: npm run typecheck
       - name: Lint
+        id: lint
+        continue-on-error: true
         run: npm run lint
+      - name: Record validation result
+        if: always()
+        working-directory: .
+        env:
+          INSTALL: ${{ steps.install.outcome }}
+          NATIVE_CONFIG: ${{ steps.native_config.outcome }}
+          DOCTOR: ${{ steps.doctor.outcome }}
+          TESTS: ${{ steps.tests.outcome }}
+          TYPECHECK: ${{ steps.typecheck.outcome }}
+          LINT: ${{ steps.lint.outcome }}
+        run: |
+          cat > .build8-validation-status.txt <<EOF
+          source_sha=${GITHUB_SHA}
+          install=${INSTALL}
+          native_config=${NATIVE_CONFIG}
+          doctor=${DOCTOR}
+          tests=${TESTS}
+          typecheck=${TYPECHECK}
+          lint=${LINT}
+          EOF
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .build8-validation-status.txt
+          git commit -m "Record Build 8 validation result" || true
+          git push
+          if [ "${INSTALL}" != success ] || [ "${NATIVE_CONFIG}" != success ] || [ "${DOCTOR}" != success ] || [ "${TESTS}" != success ] || [ "${TYPECHECK}" != success ] || [ "${LINT}" != success ]; then
+            exit 1
+          fi
