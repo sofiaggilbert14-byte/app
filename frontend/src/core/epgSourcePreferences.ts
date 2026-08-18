@@ -75,8 +75,8 @@ async function flush() {
   }
 }
 
-function commit(value: EpgSourcePreferences) {
-  cached = normalize(value);
+function commitPrepared(value: EpgSourcePreferences) {
+  cached = value;
   loaded = true;
   emit();
   pendingWrite = cached;
@@ -105,17 +105,31 @@ export function useEpgSourcePreferences() {
   }, []);
 
   const update = useCallback((patch: Partial<EpgSourcePreferences>) => {
-    const next = normalize({ ...cached, ...patch });
+    const next: EpgSourcePreferences = {
+      primaryEnabled: patch.primaryEnabled === undefined ? cached.primaryEnabled : patch.primaryEnabled !== false,
+      userEnabled: patch.userEnabled === undefined ? cached.userEnabled : patch.userEnabled === true,
+      userUrl: patch.userUrl === undefined ? cached.userUrl : cleanUrl(patch.userUrl),
+      // Scalar toggles/URL edits retain the existing mapping object; do not walk
+      // 10k bindings unless a bulk override replacement was explicitly requested.
+      userOverrides: patch.userOverrides === undefined ? cached.userOverrides : cleanOverrides(patch.userOverrides),
+    };
     setValue(next);
-    commit(next);
+    commitPrepared(next);
   }, []);
 
   const setUserOverride = useCallback((channelId: string, xmltvId: string | null) => {
-    const next = { ...cached.userOverrides };
-    if (xmltvId?.trim()) next[channelId] = xmltvId.trim();
-    else delete next[channelId];
-    update({ userOverrides: next });
-  }, [update]);
+    const id = String(channelId || "").trim().slice(0, 180);
+    const sourceId = String(xmltvId || "").trim().slice(0, 180);
+    if (!id || id.includes("://")) return;
+    if (sourceId.includes("://")) return;
+    const existing = cached.userOverrides[id] || "";
+    if (existing === sourceId || (!sourceId && !existing)) return;
+    const overrides = { ...cached.userOverrides };
+    if (sourceId) overrides[id] = sourceId; else delete overrides[id];
+    const next = { ...cached, userOverrides: overrides };
+    setValue(next);
+    commitPrepared(next);
+  }, []);
 
   return {
     ...value,

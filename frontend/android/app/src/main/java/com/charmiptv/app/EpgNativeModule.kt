@@ -568,14 +568,11 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         }
         userDatabase.replaceChannelAliases(aliases)
         userDatabase.setMeta("guide_refreshed_at", now.toString())
-        val names = Arguments.createMap()
-        for ((channelId, name) in channelNames) names.putString(channelId, name)
-        val ids = Arguments.createArray()
-        for (channelId in channelIdsWithPrograms) ids.pushString(channelId)
+        // Phase 9 UI reads the XMLTV directory through paged native queries.
+        // Returning every channel name/id here duplicates a potentially huge
+        // directory across the React Native bridge for no consumer.
         promise.resolve(Arguments.createMap().apply {
           putDouble("count", userDatabase.count().toDouble())
-          putMap("channelNames", names)
-          putArray("channelIdsWithPrograms", ids)
         })
       } catch (t: Throwable) {
         promise.reject("USER_EPG_REFRESH_FAILED", t.message ?: "Custom Guide refresh failed", t)
