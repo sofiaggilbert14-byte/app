@@ -996,16 +996,18 @@ export async function refreshPlaylistOnly(): Promise<SourceStatus> {
     if (refreshPromise) await refreshPromise;
     const cached = MEM || (await readChannelCache());
     const fresh = await fetchPlaylist();
-    const oldById = new Map((cached?.channels || []).map((channel) => [channel.id, channel]));
-    const channels = fresh.map((channel) => {
+    // The native parser already returned a fresh channel array. Reuse those
+    // objects while carrying forward logical EPG/logo identity; cloning all
+    // 6k+ rows here doubles the transient heap during token-only refreshes.
+    const oldById = new Map<string, Channel>();
+    for (const channel of cached?.channels || []) oldById.set(channel.id, channel);
+    for (const channel of fresh) {
       const previous = oldById.get(channel.id);
-      if (!previous) return channel;
-      return {
-        ...channel,
-        tvg_id: previous.tvg_id || channel.tvg_id,
-        logo: channel.logo || previous.logo,
-      };
-    });
+      if (!previous) continue;
+      channel.tvg_id = previous.tvg_id || channel.tvg_id;
+      channel.logo = channel.logo || previous.logo;
+    }
+    const channels = fresh;
     const playlistEpoch = (cached?.playlistEpoch || 0) + 1;
     MEM = {
       ...(cached || {
