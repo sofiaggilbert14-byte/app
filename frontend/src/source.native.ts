@@ -153,7 +153,7 @@ async function syncPlaylistToNative(channels: Channel[], playlistEpoch: number):
       playlistId: channel.id,
       rawTvgId: channel.raw_tvg_id || channel.tvg_id || "",
       name: channel.name || "",
-      logo: channel.logo || "",
+      logo: channel.playlist_logo || channel.logo || "",
       group: channel.group || "",
       url: channel.url || "",
       streamType: channel.stream_type || "unknown",
@@ -213,7 +213,7 @@ function playlistNativeContentFingerprint(channels: Channel[]): string {
   const state = { h1: 0x811c9dc5, h2: 0x9e3779b9, chars: 0 };
   for (const channel of channels) {
     hashFields(
-      `${channel.id}\0${channel.raw_tvg_id || channel.tvg_id || ""}\0${channel.name || ""}\0${channel.logo || ""}\0${channel.group || ""}\x01`,
+      `${channel.id}\0${channel.raw_tvg_id || channel.tvg_id || ""}\0${channel.name || ""}\0${channel.playlist_logo || channel.logo || ""}\0${channel.group || ""}\x01`,
       state,
     );
   }
@@ -696,10 +696,13 @@ async function ensureLoaded(): Promise<NativeMeta> {
       lastSourceError = cached.epgError;
       setProgress({ phase: "error", ratio: 0, etaSeconds: null, message: cached.epgError }, true);
     }
-    // Rebuild SQL playlist/match tables after upgrade or cold start (queryGuideWindow needs them).
-    void syncPlaylistToNative(cached.channels, cached.playlistEpoch || 0)
-      .then(() => syncMatchesToNative(cached.channels, cached.guideEpoch || 0))
-      .catch(() => undefined);
+    // A native snapshot came from these exact SQL tables; keep cold start read-only.
+    // JSON fallback/legacy caches still rebuild native indexes after upgrade.
+    if (!nativeCached) {
+      void syncPlaylistToNative(cached.channels, cached.playlistEpoch || 0)
+        .then(() => syncMatchesToNative(cached.channels, cached.guideEpoch || 0))
+        .catch(() => undefined);
+    }
     scheduleStartupSourceRefresh();
     return cached;
   }
