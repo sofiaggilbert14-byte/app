@@ -13,7 +13,8 @@ import type { SourceStatus } from "@/src/api";
 import { type SourceRefreshIntervalHours, useSourceRefreshPreferences } from "@/src/core/sourceRefreshPreferences";
 import { type LogoPriority, useLogoPriority } from "@/src/core/logoPreferences";
 import { chooseLocalLogoFolder, clearLocalLogoFolder } from "@/src/core/localLogoFolder";
-import { channelHasEpgMatch } from "@/src/core/epgUserOverrides";
+import { channelHasOwnedEpgMatch } from "@/src/core/epgUserOverrides";
+import { useEpgSourcePreferences } from "@/src/core/epgSourcePreferences";
 import { GUIDE_START_LAST_USED, useGuideUiPreferences } from "@/src/core/guideUiPreferences";
 import { formatRelativeAge } from "@/src/utils/time";
 import { fonts, radius, tvColors } from "@/src/theme";
@@ -32,6 +33,7 @@ export default function EpgSourcesScreen() {
   const { refresh, channels, clock24h, epgGuideFilter, setEpgGuideFilter, guideWindowHours, setGuideWindowHours, preferTvgIdOnly, setPreferTvgIdOnly } = useStore();
   const sourceRefresh = useSourceRefreshPreferences();
   const guideUi = useGuideUiPreferences();
+  const epgOwnership = useEpgSourcePreferences();
   const [logoPriority, setLogoPriority] = useLogoPriority();
   const [status, setStatus] = useState<SourceStatus>(() => sourceStatus());
   const [diagnostics, setDiagnostics] = useState<SourceDiagnostics | null>(null);
@@ -46,7 +48,7 @@ export default function EpgSourcesScreen() {
     useCallback(() => {
       setPreferTopFocus(true);
       const topTimer = setTimeout(() => scrollRef.current?.scrollTo({ y: 0, animated: false }), 0);
-      const focusTimer = setTimeout(() => setPreferTopFocus(false), 700);
+      const focusTimer = setTimeout(() => setPreferTopFocus(false), 180);
       return () => {
         clearTimeout(topTimer);
         clearTimeout(focusTimer);
@@ -114,13 +116,13 @@ export default function EpgSourcesScreen() {
       const name = (channel.group || "Ungrouped").trim() || "Ungrouped";
       const item = groups.get(name) || { matched: 0, unmatched: 0, total: 0 };
       item.total += 1;
-      if (channelHasEpgMatch(channel)) item.matched += 1;
+      if (channelHasOwnedEpgMatch(channel, epgOwnership)) item.matched += 1;
       else item.unmatched += 1;
       groups.set(name, item);
     }
     return Array.from(groups.entries()).map(([name, counts]) => ({ name, ...counts }))
       .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name)).slice(0, 6);
-  }, [channels]);
+  }, [channels, epgOwnership.primaryEnabled, epgOwnership.userEnabled, epgOwnership.userOverrides]);
 
   const guideStartOptions = useMemo(() => {
     const actualGroups = new Set<string>();
