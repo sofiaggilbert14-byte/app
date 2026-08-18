@@ -11,6 +11,7 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.Transaction
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
@@ -90,6 +91,23 @@ internal interface EpgControlDao {
 
   @Query("DELETE FROM epg_channel_bindings WHERE playlistId = :playlistId AND channelId = :channelId")
   fun clearChannelBinding(playlistId: String, channelId: String)
+
+  @Query("SELECT COUNT(*) FROM epg_channel_bindings WHERE playlistId = :playlistId")
+  fun channelBindingCount(playlistId: String): Int
+
+  @Transaction
+  fun replaceChannelBindings(playlistId: String, bindings: List<EpgChannelBindingEntity>) {
+    clearChannelBindings(playlistId)
+    if (bindings.isNotEmpty()) putChannelBindings(bindings)
+  }
+
+  @Transaction
+  fun setChannelBinding(playlistId: String, channelId: String, xmltvId: String) {
+    clearChannelBinding(playlistId, channelId)
+    if (xmltvId.isNotBlank()) {
+      putChannelBindings(listOf(EpgChannelBindingEntity(playlistId, channelId, xmltvId)))
+    }
+  }
 
   @Query("SELECT * FROM epg_import_state WHERE playlistId = :playlistId LIMIT 1")
   fun importState(playlistId: String): EpgImportStateEntity?

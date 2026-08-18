@@ -204,20 +204,7 @@ export default function CustomEpgScreen() {
     if (!channel || busy) return;
     setBusy(true);
     try {
-      const previous = prefs.userOverrides[channel.id] || null;
-      const overrides = { ...prefs.userOverrides, [channel.id]: xmltvId };
       await setNativeGuideChannelBinding(channel.id, xmltvId);
-      try {
-        await configureNativeGuideOwnership(
-          prefs.primaryEnabled,
-          prefs.userEnabled,
-          prefs.userUrl,
-          overrides,
-        );
-      } catch (error) {
-        await setNativeGuideChannelBinding(channel.id, previous).catch(() => undefined);
-        throw error;
-      }
       prefs.setUserOverride(channel.id, xmltvId);
       invalidateGuideOwnershipCaches();
       void Haptics.selectionAsync().catch(() => undefined);
@@ -234,21 +221,7 @@ export default function CustomEpgScreen() {
     if (!channel || busy) return;
     setBusy(true);
     try {
-      const previous = prefs.userOverrides[channel.id] || null;
-      const overrides = { ...prefs.userOverrides };
-      delete overrides[channel.id];
       await setNativeGuideChannelBinding(channel.id, null);
-      try {
-        await configureNativeGuideOwnership(
-          prefs.primaryEnabled,
-          prefs.userEnabled,
-          prefs.userUrl,
-          overrides,
-        );
-      } catch (error) {
-        await setNativeGuideChannelBinding(channel.id, previous).catch(() => undefined);
-        throw error;
-      }
       prefs.setUserOverride(channel.id, null);
       invalidateGuideOwnershipCaches();
       setStatus(

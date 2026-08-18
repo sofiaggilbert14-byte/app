@@ -134,7 +134,6 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
             updatedAtSeconds = now,
           )
         )
-        controlDao.clearChannelBindings(USER_SOURCE_ID)
         val bindings = ArrayList<EpgChannelBindingEntity>()
         val iterator = userOverrides.keySetIterator()
         while (iterator.hasNextKey()) {
@@ -144,7 +143,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
           bindings.add(EpgChannelBindingEntity(USER_SOURCE_ID, channelId, xmltvId))
           if (bindings.size >= MAX_USER_BINDINGS) break
         }
-        if (bindings.isNotEmpty()) controlDao.putChannelBindings(bindings)
+        controlDao.replaceChannelBindings(USER_SOURCE_ID, bindings)
         promise.resolve(true)
       } catch (t: Throwable) {
         promise.reject("EPG_OWNERSHIP_CONFIG_FAILED", t.message ?: "Could not save Guide ownership", t)
@@ -503,11 +502,8 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         val channel = channelId.trim()
         val xmltv = xmltvId.trim()
         if (channel.isEmpty()) throw IllegalArgumentException("Channel id is empty")
-        controlDao.clearChannelBinding(USER_SOURCE_ID, channel)
-        if (xmltv.isNotEmpty()) {
-          controlDao.putChannelBindings(listOf(EpgChannelBindingEntity(USER_SOURCE_ID, channel, xmltv)))
-        }
-        promise.resolve(true)
+        controlDao.setChannelBinding(USER_SOURCE_ID, channel, xmltv)
+        promise.resolve(controlDao.channelBindingCount(USER_SOURCE_ID))
       } catch (t: Throwable) {
         promise.reject("EPG_BINDING_UPDATE_FAILED", t.message ?: "Could not update Guide channel assignment", t)
       }

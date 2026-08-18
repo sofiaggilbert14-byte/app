@@ -70,7 +70,7 @@ type CharmEpgModule = {
   upsertPlaylistEpgMatches?(matches: NativePlaylistEpgMatchRow[], guideEpoch: number): Promise<boolean>;
   searchProgrammes?(query: string, limit: number): Promise<NativeProgramme[]>;
   configureGuideOwnership?(primaryEnabled: boolean, userEnabled: boolean, userUrl: string, userOverrides: Record<string, string>): Promise<boolean>;
-  setGuideChannelBinding?(channelId: string, xmltvId: string): Promise<boolean>;
+  setGuideChannelBinding?(channelId: string, xmltvId: string): Promise<number>;
   listUserGuideChannels?(query: string, offset: number, limit: number): Promise<{ total: number; rows: { id: string; name: string }[] }>;
   refreshUserGuide?(url: string): Promise<{ count: number; channelNames?: Record<string, string>; channelIdsWithPrograms?: string[] }>;
   clear(): Promise<boolean>;
@@ -90,6 +90,8 @@ const ramModule = NativeModules.CharmEpgRam as CharmEpgRamModule | undefined;
 export const nativeEpgAvailable = Platform.OS === "android" && !!nativeModule;
 export const nativeEpgRamAvailable = Platform.OS === "android" && !!ramModule;
 let ownershipRequiresSqlite = false;
+let primaryGuideEnabled = true;
+let userGuideEnabled = false;
 
 function toProgram(program: NativeProgramme): Program {
   const startMs = Number(program.startMs);
@@ -261,22 +263,28 @@ export async function configureNativeGuideOwnership(
   userUrl: string,
   userOverrides: Record<string, string>,
 ): Promise<void> {
-  const hasUserBindings = userEnabled && !!userUrl.trim() && Object.keys(userOverrides).length > 0;
-  ownershipRequiresSqlite = !primaryEnabled || hasUserBindings;
-  if (ownershipRequiresSqlite && ramModule) {
-    // Primary-only RAM rows must not survive an ownership switch. SQLite remains
-    // bounded to the requested Guide runway and resolves exactly one source/channel.
+  const effectiveUserEnabled = userEnabled && !!userUrl.trim();
+  if (nativeModule?.configureGuideOwnership) {
+    // Native ownership is authoritative. Do not flip the in-process routing flag
+    // until the durable control-DB transaction has actually succeeded.
+    await nativeModule.configureGuideOwnership(primaryEnabled, userEnabled, userUrl, userOverrides);
+  }
+  primaryGuideEnabled = primaryEnabled;
+  userGuideEnabled = effectiveUserEnabled;
+  ownershipRequiresSqlite = !primaryEnabled || (effectiveUserEnabled && Object.keys(userOverrides).length > 0);
+  if (ramModule) {
+    // Any ownership rewrite invalidates primary-only RAM joins, including the
+    // transition back to RAM after the final custom binding is cleared.
     await ramModule.clearMemory().catch(() => undefined);
   }
-  if (!nativeModule?.configureGuideOwnership) return;
-  await nativeModule.configureGuideOwnership(primaryEnabled, userEnabled, userUrl, userOverrides);
 }
 
-export async function setNativeGuideChannelBinding(channelId: string, xmltvId: string | null): Promise<void> {
-  if (!nativeModule?.setGuideChannelBinding) return;
-  if (xmltvId?.trim()) ownershipRequiresSqlite = true;
+export async function setNativeGuideChannelBinding(channelId: string, xmltvId: string | null): Promise<number> {
+  if (!nativeModule?.setGuideChannelBinding) return 0;
+  const count = Math.max(0, Math.round(await nativeModule.setGuideChannelBinding(channelId, xmltvId?.trim() || "")));
+  ownershipRequiresSqlite = !primaryGuideEnabled || (userGuideEnabled && count > 0);
   if (ramModule) await ramModule.clearMemory().catch(() => undefined);
-  await nativeModule.setGuideChannelBinding(channelId, xmltvId?.trim() || "");
+  return count;
 }
 
 export async function listNativeUserGuideChannels(
