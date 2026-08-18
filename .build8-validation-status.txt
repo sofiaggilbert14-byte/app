@@ -1,7 +1,7 @@
-source_sha=739e22f5577efcd83c317d1097924c5fa8a3c3ff
+source_sha=78836a6c9b6f21d65bb77d4de09aeee7d88a9114
 install=success
 native_config=success
-doctor=failure
-tests=failure
+doctor=success
+tests=success
 typecheck=success
 lint=success
