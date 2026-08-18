@@ -29,11 +29,11 @@ export function listProviderGroupNames(
 export function buildPhase9GroupCounts(
   channels: Channel[],
   opts: {
-    favoriteSet: ReadonlySet<string>;
-    recentIds: ReadonlySet<string>;
+    favoriteSet: Set<string>;
+    recentIds: Set<string>;
     hasEpgMatch: (channel: Channel) => boolean;
     isFailed: (channelId: string) => boolean;
-    hiddenIds: ReadonlySet<string>;
+    hiddenIds: Set<string>;
   },
   prefs: ChannelGroupPreferences,
 ): Phase9GroupCountMap {
@@ -54,7 +54,7 @@ export function buildPhase9GroupCounts(
     counts[folder] = (counts[folder] || 0) + 1;
     for (const smart of SMART_GROUPS) {
       if (channelMatchesSmart(channel, smart, {
-        favoriteSet: new Set(opts.favoriteSet),
+        favoriteSet: opts.favoriteSet,
         hasEpgMatch: opts.hasEpgMatch,
         isFailed: opts.isFailed,
       })) counts[smart] += 1;
@@ -105,12 +105,12 @@ export function filterPhase9ChannelsByGroup(
   channels: Channel[],
   group: string,
   opts: {
-    favoriteSet: ReadonlySet<string>;
+    favoriteSet: Set<string>;
     recent: Channel[];
-    recentIds: ReadonlySet<string>;
+    recentIds: Set<string>;
     hasEpgMatch: (channel: Channel) => boolean;
     isFailed: (channelId: string) => boolean;
-    hiddenIds: ReadonlySet<string>;
+    hiddenIds: Set<string>;
     customOrder: string[];
   },
   prefs: ChannelGroupPreferences,
@@ -135,7 +135,7 @@ export function filterPhase9ChannelsByGroup(
     else if (isDefaultFolder) include = classifyChannelFolder(channel) === group;
     else if (isSmartGroup(group)) {
       include = channelMatchesSmart(channel, group, {
-        favoriteSet: new Set(opts.favoriteSet),
+        favoriteSet: opts.favoriteSet,
         hasEpgMatch: opts.hasEpgMatch,
         isFailed: opts.isFailed,
       });

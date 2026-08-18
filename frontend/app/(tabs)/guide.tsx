@@ -41,14 +41,14 @@ import {
 import { getPowerProfileTuning } from "@/src/core/devicePowerProfile";
 import { shouldUseLowRamTuning, useDeviceMemoryProfile } from "@/src/core/deviceMemoryProfile";
 import { channelHasEpgMatch } from "@/src/core/epgUserOverrides";
+import { pinGroup, unpinGroup } from "@/src/core/guideGroups";
 import {
-  buildGroupCounts,
-  buildVisibleGroups,
-  filterChannelsByGroup,
-  listPlaylistGroupNames,
-  pinGroup,
-  unpinGroup,
-} from "@/src/core/guideGroups";
+  buildPhase9GroupCounts,
+  buildPhase9VisibleGroups,
+  filterPhase9ChannelsByGroup,
+  listProviderGroupNames,
+} from "@/src/core/phase9GuideGroups";
+import { useChannelGroupPreferences } from "@/src/core/channelGroupPreferences";
 import { GUIDE_START_LAST_USED, useGuideUiPreferences } from "@/src/core/guideUiPreferences";
 import { resolveChannelNumber, useChannelCustomize } from "@/src/core/channelCustomize";
 import { useParentalPin } from "@/src/core/parentalPin";
@@ -252,6 +252,7 @@ export default function PurpleGuideScreen() {
     setHidePreview,
     setMutePreview,
   } = useGuideUiPreferences();
+  const groupPrefs = useChannelGroupPreferences();
   const { hiddenIds, customOrder, customNumbers } = useChannelCustomize();
   const hiddenIdSet = useMemo(() => new Set(hiddenIds), [hiddenIds]);
   const [groupDrawerOpen, setGroupDrawerOpen] = useState(false);
@@ -486,33 +487,28 @@ export default function PurpleGuideScreen() {
 
   const groupCounts = useMemo(
     () =>
-      buildGroupCounts(channels, {
+      buildPhase9GroupCounts(channels, {
         favoriteSet,
         recentIds: recentIdSet,
         hasEpgMatch: channelHasEpgMatch,
         isFailed: isFailedChannel,
         hiddenIds: hiddenIdSet,
-      }),
+      }, groupPrefs),
     // failedCount invalidates when the in-memory failure registry grows/shrinks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [channels, favoriteSet, recentIdSet, hiddenIdSet, failedCount, epgGuideFilter],
+    [channels, favoriteSet, recentIdSet, hiddenIdSet, failedCount, epgGuideFilter, groupPrefs],
   );
 
   const playlistGroups = useMemo(
-    () => listPlaylistGroupNames(channels, hiddenIdSet),
-    [channels, hiddenIdSet],
+    () => listProviderGroupNames(channels, hiddenIdSet, groupPrefs),
+    [channels, hiddenIdSet, groupPrefs],
   );
 
-  const { tabs: groups, overflow: overflowGroups } = useMemo(
-    () =>
-      buildVisibleGroups({
-        counts: groupCounts,
-        pinned: pinnedGroups,
-        playlistGroups,
-        maxPlaylistTabs: 10,
-      }),
-    [groupCounts, pinnedGroups, playlistGroups],
+  const groups = useMemo(
+    () => buildPhase9VisibleGroups({ counts: groupCounts, pinned: pinnedGroups, providerGroups: playlistGroups, prefs: groupPrefs }),
+    [groupCounts, groupPrefs, pinnedGroups, playlistGroups],
   );
+  const overflowGroups = useMemo<string[]>(() => [], []);
 
   // Apply a fixed start group once per normal Guide entry. "Last used" keeps
   // session state; explicit Search/player jumps always win over this preference.
@@ -532,7 +528,7 @@ export default function PurpleGuideScreen() {
   }, [channels.length, groups, isFocused, overflowGroups, startGroup]);
 
   const filteredMeta = useMemo(() => {
-    let list = filterChannelsByGroup(channels, group, {
+    let list = filterPhase9ChannelsByGroup(channels, group, {
       favoriteSet,
       recent,
       recentIds: recentIdSet,
@@ -540,13 +536,13 @@ export default function PurpleGuideScreen() {
       isFailed: isFailedChannel,
       hiddenIds: hiddenIdSet,
       customOrder,
-    });
+    }, groupPrefs);
     if (epgGuideFilter === "all") return list;
     if (epgGuideFilter === "matched") {
       return list.filter(channelHasEpgMatch);
     }
     return list.filter((c) => !channelHasEpgMatch(c));
-  }, [channels, customOrder, epgGuideFilter, favoriteSet, group, hiddenIdSet, recent, recentIdSet]);
+  }, [channels, customOrder, epgGuideFilter, favoriteSet, group, groupPrefs, hiddenIdSet, recent, recentIdSet]);
 
   // Keep the complete selected group identity stable.
   const filtered = filteredMeta;
