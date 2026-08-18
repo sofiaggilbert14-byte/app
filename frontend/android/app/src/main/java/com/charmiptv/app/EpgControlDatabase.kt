@@ -102,6 +102,16 @@ internal interface EpgControlDao {
   }
 
   @Transaction
+  fun importChannelBindingsIfEmpty(
+    playlistId: String,
+    bindings: List<EpgChannelBindingEntity>,
+  ): Boolean {
+    if (channelBindingCount(playlistId) > 0 || bindings.isEmpty()) return false
+    putChannelBindings(bindings)
+    return true
+  }
+
+  @Transaction
   fun setChannelBinding(playlistId: String, channelId: String, xmltvId: String) {
     clearChannelBinding(playlistId, channelId)
     if (xmltvId.isNotBlank()) {
@@ -135,8 +145,6 @@ internal abstract class EpgControlDatabase : RoomDatabase() {
       ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
     }
 
-    // Version 1 held source rows only. Version 2 adds per-channel offsets and
-    // durable import/blackout state without dropping user configuration.
     private val MIGRATION_1_2 = object : Migration(1, 2) {
       override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL(
