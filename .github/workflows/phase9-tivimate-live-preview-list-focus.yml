@@ -1,0 +1,92 @@
+name: Phase 9 TiviMate Live Preview List Focus
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-live-preview-list-focus.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Add deterministic Live preview to recent-list focus bridge
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          page = Path('frontend/app/(tabs)/index.tsx')
+          s = page.read_text()
+          s = s.replace(
+              'import React, { useCallback, useEffect, useMemo, useState } from "react";\n',
+              'import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";\n',
+              1,
+          )
+          s = s.replace(
+              'import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";\n',
+              'import { findNodeHandle, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";\n',
+              1,
+          )
+
+          old_sig = '''  onPlay,\n}: {\n  channel: Channel;\n  now: Date;\n  isFocused: boolean;\n  channelLogos: boolean;\n  channelNumbers: boolean;\n  channelNumber?: number;\n  onPlay: (channel: Channel) => void;\n}) {'''
+          new_sig = '''  onPlay,\n  inputRef,\n  nextFocusUp,\n}: {\n  channel: Channel;\n  now: Date;\n  isFocused: boolean;\n  channelLogos: boolean;\n  channelNumbers: boolean;\n  channelNumber?: number;\n  onPlay: (channel: Channel) => void;\n  inputRef?: (node: unknown) => void;\n  nextFocusUp?: number;\n}) {'''
+          if 'inputRef?: (node: unknown) => void;' not in s:
+              if old_sig not in s: raise SystemExit('RecentChannelCard signature marker not found')
+              s = s.replace(old_sig, new_sig, 1)
+
+          old_press = '''    <Pressable\n      onPress={() => onPlay(channel)}\n      style={({ focused }: any) => [styles.channelCard, focused && styles.focused]}\n'''
+          new_press = '''    <Pressable\n      ref={inputRef as any}\n      nextFocusUp={nextFocusUp}\n      onPress={() => onPlay(channel)}\n      style={({ focused }: any) => [styles.channelCard, focused && styles.focused]}\n'''
+          if 'nextFocusUp={nextFocusUp}' not in s:
+              if old_press not in s: raise SystemExit('RecentChannelCard Pressable marker not found')
+              s = s.replace(old_press, new_press, 1)
+
+          state_marker = '''  const [now, setNow] = useState(() => new Date());\n  const [preferInitialFocus, setPreferInitialFocus] = useState(true);\n'''
+          state_new = state_marker + '''  const heroButtonRef = useRef<unknown>(null);\n  const firstRecentRef = useRef<unknown>(null);\n  const [heroButtonTag, setHeroButtonTag] = useState<number | undefined>();\n  const [firstRecentTag, setFirstRecentTag] = useState<number | undefined>();\n\n  const bindHeroButtonRef = useCallback((node: unknown) => {\n    heroButtonRef.current = node;\n    const tag = node ? findNodeHandle(node as any) : null;\n    setHeroButtonTag(tag || undefined);\n  }, []);\n  const bindFirstRecentRef = useCallback((node: unknown) => {\n    firstRecentRef.current = node;\n    const tag = node ? findNodeHandle(node as any) : null;\n    setFirstRecentTag(tag || undefined);\n  }, []);\n'''
+          if 'const bindFirstRecentRef' not in s:
+              if state_marker not in s: raise SystemExit('Live focus state marker not found')
+              s = s.replace(state_marker, state_new, 1)
+
+          hero_marker = '''              <Pressable\n                hasTVPreferredFocus={preferInitialFocus}\n                onPress={() => play(heroChannel)}\n'''
+          hero_new = '''              <Pressable\n                ref={bindHeroButtonRef as any}\n                hasTVPreferredFocus={preferInitialFocus}\n                nextFocusDown={firstRecentTag}\n                onPress={() => play(heroChannel)}\n'''
+          if 'nextFocusDown={firstRecentTag}' not in s:
+              if hero_marker not in s: raise SystemExit('hero Watch button marker not found')
+              s = s.replace(hero_marker, hero_new, 1)
+
+          art_marker = '''          <Pressable\n            disabled={!heroChannel}\n            onPress={() => heroChannel && play(heroChannel)}\n'''
+          art_new = '''          <Pressable\n            disabled={!heroChannel}\n            nextFocusDown={firstRecentTag}\n            onPress={() => heroChannel && play(heroChannel)}\n'''
+          if s.count('nextFocusDown={firstRecentTag}') < 2:
+              if art_marker not in s: raise SystemExit('hero artwork marker not found')
+              s = s.replace(art_marker, art_new, 1)
+
+          map_old = '''          {recentLive.map((channel) => (\n            <RecentChannelCard\n              key={channel.id}\n              channel={channel}\n'''
+          map_new = '''          {recentLive.map((channel, index) => (\n            <RecentChannelCard\n              key={channel.id}\n              channel={channel}\n              inputRef={index === 0 ? bindFirstRecentRef : undefined}\n              nextFocusUp={index === 0 ? heroButtonTag : undefined}\n'''
+          if 'inputRef={index === 0 ? bindFirstRecentRef : undefined}' not in s:
+              if map_old not in s: raise SystemExit('recent strip map marker not found')
+              s = s.replace(map_old, map_new, 1)
+          page.write_text(s)
+
+          test = Path('frontend/tests/guideShellPolish.test.mjs')
+          t = test.read_text()
+          marker = '''test("automatic refresh stays away from guide and player screens", async () => {\n'''
+          case = '''test("Live preview has an explicit D-pad bridge into the recent channel list", async () => {\n  const live = await source("app/(tabs)/index.tsx");\n  assert.match(live, /findNodeHandle/);\n  assert.match(live, /nextFocusDown=\\{firstRecentTag\\}/);\n  assert.match(live, /inputRef=\\{index === 0 \\? bindFirstRecentRef : undefined\\}/);\n  assert.match(live, /nextFocusUp=\\{index === 0 \\? heroButtonTag : undefined\\}/);\n  assert.match(live, /ref=\\{bindHeroButtonRef as any\\}/);\n  assert.match(live, /ref=\\{inputRef as any\\}/);\n});\n\n'''
+          if 'Live preview has an explicit D-pad bridge' not in t:
+              if marker not in t: raise SystemExit('Live focus regression insertion marker not found')
+              t = t.replace(marker, case + marker, 1)
+          test.write_text(t)
+          PY
+      - name: Commit Live preview list focus bridge
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/app/'(tabs)'/index.tsx frontend/tests/guideShellPolish.test.mjs
+          git commit -m "phase9: bridge Live preview focus into recent channels"
+          git push origin HEAD:phase9/purple-next
