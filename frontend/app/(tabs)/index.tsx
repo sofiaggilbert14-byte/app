@@ -32,7 +32,7 @@ function RecentChannelCard({
   onPlay: (channel: Channel) => void;
 }) {
   const programs = useGuidePrograms(channel.id);
-  const current = nowNext(programs.length ? programs : channel.programs, now).current;
+  const current = nowNext(programs, now).current;
   return (
     <Pressable
       onPress={() => onPlay(channel)}
@@ -86,7 +86,7 @@ export default function LiveTvHomeScreen() {
   useFocusEffect(
     useCallback(() => {
       setPreferInitialFocus(true);
-      const timer = setTimeout(() => setPreferInitialFocus(false), 700);
+      const timer = setTimeout(() => setPreferInitialFocus(false), 180);
       return () => clearTimeout(timer);
     }, []),
   );
@@ -110,7 +110,7 @@ export default function LiveTvHomeScreen() {
 
   const heroPrograms = useGuidePrograms(heroChannel?.id);
   const heroProgram = useMemo(
-    () => (heroChannel ? nowNext(heroPrograms.length ? heroPrograms : heroChannel.programs, now).current : undefined),
+    () => (heroChannel ? nowNext(heroPrograms, now).current : undefined),
     [heroChannel, heroPrograms, now],
   );
   const heroProgress = heroProgram ? progressPct(heroProgram, now) : 0;
