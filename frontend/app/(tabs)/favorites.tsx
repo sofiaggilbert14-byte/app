@@ -1,6 +1,6 @@
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -85,7 +85,7 @@ export default function FavoritesScreen() {
     removeFavoriteFolder,
     clock24h,
   } = useStore();
-  void clock24h; // re-render times when 12/24h setting flips
+  void clock24h;
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
   const [folderId, setFolderId] = useState<string | "all">("all");
   const folderMode = folderId !== "all";
@@ -95,17 +95,20 @@ export default function FavoritesScreen() {
     return new Set(folder?.channelIds || []);
   }, [favoriteFolders, folderId, folderMode]);
 
-  // Always list all favorites so a selected folder can assign members (long-press).
-  // When browsing a folder, members sort first.
   const items = useMemo(() => {
-    const all = [...channels].filter((c) => favoriteSet.has(c.id)).sort(byName);
+    // Build only the favorite subset. `[...channels].filter(...)` cloned the
+    // whole playlist before discarding nearly all of it on large providers.
+    const all: Channel[] = [];
+    for (const channel of channels) if (favoriteSet.has(channel.id)) all.push(channel);
+    all.sort(byName);
     if (!folderMemberSet) return all;
-    return [...all].sort((a, b) => {
+    all.sort((a, b) => {
       const aIn = folderMemberSet.has(a.id) ? 0 : 1;
       const bIn = folderMemberSet.has(b.id) ? 0 : 1;
       if (aIn !== bIn) return aIn - bIn;
       return byName(a, b);
     });
+    return all;
   }, [channels, favoriteSet, folderMemberSet]);
   const [now, setNow] = useState(() => new Date());
   const [preferInitialFocus, setPreferInitialFocus] = useState(true);
@@ -117,11 +120,13 @@ export default function FavoritesScreen() {
     return () => clearInterval(timer);
   }, [isFocused]);
 
-  useEffect(() => {
-    if (!preferInitialFocus) return;
-    const timer = setTimeout(() => setPreferInitialFocus(false), 700);
-    return () => clearTimeout(timer);
-  }, [preferInitialFocus]);
+  useFocusEffect(
+    useCallback(() => {
+      setPreferInitialFocus(true);
+      const timer = setTimeout(() => setPreferInitialFocus(false), 700);
+      return () => clearTimeout(timer);
+    }, []),
+  );
 
   const play = useCallback((channel: Channel) => {
     void Haptics.selectionAsync().catch(() => undefined);
@@ -188,10 +193,7 @@ export default function FavoritesScreen() {
             </Pressable>
           ))}
           {folderMode ? (
-            <Pressable
-              onPress={onRenameSelectedFolder}
-              style={({ focused }: any) => [styles.folderChip, focused && styles.focused]}
-            >
+            <Pressable onPress={onRenameSelectedFolder} style={({ focused }: any) => [styles.folderChip, focused && styles.focused]}>
               <Text style={styles.folderText}>Rename</Text>
             </Pressable>
           ) : null}
