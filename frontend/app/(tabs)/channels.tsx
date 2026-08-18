@@ -1,6 +1,6 @@
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -112,7 +112,10 @@ export default function ChannelsScreen() {
   const alphabeticalIds = useMemo(() => alphabetical.map((channel) => channel.id), [alphabetical]);
   const ordered = useMemo(() => {
     if (!customize.customOrder.length) return alphabetical;
-    const byId = new Map(channels.map((channel) => [channel.id, channel] as const));
+    // Build directly instead of channels.map(...)->Map, avoiding a full tuple
+    // array while arranging playlists with thousands of channels.
+    const byId = new Map<string, Channel>();
+    for (const channel of channels) byId.set(channel.id, channel);
     const result: Channel[] = [];
     const seen = new Set<string>();
     for (const id of customize.customOrder) {
@@ -140,11 +143,15 @@ export default function ChannelsScreen() {
     return () => clearInterval(timer);
   }, [isFocused]);
 
-  useEffect(() => {
-    if (!preferInitialFocus) return;
-    const timer = setTimeout(() => setPreferInitialFocus(false), 700);
-    return () => clearTimeout(timer);
-  }, [preferInitialFocus]);
+  // Channels is a persistent tab route. Re-arm preferred focus every time it
+  // becomes active so returning from Search/player cannot leave focus detached.
+  useFocusEffect(
+    useCallback(() => {
+      setPreferInitialFocus(true);
+      const timer = setTimeout(() => setPreferInitialFocus(false), 700);
+      return () => clearTimeout(timer);
+    }, []),
+  );
 
   const play = useCallback((channel: Channel) => {
     void Haptics.selectionAsync().catch(() => undefined);
