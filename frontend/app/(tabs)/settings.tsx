@@ -761,6 +761,11 @@ export default function SettingsScreen() {
                   </Pressable>
                 </View>
                 <Action
+                  label="Manage groups & tabs"
+                  icon="albums-outline"
+                  onPress={() => router.push("/group-settings" as any)}
+                />
+                <Action
                   label="Clear custom order"
                   icon="refresh-outline"
                   onPress={() => {
