@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useEffect, useRef } from "react";
 import { DeviceEventEmitter, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
@@ -21,7 +21,17 @@ export function PurpleGuideGroupDrawer({
   onOpenMainDrawer: () => void;
 }) {
   const refs = useRef(new Map<string, unknown>());
-  const active = useMemo(() => groups.find((item) => item.active) || groups[0], [groups]);
+  const activeNameRef = useRef<string | null>(null);
+  const closeToGuideRef = useRef(onCloseToGuide);
+  const openMainDrawerRef = useRef(onOpenMainDrawer);
+
+  // Keep the latest callbacks/data available to the single open-scoped remote
+  // listener without tearing that listener down on every Guide render. Group
+  // counts and EPG refreshes can update frequently while this drawer is open;
+  // they must never launch another focus-retry sequence under the user's cursor.
+  activeNameRef.current = groups.find((item) => item.active)?.name || groups[0]?.name || null;
+  closeToGuideRef.current = onCloseToGuide;
+  openMainDrawerRef.current = onOpenMainDrawer;
 
   useEffect(() => {
     if (!open) return;
@@ -32,12 +42,16 @@ export function PurpleGuideGroupDrawer({
     setRemoteContext("guide_groups");
     const off = addTvKeyListener((key) => {
       if (key === "LEFT" || key === "BACK") {
-        onOpenMainDrawer();
+        openMainDrawerRef.current();
         return;
       }
-      if (key === "RIGHT") onCloseToGuide();
+      if (key === "RIGHT") closeToGuideRef.current();
     });
-    const node = active ? refs.current.get(active.name) : null;
+
+    // Claim focus once per drawer entry. After this, Android owns vertical focus
+    // movement until the drawer closes; active-group/count updates cannot yank it.
+    const activeName = activeNameRef.current;
+    const node = activeName ? refs.current.get(activeName) : null;
     const cancelFocus = requestNativeFocusWithRetry(node, [0, 80, 160, 260]);
     return () => {
       off();
@@ -45,13 +59,13 @@ export function PurpleGuideGroupDrawer({
       setRemoteContext("guide");
       setGuideNavigationActive(true);
     };
-  }, [active, onCloseToGuide, onOpenMainDrawer, open]);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
-    const sub = DeviceEventEmitter.addListener("CharmGuideGroupsRequestClose", onCloseToGuide);
+    const sub = DeviceEventEmitter.addListener("CharmGuideGroupsRequestClose", () => closeToGuideRef.current());
     return () => sub.remove();
-  }, [onCloseToGuide, open]);
+  }, [open]);
 
   if (!open) return null;
 
