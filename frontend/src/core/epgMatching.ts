@@ -17,7 +17,7 @@ export type XmltvMatchIndexes = {
   ambiguousNormalizedIds: Set<string>;
   ambiguousNormalizedNames: Set<string>;
   idsWithPrograms: Set<string>;
-  /** Stable fingerprint of programme-bearing ids + names (not logos). */
+  /** Stable compact fingerprint of programme-bearing ids + names (not logos). */
   fingerprint: string;
 };
 
@@ -55,6 +55,38 @@ function setUniqueOrAmbiguous(map: Map<string, string>, key: string, id: string)
   map.set(key, AMBIGUOUS_SENTINEL);
 }
 
+function hash32(value: string, seed: number): number {
+  let hash = seed >>> 0;
+  for (let index = 0; index < value.length; index++) {
+    hash = Math.imul(hash ^ value.charCodeAt(index), 0x01000193) >>> 0;
+  }
+  return hash >>> 0;
+}
+
+/**
+ * Order-independent compact fingerprint. The previous implementation sorted and
+ * joined every XMLTV id/name into one huge string, causing a large transient heap
+ * spike on provider guides. Two commutative 32-bit accumulators + counts keep the
+ * identity stable without materializing the full guide metadata twice.
+ */
+function compactIndexFingerprint(ids: Iterable<string>, names: Record<string, string>): string {
+  let xorA = 0;
+  let sumB = 0;
+  let count = 0;
+  let chars = 0;
+  const add = (value: string) => {
+    const a = hash32(value, 0x811c9dc5);
+    const b = hash32(value, 0x9e3779b9);
+    xorA = (xorA ^ a) >>> 0;
+    sumB = (sumB + b) >>> 0;
+    count += 1;
+    chars += value.length;
+  };
+  for (const id of ids) add(`i:${id}`);
+  for (const [id, name] of Object.entries(names)) add(`n:${id}=${name}`);
+  return `xmltv-v2:${count}:${chars}:${xorA.toString(16)}:${sumB.toString(16)}`;
+}
+
 /** Build lookup maps from XMLTV channel metadata + programme channel ids. */
 export function buildXmltvMatchIndexes(input: {
   channelIds: Iterable<string>;
@@ -89,12 +121,7 @@ export function buildXmltvMatchIndexes(input: {
   for (const key of ambiguousNormalizedIds) idByNormalizedId.delete(key);
   for (const key of ambiguousNormalizedNames) idByNormalizedName.delete(key);
 
-  const fingerprint = [
-    ...Array.from(idsWithPrograms).sort(),
-    ...Object.entries(input.channelNames || {})
-      .map(([id, name]) => `${id}=${name}`)
-      .sort(),
-  ].join("|");
+  const fingerprint = compactIndexFingerprint(idsWithPrograms, input.channelNames || {});
 
   return {
     idByNormalizedId,
@@ -195,25 +222,14 @@ export function applyXmltvMatchesToChannels(
 ): { channels: Channel[]; quality: EpgMatchQuality } {
   const preferTvgIdOnly = !!options.preferTvgIdOnly;
   const only = options.onlyChannelIds ? new Set(options.onlyChannelIds) : null;
-  const priority = new Set(options.priorityChannelIds || []);
-  const order =
-    !only && priority.size > 0
-      ? [
-          ...channels.filter((c) => priority.has(c.id)),
-          ...channels.filter((c) => !priority.has(c.id)),
-        ]
-      : channels;
+  const priority = only ? null : new Set(options.priorityChannelIds || []);
 
   let matched = 0;
   let ambiguous = 0;
   let unmatched = 0;
-  const byId = new Map<string, Channel>();
+  const changedById = new Map<string, Channel>();
 
-  for (const channel of order) {
-    if (only && !only.has(channel.id)) {
-      byId.set(channel.id, channel);
-      continue;
-    }
+  const process = (channel: Channel) => {
     const result = matchPlaylistChannelToXmltv(channel, indexes, logos, { preferTvgIdOnly });
     if (result.ambiguous && !result.sourceId) ambiguous++;
     else if (result.sourceId) matched++;
@@ -226,18 +242,28 @@ export function applyXmltvMatchesToChannels(
       : (playlistLogo || xmltvLogo || channel.logo || "");
     const nextGuideId = result.sourceId || channel.tvg_id;
 
-    if (nextLogo === channel.logo && nextGuideId === channel.tvg_id && playlistLogo === (channel.playlist_logo || "") && xmltvLogo === (channel.epg_logo || "")) {
-      byId.set(channel.id, channel);
-    } else {
-      byId.set(channel.id, { ...channel, tvg_id: nextGuideId, logo: nextLogo, playlist_logo: playlistLogo, epg_logo: xmltvLogo });
+    if (nextLogo !== channel.logo || nextGuideId !== channel.tvg_id || playlistLogo !== (channel.playlist_logo || "") || xmltvLogo !== (channel.epg_logo || "")) {
+      changedById.set(channel.id, { ...channel, tvg_id: nextGuideId, logo: nextLogo, playlist_logo: playlistLogo, epg_logo: xmltvLogo });
     }
+  };
+
+  if (only) {
+    // Scan the source once but retain only changed subset rows. The old code put
+    // every untouched channel in a second 6,000-entry Map during each viewport pass.
+    for (const channel of channels) {
+      if (only.has(channel.id)) process(channel);
+    }
+  } else if (priority && priority.size > 0) {
+    // Preserve priority-first semantics without allocating two full filtered arrays.
+    for (const channel of channels) if (priority.has(channel.id)) process(channel);
+    for (const channel of channels) if (!priority.has(channel.id)) process(channel);
+  } else {
+    for (const channel of channels) process(channel);
   }
 
-  const nextChannels = channels.map((c) => byId.get(c.id) || c);
-  if (only) {
-    // Partial pass — quality counts only cover the subset; caller may merge later.
-    return { channels: nextChannels, quality: { matched, ambiguous, unmatched } };
-  }
+  const nextChannels = changedById.size
+    ? channels.map((channel) => changedById.get(channel.id) || channel)
+    : channels;
   return { channels: nextChannels, quality: { matched, ambiguous, unmatched } };
 }
 
