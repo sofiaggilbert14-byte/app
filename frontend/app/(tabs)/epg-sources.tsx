@@ -23,6 +23,8 @@ const REFRESH_OPTIONS: { label: string; value: SourceRefreshIntervalHours }[] = 
   { label: "6h", value: 6 }, { label: "12h", value: 12 }, { label: "24h", value: 24 },
 ];
 
+type ActiveAction = "refresh-all" | "refresh-epg" | "rebuild" | "logo" | null;
+
 export default function EpgSourcesScreen() {
   const router = useRouter();
   const { refresh, channels, clock24h, epgGuideFilter, setEpgGuideFilter, guideWindowHours, setGuideWindowHours, preferTvgIdOnly, setPreferTvgIdOnly } = useStore();
@@ -30,11 +32,12 @@ export default function EpgSourcesScreen() {
   const [logoPriority, setLogoPriority] = useLogoPriority();
   const [status, setStatus] = useState<SourceStatus>(() => sourceStatus());
   const [diagnostics, setDiagnostics] = useState<SourceDiagnostics | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [activeAction, setActiveAction] = useState<ActiveAction>(null);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
   const [preferTopFocus, setPreferTopFocus] = useState(true);
   const operationInFlight = useRef(false);
   const scrollRef = useRef<ScrollView | null>(null);
+  const busy = activeAction !== null;
 
   useFocusEffect(
     useCallback(() => {
@@ -62,10 +65,10 @@ export default function EpgSourcesScreen() {
     return subscribeSource(load);
   }, [load]);
 
-  const runAction = useCallback(async (message: string, action: () => Promise<string>) => {
+  const runAction = useCallback(async (kind: Exclude<ActiveAction, null>, message: string, action: () => Promise<string>) => {
     if (operationInFlight.current) return;
     operationInFlight.current = true;
-    setBusy(true);
+    setActiveAction(kind);
     setActionStatus(message);
     void Haptics.selectionAsync().catch(() => undefined);
     try {
@@ -75,28 +78,28 @@ export default function EpgSourcesScreen() {
       setActionStatus(error instanceof Error ? error.message : "The EPG operation failed.");
     } finally {
       operationInFlight.current = false;
-      setBusy(false);
+      setActiveAction(null);
     }
   }, [load]);
 
-  const refreshAll = useCallback(() => void runAction("Refreshing playlist and EPG…", async () => {
+  const refreshAll = useCallback(() => void runAction("refresh-all", "Refreshing playlist and EPG…", async () => {
     setStatus(await refreshSource(true));
     await refresh(true);
     return "Playlist and EPG refreshed.";
   }), [refresh, runAction]);
-  const refreshGuide = useCallback(() => void runAction("Refreshing EPG only…", async () => {
+  const refreshGuide = useCallback(() => void runAction("refresh-epg", "Refreshing EPG only…", async () => {
     setStatus(await refreshEpgOnly());
     await refresh(true);
     return "EPG refreshed. Playlist was left unchanged.";
   }), [refresh, runAction]);
-  const rebuildGuide = useCallback(() => void runAction("Clearing and rebuilding guide cache…", async () => {
+  const rebuildGuide = useCallback(() => void runAction("rebuild", "Clearing and rebuilding guide cache…", async () => {
     await clearGuideCache();
     setStatus(await refreshSource(true));
     await refresh(true);
     return "Guide cache rebuilt. Favorites were not changed.";
   }), [refresh, runAction]);
   const logoAction = useCallback((message: string, done: string, action: () => Promise<unknown>) => {
-    void runAction(message, async () => {
+    void runAction("logo", message, async () => {
       await action();
       return done;
     });
@@ -149,14 +152,14 @@ export default function EpgSourcesScreen() {
             <Card title="Refresh Schedule" icon="time-outline">
               <ChoiceRow<SourceRefreshIntervalHours> label="Playlist auto refresh" value={sourceRefresh.playlistHours} options={REFRESH_OPTIONS} onChange={sourceRefresh.setPlaylistHours} />
               <ChoiceRow<SourceRefreshIntervalHours> label="EPG auto refresh" value={sourceRefresh.epgHours} options={REFRESH_OPTIONS} onChange={sourceRefresh.setEpgHours} />
-              <Text style={styles.help}>Playlist and EPG refresh independently. Manual only disables automatic checks for that source.</Text>
-              <Action label={busy ? "Working…" : "Refresh playlist & EPG now"} icon="refresh" onPress={refreshAll} disabled={busy} />
-              <Action label={busy ? "Working…" : "Refresh EPG only now"} icon="calendar-outline" onPress={refreshGuide} disabled={busy} />
+              <Text style={styles.help}>Playlist and EPG refresh independently. Only the operation you start runs; repeat OK presses are ignored until it finishes.</Text>
+              <Action label={activeAction === "refresh-all" ? "Working…" : "Refresh playlist & EPG now"} icon="refresh" onPress={refreshAll} disabled={busy} />
+              <Action label={activeAction === "refresh-epg" ? "Working…" : "Refresh EPG only now"} icon="calendar-outline" onPress={refreshGuide} disabled={busy} />
             </Card>
             <Card title="Channel Logo Sources" icon="image-outline">
               <ChoiceRow<LogoPriority> label="Channel logos priority" value={logoPriority} options={[{ label: "Prefer playlist", value: "playlist" }, { label: "Prefer EPG", value: "epg" }]} onChange={setLogoPriority} />
               <Text style={styles.help}>The preferred source wins; the other URL remains available as fallback.</Text>
-              <Action label="Choose local / USB / network logo folder" icon="folder-open-outline" onPress={() => logoAction("Opening logo folder picker…", "Logo folder selection finished.", chooseLocalLogoFolder)} disabled={busy} />
+              <Action label={activeAction === "logo" ? "Working…" : "Choose local / USB / network logo folder"} icon="folder-open-outline" onPress={() => logoAction("Opening logo folder picker…", "Logo folder selection finished.", chooseLocalLogoFolder)} disabled={busy} />
               <Action label="Stop using local logo folder" icon="folder-outline" onPress={() => logoAction("Removing local logo folder…", "Local logo folder removed.", clearLocalLogoFolder)} disabled={busy} />
               <Action label="Clear channel logo cache" icon="image-outline" onPress={() => logoAction("Clearing channel logo cache…", "Channel logo cache cleared.", () => clearChannelLogoCache(true))} disabled={busy} />
             </Card>
@@ -175,7 +178,7 @@ export default function EpgSourcesScreen() {
             </Card>
             <Card title="Maintenance" icon="construct-outline">
               <Text style={styles.help}>Rebuilding clears playlist/EPG metadata and the native guide database, then downloads fresh data. Favorites remain intact.</Text>
-              <Action label={busy ? "Working…" : "Clear & rebuild guide cache"} icon="trash-outline" onPress={rebuildGuide} disabled={busy} />
+              <Action label={activeAction === "rebuild" ? "Working…" : "Clear & rebuild guide cache"} icon="trash-outline" onPress={rebuildGuide} disabled={busy} />
             </Card>
             {actionStatus ? <Text style={styles.actionStatus} accessibilityLiveRegion="polite">{actionStatus}</Text> : null}
           </ScrollView>
@@ -198,8 +201,6 @@ function ChoiceRow<T extends string | number>({ label, value, options, onChange 
   return <View style={styles.choiceBlock}><Text style={styles.settingLabel}>{label}</Text><View style={styles.choices}>{options.map((option) => <Pressable key={String(option.value)} onPress={() => onChange(option.value)} style={({ focused }: any) => [styles.choice, option.value === value && styles.choiceActive, focused && styles.focused]}><Text style={[styles.choiceText, option.value === value && styles.choiceTextActive]}>{option.label}</Text></Pressable>)}</View></View>;
 }
 function Action({ label, icon, onPress, disabled }: { label: string; icon: React.ComponentProps<typeof Ionicons>["name"]; onPress: () => void; disabled?: boolean }) {
-  // Keep the currently focused TV control mounted/focusable while work runs.
-  // runAction's synchronous ref lock rejects repeat presses without dropping D-pad focus.
   return <Pressable accessibilityState={{ busy: Boolean(disabled) }} onPress={onPress} style={({ focused }: any) => [styles.action, disabled && styles.disabled, focused && styles.focused]}><Ionicons name={icon} size={14} color="#fff" /><Text style={styles.actionText}>{label}</Text></Pressable>;
 }
 function Info({ label, value }: { label: string; value: string }) {
