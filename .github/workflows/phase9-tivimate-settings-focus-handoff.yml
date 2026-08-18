@@ -56,3 +56,5 @@ jobs:
           git add frontend/app/'(tabs)'/settings.tsx frontend/tests/nativeGuideArchitecture.test.mjs
           git commit -m "phase9: preserve Settings focus across section swaps"
           git push origin HEAD:phase9/purple-next
+
+# retry after concurrent Phase 9 source commits
