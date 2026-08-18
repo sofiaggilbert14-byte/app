@@ -80,6 +80,10 @@ export default function CustomEpgScreen() {
   );
   const xmltvPageCount = Math.max(1, Math.ceil(xmltvTotal / XMLTV_PAGE_SIZE));
 
+  useEffect(() => {
+    setChannelPage((current) => Math.max(0, Math.min(channelPageCount - 1, current)));
+  }, [channelPageCount]);
+
   const reloadXmltvPage = useCallback(async () => {
     const generation = ++queryGeneration.current;
     try {
