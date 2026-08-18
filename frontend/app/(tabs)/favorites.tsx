@@ -42,7 +42,7 @@ const FavoriteRow = memo(function FavoriteRow({
   onFocusChannel: (id: string | null) => void;
 }) {
   const programmes = useGuidePrograms(channel.id);
-  const current = nowNext(programmes.length ? programmes : channel.programs, now).current;
+  const current = nowNext(programmes, now).current;
   const isTV = Platform.OS !== "web" && Platform.isTV;
   const progress = current ? progressPct(current, now) : 0;
   return (
@@ -133,7 +133,7 @@ export default function FavoritesScreen() {
   useFocusEffect(
     useCallback(() => {
       setPreferInitialFocus(true);
-      const timer = setTimeout(() => setPreferInitialFocus(false), 700);
+      const timer = setTimeout(() => setPreferInitialFocus(false), 180);
       return () => clearTimeout(timer);
     }, []),
   );
