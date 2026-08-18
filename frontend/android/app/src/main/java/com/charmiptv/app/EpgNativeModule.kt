@@ -769,9 +769,14 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         val userSource = controlDao.source(USER_SOURCE_ID)
         val userEnabled = userSource?.enabled == true && userSource.url.isNotBlank()
         val rows = ArrayList<NativeEpgProgram>()
-        if (primaryEnabled) rows.addAll(database.searchProgrammes(query, safeLimit))
+        val bindings = if (userEnabled) controlDao.allChannelBindings(USER_SOURCE_ID) else emptyList()
+        val excludedPrimaryXmltvIds = if (primaryEnabled && bindings.isNotEmpty()) {
+          database.matchedXmltvIdsForPlaylistIds(bindings.map { it.channelId })
+        } else emptySet()
+        if (primaryEnabled) {
+          rows.addAll(database.searchProgrammes(query, safeLimit, excludedPrimaryXmltvIds))
+        }
         if (userEnabled && rows.size < safeLimit) {
-          val bindings = controlDao.allChannelBindings(USER_SOURCE_ID)
           if (bindings.isNotEmpty()) {
             val playlistIdsByXmltv = HashMap<String, MutableList<String>>()
             for (binding in bindings) playlistIdsByXmltv.getOrPut(binding.xmltvId) { ArrayList() }.add(binding.channelId)

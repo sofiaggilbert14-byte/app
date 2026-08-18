@@ -801,7 +801,27 @@ internal class EpgDatabase(context: Context, private val databaseName: String = 
 
   fun count(): Long = countTable(LIVE_TABLE)
 
-  fun searchProgrammes(query: String, limit: Int = 80): List<NativeEpgProgram> {
+  fun matchedXmltvIdsForPlaylistIds(playlistIds: Collection<String>): Set<String> {
+    if (playlistIds.isEmpty()) return emptySet()
+    val result = LinkedHashSet<String>()
+    for (chunk in playlistIds.chunked(IN_CLAUSE_CHUNK)) {
+      if (chunk.isEmpty()) continue
+      val placeholders = chunk.joinToString(",") { "?" }
+      readableDatabase.rawQuery(
+        "SELECT xmltv_id FROM $MATCH_TABLE WHERE playlist_id IN ($placeholders) AND xmltv_id != ''",
+        chunk.toTypedArray(),
+      ).use { cursor ->
+        while (cursor.moveToNext()) cursor.getString(0)?.takeIf { it.isNotBlank() }?.let(result::add)
+      }
+    }
+    return result
+  }
+
+  fun searchProgrammes(
+    query: String,
+    limit: Int = 80,
+    excludedChannelIds: Set<String> = emptySet(),
+  ): List<NativeEpgProgram> {
     val match = query.trim().replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
     if (match.isEmpty()) return emptyList()
     val result = ArrayList<NativeEpgProgram>()
@@ -817,10 +837,14 @@ internal class EpgDatabase(context: Context, private val databaseName: String = 
       arrayOf(
         "$match*",
         toEpochSeconds(System.currentTimeMillis()).toString(),
-        limit.coerceIn(1, 250).toString(),
+        (if (excludedChannelIds.isEmpty()) limit else (limit * 3)).coerceIn(1, 250).toString(),
       ),
     ).use { cursor -> appendPrograms(cursor, result) }
-    return result
+    if (excludedChannelIds.isEmpty()) return result.take(limit.coerceIn(1, 250))
+    return result.asSequence()
+      .filterNot { it.channelId in excludedChannelIds }
+      .take(limit.coerceIn(1, 250))
+      .toList()
   }
 
   private fun rebuildProgrammeSearch(db: SQLiteDatabase) {
