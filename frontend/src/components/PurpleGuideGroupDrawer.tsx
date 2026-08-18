@@ -1,11 +1,11 @@
 import React, { useEffect, useRef } from "react";
-import { DeviceEventEmitter, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { DeviceEventEmitter, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import type { PurpleGuideGroup } from "@/src/components/PurpleTvShell";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { requestNativeFocusWithRetry } from "@/src/utils/tvFocus";
-import { addTvKeyListener, setGuideNavigationActive, setRemoteContext } from "@/src/utils/tvRemote";
+import { addTvKeyListener, addTvLongPressListener, setGuideNavigationActive, setRemoteContext } from "@/src/utils/tvRemote";
 
 export const GUIDE_GROUP_DRAWER_WIDTH = 188;
 
@@ -22,14 +22,17 @@ export function PurpleGuideGroupDrawer({
 }) {
   const refs = useRef(new Map<string, unknown>());
   const activeNameRef = useRef<string | null>(null);
+  const focusedNameRef = useRef<string | null>(null);
+  const groupsRef = useRef(groups);
   const closeToGuideRef = useRef(onCloseToGuide);
   const openMainDrawerRef = useRef(onOpenMainDrawer);
 
   // Keep the latest callbacks/data available to the single open-scoped remote
-  // listener without tearing that listener down on every Guide render. Group
-  // counts and EPG refreshes can update frequently while this drawer is open;
-  // they must never launch another focus-retry sequence under the user's cursor.
+  // listeners without tearing them down on every Guide render. Group counts and
+  // EPG refreshes can update frequently while this drawer is open; they must
+  // never launch another focus-retry sequence under the user's cursor.
   activeNameRef.current = groups.find((item) => item.active)?.name || groups[0]?.name || null;
+  groupsRef.current = groups;
   closeToGuideRef.current = onCloseToGuide;
   openMainDrawerRef.current = onOpenMainDrawer;
 
@@ -40,22 +43,31 @@ export function PurpleGuideGroupDrawer({
     // responds to a physical key at a time.
     setGuideNavigationActive(false);
     setRemoteContext("guide_groups");
-    const off = addTvKeyListener((key) => {
+    const offKey = addTvKeyListener((key) => {
       if (key === "LEFT" || key === "BACK") {
         openMainDrawerRef.current();
         return;
       }
       if (key === "RIGHT") closeToGuideRef.current();
     });
+    const offLongPress = addTvLongPressListener((key) => {
+      if (key !== "SELECT") return;
+      const focusedName = focusedNameRef.current || activeNameRef.current;
+      if (!focusedName) return;
+      groupsRef.current.find((item) => item.name === focusedName)?.onLongPress?.();
+    });
 
     // Claim focus once per drawer entry. After this, Android owns vertical focus
     // movement until the drawer closes; active-group/count updates cannot yank it.
     const activeName = activeNameRef.current;
+    focusedNameRef.current = activeName;
     const node = activeName ? refs.current.get(activeName) : null;
     const cancelFocus = requestNativeFocusWithRetry(node, [0, 80, 160, 260]);
     return () => {
-      off();
+      offKey();
+      offLongPress();
       cancelFocus?.();
+      focusedNameRef.current = null;
       setRemoteContext("guide");
       setGuideNavigationActive(true);
     };
@@ -86,8 +98,9 @@ export function PurpleGuideGroupDrawer({
                 else refs.current.delete(item.name);
               }}
               focusable
+              onFocus={() => { focusedNameRef.current = item.name; }}
               onPress={item.onPress}
-              onLongPress={item.onLongPress}
+              onLongPress={Platform.isTV ? undefined : item.onLongPress}
               delayLongPress={420}
               style={({ focused }: any) => [
                 styles.row,
