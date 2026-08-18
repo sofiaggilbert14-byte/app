@@ -1,5 +1,6 @@
 import React from "react";
 import { getDeviceMemoryProfile, type DeviceMemoryProfile } from "@/src/utils/tvRemote";
+import { setDeviceLowRamCacheCap } from "@/src/core/devicePowerProfile";
 
 let cached: DeviceMemoryProfile | null | undefined;
 let pending: Promise<DeviceMemoryProfile | null> | null = null;
@@ -20,7 +21,9 @@ export function shouldUseLowRamTuning(profile: DeviceMemoryProfile | null): bool
  * adjust their row-count caps; SQLite remains authoritative and untouched.
  */
 function enforceLowRamCacheCaps(profile: DeviceMemoryProfile | null): void {
-  if (!shouldUseLowRamTuning(profile) || capPromise) return;
+  const lowRam = shouldUseLowRamTuning(profile);
+  setDeviceLowRamCacheCap(lowRam);
+  if (!lowRam || capPromise) return;
   capPromise = Promise.all([
     import("@/src/core/guideProgramsStore"),
     import("@/src/source"),
@@ -48,8 +51,6 @@ export async function readDeviceMemoryProfile(): Promise<DeviceMemoryProfile | n
     });
   }
   const value = await pending;
-  // Re-apply after awaiting too. A Store profile change can race the first
-  // dynamic-import cap; this makes the device ceiling deterministic.
   enforceLowRamCacheCaps(value);
   return value;
 }
