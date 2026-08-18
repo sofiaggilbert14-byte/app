@@ -48,11 +48,15 @@ jobs:
       - name: Expo doctor
         id: doctor
         continue-on-error: true
-        run: npm run doctor 2>&1 | tee /tmp/build8-doctor.log
+        run: |
+          set -o pipefail
+          npm run doctor 2>&1 | tee /tmp/build8-doctor.log
       - name: Unit and wiring tests
         id: tests
         continue-on-error: true
-        run: npm test 2>&1 | tee /tmp/build8-tests.log
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee /tmp/build8-tests.log
       - name: Typecheck
         id: typecheck
         continue-on-error: true
@@ -68,6 +72,7 @@ jobs:
           CI: "1"
           GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx3g -Dorg.gradle.workers.max=1"
         run: |
+          set -o pipefail
           chmod +x android/gradlew
           ./android/gradlew -p android \
             :ffmpeg-audio:compileDebugJavaWithJavac \
