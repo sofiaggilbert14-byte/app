@@ -14,6 +14,7 @@ import { type SourceRefreshIntervalHours, useSourceRefreshPreferences } from "@/
 import { type LogoPriority, useLogoPriority } from "@/src/core/logoPreferences";
 import { chooseLocalLogoFolder, clearLocalLogoFolder } from "@/src/core/localLogoFolder";
 import { channelHasEpgMatch } from "@/src/core/epgUserOverrides";
+import { GUIDE_START_LAST_USED, useGuideUiPreferences } from "@/src/core/guideUiPreferences";
 import { formatRelativeAge } from "@/src/utils/time";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
@@ -23,12 +24,14 @@ const REFRESH_OPTIONS: { label: string; value: SourceRefreshIntervalHours }[] = 
   { label: "6h", value: 6 }, { label: "12h", value: 12 }, { label: "24h", value: 24 },
 ];
 
+const STANDARD_GUIDE_GROUPS = ["All", "Favorites", "Sports", "News", "Movies", "Kids", "Music"] as const;
 type ActiveAction = "refresh-all" | "refresh-epg" | "rebuild" | "logo" | null;
 
 export default function EpgSourcesScreen() {
   const router = useRouter();
   const { refresh, channels, clock24h, epgGuideFilter, setEpgGuideFilter, guideWindowHours, setGuideWindowHours, preferTvgIdOnly, setPreferTvgIdOnly } = useStore();
   const sourceRefresh = useSourceRefreshPreferences();
+  const guideUi = useGuideUiPreferences();
   const [logoPriority, setLogoPriority] = useLogoPriority();
   const [status, setStatus] = useState<SourceStatus>(() => sourceStatus());
   const [diagnostics, setDiagnostics] = useState<SourceDiagnostics | null>(null);
@@ -118,6 +121,27 @@ export default function EpgSourcesScreen() {
     return Array.from(groups.entries()).map(([name, counts]) => ({ name, ...counts }))
       .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name)).slice(0, 6);
   }, [channels]);
+
+  const guideStartOptions = useMemo(() => {
+    const actualGroups = new Set<string>();
+    for (const channel of channels) {
+      const name = String(channel.group || "").trim();
+      if (name) actualGroups.add(name);
+    }
+    const names = Array.from(new Set<string>([
+      ...STANDARD_GUIDE_GROUPS,
+      ...guideUi.pinnedGroups,
+      guideUi.startGroup !== GUIDE_START_LAST_USED ? guideUi.startGroup : "",
+    ])).filter((name) =>
+      !!name &&
+      (name === "All" || name === "Favorites" || actualGroups.has(name) || STANDARD_GUIDE_GROUPS.includes(name as any)),
+    );
+    return [
+      { label: "Last used", value: GUIDE_START_LAST_USED },
+      ...names.map((name) => ({ label: name, value: name })),
+    ];
+  }, [channels, guideUi.pinnedGroups, guideUi.startGroup]);
+
   const timeFormat = clock24h ? "MMM D, HH:mm" : "MMM D, h:mm A";
 
   return (
@@ -144,6 +168,13 @@ export default function EpgSourcesScreen() {
               <SourceRow title="Native EPG Cache" subtitle="Streamed XMLTV on-device (Android)" status={status.error ? "Unavailable" : `${diagnostics?.programs || 0} cached programs`} />
             </Card>
             <Card title="Guide Data" icon="calendar-outline">
+              <ChoiceRow<string>
+                label="Guide opens on"
+                value={guideUi.startGroup}
+                options={guideStartOptions}
+                onChange={guideUi.setStartGroup}
+              />
+              <Text style={styles.help}>Choose which Guide group opens first after a fresh app launch. Last used keeps your previous Guide tab. Search and returning from fullscreen always open on the requested/current channel instead.</Text>
               <ChoiceRow<EpgGuideFilter> label="Guide EPG filter" value={epgGuideFilter} options={[{ label: "All", value: "all" }, { label: "Matched", value: "matched" }, { label: "Unmatched", value: "unmatched" }]} onChange={setEpgGuideFilter} />
               <ChoiceRow<GuideWindowHours> label="Guide window" value={guideWindowHours} options={[{ label: "6h", value: 6 }, { label: "8h", value: 8 }, { label: "12h", value: 12 }, { label: "24h", value: 24 }]} onChange={setGuideWindowHours} />
               <ToggleRow label="Prefer tvg-id matching only" value={preferTvgIdOnly} onChange={setPreferTvgIdOnly} />
