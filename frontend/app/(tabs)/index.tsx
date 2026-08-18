@@ -9,12 +9,53 @@ import { PurpleTvShell } from "@/src/components/PurpleTvShell";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { useStore } from "@/src/store";
 import { Channel } from "@/src/api";
+import { useGuidePrograms } from "@/src/core/guideProgramsStore";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 
 function channelSort(a: Channel, b: Channel) {
   return (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" });
+}
+
+function RecentChannelCard({
+  channel,
+  now,
+  isFocused,
+  channelLogos,
+  channelNumbers,
+  channelNumber,
+  onPlay,
+}: {
+  channel: Channel;
+  now: Date;
+  isFocused: boolean;
+  channelLogos: boolean;
+  channelNumbers: boolean;
+  channelNumber?: number;
+  onPlay: (channel: Channel) => void;
+}) {
+  const programs = useGuidePrograms(channel.id);
+  const current = nowNext(programs.length ? programs : channel.programs, now).current;
+  return (
+    <Pressable
+      onPress={() => onPlay(channel)}
+      style={({ focused }: any) => [styles.channelCard, focused && styles.focused]}
+      testID={`home-recent-${channel.id}`}
+    >
+      <View style={styles.channelCardArt}>
+        <LinearGradient
+          colors={["rgba(124,58,237,0.40)", "rgba(16,16,30,0.96)"]}
+          style={StyleSheet.absoluteFill}
+        />
+        <ChannelLogo name={channel.name} logo={channel.logo} disabled={!isFocused || !channelLogos} size={46} />
+      </View>
+      <Text numberOfLines={1} style={styles.channelName}>
+        {channelNumbers ? `${channelNumber || ""}  ` : ""}{channel.name}
+      </Text>
+      <Text numberOfLines={1} style={styles.channelProgram}>{current?.title || "Guide information loading…"}</Text>
+    </Pressable>
+  );
 }
 
 export default function LiveTvHomeScreen() {
@@ -29,6 +70,7 @@ export default function LiveTvHomeScreen() {
     channelLogos,
     channelNumbers,
     hardRefresh,
+    patchProgramsForChannelIds,
     loading,
     refreshing,
     error,
@@ -64,16 +106,27 @@ export default function LiveTvHomeScreen() {
     return last || recent[0] || channels[0] || null;
   }, [channelById, channels, lastChannelId, recent]);
 
-  const heroProgram = useMemo(
-    () => (heroChannel ? nowNext(heroChannel.programs, now).current : undefined),
-    [heroChannel, now],
-  );
-  const heroProgress = heroProgram ? progressPct(heroProgram, now) : 0;
-
   const recentLive = useMemo(() => {
     if (recent.length) return recent.slice(0, 6);
     return channels.slice(0, 6);
   }, [channels, recent]);
+
+  const heroPrograms = useGuidePrograms(heroChannel?.id);
+  const heroProgram = useMemo(
+    () => (heroChannel ? nowNext(heroPrograms.length ? heroPrograms : heroChannel.programs, now).current : undefined),
+    [heroChannel, heroPrograms, now],
+  );
+  const heroProgress = heroProgram ? progressPct(heroProgram, now) : 0;
+
+  useEffect(() => {
+    if (!isFocused || !channels.length) return;
+    const ids = Array.from(new Set([
+      heroChannel?.id || "",
+      ...recentLive.map((channel) => channel.id),
+    ].filter(Boolean)));
+    if (!ids.length) return;
+    void patchProgramsForChannelIds(ids, heroChannel?.id ? [heroChannel.id] : ids.slice(0, 1));
+  }, [channels.length, heroChannel?.id, isFocused, patchProgramsForChannelIds, recentLive]);
 
   const play = useCallback(
     (channel: Channel) => {
@@ -113,7 +166,7 @@ export default function LiveTvHomeScreen() {
             style={StyleSheet.absoluteFill}
           />
           <View style={styles.heroCopy}>
-            <Text style={styles.heroLabel}>CONTINUE</Text>
+            <Text style={styles.heroLabel}>LAST WATCHED · ON NOW</Text>
             <Text numberOfLines={1} style={styles.heroTitle}>
               {heroChannel?.name || "Choose a channel"}
             </Text>
@@ -122,11 +175,14 @@ export default function LiveTvHomeScreen() {
               <Text style={styles.heroMeta}>
                 {heroProgram
                   ? `${fmtTime(heroProgram.start)}${heroProgram.stop ? ` - ${fmtTime(heroProgram.stop)}` : ""}`
-                  : "Live TV"}
+                  : "Loading current programme…"}
               </Text>
             </View>
-            <Text numberOfLines={1} style={styles.heroProgram}>
-              {heroProgram?.title || "Ready to watch"}
+            <Text numberOfLines={2} style={styles.heroProgram}>
+              {heroProgram?.title || "Guide information loading…"}
+            </Text>
+            <Text numberOfLines={3} style={styles.heroDescription}>
+              {heroProgram?.desc || "Select the last-watched channel to resume live TV."}
             </Text>
             <View style={styles.heroProgressTrack}>
               <View style={[styles.heroProgressFill, { width: `${heroProgress}%` }]} />
@@ -139,7 +195,7 @@ export default function LiveTvHomeScreen() {
                 testID="home-continue-watching"
               >
                 <Ionicons name="play" size={15} color="#fff" />
-                <Text style={styles.primaryButtonText}>Continue Watching</Text>
+                <Text style={styles.primaryButtonText}>Watch Last Channel</Text>
               </Pressable>
             ) : (
               <Pressable
@@ -157,45 +213,40 @@ export default function LiveTvHomeScreen() {
             )}
           </View>
 
-          <View style={styles.heroArtwork}>
+          <Pressable
+            disabled={!heroChannel}
+            onPress={() => heroChannel && play(heroChannel)}
+            style={({ focused }: any) => [styles.heroArtwork, focused && styles.heroArtworkFocused]}
+            testID="home-last-channel-logo"
+          >
             <View style={styles.heroGlow} />
             {heroChannel ? (
-              <ChannelLogo name={heroChannel.name} logo={heroChannel.logo} disabled={!isFocused || !channelLogos} size={92} />
+              <ChannelLogo name={heroChannel.name} logo={heroChannel.logo} disabled={!isFocused || !channelLogos} size={118} />
             ) : (
               <Ionicons name="tv-outline" size={72} color={tvColors.purpleSoft} />
             )}
             <Text numberOfLines={1} style={styles.heroArtName}>{heroChannel?.name || "CHARM IPTV"}</Text>
-          </View>
+            {heroProgram?.title ? <Text numberOfLines={1} style={styles.heroArtNow}>{heroProgram.title}</Text> : null}
+          </Pressable>
         </View>
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Recently Watched Channels</Text>
-          <Text style={styles.sectionHint}>Pick up where you left off</Text>
+          <Text style={styles.sectionHint}>Currently airing on channels you watched</Text>
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.recentRow}>
-          {recentLive.map((channel) => {
-            const current = nowNext(channel.programs, now).current;
-            return (
-              <Pressable
-                key={channel.id}
-                onPress={() => play(channel)}
-                style={({ focused }: any) => [styles.channelCard, focused && styles.focused]}
-                testID={`home-recent-${channel.id}`}
-              >
-                <View style={styles.channelCardArt}>
-                  <LinearGradient
-                    colors={["rgba(124,58,237,0.40)", "rgba(16,16,30,0.96)"]}
-                    style={StyleSheet.absoluteFill}
-                  />
-                  <ChannelLogo name={channel.name} logo={channel.logo} disabled={!isFocused || !channelLogos} size={46} />
-                </View>
-                <Text numberOfLines={1} style={styles.channelName}>
-                  {channelNumbers ? `${channelNumberById[channel.id] || ""}  ` : ""}{channel.name}
-                </Text>
-                <Text numberOfLines={1} style={styles.channelProgram}>{current?.title || "Live channel"}</Text>
-              </Pressable>
-            );
-          })}
+          {recentLive.map((channel) => (
+            <RecentChannelCard
+              key={channel.id}
+              channel={channel}
+              now={now}
+              isFocused={isFocused}
+              channelLogos={channelLogos}
+              channelNumbers={channelNumbers}
+              channelNumber={channelNumberById[channel.id]}
+              onPlay={play}
+            />
+          ))}
         </ScrollView>
       </ScrollView>
     </PurpleTvShell>
@@ -210,7 +261,7 @@ const styles = StyleSheet.create({
   topRight: { flexDirection: "row", alignItems: "center", gap: 12 },
   clock: { color: "#fff", fontFamily: fonts.medium, fontSize: 10 },
   statusDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: tvColors.purpleBright },
-  hero: { minHeight: 210, flexDirection: "row", borderRadius: radius.md, borderWidth: 1, borderColor: tvColors.line, overflow: "hidden" },
+  hero: { minHeight: 224, flexDirection: "row", borderRadius: radius.md, borderWidth: 1, borderColor: tvColors.line, overflow: "hidden" },
   heroCopy: { flex: 1.1, padding: 18, justifyContent: "center", alignItems: "flex-start" },
   heroLabel: { color: tvColors.textMuted, fontFamily: fonts.semibold, fontSize: 8, letterSpacing: 0.9 },
   heroTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 22, marginTop: 4, maxWidth: "95%" },
@@ -218,7 +269,8 @@ const styles = StyleSheet.create({
   livePill: { backgroundColor: tvColors.purple, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
   livePillText: { color: "#fff", fontFamily: fonts.bold, fontSize: 7 },
   heroMeta: { color: tvColors.purpleSoft, fontFamily: fonts.medium, fontSize: 10 },
-  heroProgram: { color: tvColors.textMuted, fontFamily: fonts.regular, fontSize: 11, marginTop: 5, maxWidth: "90%" },
+  heroProgram: { color: "#fff", fontFamily: fonts.semibold, fontSize: 12, lineHeight: 16, marginTop: 6, maxWidth: "94%" },
+  heroDescription: { color: tvColors.textMuted, fontFamily: fonts.regular, fontSize: 9.5, lineHeight: 13, marginTop: 4, maxWidth: "94%" },
   heroProgressTrack: { width: "70%", height: 3, backgroundColor: "rgba(255,255,255,0.12)", marginTop: 8, borderRadius: 2, overflow: "hidden" },
   heroProgressFill: { height: 3, backgroundColor: tvColors.purpleBright },
   primaryButton: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 13, borderRadius: 6, backgroundColor: tvColors.purple, borderWidth: 2, borderColor: "transparent", marginTop: 11 },
@@ -226,16 +278,18 @@ const styles = StyleSheet.create({
   secondaryButton: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 13, borderRadius: 6, backgroundColor: tvColors.panelRaised, borderWidth: 2, borderColor: "transparent", marginTop: 8 },
   secondaryButtonText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 10 },
   searchHit: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "transparent" },
-  heroArtwork: { flex: 0.9, alignItems: "center", justifyContent: "center", gap: 8, overflow: "hidden" },
-  heroGlow: { position: "absolute", width: 190, height: 190, borderRadius: 95, backgroundColor: "rgba(124,58,237,0.18)" },
-  heroArtName: { color: "#fff", fontFamily: fonts.bold, fontSize: 12, maxWidth: "82%" },
+  heroArtwork: { flex: 0.9, alignItems: "center", justifyContent: "center", gap: 7, overflow: "hidden", borderWidth: 2, borderColor: "transparent", margin: 8, borderRadius: radius.sm },
+  heroArtworkFocused: { borderColor: "#fff", backgroundColor: "rgba(124,58,237,0.16)" },
+  heroGlow: { position: "absolute", width: 205, height: 205, borderRadius: 103, backgroundColor: "rgba(124,58,237,0.18)" },
+  heroArtName: { color: "#fff", fontFamily: fonts.bold, fontSize: 12, maxWidth: "84%" },
+  heroArtNow: { color: tvColors.purpleSoft, fontFamily: fonts.medium, fontSize: 9, maxWidth: "84%" },
   sectionHeader: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", marginTop: 2 },
   sectionTitle: { color: "#fff", fontFamily: fonts.semibold, fontSize: 13 },
   sectionHint: { color: tvColors.textMuted, fontFamily: fonts.regular, fontSize: 8.5 },
   recentRow: { gap: 9, paddingBottom: 2 },
-  channelCard: { width: 138, minHeight: 112, backgroundColor: tvColors.panel, borderRadius: radius.sm, borderWidth: 2, borderColor: "transparent", padding: 7 },
+  channelCard: { width: 150, minHeight: 116, backgroundColor: tvColors.panel, borderRadius: radius.sm, borderWidth: 2, borderColor: "transparent", padding: 7 },
   channelCardArt: { height: 64, borderRadius: 5, overflow: "hidden", alignItems: "center", justifyContent: "center", marginBottom: 6 },
   channelName: { color: "#fff", fontFamily: fonts.semibold, fontSize: 9.5 },
-  channelProgram: { color: tvColors.textMuted, fontFamily: fonts.regular, fontSize: 8.5, marginTop: 2 },
+  channelProgram: { color: tvColors.purpleSoft, fontFamily: fonts.medium, fontSize: 8.5, marginTop: 2 },
   focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
 });
