@@ -104,6 +104,7 @@ const TILES: Tile[] = [
 ];
 
 const ADULT_GROUP_RE = /adult|xxx|porn/i;
+const CHANNEL_CUSTOMIZE_PAGE_SIZE = 100;
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -162,6 +163,7 @@ export default function SettingsScreen() {
   const [codecCapabilities, setCodecCapabilities] = useState<DeviceCodecCapabilities | null>(null);
   const [pinDraft, setPinDraft] = useState("");
   const [focusedCustomizeId, setFocusedCustomizeId] = useState<string | null>(null);
+  const [channelCustomizePage, setChannelCustomizePage] = useState(0);
   const clearFavoritesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Mount-once preferred focus — sticky hasTVPreferredFocus steals focus on re-render.
   const [preferTileFocus, setPreferTileFocus] = useState(true);
@@ -221,7 +223,14 @@ export default function SettingsScreen() {
   const versionCode = (Constants.expoConfig as any)?.android?.versionCode;
   const selected = useMemo(() => TILES.find((item) => item.id === section), [section]);
 
-  const customizeChannels = useMemo(() => channels.slice(0, 30), [channels]);
+  const allChannelIds = useMemo(() => channels.map((channel) => channel.id).filter(Boolean), [channels]);
+  const channelCustomizePageCount = Math.max(1, Math.ceil(channels.length / CHANNEL_CUSTOMIZE_PAGE_SIZE));
+  const boundedCustomizePage = Math.min(channelCustomizePage, channelCustomizePageCount - 1);
+  const customizeStartIndex = boundedCustomizePage * CHANNEL_CUSTOMIZE_PAGE_SIZE;
+  const customizeChannels = useMemo(
+    () => channels.slice(customizeStartIndex, customizeStartIndex + CHANNEL_CUSTOMIZE_PAGE_SIZE),
+    [channels, customizeStartIndex],
+  );
   const hiddenSet = useMemo(() => new Set(channelCustomize.hiddenIds), [channelCustomize.hiddenIds]);
   const failedChannelRows = useMemo(() => {
     if (section !== "health") return [] as { id: string; name: string }[];
@@ -249,6 +258,10 @@ export default function SettingsScreen() {
     void Haptics.selectionAsync().catch(() => undefined);
     setBackupStatus(null);
     setClearFavoritesArmed(false);
+    if (id === "channels") {
+      setChannelCustomizePage(0);
+      setFocusedCustomizeId(null);
+    }
     if (id === "epg") {
       router.push("/epg-sources" as any);
       return;
@@ -720,8 +733,33 @@ export default function SettingsScreen() {
             {section === "channels" ? (
               <SettingsCard title="Channels" icon="list-circle-outline">
                 <Text style={styles.help}>
-                  Cap of 30 rows for TV memory. Focus a channel, then Hide, Move, or set a custom number. Clear custom order resets sort.
+                  All playlist channels are available in bounded pages of 100 so large providers stay memory-safe. Focus a channel, then Hide, Move, or set a custom number.
                 </Text>
+                <InfoRow label="Channel page" value={`${boundedCustomizePage + 1} / ${channelCustomizePageCount} · ${channels.length} total`} />
+                <View style={styles.channelEditActions}>
+                  <Pressable
+                    disabled={boundedCustomizePage <= 0}
+                    onPress={() => {
+                      setFocusedCustomizeId(null);
+                      setChannelCustomizePage((value) => Math.max(0, value - 1));
+                    }}
+                    style={({ focused: btnFocused }: any) => [styles.miniAction, boundedCustomizePage <= 0 && styles.actionDisabled, btnFocused && styles.focused]}
+                    testID="settings-channels-prev-page"
+                  >
+                    <Text style={styles.miniActionText}>Previous 100</Text>
+                  </Pressable>
+                  <Pressable
+                    disabled={boundedCustomizePage >= channelCustomizePageCount - 1}
+                    onPress={() => {
+                      setFocusedCustomizeId(null);
+                      setChannelCustomizePage((value) => Math.min(channelCustomizePageCount - 1, value + 1));
+                    }}
+                    style={({ focused: btnFocused }: any) => [styles.miniAction, boundedCustomizePage >= channelCustomizePageCount - 1 && styles.actionDisabled, btnFocused && styles.focused]}
+                    testID="settings-channels-next-page"
+                  >
+                    <Text style={styles.miniActionText}>Next 100</Text>
+                  </Pressable>
+                </View>
                 <Action
                   label="Clear custom order"
                   icon="refresh-outline"
@@ -736,7 +774,8 @@ export default function SettingsScreen() {
                   const hidden = hiddenSet.has(channel.id);
                   const focused = focusedCustomizeId === channel.id;
                   const customNumber = channelCustomize.customNumbers[channel.id];
-                  const displayNumber = customNumber || index + 1;
+                  const providerIndex = customizeStartIndex + index;
+                  const displayNumber = customNumber || providerIndex + 1;
                   return (
                     <View key={channel.id} style={styles.channelEditBlock}>
                       <Pressable
@@ -762,13 +801,13 @@ export default function SettingsScreen() {
                               <Text style={styles.miniActionText}>{hidden ? "Show" : "Hide"}</Text>
                             </Pressable>
                             <Pressable
-                              onPress={() => channelCustomize.moveInCustomOrder(channel.id, -1)}
+                              onPress={() => channelCustomize.moveInCustomOrder(channel.id, -1, allChannelIds)}
                               style={({ focused: btnFocused }: any) => [styles.miniAction, btnFocused && styles.focused]}
                             >
                               <Text style={styles.miniActionText}>Up</Text>
                             </Pressable>
                             <Pressable
-                              onPress={() => channelCustomize.moveInCustomOrder(channel.id, 1)}
+                              onPress={() => channelCustomize.moveInCustomOrder(channel.id, 1, allChannelIds)}
                               style={({ focused: btnFocused }: any) => [styles.miniAction, btnFocused && styles.focused]}
                             >
                               <Text style={styles.miniActionText}>Down</Text>
