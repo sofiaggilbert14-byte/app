@@ -176,3 +176,19 @@ test("StreamPlayer and player route use role-scoped session teardown", async () 
   assert.match(vlcPatch, /mMediaPlayer = null/);
   assert.match(packageJson, /"postinstall": "patch-package"/);
 });
+
+test("fullscreen launched from Guide returns the currently tuned channel to Guide", async () => {
+  const [guide, player, handoff] = await Promise.all([
+    readFile(join(root, "app/(tabs)/guide.tsx"), "utf8"),
+    readFile(join(root, "app/player.tsx"), "utf8"),
+    readFile(join(root, "src/utils/openFullscreenPlayer.ts"), "utf8"),
+  ]);
+  assert.match(guide, /openFullscreenPlayer\(router, channel\.id, \{ returnToGuide: true \}\)/);
+  assert.match(handoff, /returnToGuide: options\?\.returnToGuide \? "1" : undefined/);
+  const exit = player.match(/const stopAndExit = useCallback\([\s\S]*?\n  \}, \[params\.returnToGuide, router\]\);/)?.[0] || "";
+  assert.match(exit, /pendingChannelIdRef\.current \|\| channelIdRef\.current/);
+  assert.match(exit, /params\.returnToGuide === "1"/);
+  assert.match(exit, /requestGuideJump\(\{ channelId: currentChannelId, group: "All" \}\)/);
+  assert.match(exit, /router\.replace\("\/guide" as any\)/);
+  assert.match(exit, /router\.back\(\)/);
+});

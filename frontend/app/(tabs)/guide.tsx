@@ -827,7 +827,7 @@ export default function PurpleGuideScreen() {
       if (previewTimer.current) clearTimeout(previewTimer.current);
       setPreviewId(null);
       addRecent(channel);
-      openFullscreenPlayer(router, channel.id);
+      openFullscreenPlayer(router, channel.id, { returnToGuide: true });
     },
     [addRecent, router],
   );

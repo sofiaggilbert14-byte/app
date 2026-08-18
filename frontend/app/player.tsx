@@ -79,7 +79,7 @@ function AutoScrollProgramDescription({ text }: { text: string; activeKey: strin
 
 export default function PlayerScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ channelId: string }>();
+  const params = useLocalSearchParams<{ channelId: string; returnToGuide?: string }>();
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const {
@@ -538,11 +538,21 @@ export default function PlayerScreen() {
     if (zapTimer.current) clearTimeout(zapTimer.current);
     if (previewTimer.current) clearTimeout(previewTimer.current);
     if (retryTimer.current) clearTimeout(retryTimer.current);
+    const currentChannelId = pendingChannelIdRef.current || channelIdRef.current;
     generationRef.current += 1;
     setDecoderArmed(false);
     stopFullscreenSession();
+
+    // A fullscreen session launched from Guide owns a Guide return anchor.
+    // Use the currently tuned channel (including rapid zaps), not the channel
+    // that originally opened the player. Other entry points keep normal Back.
+    if (params.returnToGuide === "1" && currentChannelId) {
+      requestGuideJump({ channelId: currentChannelId, group: "All" });
+      router.replace("/guide" as any);
+      return;
+    }
     router.back();
-  }, [router]);
+  }, [params.returnToGuide, router]);
 
   const handleStreamStatus = useCallback(
     (next: StreamStatus, reason?: SessionFailReason | null) => {

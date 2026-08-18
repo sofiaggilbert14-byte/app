@@ -12,12 +12,16 @@ let pendingHandoff: ReturnType<typeof setTimeout> | null = null;
 export function openFullscreenPlayer(
   router: Pick<Router, "push">,
   channelId: string,
+  options?: { returnToGuide?: boolean },
 ): void {
   if (!channelId) return;
   stopPreviewForFullscreen();
   if (pendingHandoff) clearTimeout(pendingHandoff);
   pendingHandoff = setTimeout(() => {
     pendingHandoff = null;
-    router.push({ pathname: "/player", params: { channelId } });
+    router.push({
+      pathname: "/player",
+      params: { channelId, returnToGuide: options?.returnToGuide ? "1" : undefined },
+    });
   }, FULLSCREEN_HANDOFF_SETTLE_MS);
 }
