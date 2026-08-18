@@ -78,6 +78,16 @@ let MEM: NativeMeta | null = null;
 let refreshPromise: Promise<NativeMeta> | null = null;
 let playlistOnlyRefreshPromise: Promise<SourceStatus> | null = null;
 let lastSourceError: string | null = null;
+let startupRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+const STARTUP_SOURCE_REFRESH_DELAY_MS = 30_000;
+
+function scheduleStartupSourceRefresh(): void {
+  if (startupRefreshTimer) return;
+  startupRefreshTimer = setTimeout(() => {
+    startupRefreshTimer = null;
+    void refreshSourcesIfDue().catch(() => undefined);
+  }, STARTUP_SOURCE_REFRESH_DELAY_MS);
+}
 const listeners = new Set<() => void>();
 let sourceEmitScheduled = false;
 
@@ -657,7 +667,7 @@ async function ensureLoaded(): Promise<NativeMeta> {
     void syncPlaylistToNative(cached.channels, cached.playlistEpoch || 0)
       .then(() => syncMatchesToNative(cached.channels, cached.guideEpoch || 0))
       .catch(() => undefined);
-    void refreshSourcesIfDue();
+    scheduleStartupSourceRefresh();
     return cached;
   }
 
