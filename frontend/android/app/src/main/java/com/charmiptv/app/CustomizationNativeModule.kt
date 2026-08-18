@@ -7,12 +7,14 @@ import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.ReadableMap
+import com.facebook.react.bridge.ReadableType
 import java.util.concurrent.Executors
 
 class CustomizationNativeModule(reactContext: ReactApplicationContext) :
   ReactContextBaseJavaModule(reactContext) {
 
-  private val dao = CharmCustomizationDatabase.get(reactContext).dao()
+  private val database = CharmCustomizationDatabase.get(reactContext)
+  private val dao = database.dao()
   private val executor = Executors.newSingleThreadExecutor()
 
   override fun getName(): String = "CharmCustomization"
@@ -72,67 +74,85 @@ class CustomizationNativeModule(reactContext: ReactApplicationContext) :
   ) {
     executor.execute {
       try {
-        if (dao.channelCustomizationCount() > 0 || dao.groupCount() > 0) {
-          promise.resolve(false)
-          return@execute
-        }
+        // Parse/validate bridge values before opening the transaction. If React
+        // supplied malformed legacy JSON, no native row is touched.
         val hidden = HashSet<String>()
-        for (i in 0 until hiddenIds.size()) cleanId(hiddenIds.getString(i)).takeIf { it.isNotEmpty() }?.let(hidden::add)
+        for (i in 0 until hiddenIds.size()) {
+          if (hiddenIds.getType(i) != ReadableType.String) continue
+          cleanId(hiddenIds.getString(i)).takeIf { it.isNotEmpty() }?.let(hidden::add)
+          if (hidden.size >= 10_000) break
+        }
+
         val order = ArrayList<String>()
         val seenOrder = HashSet<String>()
         for (i in 0 until customOrder.size()) {
+          if (customOrder.getType(i) != ReadableType.String) continue
           val id = cleanId(customOrder.getString(i))
           if (id.isNotEmpty() && seenOrder.add(id)) order.add(id)
           if (order.size >= 10_000) break
         }
+
         val numberMap = HashMap<String, Int>()
         val numberIterator = customNumbers.keySetIterator()
         while (numberIterator.hasNextKey() && numberMap.size < 10_000) {
-          val id = cleanId(numberIterator.nextKey())
-          if (id.isEmpty() || customNumbers.getType(id) != com.facebook.react.bridge.ReadableType.Number) continue
-          val number = customNumbers.getDouble(id).toInt().coerceIn(1, 99_999)
+          val rawKey = numberIterator.nextKey()
+          val id = cleanId(rawKey)
+          if (id.isEmpty() || customNumbers.getType(rawKey) != ReadableType.Number) continue
+          val number = customNumbers.getDouble(rawKey).toInt().coerceIn(1, 99_999)
           numberMap[id] = number
         }
+
         val allIds = LinkedHashSet<String>()
         allIds.addAll(hidden)
         allIds.addAll(order)
         allIds.addAll(numberMap.keys)
         val positionById = order.withIndex().associate { it.value to it.index }
-        for (id in allIds) {
-          dao.putChannelCustomization(
-            UserChannelCustomizationEntity(
-              channelId = id,
-              hidden = hidden.contains(id),
-              customPosition = positionById[id],
-              customNumber = numberMap[id],
-            )
+        val channelRows = allIds.map { id ->
+          UserChannelCustomizationEntity(
+            channelId = id,
+            hidden = hidden.contains(id),
+            customPosition = positionById[id],
+            customNumber = numberMap[id],
           )
         }
 
+        val groupRows = ArrayList<UserCustomGroupEntity>()
+        val mappingRows = ArrayList<UserGroupChannelMappingEntity>()
         val usedGroupNames = HashSet<String>()
-        var groupPosition = 0
         for (i in 0 until groups.size()) {
-          if (groupPosition >= 32) break
+          if (groupRows.size >= 32 || groups.getType(i) != ReadableType.Map) break
           val map = groups.getMap(i) ?: continue
-          val id = cleanId(map.getString("id"))
-          val name = cleanName(map.getString("name"))
+          val id = if (map.hasKey("id") && map.getType("id") == ReadableType.String) cleanId(map.getString("id")) else ""
+          val name = if (map.hasKey("name") && map.getType("name") == ReadableType.String) cleanName(map.getString("name")) else ""
           val normalized = name.lowercase()
           if (id.isEmpty() || name.isEmpty() || !usedGroupNames.add(normalized)) continue
-          dao.putGroup(UserCustomGroupEntity(id, name, groupPosition++))
-          val ids = if (map.hasKey("channelIds")) map.getArray("channelIds") else null
+          groupRows.add(UserCustomGroupEntity(id, name, groupRows.size))
+          val ids = if (map.hasKey("channelIds") && map.getType("channelIds") == ReadableType.Array) map.getArray("channelIds") else null
           if (ids != null) {
-            val rows = ArrayList<UserGroupChannelMappingEntity>()
             val seen = HashSet<String>()
+            var position = 0
             for (index in 0 until ids.size()) {
+              if (ids.getType(index) != ReadableType.String) continue
               val channelId = cleanId(ids.getString(index))
               if (channelId.isEmpty() || !seen.add(channelId)) continue
-              rows.add(UserGroupChannelMappingEntity(id, channelId, rows.size))
-              if (rows.size >= 10_000) break
+              mappingRows.add(UserGroupChannelMappingEntity(id, channelId, position++))
+              if (position >= 10_000) break
             }
-            if (rows.isNotEmpty()) dao.putMappings(rows)
           }
         }
-        promise.resolve(true)
+
+        var imported = false
+        database.runInTransaction {
+          // All-or-nothing migration. A process kill or SQLite failure rolls the
+          // entire import back, so JS can safely keep the legacy keys and retry.
+          if (dao.channelCustomizationCount() == 0 && dao.groupCount() == 0) {
+            for (row in channelRows) dao.putChannelCustomization(row)
+            for (row in groupRows) dao.putGroup(row)
+            if (mappingRows.isNotEmpty()) dao.putMappings(mappingRows)
+            imported = true
+          }
+        }
+        promise.resolve(imported)
       } catch (t: Throwable) {
         promise.reject("CUSTOMIZATION_MIGRATION_FAILED", t.message ?: "Could not migrate TV customization", t)
       }
@@ -156,6 +176,7 @@ class CustomizationNativeModule(reactContext: ReactApplicationContext) :
       val ids = ArrayList<String>()
       val seen = HashSet<String>()
       for (i in 0 until channelIds.size()) {
+        if (channelIds.getType(i) != ReadableType.String) continue
         val id = cleanId(channelIds.getString(i))
         if (id.isNotEmpty() && seen.add(id)) ids.add(id)
         if (ids.size >= 10_000) break
@@ -209,5 +230,10 @@ class CustomizationNativeModule(reactContext: ReactApplicationContext) :
   @ReactMethod fun setGroupMembership(groupId: String, channelId: String, include: Boolean, promise: Promise) = executor.execute {
     try { dao.setMembership(cleanId(groupId), cleanId(channelId), include); promise.resolve(true) }
     catch (t: Throwable) { promise.reject("CUSTOM_GROUP_MEMBERSHIP_FAILED", t.message, t) }
+  }
+
+  override fun invalidate() {
+    executor.shutdownNow()
+    super.invalidate()
   }
 }
