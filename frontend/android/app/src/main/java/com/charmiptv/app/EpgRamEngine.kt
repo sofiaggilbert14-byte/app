@@ -41,7 +41,8 @@ internal class EpgRamEngine(private val database: EpgDatabase) {
       if (row.playlistId.isNotBlank() && row.xmltvId.isNotBlank()) next[row.playlistId] = row.xmltvId
     }
     playlistToXmltv = next
-    val active = next.values.toHashSet()
+    val active = HashSet<String>(next.size * 2)
+    active.addAll(next.values)
     val iterator = entries.entries.iterator()
     while (iterator.hasNext()) {
       val entry = iterator.next()
@@ -55,7 +56,13 @@ internal class EpgRamEngine(private val database: EpgDatabase) {
   fun queryGuideWindow(startMs: Long, endMs: Long, playlistIds: Collection<String>): List<NativeEpgProgram>? {
     val mapping = synchronized(lock) { playlistToXmltv }
     if (mapping.isEmpty()) return null
-    val xmltvIds = playlistIds.mapNotNull(mapping::get).distinct()
+    // Build one insertion-ordered set instead of mapNotNull().distinct(), which
+    // creates multiple short-lived lists on every native Guide runway query.
+    val xmltvIds = LinkedHashSet<String>()
+    for (playlistId in playlistIds) {
+      val xmltvId = mapping[playlistId]
+      if (!xmltvId.isNullOrBlank()) xmltvIds.add(xmltvId)
+    }
     if (xmltvIds.isEmpty()) return emptyList()
     ensureChannels(xmltvIds, startMs, endMs)
     val result = ArrayList<NativeEpgProgram>()
@@ -69,7 +76,8 @@ internal class EpgRamEngine(private val database: EpgDatabase) {
   }
 
   fun queryWindow(startMs: Long, endMs: Long, xmltvIds: Collection<String>): List<NativeEpgProgram>? {
-    val unique = xmltvIds.filter(String::isNotBlank).distinct()
+    val unique = LinkedHashSet<String>()
+    for (id in xmltvIds) if (id.isNotBlank()) unique.add(id)
     if (unique.isEmpty()) return emptyList()
     ensureChannels(unique, startMs, endMs)
     val result = ArrayList<NativeEpgProgram>()
@@ -82,21 +90,31 @@ internal class EpgRamEngine(private val database: EpgDatabase) {
   private fun ensureChannels(ids: Collection<String>, startMs: Long, endMs: Long) {
     if (endMs <= startMs) return
     val now = System.currentTimeMillis()
-    val missing = synchronized(lock) {
+    val missing = ArrayList<String>()
+    synchronized(lock) {
       evictExpired(now)
-      ids.filter { id ->
+      for (id in ids) {
         val entry = entries[id]
-        entry == null || startMs < entry.startMs || endMs > entry.endMs
+        if (entry == null || startMs < entry.startMs || endMs > entry.endMs) missing.add(id)
       }
     }
     if (missing.isEmpty()) return
+
     val rows = database.queryWindow(startMs, endMs, missing)
-    val grouped = rows.groupBy(NativeEpgProgram::channelId)
+    // Avoid Kotlin groupBy(): it allocates a Map + List wrapper graph over every
+    // programme while the original SQLite result list is still live. Fill only
+    // the requested per-channel arrays through mutable buckets, then release the
+    // source list as soon as this function returns.
+    val grouped = HashMap<String, ArrayList<NativeEpgProgram>>(missing.size * 2)
+    for (row in rows) grouped.getOrPut(row.channelId) { ArrayList() }.add(row)
+
     synchronized(lock) {
       for (id in missing) {
         entries.remove(id)?.let { estimatedBytes -= it.estimatedBytes }
-        val programmes = (grouped[id] ?: emptyList()).toTypedArray()
-        val bytes = programmes.sumOf(::estimateProgramBytes)
+        val list = grouped[id]
+        val programmes = if (list.isNullOrEmpty()) emptyArray() else list.toTypedArray()
+        var bytes = 0L
+        for (programme in programmes) bytes += estimateProgramBytes(programme)
         entries[id] = Entry(programmes, startMs, endMs, now, bytes)
         estimatedBytes += bytes
       }
@@ -140,8 +158,10 @@ internal class EpgRamEngine(private val database: EpgDatabase) {
 
   fun stats(): Map<String, Long> = synchronized(lock) {
     val runtime = Runtime.getRuntime()
+    var programmeCount = 0L
+    for (entry in entries.values) programmeCount += entry.programmes.size.toLong()
     mapOf(
-      "programCount" to entries.values.sumOf { it.programmes.size.toLong() },
+      "programCount" to programmeCount,
       "channelCount" to entries.size.toLong(),
       "matchCount" to playlistToXmltv.size.toLong(),
       "estimatedBytes" to estimatedBytes,
