@@ -74,6 +74,7 @@ test("direct IPTV sources preserve HTTP and cache writes avoid reparsing the old
   assert.match(source, /refreshNativeEpg\([\s\S]*?sourceUrl\(SOURCE_EPG\)/);
   assert.doesNotMatch(source, /const validCurrent = await readMetaFile\(CHANNEL_CACHE\)/);
   assert.match(source, /channelCacheKnownGood/);
+  assert.match(source, /channelCacheKnownGood = restored/);
   assert.match(source, /priorityMatchChannelIds = \[\]/);
 });
 

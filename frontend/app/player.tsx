@@ -46,6 +46,7 @@ import { pickPreferredAudioTrack, useAudioTrackPreferences } from "@/src/core/au
 import { clearStreamFailure, noteStreamFailure } from "@/src/core/streamFailureRegistry";
 import * as FileSystem from "expo-file-system/legacy";
 import { refreshPlaylistOnly } from "@/src/source";
+import type { Channel } from "@/src/api";
 
 const CHANNEL_PREVIEW_DELAY_MS = 650;
 const CHANNEL_ZAP_SETTLE_MS = 850;

@@ -594,7 +594,10 @@ async function persistMeta(meta: NativeMeta): Promise<void> {
     await FileSystem.deleteAsync(CHANNEL_CACHE, { idempotent: true }).catch(() => undefined);
     const backup = await FileSystem.getInfoAsync(CHANNEL_CACHE_BAK).catch(() => null);
     if (backup?.exists) {
-      await FileSystem.moveAsync({ from: CHANNEL_CACHE_BAK, to: CHANNEL_CACHE }).catch(() => undefined);
+      const restored = await FileSystem.moveAsync({ from: CHANNEL_CACHE_BAK, to: CHANNEL_CACHE })
+        .then(() => true)
+        .catch(() => false);
+      channelCacheKnownGood = restored;
     }
     throw error;
   }
