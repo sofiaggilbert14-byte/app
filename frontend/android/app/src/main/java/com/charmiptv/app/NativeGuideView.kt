@@ -47,6 +47,20 @@ class NativeGuideView(context: Context) : View(context) {
   private var lastMoveAt = 0L
   private var lastHorizontalMoveAt = 0L
   private var moveVelocity = 0
+  private var pendingRestoreChannelId: String? = null
+  private var pendingRestoreTimeMs: Long? = null
+
+  private val unregisterMemoryListener = CharmMemoryCoordinator.register { level, _ ->
+    if (level != CharmTrimLevel.CRITICAL) return@register
+    post {
+      if (disposed) return@post
+      programs = emptyMap()
+      generation += 1
+      pendingQuery = null
+      loadPrograms()
+      invalidate()
+    }
+  }
 
   private val density = resources.displayMetrics.density
   private val channelWidth = 184f * density
@@ -62,6 +76,7 @@ class NativeGuideView(context: Context) : View(context) {
   private val background = Paint().apply { color = Color.rgb(8, 7, 13) }
   private val header = Paint().apply { color = Color.rgb(22, 18, 33) }
   private val channel = Paint().apply { color = Color.rgb(26, 22, 38) }
+  private val rowSurface = Paint().apply { color = Color.rgb(18, 16, 28) }
   private val cell = Paint().apply { color = Color.rgb(31, 27, 45) }
   private val selected = Paint().apply { color = Color.rgb(119, 74, 219) }
   private val divider = Paint().apply { color = Color.rgb(53, 45, 72); strokeWidth = density }
@@ -82,31 +97,47 @@ class NativeGuideView(context: Context) : View(context) {
       val id = item.getString("id") ?: continue
       nextRows.add(ChannelRow(id, item.getString("name") ?: "Channel", item.getString("number") ?: ""))
     }
-    if (rows == nextRows) return
-    val restoreId = rows.getOrNull(selectedRow)?.id
+    if (rows == nextRows) {
+      applyPendingRestoreChannel()
+      return
+    }
+    val currentRestoreId = rows.getOrNull(selectedRow)?.id
     rows.clear()
     rows.addAll(nextRows)
     val keepIds = nextRows.asSequence().map { it.id }.toHashSet()
     programs = programs.filterKeys { it in keepIds }
-    selectedRow = max(0, restoreId?.let { wanted -> rows.indexOfFirst { it.id == wanted } } ?: 0)
-    if (selectedRow >= rows.size) selectedRow = max(0, rows.lastIndex)
+
+    val wantedId = pendingRestoreChannelId ?: currentRestoreId
+    val restoreIndex = wantedId?.let { wanted -> rows.indexOfFirst { it.id == wanted } } ?: -1
+    selectedRow = if (restoreIndex >= 0) restoreIndex else selectedRow.coerceIn(0, max(0, rows.lastIndex))
+    if (restoreIndex >= 0 && wantedId == pendingRestoreChannelId) pendingRestoreChannelId = null
+    if (rows.isEmpty()) selectedRow = 0
     ensureVisible()
     loadPrograms()
     invalidate()
+    if (enabled && rows.isNotEmpty()) emitSelection(true)
   }
 
   fun setWindow(start: Double, end: Double) {
     val nextStart = start.toLong()
     val nextEnd = end.toLong()
-    if (nextEnd <= nextStart || (nextStart == windowStartMs && nextEnd == windowEndMs)) return
+    if (nextEnd <= nextStart) return
+    val changed = nextStart != windowStartMs || nextEnd != windowEndMs
     windowStartMs = nextStart
     windowEndMs = nextEnd
-    selectedTimeMs = selectedTimeMs.coerceIn(windowStartMs, windowEndMs - 1)
+
+    val pending = pendingRestoreTimeMs
+    if (pending != null && pending >= windowStartMs && pending < windowEndMs) {
+      selectedTimeMs = pending
+      pendingRestoreTimeMs = null
+    } else {
+      selectedTimeMs = selectedTimeMs.coerceIn(windowStartMs, windowEndMs - 1)
+    }
     viewportStartMs = clampViewportStart(viewportStartMs)
     if (selectedTimeMs < viewportStartMs || selectedTimeMs >= viewportEndMs()) {
       viewportStartMs = clampViewportStart(selectedTimeMs - 15L * 60_000L)
     }
-    loadPrograms()
+    if (changed || pendingRestoreTimeMs == null) loadPrograms()
     invalidate()
   }
 
@@ -115,24 +146,46 @@ class NativeGuideView(context: Context) : View(context) {
 
   fun setActive(value: Boolean) {
     enabled = value
-    if (value) { requestFocus(); emitSelection(true) }
+    if (value) {
+      applyPendingRestoreChannel()
+      if (rows.isNotEmpty()) {
+        requestFocus()
+        emitSelection(true)
+      }
+    }
   }
 
   fun restoreChannel(channelId: String?) {
-    if (channelId.isNullOrBlank()) return
-    val index = rows.indexOfFirst { it.id == channelId }
-    if (index >= 0) { selectedRow = index; ensureVisible(); invalidate(); emitSelection(true) }
+    val wanted = channelId?.trim().orEmpty()
+    if (wanted.isEmpty()) return
+    pendingRestoreChannelId = wanted
+    applyPendingRestoreChannel()
+  }
+
+  private fun applyPendingRestoreChannel() {
+    val wanted = pendingRestoreChannelId ?: return
+    val index = rows.indexOfFirst { it.id == wanted }
+    if (index < 0) return
+    pendingRestoreChannelId = null
+    selectedRow = index
+    ensureVisible()
+    loadPrograms()
+    invalidate()
+    if (enabled) emitSelection(true)
   }
 
   fun restoreTime(value: Double) {
-    if (!value.isFinite() || value <= 0.0 || windowEndMs <= windowStartMs) return
-    val next = value.toLong().coerceIn(windowStartMs, windowEndMs - 1)
-    if (next == selectedTimeMs) return
-    selectedTimeMs = next
+    if (!value.isFinite() || value <= 0.0) return
+    val wanted = value.toLong()
+    pendingRestoreTimeMs = wanted
+    if (windowEndMs <= windowStartMs || wanted < windowStartMs || wanted >= windowEndMs) return
+    pendingRestoreTimeMs = null
+    if (wanted == selectedTimeMs) return
+    selectedTimeMs = wanted
     viewportStartMs = clampViewportStart(selectedTimeMs - visibleWindowMs / 6L)
     loadPrograms()
     invalidate()
-    emitSelection(true)
+    if (enabled) emitSelection(true)
   }
 
   private fun clampViewportStart(value: Long): Long {
@@ -166,7 +219,12 @@ class NativeGuideView(context: Context) : View(context) {
     val from = max(0, firstVisibleRow - ahead)
     val to = min(rows.size, firstVisibleRow + visible + ahead)
     val ids = rows.subList(from, to).map { it.id }
-    if (ids.isEmpty()) { generation += 1; pendingQuery = null; programs = emptyMap(); return }
+    if (ids.isEmpty()) {
+      generation += 1
+      pendingQuery = null
+      programs = emptyMap()
+      return
+    }
 
     val queryStart = max(windowStartMs, viewportStartMs - horizontalPrefetchBeforeMs)
     val queryEnd = min(windowEndMs, viewportEndMs() + horizontalPrefetchAfterMs)
@@ -192,7 +250,23 @@ class NativeGuideView(context: Context) : View(context) {
           val frozen = grouped.mapValues { (_, list) -> list.sortedBy { it.startMs }.toTypedArray() }
           post {
             if (disposed || request.token != generation) return@post
-            programs = frozen
+            // Stale-while-revalidate paint cache: replace only the rows this
+            // query owned, preserve recently painted neighbours for fast reverse
+            // navigation, and keep the cache strictly bounded for TV RAM.
+            val merged = LinkedHashMap<String, Array<NativeEpgProgram>>()
+            for ((id, list) in programs) {
+              if (id !in request.ids) merged[id] = list
+            }
+            for (id in request.ids) {
+              val list = frozen[id]
+              if (list != null) merged[id] = list
+            }
+            val cap = if (CharmMemoryCoordinator.budgets().lowRam) LOW_RAM_PAINT_CACHE_CHANNELS else PAINT_CACHE_CHANNELS
+            while (merged.size > cap) {
+              val oldest = merged.keys.firstOrNull() ?: break
+              merged.remove(oldest)
+            }
+            programs = merged
             invalidate()
             emitSelection(true)
           }
@@ -212,6 +286,7 @@ class NativeGuideView(context: Context) : View(context) {
 
   override fun onAttachedToWindow() {
     super.onAttachedToWindow()
+    applyPendingRestoreChannel()
     loadPrograms()
   }
 
@@ -221,6 +296,7 @@ class NativeGuideView(context: Context) : View(context) {
     generation += 1
     pendingQuery = null
     programs = emptyMap()
+    unregisterMemoryListener()
     io.shutdownNow()
     database.close()
   }
@@ -355,6 +431,7 @@ class NativeGuideView(context: Context) : View(context) {
       val top = headerHeight + slot * rowHeight
       channel.color = if (rowIndex == selectedRow) Color.rgb(61, 43, 92) else Color.rgb(26, 22, 38)
       canvas.drawRect(0f, top, channelWidth, top + rowHeight - density, channel)
+      canvas.drawRect(channelWidth, top, width.toFloat(), top + rowHeight - density, rowSurface)
       drawClippedText(canvas, listOfNotNull(row.number.takeIf { it.isNotBlank() }, row.name).joinToString("  "), pad, top + rowHeight * .62f, channelWidth - pad, title)
 
       val list = programs[row.id].orEmpty()
@@ -398,5 +475,10 @@ class NativeGuideView(context: Context) : View(context) {
     if (right <= x) return
     canvas.save(); canvas.clipRect(x, baseline - rowHeight, right, baseline + pad)
     canvas.drawText(value, x, baseline, paint); canvas.restore()
+  }
+
+  companion object {
+    private const val PAINT_CACHE_CHANNELS = 128
+    private const val LOW_RAM_PAINT_CACHE_CHANNELS = 64
   }
 }
