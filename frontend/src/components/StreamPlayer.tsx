@@ -76,7 +76,7 @@ const SILENT_AUDIO_GRACE_MS = 2200;
 // TiviMate-style recovery adapted to Charm: only an actual post-playback
 // BUFFERING/loading state arms the watchdog. A silent internal re-prepare gets
 // first chance before the parent retry/failure machinery is notified.
-const BUFFERING_RESYNC_MS = 7000;
+const BUFFERING_RESYNC_MS = 5000;
 const BUFFERING_FAIL_MS = 22000;
 const MAX_SILENT_BUFFERING_RESYNCS = 2;
 
@@ -521,12 +521,18 @@ function ExpoStream({
           deviceMemory?.vodCacheBytes || Number.MAX_SAFE_INTEGER,
         ),
       );
+      const minBufferForPlayback = profile === "low_latency" ? 0.5 : profile === "stable" ? 1.0 : 0.75;
       player.bufferOptions = mode === "preview"
         ? {
             preferredForwardBufferDuration: 1.2,
+            minBufferForPlayback: 0.5,
             maxBufferBytes: Math.min(12 * 1024 * 1024, coordinatedCacheBudget),
           }
-        : { ...full, maxBufferBytes: Math.min(full.maxBufferBytes, coordinatedCacheBudget) };
+        : {
+            ...full,
+            minBufferForPlayback,
+            maxBufferBytes: Math.min(full.maxBufferBytes, coordinatedCacheBudget),
+          };
     } catch {
       /* older native builds may ignore bufferOptions */
     }
