@@ -33,7 +33,7 @@ export type SystemGroup = (typeof SYSTEM_GROUPS)[number];
 export type SmartGroup = (typeof SMART_GROUPS)[number];
 export type CuratedGroup = (typeof CURATED_GROUPS)[number];
 
-const CURATED_MATCH: Array<[Exclude<CuratedGroup, "Miscellaneous">, RegExp]> = [
+const CURATED_MATCH: [Exclude<CuratedGroup, "Miscellaneous">, RegExp][] = [
   ["Sports", /\b(sport|nfl|nba|mlb|nhl|ufc|mma|boxing|wwe|espn|golf|tennis|soccer|football|basketball|baseball|hockey|racing|f1)\b/i],
   ["News", /\b(news|weather|cnn|fox news|msnbc|bbc news|cnbc|newsmax|oann|al jazeera)\b/i],
   ["Kids", /\b(kid|kids|family|cartoon|nick|nickelodeon|disney|boomerang|pbs kids|junior)\b/i],

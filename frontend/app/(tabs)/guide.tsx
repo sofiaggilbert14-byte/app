@@ -263,9 +263,14 @@ export default function PurpleGuideScreen() {
   } = useGuideUiPreferences();
   const customGuideGroups = useCustomGuideGroups();
   const epgOwnership = useEpgSourcePreferences();
+  const epgMatchOwnership = useMemo(() => ({
+    primaryEnabled: epgOwnership.primaryEnabled,
+    userEnabled: epgOwnership.userEnabled,
+    userOverrides: epgOwnership.userOverrides,
+  }), [epgOwnership.primaryEnabled, epgOwnership.userEnabled, epgOwnership.userOverrides]);
   const hasOwnedEpgMatch = useCallback(
-    (channel: Channel) => channelHasOwnedEpgMatch(channel, epgOwnership),
-    [epgOwnership.primaryEnabled, epgOwnership.userEnabled, epgOwnership.userOverrides],
+    (channel: Channel) => channelHasOwnedEpgMatch(channel, epgMatchOwnership),
+    [epgMatchOwnership],
   );
   const { hiddenIds, customOrder, customNumbers } = useChannelCustomize();
   const hiddenIdSet = useMemo(() => new Set(hiddenIds), [hiddenIds]);
@@ -572,7 +577,7 @@ export default function PurpleGuideScreen() {
     const visibleIds = new Set(filteredList.map((channel) => channel.id));
     visibleIds.add(target.id);
     return list.filter((channel) => visibleIds.has(channel.id));
-  }, [channels, customGuideGroups.byName, customOrder, epgGuideFilter, favoriteSet, group, hiddenIdSet, jumpFilterBypassId, recent, recentIdSet]);
+  }, [channels, customGuideGroups.byName, customOrder, epgGuideFilter, favoriteSet, group, hasOwnedEpgMatch, hiddenIdSet, jumpFilterBypassId, recent, recentIdSet]);
 
   // Keep the complete selected group identity stable.
   const filtered = filteredMeta;

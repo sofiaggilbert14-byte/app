@@ -196,6 +196,18 @@ test("automatic refresh stays away from guide and player screens", async () => {
   assert.match(preferences, /epgHours: 6/);
 });
 
+test("Guide matched filters and custom EPG refresh track current ownership and query", async () => {
+  const [guide, sources, custom] = await Promise.all([
+    source("app/(tabs)/guide.tsx"),
+    source("app/(tabs)/epg-sources.tsx"),
+    source("app/epg-custom.tsx"),
+  ]);
+  assert.match(guide, /const epgMatchOwnership = useMemo/);
+  assert.match(guide, /group, hasOwnedEpgMatch, hiddenIdSet/);
+  assert.match(sources, /channelHasOwnedEpgMatch\(channel, epgMatchOwnership\)/);
+  assert.match(custom, /\[busy, prefs, urlDraft, xmltvQuery\]/);
+});
+
 test("EPG and playlist controls live only on the dedicated EPG settings page", async () => {
   const [settings, epg] = await Promise.all([
     source("app/(tabs)/settings.tsx"),

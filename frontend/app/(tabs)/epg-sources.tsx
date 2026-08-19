@@ -112,19 +112,25 @@ export default function EpgSourcesScreen() {
     });
   }, [runAction]);
 
+  const epgMatchOwnership = useMemo(() => ({
+    primaryEnabled: epgOwnership.primaryEnabled,
+    userEnabled: epgOwnership.userEnabled,
+    userOverrides: epgOwnership.userOverrides,
+  }), [epgOwnership.primaryEnabled, epgOwnership.userEnabled, epgOwnership.userOverrides]);
+
   const groupMatches = useMemo(() => {
     const groups = new Map<string, { matched: number; unmatched: number; total: number }>();
     for (const channel of channels) {
       const name = (channel.group || "Ungrouped").trim() || "Ungrouped";
       const item = groups.get(name) || { matched: 0, unmatched: 0, total: 0 };
       item.total += 1;
-      if (channelHasOwnedEpgMatch(channel, epgOwnership)) item.matched += 1;
+      if (channelHasOwnedEpgMatch(channel, epgMatchOwnership)) item.matched += 1;
       else item.unmatched += 1;
       groups.set(name, item);
     }
     return Array.from(groups.entries()).map(([name, counts]) => ({ name, ...counts }))
       .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name)).slice(0, 6);
-  }, [channels, epgOwnership.primaryEnabled, epgOwnership.userEnabled, epgOwnership.userOverrides]);
+  }, [channels, epgMatchOwnership]);
 
   const guideStartOptions = useMemo(() => {
     const actualGroups = new Set<string>();

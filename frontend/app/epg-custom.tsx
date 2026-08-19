@@ -202,7 +202,7 @@ export default function CustomEpgScreen() {
     } finally {
       setBusy(false);
     }
-  }, [busy, prefs, reloadXmltvPage, urlDraft]);
+  }, [busy, prefs, urlDraft, xmltvQuery]);
 
   const assign = useCallback(async (xmltvId: string) => {
     const channel = selectedChannel;
