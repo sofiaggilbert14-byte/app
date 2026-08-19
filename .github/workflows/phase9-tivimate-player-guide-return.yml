@@ -1,5 +1,6 @@
 name: Phase 9 TiviMate Player Guide Return
 
+# Phase 9 workflow retrigger 2026-08-18T21:32-04:00
 on:
   push:
     branches:
@@ -65,7 +66,6 @@ jobs:
               p = p.replace(history_old, history_new, 1)
           p = p.replace('  }, [recent, streamChannels]);\n', '  }, [channelById, channelId, recent, streamChannels]);\n', 1)
 
-          # A request/focus candidate must not alter Previous Channel yet.
           p = p.replace(
               '    if (channelIdRef.current && channelIdRef.current !== id) previousChannelIdRef.current = channelIdRef.current;\n',
               '',
