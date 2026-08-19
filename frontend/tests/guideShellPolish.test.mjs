@@ -402,3 +402,14 @@ test("Guide preview actions have a deterministic D-pad Down return to the native
   assert.match(guide, /onNativeGuideTag=\{setNativeGuideFocusTag\}/);
   assert.match(guide, /guideFocusTag=\{nativeGuideFocusTag\}/);
 });
+
+test("Android remote accepts the drawer_edge ownership context used by the shell", async () => {
+  const [nativeRemote, activity, bridge] = await Promise.all([
+    source("android/app/src/main/java/com/charmiptv/app/TvRemoteModule.kt"),
+    source("android/app/src/main/java/com/charmiptv/app/MainActivity.kt"),
+    source("src/utils/tvRemote.ts"),
+  ]);
+  assert.match(nativeRemote, /"main_drawer", "drawer_edge", "player"/);
+  assert.match(activity, /context == "drawer_edge" && boundaryKey == "LEFT"/);
+  assert.match(bridge, /\| "drawer_edge"/);
+});

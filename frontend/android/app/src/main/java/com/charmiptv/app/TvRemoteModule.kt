@@ -46,7 +46,7 @@ class TvRemoteModule(private val ctx: ReactApplicationContext) : ReactContextBas
   @ReactMethod
   fun setRemoteContext(context: String) {
     remoteContext = when (context) {
-      "guide", "guide_groups", "main_drawer", "player", "modal" -> context
+      "guide", "guide_groups", "main_drawer", "drawer_edge", "player", "modal" -> context
       else -> "default"
     }
   }
