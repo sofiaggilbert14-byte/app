@@ -83,13 +83,13 @@ internal class EpgDatabase(context: Context, private val databaseName: String = 
   override fun onConfigure(db: SQLiteDatabase) {
     super.onConfigure(db)
     db.setForeignKeyConstraintsEnabled(false)
-    db.rawQuery("PRAGMA journal_mode=WAL", null).close()
-    db.execSQL("PRAGMA synchronous=NORMAL")
-    db.execSQL("PRAGMA busy_timeout=3000")
-    db.execSQL("PRAGMA temp_store=MEMORY")
+    runPragma(db, "PRAGMA journal_mode=WAL")
+    runPragma(db, "PRAGMA synchronous=NORMAL")
+    runPragma(db, "PRAGMA busy_timeout=3000")
+    runPragma(db, "PRAGMA temp_store=MEMORY")
     // Incremental vacuum frees pages later via rare PRAGMA incremental_vacuum — not every refresh.
     try {
-      db.execSQL("PRAGMA auto_vacuum=INCREMENTAL")
+      runPragma(db, "PRAGMA auto_vacuum=INCREMENTAL")
     } catch (_: Throwable) {
       /* older SQLite / already set */
     }
@@ -735,7 +735,7 @@ internal class EpgDatabase(context: Context, private val databaseName: String = 
         } finally {
           db.endTransaction()
         }
-        db.execSQL("PRAGMA wal_checkpoint(PASSIVE)")
+        runPragma(db, "PRAGMA wal_checkpoint(PASSIVE)")
       } catch (_: Throwable) {
         // Preserve the original failure and last-good LIVE data.
       }
@@ -806,7 +806,7 @@ internal class EpgDatabase(context: Context, private val databaseName: String = 
   fun deleteExpired(beforeMs: Long): Int {
     val deleted = writableDatabase.delete(LIVE_TABLE, "end_time < ?", arrayOf(toEpochSeconds(beforeMs).toString()))
     try {
-      writableDatabase.execSQL("PRAGMA wal_checkpoint(PASSIVE)")
+      runPragma(writableDatabase, "PRAGMA wal_checkpoint(PASSIVE)")
     } catch (_: Throwable) {
       /* ignore */
     }
@@ -820,7 +820,7 @@ internal class EpgDatabase(context: Context, private val databaseName: String = 
   fun maybeIncrementalVacuum(minDeletedRows: Int, deletedRows: Int) {
     if (deletedRows < minDeletedRows) return
     try {
-      writableDatabase.execSQL("PRAGMA incremental_vacuum(64)")
+      runPragma(writableDatabase, "PRAGMA incremental_vacuum(64)")
     } catch (_: Throwable) {
       /* ignore */
     }
@@ -899,6 +899,17 @@ internal class EpgDatabase(context: Context, private val databaseName: String = 
       "INSERT INTO $FTS_TABLE(programme_id, channel_id, title, description, category) " +
         "SELECT id, channel_id, title, COALESCE(description, ''), COALESCE(category, '') FROM $LIVE_TABLE"
     )
+  }
+
+  /** Android classifies PRAGMA statements as queries, including setter-style
+   * forms. Consume their cursor so configuration and maintenance complete
+   * without routing a query through SQLiteDatabase.execSQL. */
+  private fun runPragma(db: SQLiteDatabase, sql: String) {
+    db.rawQuery(sql, null).use { cursor ->
+      while (cursor.moveToNext()) {
+        // Some PRAGMAs return status rows; consuming them completes the command.
+      }
+    }
   }
 
   private fun toEpochSeconds(milliseconds: Long): Long = Math.floorDiv(milliseconds, 1000L)

@@ -112,6 +112,16 @@ test("EPG cold-start logo lookup has an additive alias-kind/channel index", asyn
   assert.doesNotMatch(db, /DROP TABLE[\s\S]*oldVersion < 10/);
 });
 
+test("Android SQLite PRAGMA operations use query cursors instead of execSQL", async () => {
+  const db = await source("android/app/src/main/java/com/charmiptv/app/EpgDatabase.kt");
+  assert.match(db, /private fun runPragma\(db: SQLiteDatabase, sql: String\)/);
+  assert.match(db, /db\.rawQuery\(sql, null\)\.use/);
+  assert.doesNotMatch(db, /execSQL\("PRAGMA/);
+  for (const pragma of ["journal_mode=WAL", "synchronous=NORMAL", "busy_timeout=3000", "temp_store=MEMORY", "wal_checkpoint(PASSIVE)", "incremental_vacuum(64)"]) {
+    assert.match(db, new RegExp(`runPragma\\([^\\n]+PRAGMA ${pragma.replace(/[()]/g, "\\$&")}`));
+  }
+});
+
 test("custom EPG last-good retention does not fake a successful programme refresh", async () => {
   const custom = await source("android/app/src/main/java/com/charmiptv/app/CustomEpgNativeModule.kt");
   assert.match(custom, /var programmeSwapSucceeded = false/);
