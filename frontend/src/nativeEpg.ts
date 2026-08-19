@@ -52,7 +52,7 @@ export type NativePlaylistEpgMatchRow = {
 
 type CharmEpgModule = {
   fetchPlaylist?(url: string): Promise<NativePlaylistResult>;
-  getStoredPlaylist?(): Promise<{ channels: Channel[]; playlistEpoch?: number; playlistRefreshedAt?: number; guideEpoch?: number; guideRefreshedAt?: number; epgProgramCount?: number }>;
+  getStoredPlaylist?(): Promise<{ channels: Channel[]; playlistEpoch?: number; playlistRefreshedAt?: number; guideEpoch?: number; guideRefreshedAt?: number; epgProgramCount?: number; primaryGuideRefreshedAt?: number; userGuideRefreshedAt?: number; primaryEpgProgramCount?: number; userEpgProgramCount?: number }>;
   configureSource?(
     playlistId: string,
     url: string,

@@ -432,11 +432,31 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     queryExecutor.execute {
       try {
         val rows = database.activePlaylistChannels()
+        val primaryEnabled = controlDao.source(DEFAULT_PLAYLIST_ID)?.enabled ?: true
         val userSource = controlDao.source(USER_SOURCE_ID)
         val userEnabled = userSource?.enabled == true && userSource.url.isNotBlank()
         val userBindings = if (userEnabled) controlDao.allChannelBindings(USER_SOURCE_ID) else emptyList()
+        val hasUserOwnership = userEnabled && userBindings.isNotEmpty()
         val bindingByPlaylist = userBindings.associate { it.channelId to it.xmltvId }
         val userIcons = if (bindingByPlaylist.isNotEmpty()) userDatabase.iconAliases(bindingByPlaylist.values.toSet()) else emptyMap()
+        val primaryGuideEpoch = database.getMeta("guide_epoch")?.toLongOrNull() ?: 0L
+        val userGuideEpoch = userDatabase.getMeta("guide_epoch")?.toLongOrNull() ?: 0L
+        val primaryGuideRefreshedAt = database.getMeta("guide_refreshed_at")?.toLongOrNull() ?: 0L
+        val userGuideRefreshedAt = userDatabase.getMeta("guide_refreshed_at")?.toLongOrNull() ?: 0L
+        val effectiveGuideEpoch =
+          (if (primaryEnabled) primaryGuideEpoch else 0L) +
+            (if (hasUserOwnership) userGuideEpoch else 0L)
+        val effectiveGuideRefreshedAt = when {
+          primaryEnabled && hasUserOwnership ->
+            if (primaryGuideRefreshedAt > 0L && userGuideRefreshedAt > 0L)
+              minOf(primaryGuideRefreshedAt, userGuideRefreshedAt) else 0L
+          primaryEnabled -> primaryGuideRefreshedAt
+          hasUserOwnership -> userGuideRefreshedAt
+          else -> 0L
+        }
+        val effectiveProgramCount =
+          (if (primaryEnabled) database.count() else 0L) +
+            (if (hasUserOwnership) userDatabase.count() else 0L)
         val channels = Arguments.createArray()
         for (row in rows) {
           val customXmltvId = bindingByPlaylist[row.playlistId]
@@ -458,9 +478,13 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
           putArray("channels", channels)
           putDouble("playlistEpoch", (database.getMeta("playlist_epoch")?.toLongOrNull() ?: 0L).toDouble())
           putDouble("playlistRefreshedAt", (database.getMeta("playlist_refreshed_at")?.toLongOrNull() ?: 0L).toDouble())
-          putDouble("guideEpoch", (database.getMeta("guide_epoch")?.toLongOrNull() ?: 0L).toDouble())
-          putDouble("guideRefreshedAt", (database.getMeta("guide_refreshed_at")?.toLongOrNull() ?: 0L).toDouble())
-          putDouble("epgProgramCount", database.count().toDouble())
+          putDouble("guideEpoch", effectiveGuideEpoch.toDouble())
+          putDouble("guideRefreshedAt", effectiveGuideRefreshedAt.toDouble())
+          putDouble("epgProgramCount", effectiveProgramCount.toDouble())
+          putDouble("primaryGuideRefreshedAt", primaryGuideRefreshedAt.toDouble())
+          putDouble("userGuideRefreshedAt", userGuideRefreshedAt.toDouble())
+          putDouble("primaryEpgProgramCount", database.count().toDouble())
+          putDouble("userEpgProgramCount", userDatabase.count().toDouble())
         })
       } catch (t: Throwable) {
         promise.reject("PLAYLIST_STORED_READ_FAILED", t.message ?: "Could not read stored playlist", t)

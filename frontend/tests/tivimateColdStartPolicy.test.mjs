@@ -38,3 +38,18 @@ test("TiviMate-style native cold start is read-only while successful provider re
   const onCreate = database.match(/override fun onCreate\(db: SQLiteDatabase\)[\s\S]*?\n  }\n\n  private fun createProgrammeTable/)?.[0] || "";
   assert.match(onCreate, /idx_playlist_active_position ON \$PLAYLIST_TABLE\(deleted_at, provider_position\)/);
 });
+
+test("cold-start Guide freshness follows active EPG ownership", async () => {
+  const [custom, native] = await Promise.all([
+    source("android/app/src/main/java/com/charmiptv/app/CustomEpgNativeModule.kt"),
+    source("android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt"),
+  ]);
+  assert.match(custom, /val guideEpoch = \(userDatabase\.getMeta\("guide_epoch"\).*?\+ 1L/s);
+  assert.match(custom, /userDatabase\.setMeta\("guide_refreshed_at", now\.toString\(\)\)/);
+  assert.match(native, /val hasUserOwnership = userEnabled && userBindings\.isNotEmpty\(\)/);
+  assert.match(native, /val effectiveGuideEpoch =[\s\S]*?primaryGuideEpoch[\s\S]*?userGuideEpoch/);
+  assert.match(native, /primaryEnabled && hasUserOwnership[\s\S]*?minOf\(primaryGuideRefreshedAt, userGuideRefreshedAt\)/);
+  assert.match(native, /hasUserOwnership -> userGuideRefreshedAt/);
+  assert.match(native, /putDouble\("guideRefreshedAt", effectiveGuideRefreshedAt\.toDouble\(\)\)/);
+  assert.match(native, /putDouble\("epgProgramCount", effectiveProgramCount\.toDouble\(\)\)/);
+});

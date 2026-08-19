@@ -136,6 +136,8 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
           if (logoUrl.isNotBlank()) aliases.add(Triple(channelId, "icon_url", logoUrl))
         }
         userDatabase.replaceChannelAliases(aliases)
+        val guideEpoch = (userDatabase.getMeta("guide_epoch")?.toLongOrNull() ?: 0L) + 1L
+        userDatabase.setMeta("guide_epoch", guideEpoch.toString())
         userDatabase.setMeta("guide_refreshed_at", now.toString())
         userDatabase.setMeta("custom_programme_scope", activeXmltvIds.size.toString())
 
@@ -143,6 +145,8 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
           putDouble("count", userDatabase.count().toDouble())
           putDouble("directoryCount", channelNames.size.toDouble())
           putDouble("bindingCount", activeXmltvIds.size.toDouble())
+          putDouble("guideEpoch", guideEpoch.toDouble())
+          putDouble("guideRefreshedAt", now.toDouble())
         })
       } catch (t: Throwable) {
         promise.reject("CUSTOM_EPG_REFRESH_FAILED", t.message ?: "Custom Guide refresh failed", t)
