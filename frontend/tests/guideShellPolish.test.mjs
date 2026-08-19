@@ -298,3 +298,10 @@ test("entry preferred focus disarms as soon as real user focus exists", async ()
   assert.match(settings, /hasTVPreferredFocus=\{preferBackFocus\}[\s\S]{0,100}onFocus=\{\(\) => setPreferBackFocus\(false\)\}/);
   assert.match(settings, /hasTVPreferredFocus=\{preferTileFocus && index === 0\}[\s\S]{0,100}onFocus=\{\(\) => setPreferTileFocus\(false\)\}/);
 });
+
+test("Guide preview uses a large channel-logo placeholder while tuning", async () => {
+  const rail = await source("src/components/GuidePreviewRail.tsx");
+  const matches = rail.match(/size=\{132\}/g) || [];
+  assert.equal(matches.length, 2);
+  assert.doesNotMatch(rail, /size=\{104\}/);
+});

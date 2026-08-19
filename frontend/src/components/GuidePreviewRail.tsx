@@ -112,7 +112,7 @@ export function GuidePreviewRail({
                 onError={onPreviewErrorRemount}
                 fallback={() => (
                   <View style={styles.fallback}>
-                    <ChannelLogo name={channel.name} logo={channel.logo} disabled={!showLogos} size={104} />
+                    <ChannelLogo name={channel.name} logo={channel.logo} disabled={!showLogos} size={132} />
                     <Text style={styles.fallbackHint}>Preview unavailable</Text>
                   </View>
                 )}
@@ -131,7 +131,7 @@ export function GuidePreviewRail({
             ) : (
               <View style={styles.fallback}>
                 {channel ? (
-                  <ChannelLogo name={channel.name} logo={channel.logo} disabled={!showLogos} size={104} />
+                  <ChannelLogo name={channel.name} logo={channel.logo} disabled={!showLogos} size={132} />
                 ) : (
                   <Ionicons name="tv-outline" size={58} color={tvColors.purpleSoft} />
                 )}
