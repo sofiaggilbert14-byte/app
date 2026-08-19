@@ -5,6 +5,7 @@ import {
   importLegacyNativeEpgBindings,
   nativeEpgBindingsAvailable,
   readNativeEpgBindings,
+  setNativeEpgBinding,
 } from "@/src/nativeEpgBindings";
 
 export type UserEpgOverrideMap = Record<string, string>;
@@ -189,6 +190,9 @@ export function useEpgSourcePreferences() {
     const next = { ...cached, userOverrides: overrides };
     setValue(next);
     commitPrepared(next);
+    if (nativeEpgBindingsAvailable) {
+      void setNativeEpgBinding(id, sourceId || null).catch(() => void reloadNativeOverridesAfterFailure());
+    }
   }, []);
 
   const clearUserOverrides = useCallback(() => {

@@ -63,6 +63,23 @@ class EpgBindingNativeModule(reactContext: ReactApplicationContext) :
   }
 
   @ReactMethod
+  fun setBinding(channelId: String, xmltvId: String, promise: Promise) {
+    executor.execute {
+      try {
+        val cleanChannelId = channelId.trim().take(MAX_ID_LENGTH)
+        val cleanXmltvId = xmltvId.trim().take(MAX_ID_LENGTH)
+        if (cleanChannelId.isEmpty() || cleanChannelId.contains("://") || cleanXmltvId.contains("://")) {
+          throw IllegalArgumentException("Invalid Guide assignment")
+        }
+        dao.setChannelBinding(USER_SOURCE_ID, cleanChannelId, cleanXmltvId)
+        promise.resolve(true)
+      } catch (t: Throwable) {
+        promise.reject("EPG_BINDING_WRITE_FAILED", t.message ?: "Could not save Guide assignment", t)
+      }
+    }
+  }
+
+  @ReactMethod
   fun clearBindings(promise: Promise) {
     executor.execute {
       try {

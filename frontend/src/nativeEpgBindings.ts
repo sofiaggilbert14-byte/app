@@ -5,6 +5,7 @@ export type NativeEpgBindingMap = Record<string, string>;
 type EpgBindingModule = {
   getBindings(): Promise<NativeEpgBindingMap>;
   importLegacyIfEmpty(overrides: NativeEpgBindingMap): Promise<boolean>;
+  setBinding(channelId: string, xmltvId: string): Promise<boolean>;
   clearBindings(): Promise<boolean>;
 };
 
@@ -33,6 +34,14 @@ export async function readNativeEpgBindings(): Promise<NativeEpgBindingMap> {
 export async function importLegacyNativeEpgBindings(overrides: NativeEpgBindingMap): Promise<boolean> {
   if (!nativeModule) return false;
   return nativeModule.importLegacyIfEmpty(sanitize(overrides));
+}
+
+export async function setNativeEpgBinding(channelId: string, xmltvId: string | null): Promise<void> {
+  if (!nativeModule) return;
+  const id = String(channelId || "").trim().slice(0, 180);
+  const sourceId = String(xmltvId || "").trim().slice(0, 180);
+  if (!id || id.includes("://") || sourceId.includes("://")) return;
+  await nativeModule.setBinding(id, sourceId);
 }
 
 export async function clearNativeEpgBindings(): Promise<void> {

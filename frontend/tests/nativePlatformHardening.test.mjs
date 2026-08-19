@@ -37,6 +37,20 @@ test("programme persistence uses epoch seconds, FTS, and a guarded last-good dat
   assert.match(search, /searchNativeEpg/);
 });
 
+test("manual EPG assignments persist through the authoritative native binding store", async () => {
+  const [module, bridge, preferences, database] = await Promise.all([
+    source("android/app/src/main/java/com/charmiptv/app/EpgBindingNativeModule.kt"),
+    source("src/nativeEpgBindings.ts"),
+    source("src/core/epgSourcePreferences.ts"),
+    source("android/app/src/main/java/com/charmiptv/app/EpgControlDatabase.kt"),
+  ]);
+  assert.match(module, /fun setBinding\(channelId: String, xmltvId: String, promise: Promise\)/);
+  assert.match(module, /dao\.setChannelBinding\(USER_SOURCE_ID, cleanChannelId, cleanXmltvId\)/);
+  assert.match(bridge, /await nativeModule\.setBinding\(id, sourceId\)/);
+  assert.match(preferences, /setNativeEpgBinding\(id, sourceId \|\| null\)\.catch/);
+  assert.match(database, /fun setChannelBinding\(playlistId: String, channelId: String, xmltvId: String\)/);
+});
+
 test("EPG low-storage refusal closes already-open provider connections", async () => {
   const modules = await Promise.all([
     source("android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt"),

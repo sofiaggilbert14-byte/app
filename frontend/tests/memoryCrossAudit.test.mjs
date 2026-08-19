@@ -88,6 +88,20 @@ test("direct IPTV sources preserve HTTP and cache writes avoid reparsing the old
   assert.match(source, /channelCacheKnownGood/);
   assert.match(source, /channelCacheKnownGood = restored/);
   assert.match(source, /priorityMatchChannelIds = \[\]/);
+  assert.doesNotMatch(source, /sortChannelsInPlace|channels\.sort\(\(a, b\) =>[\s\S]{0,160}localeCompare/);
+});
+
+test("native playlist order flows from M3U position through SQLite to All channels", async () => {
+  const [source, parser, database, groups] = await Promise.all([
+    readFile(join(root, "src/source.native.ts"), "utf8"),
+    readFile(join(root, "android/app/src/main/java/com/charmiptv/app/NativePlaylistParser.kt"), "utf8"),
+    readFile(join(root, "android/app/src/main/java/com/charmiptv/app/EpgDatabase.kt"), "utf8"),
+    readFile(join(root, "src/core/guideGroups.ts"), "utf8"),
+  ]);
+  assert.match(parser, /rawEntries\.add\(/);
+  assert.match(database, /ORDER BY provider_position ASC, name COLLATE NOCASE ASC/);
+  assert.doesNotMatch(source, /sortChannelsInPlace/);
+  assert.match(groups, /group === "All"[\s\S]{0,120}return channels/);
 });
 
 test("large-list UI paths skip redundant whole-list sorting and Android legacy programme scans", async () => {

@@ -538,13 +538,6 @@ function sourceUrl(url: string): string {
   return (url || "").trim();
 }
 
-function sortChannelsInPlace(channels: Channel[]): Channel[] {
-  channels.sort((a, b) =>
-    (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" }),
-  );
-  return channels;
-}
-
 async function readMetaFile(path: string): Promise<NativeMeta | null> {
   if (!path) return null;
   try {
@@ -557,7 +550,6 @@ async function readMetaFile(path: string): Promise<NativeMeta | null> {
     for (const channel of parsed.channels) {
       channel.playlist_logo = channel.playlist_logo || (!channel.epg_logo ? channel.logo : "") || "";
     }
-    sortChannelsInPlace(parsed.channels);
     return {
       ts: parsed.ts,
       channels: parsed.channels,
@@ -590,7 +582,6 @@ async function readNativeChannelCache(): Promise<NativeMeta | null> {
       channel.playlist_logo = playlistLogo;
       channel.logo = logoPriority === "epg" ? (epgLogo || playlistLogo) : (playlistLogo || epgLogo);
     }
-    sortChannelsInPlace(stored.channels);
     const guideRefreshedAt = stored.guideRefreshedAt || 0;
     const playlistRefreshedAt = stored.playlistRefreshedAt || 0;
     return {
@@ -671,7 +662,6 @@ async function fetchPlaylist(): Promise<Channel[]> {
   const parsed = await fetchNativePlaylist(sourceUrl(SOURCE_M3U));
   setProgress({ phase: "channels", ratio: 0.17, etaSeconds: null });
   const channels = Array.isArray(parsed.channels) ? parsed.channels : [];
-  sortChannelsInPlace(channels);
   if (!channels.length) throw new Error("Playlist contained no playable channels");
   return channels;
 }
