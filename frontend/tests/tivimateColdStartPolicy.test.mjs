@@ -101,3 +101,13 @@ test("custom EPG last-good retention does not fake a successful programme refres
   assert.match(custom, /if \(programmeSwapSucceeded\) \{[\s\S]*?setMeta\("guide_refreshed_at"/);
   assert.match(custom, /putBoolean\("programmeSwapSucceeded", programmeSwapSucceeded\)/);
 });
+
+test("custom EPG retained-guide refresh result reaches the TV UI", async () => {
+  const [bridge, screen] = await Promise.all([
+    source("src/nativeEpg.ts"),
+    source("app/epg-custom.tsx"),
+  ]);
+  assert.match(bridge, /programmeSwapSucceeded\?: boolean/);
+  assert.match(screen, /result\.programmeSwapSucceeded === false/);
+  assert.match(screen, /Keeping the previous guide/);
+});

@@ -191,7 +191,12 @@ export default function CustomEpgScreen() {
       const firstPage = await listNativeUserGuideChannels(xmltvQuery, 0, XMLTV_PAGE_SIZE);
       setXmltvRows(firstPage.rows || []);
       setXmltvTotal(Math.max(0, Number(firstPage.total) || 0));
-      setStatus(`Custom EPG indexed ${Math.max(0, Math.round(result.count || 0))} programmes.`);
+      const programmeCount = Math.max(0, Math.round(result.count || 0));
+      setStatus(
+        result.programmeSwapSucceeded === false
+          ? `Custom EPG returned no usable new programme data. Keeping the previous guide (${programmeCount} programmes).`
+          : `Custom EPG indexed ${programmeCount} programmes.`,
+      );
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Custom EPG refresh failed.");
     } finally {

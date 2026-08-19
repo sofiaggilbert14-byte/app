@@ -88,6 +88,9 @@ type CharmCustomEpgModule = {
     count: number;
     directoryCount?: number;
     bindingCount?: number;
+    guideEpoch?: number;
+    guideRefreshedAt?: number;
+    programmeSwapSucceeded?: boolean;
   }>;
 };
 
@@ -357,6 +360,11 @@ export async function refreshNativeUserGuide(url: string): Promise<{
   count: number;
   channelNames?: Record<string, string>;
   channelIdsWithPrograms?: string[];
+  directoryCount?: number;
+  bindingCount?: number;
+  guideEpoch?: number;
+  guideRefreshedAt?: number;
+  programmeSwapSucceeded?: boolean;
 }> {
   const refreshModule = customEpgModule?.refreshUserGuide ? customEpgModule : nativeModule;
   if (!refreshModule?.refreshUserGuide) throw new Error("Custom native EPG engine is unavailable");
