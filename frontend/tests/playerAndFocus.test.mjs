@@ -61,6 +61,13 @@ test("Guide action strip walks all six actions before returning to the native Gu
   assert.match(rail, /testID="guide-preview-hide"/);
   assert.doesNotMatch(actionStripBeforeHide, /nextFocusDown=\{guideFocusTag \|\| undefined\}/);
   assert.match(rail.slice(rail.lastIndexOf("ref={hideFocus.setRef}")), /nextFocusDown=\{guideFocusTag \|\| undefined\}/);
+  assert.doesNotMatch(rail, /hasTVPreferredFocus=\{preferPlayFocus\}/);
+});
+
+test("active native Guide claims initial focus when its first channel rows arrive", async () => {
+  const view = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");
+  assert.match(view, /val wasEmpty = rows\.isEmpty\(\)/);
+  assert.match(view, /if \(wasEmpty\) requestFocus\(\)/);
 });
 
 test("main drawer cleanup cannot steal the Guide Groups drawer owner", async () => {

@@ -13,6 +13,7 @@ export type UserEpgOverrideMap = Record<string, string>;
 export type EpgSourcePreferences = {
   primaryEnabled: boolean;
   userEnabled: boolean;
+  userName: string;
   userUrl: string;
   /** Session snapshot. On Android the durable source is epg_channel_bindings. */
   userOverrides: UserEpgOverrideMap;
@@ -24,6 +25,7 @@ const KEY = "gs_phase9_epg_source_preferences_v1";
 const DEFAULTS: EpgSourcePreferences = {
   primaryEnabled: true,
   userEnabled: false,
+  userName: "Custom EPG",
   userUrl: "",
   userOverrides: {},
 };
@@ -41,6 +43,11 @@ function cleanUrl(value: unknown): string {
   if (!url || url.length > 2048) return "";
   if (!/^https?:\/\//i.test(url)) return "";
   return url;
+}
+
+function cleanName(value: unknown): string {
+  const name = typeof value === "string" ? value.trim().replace(/\s+/g, " ").slice(0, 60) : "";
+  return name || "Custom EPG";
 }
 
 function cleanOverrides(value: unknown): UserEpgOverrideMap {
@@ -61,6 +68,7 @@ function normalize(value: StoredEpgSourcePreferences | null | undefined): EpgSou
   return {
     primaryEnabled: value?.primaryEnabled !== false,
     userEnabled: value?.userEnabled === true,
+    userName: cleanName(value?.userName),
     userUrl: cleanUrl(value?.userUrl),
     userOverrides: cleanOverrides(value?.userOverrides),
   };
@@ -78,6 +86,7 @@ function storedValue(value: EpgSourcePreferences): StoredEpgSourcePreferences {
     return {
       primaryEnabled: value.primaryEnabled,
       userEnabled: value.userEnabled,
+      userName: value.userName,
       userUrl: value.userUrl,
     };
   }
@@ -172,6 +181,7 @@ export function useEpgSourcePreferences() {
     const next: EpgSourcePreferences = {
       primaryEnabled: patch.primaryEnabled === undefined ? cached.primaryEnabled : patch.primaryEnabled !== false,
       userEnabled: patch.userEnabled === undefined ? cached.userEnabled : patch.userEnabled === true,
+      userName: patch.userName === undefined ? cached.userName : cleanName(patch.userName),
       userUrl: patch.userUrl === undefined ? cached.userUrl : cleanUrl(patch.userUrl),
       userOverrides: patch.userOverrides === undefined ? cached.userOverrides : cleanOverrides(patch.userOverrides),
     };
@@ -208,8 +218,10 @@ export function useEpgSourcePreferences() {
     ...value,
     setPrimaryEnabled: (next: boolean) => update({ primaryEnabled: next }),
     setUserEnabled: (next: boolean) => update({ userEnabled: next }),
+    setUserName: (next: string) => update({ userName: next }),
     setUserUrl: (next: string) => update({ userUrl: next }),
     setUserOverride,
     clearUserOverrides,
   };
 }
+

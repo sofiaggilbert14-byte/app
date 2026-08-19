@@ -101,6 +101,7 @@ class NativeGuideView(context: Context) : View(context) {
   }
 
   fun setChannels(value: ReadableArray?) {
+    val wasEmpty = rows.isEmpty()
     val nextRows = ArrayList<ChannelRow>()
     if (value != null) for (index in 0 until value.size()) {
       val item = value.getMap(index) ?: continue
@@ -127,7 +128,14 @@ class NativeGuideView(context: Context) : View(context) {
     ensureVisible()
     loadPrograms()
     invalidate()
-    if (enabled && rows.isNotEmpty()) emitSelection(true)
+    if (enabled && rows.isNotEmpty()) {
+      // Active can arrive before the first channel payload. In that ordering,
+      // setActive cannot focus an empty canvas and Android otherwise falls back
+      // to the first React Pressable (Guide Play). Claim once when the Guide
+      // becomes focusable; later EPG/channel updates never steal focus.
+      if (wasEmpty) requestFocus()
+      emitSelection(true)
+    }
   }
 
   fun setWindow(start: Double, end: Double) {
@@ -566,3 +574,4 @@ class NativeGuideView(context: Context) : View(context) {
     private const val LOW_RAM_PAINT_CACHE_CHANNELS = 64
   }
 }
+

@@ -29,6 +29,7 @@ export default function CustomEpgScreen() {
   const router = useRouter();
   const { channels } = useStore();
   const prefs = useEpgSourcePreferences();
+  const [nameDraft, setNameDraft] = useState(prefs.userName);
   const [urlDraft, setUrlDraft] = useState(prefs.userUrl);
   const [urlTouched, setUrlTouched] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -51,6 +52,8 @@ export default function CustomEpgScreen() {
   useEffect(() => {
     if (!urlTouched) setUrlDraft(prefs.userUrl);
   }, [prefs.userUrl, urlTouched]);
+
+  useEffect(() => setNameDraft(prefs.userName), [prefs.userName]);
 
   useEffect(() => {
     const timer = setTimeout(() => setPreferBackFocus(false), 180);
@@ -159,15 +162,16 @@ export default function CustomEpgScreen() {
     setBusy(true);
     try {
       await applyOwnership(prefs.primaryEnabled, prefs.userEnabled, url);
+      prefs.setUserName(nameDraft);
       prefs.setUserUrl(url);
       setUrlTouched(false);
-      setStatus("Custom EPG URL saved.");
+      setStatus(`${nameDraft.trim() || "Custom EPG"} saved.`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not save custom EPG URL.");
     } finally {
       setBusy(false);
     }
-  }, [applyOwnership, busy, prefs, urlDraft]);
+  }, [applyOwnership, busy, nameDraft, prefs, urlDraft]);
 
   const refreshUserGuide = useCallback(async () => {
     if (busy) return;
@@ -250,7 +254,7 @@ export default function CustomEpgScreen() {
         <View style={styles.header}>
           <View>
             <Text style={styles.kicker}>PHASE 9 · GUIDE SOURCES</Text>
-            <Text style={styles.title}>Custom EPG & Channel Assignments</Text>
+            <Text style={styles.title}>{prefs.userName}</Text>
           </View>
           <Pressable hasTVPreferredFocus={preferBackFocus} onFocus={() => setPreferBackFocus(false)} onPress={() => router.replace("/epg-sources" as any)} style={({ focused }: any) => [styles.back, focused && styles.focused]}>
             <Ionicons name="arrow-back" size={14} color="#fff" />
@@ -271,7 +275,16 @@ export default function CustomEpgScreen() {
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Custom XMLTV URL</Text>
+            <Text style={styles.cardTitle}>Saved EPG source · Custom XMLTV URL</Text>
+            <Text style={styles.help}>This source remains saved when disabled. Open it here at any time to change its URL, refresh it, or manage channel assignments.</Text>
+            <TextInput
+              value={nameDraft}
+              onChangeText={setNameDraft}
+              placeholder="EPG source name"
+              placeholderTextColor={tvColors.textMuted}
+              maxLength={60}
+              style={styles.input}
+            />
             <TextInput
               value={urlDraft}
               onChangeText={(value) => { setUrlTouched(true); setUrlDraft(value); }}
@@ -282,7 +295,7 @@ export default function CustomEpgScreen() {
               style={styles.input}
             />
             <View style={styles.actions}>
-              <Pressable disabled={busy} onPress={saveUrl} style={({ focused }: any) => [styles.action, busy && styles.disabled, focused && styles.focused]}><Text style={styles.actionText}>Save URL</Text></Pressable>
+              <Pressable disabled={busy} onPress={saveUrl} style={({ focused }: any) => [styles.action, busy && styles.disabled, focused && styles.focused]}><Text style={styles.actionText}>Save name & URL</Text></Pressable>
               <Pressable disabled={busy} onPress={refreshUserGuide} style={({ focused }: any) => [styles.action, busy && styles.disabled, focused && styles.focused]}><Text style={styles.actionText}>{busy ? "Working…" : "Refresh Custom EPG"}</Text></Pressable>
             </View>
           </View>
@@ -365,3 +378,4 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.35 },
   status: { color: tvColors.purpleSoft, fontFamily: fonts.medium, fontSize: 10.5, paddingHorizontal: 3 },
 });
+

@@ -117,7 +117,6 @@ function GuideSelectionPreview({
   onHideToggle,
   onOpenDrawer,
   onActionsFocusChange,
-  focusRequestToken,
   guideFocusTag,
 }: {
   width: number;
@@ -142,7 +141,6 @@ function GuideSelectionPreview({
   onHideToggle: () => void;
   onOpenDrawer: () => void;
   onActionsFocusChange: (focused: boolean) => void;
-  focusRequestToken: number;
   guideFocusTag?: number | null;
 }) {
   const selection = useGuideSelection();
@@ -201,7 +199,6 @@ function GuideSelectionPreview({
       onHideToggle={onHideToggle}
       onOpenDrawer={onOpenDrawer}
       onActionsFocusChange={onActionsFocusChange}
-      focusRequestToken={focusRequestToken}
       guideFocusTag={guideFocusTag}
     />
   );
@@ -294,7 +291,6 @@ export default function PurpleGuideScreen() {
   const [group, setGroup] = useState(() => guideSessionGroup);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewStatus, setPreviewStatus] = useState<StreamStatus>("loading");
-  const [previewFocusRequestToken, setPreviewFocusRequestToken] = useState(0);
   const [previewActionsFocused, setPreviewActionsFocused] = useState(false);
   const [nativeGuideFocusTag, setNativeGuideFocusTag] = useState<number | null>(null);
   const [resetToken, setResetToken] = useState(0);
@@ -938,7 +934,6 @@ export default function PurpleGuideScreen() {
     // Disable the native canvas before requesting a React action. A single
     // focus owner prevents the canvas from reclaiming focus during the handoff.
     setPreviewActionsFocused(true);
-    setPreviewFocusRequestToken((value) => value + 1);
     requestAnimationFrame(() => focusGuidePreviewSurface());
   }, []);
 
@@ -1093,7 +1088,6 @@ export default function PurpleGuideScreen() {
               onHideToggle={() => setHidePreview(!hidePreview)}
               onOpenDrawer={openDrawerFromPreview}
               onActionsFocusChange={setPreviewActionsFocused}
-              focusRequestToken={previewFocusRequestToken}
               guideFocusTag={nativeGuideFocusTag}
             />
 

@@ -283,8 +283,9 @@ test("guide top strip is focusable while Left remains drawer-owned with conveyor
   assert.match(guide, /!previewActionsFocused/);
   assert.match(preview, /onActionsFocusChange\(true\)/);
   assert.match(preview, /onFocusLost=\{\(\) => onActionsFocusChange\(false\)\}/);
-  assert.match(guide, /setPreviewFocusRequestToken/);
-  assert.match(preview, /hasTVPreferredFocus=\{preferPlayFocus\}/);
+  assert.doesNotMatch(guide, /setPreviewFocusRequestToken/);
+  assert.doesNotMatch(preview, /hasTVPreferredFocus=\{preferPlayFocus\}/);
+  assert.match(guide, /requestAnimationFrame\(\(\) => focusGuidePreviewSurface\(\)\)/);
   assert.match(focus, /typeof focus === "function"/);
   assert.match(focus, /dispatchViewManagerCommand/);
   assert.match(guide, /onOpenReminders=/);

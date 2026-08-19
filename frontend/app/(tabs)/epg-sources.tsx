@@ -176,7 +176,7 @@ export default function EpgSourcesScreen() {
           >
             <Card title="Sources" icon="server-outline">
               <SourceRow title="Primary XMLTV Guide" subtitle="Managed by CharmIPTV · locked source" status={!epgOwnership.primaryEnabled ? "Disabled" : status.error ? "Guide error — see below" : "Active"} />
-              <SourceRow title="User XMLTV Guide" subtitle="Optional custom source · per-channel overrides" status={!epgOwnership.userEnabled ? "Disabled" : epgOwnership.userUrl ? `${Object.keys(epgOwnership.userOverrides).length} assigned channels` : "Enabled · URL required"} />
+              <SourceRow title={epgOwnership.userName} subtitle="Saved custom XMLTV source · select for settings" status={!epgOwnership.userEnabled ? "Disabled" : epgOwnership.userUrl ? `${Object.keys(epgOwnership.userOverrides).length} assigned channels` : "Enabled · URL required"} onPress={() => router.push("/epg-custom" as any)} />
               <SourceRow title="Playlist Channel Map" subtitle="Managed by CharmIPTV · locked source" status={`${status.channel_count || 0} channels`} />
               <SourceRow title="Native EPG Cache" subtitle="Streamed XMLTV on-device (Android)" status={status.error ? "Unavailable" : `${diagnostics?.programs || 0} cached programs`} />
             </Card>
@@ -247,8 +247,11 @@ export default function EpgSourcesScreen() {
 function Card({ title, icon, children }: { title: string; icon: React.ComponentProps<typeof Ionicons>["name"]; children: React.ReactNode }) {
   return <View style={styles.card}><View style={styles.cardHeader}><Ionicons name={icon} size={16} color={tvColors.purpleSoft} /><Text style={styles.cardTitle}>{title}</Text></View>{children}</View>;
 }
-function SourceRow({ title, subtitle, status }: { title: string; subtitle: string; status: string }) {
-  return <View style={styles.sourceRow}><View style={styles.sourceCopy}><Text style={styles.sourceTitle}>{title}</Text><Text style={styles.sourceSub}>{subtitle}</Text></View><Text style={styles.sourceStatus}>{status}</Text><Ionicons name="lock-closed" size={12} color={tvColors.textMuted} /></View>;
+function SourceRow({ title, subtitle, status, onPress }: { title: string; subtitle: string; status: string; onPress?: () => void }) {
+  const content = <><View style={styles.sourceCopy}><Text style={styles.sourceTitle}>{title}</Text><Text style={styles.sourceSub}>{subtitle}</Text></View><Text style={styles.sourceStatus}>{status}</Text><Ionicons name={onPress ? "chevron-forward" : "lock-closed"} size={12} color={tvColors.textMuted} /></>;
+  return onPress
+    ? <Pressable onPress={onPress} style={({ focused }: any) => [styles.sourceRow, focused && styles.focused]}>{content}</Pressable>
+    : <View style={styles.sourceRow}>{content}</View>;
 }
 function ToggleRow({ label, value, onChange }: { label: string; value: boolean; onChange: (value: boolean) => void }) {
   return <Pressable onPress={() => onChange(!value)} style={({ focused }: any) => [styles.settingRow, focused && styles.focused]}><Text style={styles.settingLabel}>{label}</Text><View style={[styles.toggle, value && styles.toggleOn]}><View style={[styles.knob, value && styles.knobOn]} /></View></Pressable>;
