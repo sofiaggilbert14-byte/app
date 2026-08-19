@@ -1,0 +1,51 @@
+name: Phase 9 Left Edge Focus Target
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-left-edge-focus-target.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Widen deterministic drawer edge
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          shell = Path('frontend/src/components/PurpleTvShell.tsx')
+          s = shell.read_text()
+          old = '''  leftEdgeDrawerTarget: {\n    position: "absolute",\n    left: 0,\n    top: 0,\n    bottom: 0,\n    width: 2,\n    zIndex: 2,\n    opacity: 0.01,\n  },'''
+          new = '''  leftEdgeDrawerTarget: {\n    position: "absolute",\n    left: 0,\n    top: 0,\n    bottom: 0,\n    // A 2 px candidate is easy for Android TV spatial focus to skip. Ten px\n    // remains inside our standard page gutter while providing a real Left edge.\n    width: 10,\n    zIndex: 2,\n    opacity: 0.01,\n  },'''
+          if 'width: 10,' not in s:
+              if old not in s: raise SystemExit('left edge target marker not found')
+              s = s.replace(old, new, 1)
+          shell.write_text(s)
+
+          test = Path('frontend/tests/guideShellPolish.test.mjs')
+          t = test.read_text()
+          marker = 'assert.match(shell, /testID="purple-left-edge-drawer-target"/);'
+          addition = '  assert.match(shell, /leftEdgeDrawerTarget:[\\s\\S]{0,180}width: 10/);\n'
+          if 'leftEdgeDrawerTarget:[\\s\\S]{0,180}width: 10' not in t:
+              if marker not in t: raise SystemExit('drawer target test marker not found')
+              t = t.replace('  ' + marker + '\n', '  ' + marker + '\n' + addition, 1)
+          test.write_text(t)
+          PY
+      - name: Commit focus target hardening
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/components/PurpleTvShell.tsx frontend/tests/guideShellPolish.test.mjs
+          git commit -m "phase9: harden left edge drawer focus"
+          git push origin HEAD:phase9/purple-next
