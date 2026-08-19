@@ -387,3 +387,18 @@ test("native Guide only takes focus on an inactive-to-active ownership transitio
   assert.match(setActive, /if \(!wasEnabled && rows\.isNotEmpty\(\)\) \{/);
   assert.ok(setActive.indexOf('if (!wasEnabled && rows.isNotEmpty())') < setActive.indexOf('requestFocus()'));
 });
+
+test("Guide preview actions have a deterministic D-pad Down return to the native Guide", async () => {
+  const [canvas, rail, guide] = await Promise.all([
+    source("src/components/NativeGuideCanvas.tsx"),
+    source("src/components/GuidePreviewRail.tsx"),
+    source("app/(tabs)/guide.tsx"),
+  ]);
+  assert.match(canvas, /findNodeHandle/);
+  assert.match(canvas, /onNativeGuideTag\?\./);
+  assert.match(canvas, /ref=\{bindNativeGuideRef\}/);
+  assert.match(rail, /nextFocusDown=\{guideFocusTag \|\| undefined\}/);
+  assert.match(guide, /nativeGuideFocusTag/);
+  assert.match(guide, /onNativeGuideTag=\{setNativeGuideFocusTag\}/);
+  assert.match(guide, /guideFocusTag=\{nativeGuideFocusTag\}/);
+});

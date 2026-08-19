@@ -38,6 +38,7 @@ type Props = {
   /** Opens the app drawer and lands focus on the top drawer row. */
   onOpenDrawer: () => void;
   focusRequestToken: number;
+  guideFocusTag?: number | null;
 };
 
 function usePreviewFocusNode(key: string, preferred = false) {
@@ -75,6 +76,7 @@ export function GuidePreviewRail({
   onHideToggle,
   onOpenDrawer,
   focusRequestToken,
+  guideFocusTag,
 }: Props) {
   const playFocus = usePreviewFocusNode("play", true);
   const favoriteFocus = usePreviewFocusNode("favorite");
@@ -150,6 +152,7 @@ export function GuidePreviewRail({
         ) : (
           <Pressable
             ref={showFocus.setRef}
+            nextFocusDown={guideFocusTag || undefined}
             onPress={onHideToggle}
             onFocus={showFocus.onFocus}
             style={({ focused }: any) => [styles.hiddenPreview, focused && styles.focused]}
@@ -165,6 +168,7 @@ export function GuidePreviewRail({
         <View style={styles.actionColumn}>
           <Pressable
             ref={playFocus.setRef}
+            nextFocusDown={guideFocusTag || undefined}
             hasTVPreferredFocus={preferPlayFocus}
             disabled={!channel}
             onPress={onPlay}
@@ -177,6 +181,7 @@ export function GuidePreviewRail({
           </Pressable>
           <Pressable
             ref={favoriteFocus.setRef}
+            nextFocusDown={guideFocusTag || undefined}
             disabled={!channel}
             onPress={onFavorite}
             onFocus={favoriteFocus.onFocus}
@@ -188,6 +193,7 @@ export function GuidePreviewRail({
           </Pressable>
           <Pressable
             ref={remindersFocus.setRef}
+            nextFocusDown={guideFocusTag || undefined}
             onPress={onOpenReminders}
             onFocus={remindersFocus.onFocus}
             style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
@@ -198,6 +204,7 @@ export function GuidePreviewRail({
           </Pressable>
           <Pressable
             ref={drawerFocus.setRef}
+            nextFocusDown={guideFocusTag || undefined}
             onPress={onOpenDrawer}
             onFocus={drawerFocus.onFocus}
             style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
@@ -208,6 +215,7 @@ export function GuidePreviewRail({
           </Pressable>
           <Pressable
             ref={muteFocus.setRef}
+            nextFocusDown={guideFocusTag || undefined}
             disabled={hidePreview}
             onPress={onToggleMute}
             onFocus={muteFocus.onFocus}
@@ -219,6 +227,7 @@ export function GuidePreviewRail({
           </Pressable>
           <Pressable
             ref={hideFocus.setRef}
+            nextFocusDown={guideFocusTag || undefined}
             onPress={onHideToggle}
             onFocus={hideFocus.onFocus}
             style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}

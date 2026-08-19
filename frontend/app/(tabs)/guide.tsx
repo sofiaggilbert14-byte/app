@@ -116,6 +116,7 @@ function GuideSelectionPreview({
   onHideToggle,
   onOpenDrawer,
   focusRequestToken,
+  guideFocusTag,
 }: {
   width: number;
   channelById: ReadonlyMap<string, Channel>;
@@ -139,6 +140,7 @@ function GuideSelectionPreview({
   onHideToggle: () => void;
   onOpenDrawer: () => void;
   focusRequestToken: number;
+  guideFocusTag?: number | null;
 }) {
   const selection = useGuideSelection();
   const channel = (selection.channelId ? channelById.get(selection.channelId) : null) || fallbackChannel;
@@ -196,6 +198,7 @@ function GuideSelectionPreview({
       onHideToggle={onHideToggle}
       onOpenDrawer={onOpenDrawer}
       focusRequestToken={focusRequestToken}
+      guideFocusTag={guideFocusTag}
     />
   );
 }
@@ -283,6 +286,7 @@ export default function PurpleGuideScreen() {
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewStatus, setPreviewStatus] = useState<StreamStatus>("loading");
   const [previewFocusRequestToken, setPreviewFocusRequestToken] = useState(0);
+  const [nativeGuideFocusTag, setNativeGuideFocusTag] = useState<number | null>(null);
   const [resetToken, setResetToken] = useState(0);
   const [restoreTimeMs, setRestoreTimeMs] = useState<number | null>(null);
   // Explicit Search/player jumps may target a channel hidden by the saved Matched/Unmatched filter.
@@ -1070,6 +1074,7 @@ export default function PurpleGuideScreen() {
               onHideToggle={() => setHidePreview(!hidePreview)}
               onOpenDrawer={openDrawerFromPreview}
               focusRequestToken={previewFocusRequestToken}
+              guideFocusTag={nativeGuideFocusTag}
             />
 
             {/* Preview + six actions + description form one compact top strip.
@@ -1089,6 +1094,7 @@ export default function PurpleGuideScreen() {
                 onChannelFocus={onFocusChannel}
                 onProgramFocus={onFocusProgram}
                 onViewportChannelIds={onViewportChannelIds}
+                onNativeGuideTag={setNativeGuideFocusTag}
                 onLeftBoundary={onGuideLeftBoundary}
                 onUpBoundary={onGuideUpBoundary}
               />

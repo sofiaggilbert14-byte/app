@@ -1,5 +1,5 @@
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { Platform, requireNativeComponent, type NativeSyntheticEvent, View } from "react-native";
+import { findNodeHandle, Platform, requireNativeComponent, type NativeSyntheticEvent, View } from "react-native";
 import type { Channel, Program } from "@/src/api";
 
 type SelectionEvent = { channelId: string; row: number; settled: boolean; pressed: boolean; program?: { title: string; desc: string; category: string; startMs: number; endMs: number } };
@@ -12,6 +12,7 @@ type Props = {
   onChannelPress: (channel: Channel) => void;
   onProgramPress: (program: Program, channel: Channel) => void;
   onViewportChannelIds: (ids: string[], priorityIds: string[], pageSize: number, velocity: number) => void;
+  onNativeGuideTag?: (tag: number | null) => void;
   onLeftBoundary: () => void;
   onUpBoundary: () => void;
 };
@@ -31,6 +32,7 @@ export const NativeGuideCanvas = memo(function NativeGuideCanvas({
   onChannelPress,
   onProgramPress,
   onViewportChannelIds,
+  onNativeGuideTag,
   onLeftBoundary,
   onUpBoundary,
 }: Props) {
@@ -107,9 +109,15 @@ export const NativeGuideCanvas = memo(function NativeGuideCanvas({
     onViewportChannelIds(value.ids || [], value.priorityIds || [], value.pageSize || 8, Math.max(0, value.velocity || 0));
   }, [onViewportChannelIds]);
 
+  const bindNativeGuideRef = useCallback((node: unknown) => {
+    const tag = node ? findNodeHandle(node as any) : null;
+    onNativeGuideTag?.(typeof tag === "number" ? tag : null);
+  }, [onNativeGuideTag]);
+
   if (!Native) return <View style={{ flex: 1 }} />;
   return (
     <Native
+      ref={bindNativeGuideRef}
       style={{ flex: 1 }}
       channels={nativeChannels}
       windowStartMs={windowStartMs}
