@@ -470,6 +470,7 @@ class NativeGuideView(context: Context) : View(context) {
       drawClippedText(canvas, row.label, pad, top + rowHeight * .62f, channelWidth - pad, title)
 
       val list = programs[row.id].orEmpty()
+      var paintedProgramme = false
       for (program in list) {
         if (program.endMs <= visibleStartMs || program.startMs >= visibleEndMs) continue
         val left = timeToX(program.startMs, visibleStartMs, visibleEndMs)
@@ -477,12 +478,27 @@ class NativeGuideView(context: Context) : View(context) {
         val clippedLeft = max(channelWidth, left)
         val clippedRight = min(width.toFloat(), right)
         if (clippedRight <= clippedLeft) continue
+        paintedProgramme = true
         val chosen = rowIndex == selectedRow && program.startMs <= selectedTimeMs && program.endMs > selectedTimeMs
         canvas.drawRect(
           RectF(clippedLeft + density, top + density, clippedRight - density, top + rowHeight - 2f * density),
           if (chosen) selected else cell,
         )
         drawClippedText(canvas, program.title, clippedLeft + pad, top + rowHeight * .60f, clippedRight - pad, title)
+      }
+      if (!paintedProgramme) {
+        // A legitimate unmatched/empty EPG row must never look like a broken
+        // black canvas. Keep the row selectable/playable and show a neutral
+        // TiviMate-style placeholder without inventing persisted programme data.
+        val left = channelWidth + density
+        val right = width.toFloat() - density
+        if (right > left) {
+          canvas.drawRect(
+            RectF(left, top + density, right, top + rowHeight - 2f * density),
+            if (rowIndex == selectedRow) selected else cell,
+          )
+          drawClippedText(canvas, "No information", left + pad, top + rowHeight * .60f, right - pad, muted)
+        }
       }
       canvas.drawLine(0f, top + rowHeight, width.toFloat(), top + rowHeight, divider)
     }

@@ -138,3 +138,11 @@ test("native Guide treats horizontal cache misses as loading, not false boundari
   assert.ok(horizontalLoads.length >= 2, "left and right navigation must both refresh the bounded runway");
   assert.match(view, /Keep at most one active read plus the newest requested runway/);
 });
+
+test("native Guide renders selectable no-information cells instead of black rows", async () => {
+  const view = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");
+  assert.match(view, /var paintedProgramme = false/);
+  assert.match(view, /if \(!paintedProgramme\)/);
+  assert.match(view, /drawClippedText\(canvas, "No information"/);
+  assert.match(view, /if \(rowIndex == selectedRow\) selected else cell/);
+});
