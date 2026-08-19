@@ -128,3 +128,13 @@ test("EPG-only refresh coalesces with active source work and avoids cold-start p
   );
   assert.doesNotMatch(epgOnly, /refreshPromise = \(async \(\) => \{[\s\S]{0,240}return refreshInternal\(true\)/);
 });
+
+test("native custom channel order is indexed with a non-destructive Room migration", async () => {
+  const db = await readFile(join(root, "android/app/src/main/java/com/charmiptv/app/CharmCustomizationDatabase.kt"), "utf8");
+  assert.match(db, /indices = \[Index\("customPosition"\)\]/);
+  assert.match(db, /version = 2/);
+  assert.match(db, /Migration\(1, 2\)/);
+  assert.match(db, /CREATE INDEX IF NOT EXISTS index_user_channel_customization_customPosition/);
+  assert.match(db, /\.addMigrations\(MIGRATION_1_2\)/);
+  assert.doesNotMatch(db, /fallbackToDestructiveMigration/);
+});

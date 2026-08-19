@@ -11,9 +11,14 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.room.Transaction
 
-@Entity(tableName = "user_channel_customization")
+@Entity(
+  tableName = "user_channel_customization",
+  indices = [Index("customPosition")],
+)
 internal data class UserChannelCustomizationEntity(
   @PrimaryKey val channelId: String,
   val hidden: Boolean = false,
@@ -194,13 +199,22 @@ internal interface CharmCustomizationDao {
     UserCustomGroupEntity::class,
     UserGroupChannelMappingEntity::class,
   ],
-  version = 1,
+  version = 2,
   exportSchema = true,
 )
 internal abstract class CharmCustomizationDatabase : RoomDatabase() {
   abstract fun dao(): CharmCustomizationDao
 
   companion object {
+    private val MIGRATION_1_2 = object : Migration(1, 2) {
+      override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+          "CREATE INDEX IF NOT EXISTS index_user_channel_customization_customPosition " +
+            "ON user_channel_customization(customPosition)"
+        )
+      }
+    }
+
     @Volatile private var instance: CharmCustomizationDatabase? = null
 
     fun get(context: Context): CharmCustomizationDatabase = instance ?: synchronized(this) {
@@ -208,7 +222,11 @@ internal abstract class CharmCustomizationDatabase : RoomDatabase() {
         context.applicationContext,
         CharmCustomizationDatabase::class.java,
         "charm_user_customization_v1.db",
-      ).setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING).build().also { instance = it }
+      )
+        .addMigrations(MIGRATION_1_2)
+        .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
+        .build()
+        .also { instance = it }
     }
   }
 }
