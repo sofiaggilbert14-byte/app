@@ -454,9 +454,11 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
           hasUserOwnership -> userGuideRefreshedAt
           else -> 0L
         }
+        val primaryProgramCount = database.count()
+        val userProgramCount = userDatabase.count()
         val effectiveProgramCount =
-          (if (primaryEnabled) database.count() else 0L) +
-            (if (hasUserOwnership) userDatabase.count() else 0L)
+          (if (primaryEnabled) primaryProgramCount else 0L) +
+            (if (hasUserOwnership) userProgramCount else 0L)
         val channels = Arguments.createArray()
         for (row in rows) {
           val customXmltvId = bindingByPlaylist[row.playlistId]
@@ -483,8 +485,8 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
           putDouble("epgProgramCount", effectiveProgramCount.toDouble())
           putDouble("primaryGuideRefreshedAt", primaryGuideRefreshedAt.toDouble())
           putDouble("userGuideRefreshedAt", userGuideRefreshedAt.toDouble())
-          putDouble("primaryEpgProgramCount", database.count().toDouble())
-          putDouble("userEpgProgramCount", userDatabase.count().toDouble())
+          putDouble("primaryEpgProgramCount", primaryProgramCount.toDouble())
+          putDouble("userEpgProgramCount", userProgramCount.toDouble())
         })
       } catch (t: Throwable) {
         promise.reject("PLAYLIST_STORED_READ_FAILED", t.message ?: "Could not read stored playlist", t)

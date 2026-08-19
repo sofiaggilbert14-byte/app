@@ -60,3 +60,12 @@ test("zero source freshness remains due instead of falling back to playlist age"
   assert.match(native, /const guideLast = cached\.guideRefreshedAt != null \? cached\.guideRefreshedAt : cached\.ts/);
   assert.doesNotMatch(native, /const guideLast = cached\.guideRefreshedAt \|\| cached\.ts/);
 });
+
+test("native cold-start snapshot queries each EPG programme count once", async () => {
+  const native = await source("android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt");
+  const stored = native.match(/fun getStoredPlaylist\(promise: Promise\)[\s\S]*?EPG_PLAYLIST_UPSERT_FAILED/)?.[0] || native;
+  assert.match(stored, /val primaryProgramCount = database\.count\(\)/);
+  assert.match(stored, /val userProgramCount = userDatabase\.count\(\)/);
+  assert.match(stored, /putDouble\("primaryEpgProgramCount", primaryProgramCount\.toDouble\(\)\)/);
+  assert.match(stored, /putDouble\("userEpgProgramCount", userProgramCount\.toDouble\(\)\)/);
+});
