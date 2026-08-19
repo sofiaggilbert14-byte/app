@@ -415,10 +415,19 @@ export default function PurpleGuideScreen() {
     if (!isFocused || drawerOpen || groupDrawerOpen || activeProgram) return;
     return addTvLongPressListener((key) => {
       if (key !== "SELECT") return;
-      const channelId = getGuideSelection().channelId || guideSessionChannelId;
-      if (channelId) toggleFavorite(channelId);
+      const selection = getGuideSelection();
+      const channelId = selection.channelId || guideSessionChannelId;
+      const channel = channelId ? channelById(channelId) : null;
+      if (selection.program && channel) {
+        modalOriginRef.current = { channelId: channel.id, programStart: selection.program.start };
+        openProgram(selection.program, channel);
+      } else if (channelId) {
+        // No programme cell exists ("No information"). Preserve the useful
+        // long-OK fallback without inventing an empty context drawer.
+        toggleFavorite(channelId);
+      }
     });
-  }, [activeProgram, drawerOpen, groupDrawerOpen, isFocused, toggleFavorite]);
+  }, [activeProgram, channelById, drawerOpen, groupDrawerOpen, isFocused, openProgram, toggleFavorite]);
 
   useEffect(() => {
     if (loading || refreshing || channels.length > 0) return;

@@ -93,6 +93,7 @@ type CharmCustomEpgModule = {
     guideRefreshedAt?: number;
     programmeSwapSucceeded?: boolean;
   }>;
+  clearUserGuide?(): Promise<boolean>;
 };
 
 type CharmEpgRamModule = {
@@ -236,6 +237,12 @@ export async function searchNativeEpg(
 
 export async function clearNativeEpgRam(): Promise<void> {
   if (ramModule) await ramModule.clearMemory();
+}
+
+export async function clearNativeUserGuide(): Promise<void> {
+  if (!customEpgModule?.clearUserGuide) throw new Error("Custom EPG clear is unavailable on this build");
+  await customEpgModule.clearUserGuide();
+  await clearNativeEpgRam();
 }
 
 export async function loadNativeEpgWindow(

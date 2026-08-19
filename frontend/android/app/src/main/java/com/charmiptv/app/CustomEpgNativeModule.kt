@@ -76,6 +76,20 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
   }
 
   @ReactMethod
+  fun clearUserGuide(promise: Promise) {
+    executor.execute {
+      try {
+        // Explicit user action only. Keep channel bindings and the saved source
+        // configuration so the next successful refresh can repopulate safely.
+        userDatabase.clear()
+        promise.resolve(true)
+      } catch (t: Throwable) {
+        promise.reject("CUSTOM_EPG_CLEAR_FAILED", t.message ?: "Could not clear custom Guide data", t)
+      }
+    }
+  }
+
+  @ReactMethod
   fun refreshUserGuide(url: String, promise: Promise) {
     executor.execute {
       try {
@@ -434,3 +448,4 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
     private const val MAX_PROGRAMME_DURATION_MS = 24L * 60L * 60L * 1000L
   }
 }
+

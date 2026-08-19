@@ -9,12 +9,15 @@ import { useStore } from "@/src/store";
 import { useEpgSourcePreferences } from "@/src/core/epgSourcePreferences";
 import {
   configureNativeGuideOwnership,
+  clearNativeUserGuide,
   listNativeUserGuideChannels,
   refreshNativeUserGuide,
   setNativeGuideChannelBinding,
 } from "@/src/nativeEpg";
 import { invalidateGuideOwnershipCaches } from "@/src/source";
 import { fonts, radius, tvColors } from "@/src/theme";
+import { type SourceRefreshIntervalHours, useSourceRefreshPreferences } from "@/src/core/sourceRefreshPreferences";
+import { formatRelativeAge } from "@/src/utils/time";
 
 const PLAYLIST_PAGE_SIZE = 60;
 const XMLTV_PAGE_SIZE = 60;
@@ -29,6 +32,7 @@ export default function CustomEpgScreen() {
   const router = useRouter();
   const { channels } = useStore();
   const prefs = useEpgSourcePreferences();
+  const refreshPrefs = useSourceRefreshPreferences();
   const [nameDraft, setNameDraft] = useState(prefs.userName);
   const [urlDraft, setUrlDraft] = useState(prefs.userUrl);
   const [urlTouched, setUrlTouched] = useState(false);
@@ -196,17 +200,34 @@ export default function CustomEpgScreen() {
       setXmltvRows(firstPage.rows || []);
       setXmltvTotal(Math.max(0, Number(firstPage.total) || 0));
       const programmeCount = Math.max(0, Math.round(result.count || 0));
-      setStatus(
-        result.programmeSwapSucceeded === false
-          ? `Custom EPG returned no usable new programme data. Keeping the previous guide (${programmeCount} programmes).`
-          : `Custom EPG indexed ${programmeCount} programmes.`,
-      );
+      const message = result.programmeSwapSucceeded === false
+        ? `Custom EPG returned no usable new programme data. Keeping the previous guide (${programmeCount} programmes).`
+        : `Custom EPG indexed ${programmeCount} programmes.`;
+      if (result.programmeSwapSucceeded !== false) prefs.setUserRefreshStatus(Date.now(), message);
+      setStatus(message);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Custom EPG refresh failed.");
     } finally {
       setBusy(false);
     }
   }, [busy, prefs, urlDraft, xmltvQuery]);
+
+  const clearUserGuide = useCallback(async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await clearNativeUserGuide();
+      invalidateGuideOwnershipCaches();
+      setXmltvRows([]);
+      setXmltvTotal(0);
+      prefs.setUserRefreshStatus(0, "EPG data cleared");
+      setStatus("Custom EPG programme data cleared. The saved source, URL, and channel assignments were kept.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not clear custom EPG data.");
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, prefs]);
 
   const assign = useCallback(async (xmltvId: string) => {
     const channel = selectedChannel;
@@ -297,7 +318,31 @@ export default function CustomEpgScreen() {
             <View style={styles.actions}>
               <Pressable disabled={busy} onPress={saveUrl} style={({ focused }: any) => [styles.action, busy && styles.disabled, focused && styles.focused]}><Text style={styles.actionText}>Save name & URL</Text></Pressable>
               <Pressable disabled={busy} onPress={refreshUserGuide} style={({ focused }: any) => [styles.action, busy && styles.disabled, focused && styles.focused]}><Text style={styles.actionText}>{busy ? "Working…" : "Refresh Custom EPG"}</Text></Pressable>
+              <Pressable disabled={busy} onPress={clearUserGuide} style={({ focused }: any) => [styles.action, busy && styles.disabled, focused && styles.focused]}><Text style={styles.actionText}>Clear EPG data</Text></Pressable>
             </View>
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Update & retention settings</Text>
+            <Text style={styles.help}>These controls use the same single background refresh owner as the provided guide, so custom and provided EPG updates cannot overlap or fight for SQLite/RAM.</Text>
+            <CycleSetting<SourceRefreshIntervalHours>
+              label="Update interval"
+              value={refreshPrefs.epgHours}
+              values={[0, 2, 4, 6, 12, 24]}
+              format={(value) => value === 0 ? "Manual only" : `${value} hours`}
+              onChange={refreshPrefs.setEpgHours}
+            />
+            <CycleSetting<1 | 3 | 7 | 14>
+              label="Past days to keep EPG"
+              value={refreshPrefs.epgPastDays}
+              values={[1, 3, 7, 14]}
+              format={(value) => `${value} day${value === 1 ? "" : "s"}`}
+              onChange={refreshPrefs.setEpgPastDays}
+            />
+            <Pressable onPress={() => refreshPrefs.setUpdateEpgOnAppStart(!refreshPrefs.updateEpgOnAppStart)} style={({ focused }: any) => [styles.row, focused && styles.focused]}><Text style={styles.rowText}>Update on app start</Text><Text style={styles.value}>{refreshPrefs.updateEpgOnAppStart ? "On" : "Off"}</Text></Pressable>
+            <Pressable onPress={() => refreshPrefs.setUpdateEpgOnPlaylistChange(!refreshPrefs.updateEpgOnPlaylistChange)} style={({ focused }: any) => [styles.row, focused && styles.focused]}><Text style={styles.rowText}>Update on playlist change</Text><Text style={styles.value}>{refreshPrefs.updateEpgOnPlaylistChange ? "On" : "Off"}</Text></Pressable>
+            <Text style={styles.help}>Latest update: {prefs.userLastRefreshAt ? formatRelativeAge(prefs.userLastRefreshAt) : "Never"}</Text>
+            <Text style={styles.help}>Status: {prefs.userLastStatus}</Text>
           </View>
 
           <View style={styles.card}>
@@ -349,6 +394,14 @@ export default function CustomEpgScreen() {
       </View>
     </PurpleTvShell>
   );
+}
+
+function CycleSetting<T extends string | number>({ label, value, values, format, onChange }: { label: string; value: T; values: readonly T[]; format: (value: T) => string; onChange: (value: T) => void }) {
+  const cycle = () => {
+    const index = Math.max(0, values.indexOf(value));
+    onChange(values[(index + 1) % values.length] ?? values[0]);
+  };
+  return <Pressable onPress={cycle} style={({ focused }: any) => [styles.row, focused && styles.focused]}><Text style={styles.rowText}>{label}</Text><Text style={styles.value}>{format(value)}</Text></Pressable>;
 }
 
 const styles = StyleSheet.create({

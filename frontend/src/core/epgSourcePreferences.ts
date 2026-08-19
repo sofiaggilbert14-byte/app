@@ -15,6 +15,8 @@ export type EpgSourcePreferences = {
   userEnabled: boolean;
   userName: string;
   userUrl: string;
+  userLastRefreshAt: number;
+  userLastStatus: string;
   /** Session snapshot. On Android the durable source is epg_channel_bindings. */
   userOverrides: UserEpgOverrideMap;
 };
@@ -27,6 +29,8 @@ const DEFAULTS: EpgSourcePreferences = {
   userEnabled: false,
   userName: "Custom EPG",
   userUrl: "",
+  userLastRefreshAt: 0,
+  userLastStatus: "Never updated",
   userOverrides: {},
 };
 
@@ -70,6 +74,8 @@ function normalize(value: StoredEpgSourcePreferences | null | undefined): EpgSou
     userEnabled: value?.userEnabled === true,
     userName: cleanName(value?.userName),
     userUrl: cleanUrl(value?.userUrl),
+    userLastRefreshAt: Number.isFinite(Number(value?.userLastRefreshAt)) ? Math.max(0, Number(value?.userLastRefreshAt)) : 0,
+    userLastStatus: typeof value?.userLastStatus === "string" ? value.userLastStatus.trim().slice(0, 180) || "Never updated" : "Never updated",
     userOverrides: cleanOverrides(value?.userOverrides),
   };
 }
@@ -88,6 +94,8 @@ function storedValue(value: EpgSourcePreferences): StoredEpgSourcePreferences {
       userEnabled: value.userEnabled,
       userName: value.userName,
       userUrl: value.userUrl,
+      userLastRefreshAt: value.userLastRefreshAt,
+      userLastStatus: value.userLastStatus,
     };
   }
   // Web/legacy fallback still needs the map because there is no native binding DB.
@@ -183,6 +191,8 @@ export function useEpgSourcePreferences() {
       userEnabled: patch.userEnabled === undefined ? cached.userEnabled : patch.userEnabled === true,
       userName: patch.userName === undefined ? cached.userName : cleanName(patch.userName),
       userUrl: patch.userUrl === undefined ? cached.userUrl : cleanUrl(patch.userUrl),
+      userLastRefreshAt: patch.userLastRefreshAt === undefined ? cached.userLastRefreshAt : Math.max(0, Number(patch.userLastRefreshAt) || 0),
+      userLastStatus: patch.userLastStatus === undefined ? cached.userLastStatus : String(patch.userLastStatus || "Never updated").trim().slice(0, 180),
       userOverrides: patch.userOverrides === undefined ? cached.userOverrides : cleanOverrides(patch.userOverrides),
     };
     setValue(next);
@@ -220,6 +230,7 @@ export function useEpgSourcePreferences() {
     setUserEnabled: (next: boolean) => update({ userEnabled: next }),
     setUserName: (next: string) => update({ userName: next }),
     setUserUrl: (next: string) => update({ userUrl: next }),
+    setUserRefreshStatus: (at: number, status: string) => update({ userLastRefreshAt: at, userLastStatus: status }),
     setUserOverride,
     clearUserOverrides,
   };

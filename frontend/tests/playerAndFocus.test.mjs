@@ -81,3 +81,43 @@ test("main drawer cleanup cannot steal the Guide Groups drawer owner", async () 
   assert.match(groups, /hasTVPreferredFocus=\{preferActiveFocus && item\.name === activeNameRef\.current\}/);
 });
 
+test("fullscreen remote mappings use one native semantic router and remain player-scoped", async () => {
+  const [activity, remote, prefs, player, settings] = await Promise.all([
+    source("android/app/src/main/java/com/charmiptv/app/MainActivity.kt"),
+    source("src/utils/tvRemote.ts"),
+    source("src/core/remoteShortcutPreferences.ts"),
+    source("app/player.tsx"),
+    source("app/(tabs)/settings.tsx"),
+  ]);
+  assert.match(activity, /TvRemoteModule\.remoteContext == "player"/);
+  assert.match(activity, /emitRemoteEvent\("TvRemoteShortcut", shortcut\)/);
+  assert.match(remote, /export function addTvShortcutListener/);
+  for (const key of ["channelUp", "channelDown", "mediaPlayPause"]) assert.match(prefs, new RegExp(key));
+  assert.match(player, /runRemoteAction/);
+  assert.match(player, /addTvShortcutListener/);
+  assert.match(settings, /Restore remote defaults/);
+});
+
+test("Guide long Select opens a trapped programme action drawer before favorite fallback", async () => {
+  const [guide, modal] = await Promise.all([
+    source("app/(tabs)/guide.tsx"),
+    source("src/components/ProgramModal.tsx"),
+  ]);
+  assert.match(guide, /if \(selection\.program && channel\)/);
+  assert.match(guide, /openProgram\(selection\.program, channel\)/);
+  assert.match(modal, /trapFocusUp trapFocusDown trapFocusLeft trapFocusRight/);
+});
+
+test("custom EPG clear is explicit and preserves source configuration and bindings", async () => {
+  const [native, bridge, screen] = await Promise.all([
+    source("android/app/src/main/java/com/charmiptv/app/CustomEpgNativeModule.kt"),
+    source("src/nativeEpg.ts"),
+    source("app/epg-custom.tsx"),
+  ]);
+  assert.match(native, /fun clearUserGuide/);
+  assert.match(native, /userDatabase\.clear\(\)/);
+  assert.doesNotMatch(native.match(/fun clearUserGuide[\s\S]*?\n  }\n/)?.[0] || "", /clearChannelBindings/);
+  assert.match(bridge, /export async function clearNativeUserGuide/);
+  assert.match(screen, /Clear EPG data/);
+});
+

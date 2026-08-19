@@ -13,6 +13,7 @@ export const tvRemoteAvailable = !!TvRemote;
 
 export type TvKey = "UP" | "DOWN" | "LEFT" | "RIGHT" | "SELECT" | "BACK";
 export type TvLongPressKey = "DOWN" | "SELECT" | "BACK";
+export type TvShortcutKey = "CHANNEL_UP" | "CHANNEL_DOWN" | "MEDIA_PLAY_PAUSE";
 export type DeviceMemoryProfile = {
   memoryClassMb: number;
   lowRamDevice: boolean;
@@ -135,6 +136,17 @@ export function resetRemoteContextIfOwned(
   if (remoteContextOwner !== expected) return false;
   setRemoteContext(fallback);
   return true;
+}
+
+/** Hardware media/channel buttons routed by the Activity only while Player owns input. */
+export function addTvShortcutListener(cb: (key: TvShortcutKey) => void): () => void {
+  const eventName = "TvRemoteShortcut";
+  if (emitter) {
+    const sub = emitter.addListener(eventName, (key: TvShortcutKey) => cb(key));
+    return () => sub.remove();
+  }
+  const sub = DeviceEventEmitter.addListener(eventName, (key: TvShortcutKey) => cb(key));
+  return () => sub.remove();
 }
 
 /** Configure the bounded held-key cadence used while the Guide route is active. */

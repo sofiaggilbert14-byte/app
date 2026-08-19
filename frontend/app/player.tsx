@@ -29,8 +29,8 @@ import {
 } from "@/src/components/StreamPlayer";
 import { useStore } from "@/src/store";
 import { fonts, radius, tvColors } from "@/src/theme";
-import { addTvKeyListener, addTvLongPressListener, setRemoteContext } from "@/src/utils/tvRemote";
-import { useRemoteShortcutPreferences } from "@/src/core/remoteShortcutPreferences";
+import { addTvKeyListener, addTvLongPressListener, addTvShortcutListener, setRemoteContext } from "@/src/utils/tvRemote";
+import { useRemoteShortcutPreferences, type PlayerRemoteAction } from "@/src/core/remoteShortcutPreferences";
 import { getTvSafeInsets } from "@/src/utils/tvLayout";
 import { requestNativeFocus } from "@/src/utils/tvFocus";
 import { stopFullscreenSession, stopAllPlaybackSessions, pauseSessionDecoders, type SessionFailReason } from "@/src/core/playbackSession";
@@ -632,6 +632,37 @@ export default function PlayerScreen() {
     router.replace("/guide" as any);
   }, [router]);
 
+  const runRemoteAction = useCallback((action: PlayerRemoteAction) => {
+    if (action === "channel_up") return stepChannel(-1);
+    if (action === "channel_down") return stepChannel(1);
+    if (action === "channels") {
+      controlsRef.current = true;
+      setControls(true);
+      setMoreOpen(false);
+      setTracksOpen(false);
+      setChannelsOpen(true);
+      scheduleHide();
+      return;
+    }
+    if (action === "controls") return revealControls({ claimChannelsFocus: true });
+    if (action === "favorite") {
+      const target = pendingChannelIdRef.current || channelIdRef.current;
+      if (target) { toggleFavorite(target); showNotice("Favorite updated"); }
+      return;
+    }
+    if (action === "guide") return goGuide();
+    if (action === "previous") return returnToPreviousChannel();
+  }, [goGuide, returnToPreviousChannel, revealControls, scheduleHide, setChannelsOpen, setMoreOpen, setTracksOpen, showNotice, stepChannel, toggleFavorite]);
+
+  useEffect(() => {
+    if (!isTV) return;
+    return addTvShortcutListener((key) => {
+      if (key === "CHANNEL_UP") runRemoteAction(remoteShortcuts.channelUp);
+      else if (key === "CHANNEL_DOWN") runRemoteAction(remoteShortcuts.channelDown);
+      else runRemoteAction(remoteShortcuts.mediaPlayPause);
+    });
+  }, [isTV, remoteShortcuts.channelDown, remoteShortcuts.channelUp, remoteShortcuts.mediaPlayPause, runRemoteAction]);
+
   useEffect(() => {
     if (!isTV) return;
     // TV-remote semantic long presses, limited to actions Charm already owns.
@@ -639,37 +670,14 @@ export default function PlayerScreen() {
     // Long Select simply wakes the controls/quick-action surface.
     return addTvLongPressListener((key) => {
       if (key === "DOWN") {
-        if (remoteShortcuts.longDown === "guide") {
-          goGuide();
-          return;
-        }
-        if (remoteShortcuts.longDown === "channels") {
-          controlsRef.current = true;
-          setControls(true);
-          setMoreOpen(false);
-          setTracksOpen(false);
-          setChannelsOpen(true);
-          scheduleHide();
-        }
+        runRemoteAction(remoteShortcuts.longDown);
         return;
       }
       if (key === "SELECT") {
-        if (remoteShortcuts.longSelect === "favorite") {
-          const target = pendingChannelIdRef.current || channelIdRef.current;
-          if (target) {
-            toggleFavorite(target);
-            showNotice("Favorite updated");
-          }
-          return;
-        }
-        if (remoteShortcuts.longSelect === "guide") {
-          goGuide();
-          return;
-        }
-        if (remoteShortcuts.longSelect === "controls") revealControls({ claimChannelsFocus: true });
+        runRemoteAction(remoteShortcuts.longSelect);
       }
     });
-  }, [goGuide, isTV, remoteShortcuts.longDown, remoteShortcuts.longSelect, revealControls, scheduleHide, setChannelsOpen, setMoreOpen, setTracksOpen, showNotice, toggleFavorite]);
+  }, [isTV, remoteShortcuts.longDown, remoteShortcuts.longSelect, runRemoteAction]);
 
   useEffect(() => {
     if (!params.channelId || params.channelId === channelIdRef.current) return;
@@ -1115,3 +1123,4 @@ const styles = StyleSheet.create({
   channelCardName: { color: "#fff", fontFamily: fonts.medium, fontSize: 7.5, textAlign: "center" },
   focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
 });
+

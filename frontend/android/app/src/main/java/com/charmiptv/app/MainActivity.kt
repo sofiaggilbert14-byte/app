@@ -19,6 +19,25 @@ class MainActivity : ReactActivity() {
   private var emittedLongPressKeyCode = -1
 
   override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+    // TiViMate-style central action router: hardware media/channel buttons are
+    // semantic events only while the fullscreen player owns remote input.
+    if (
+      event.action == android.view.KeyEvent.ACTION_DOWN &&
+        event.repeatCount == 0 &&
+        TvRemoteModule.remoteContext == "player" &&
+        !TvRemoteModule.pointerActive
+    ) {
+      val shortcut = when (event.keyCode) {
+        android.view.KeyEvent.KEYCODE_CHANNEL_UP, android.view.KeyEvent.KEYCODE_PAGE_UP -> "CHANNEL_UP"
+        android.view.KeyEvent.KEYCODE_CHANNEL_DOWN, android.view.KeyEvent.KEYCODE_PAGE_DOWN -> "CHANNEL_DOWN"
+        android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, android.view.KeyEvent.KEYCODE_MEDIA_PLAY, android.view.KeyEvent.KEYCODE_MEDIA_PAUSE -> "MEDIA_PLAY_PAUSE"
+        else -> null
+      }
+      if (shortcut != null) {
+        emitRemoteEvent("TvRemoteShortcut", shortcut)
+        return true
+      }
+    }
     // Emit one semantic long-press event per physical hold. This is the
     // authoritative path for long OK/Select favorites on installed Android TV builds.
     if (event.action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount > 0 && emittedLongPressKeyCode != event.keyCode) {
@@ -229,3 +248,4 @@ class MainActivity : ReactActivity() {
     private const val MIN_DPAD_REPEAT_MS = 48L
   }
 }
+

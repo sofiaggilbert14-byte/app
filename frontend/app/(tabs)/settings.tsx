@@ -27,8 +27,10 @@ import {
 import {
   type LongDownAction,
   type LongSelectAction,
+  type PlayerRemoteAction,
   useRemoteShortcutPreferences,
 } from "@/src/core/remoteShortcutPreferences";
+
 import {
   readLatestFavoritesBackup,
   resolveFavoritesBackup,
@@ -69,6 +71,17 @@ import {
   type DeviceCodecCapabilities,
 } from "@/src/core/deviceCodecCapabilities";
 import * as FileSystem from "expo-file-system/legacy";
+
+const PLAYER_REMOTE_ACTIONS: { label: string; value: PlayerRemoteAction }[] = [
+  { label: "Previous channel", value: "previous" },
+  { label: "Channel up", value: "channel_up" },
+  { label: "Channel down", value: "channel_down" },
+  { label: "Open channel bar", value: "channels" },
+  { label: "Show player controls", value: "controls" },
+  { label: "Add/remove Favorite", value: "favorite" },
+  { label: "Open TV Guide", value: "guide" },
+  { label: "No shortcut", value: "none" },
+];
 
 type Section =
   | "general"
@@ -916,6 +929,24 @@ export default function SettingsScreen() {
 
             {section === "remote" ? (
               <SettingsCard title="Remote Control" icon="game-controller-outline">
+                <ChoiceRow<PlayerRemoteAction> label="Channel Up button" value={remoteShortcuts.channelUp} options={PLAYER_REMOTE_ACTIONS} onChange={remoteShortcuts.setChannelUp} />
+                <ChoiceRow<PlayerRemoteAction> label="Channel Down button" value={remoteShortcuts.channelDown} options={PLAYER_REMOTE_ACTIONS} onChange={remoteShortcuts.setChannelDown} />
+                <ChoiceRow<PlayerRemoteAction> label="Play/Pause media button" value={remoteShortcuts.mediaPlayPause} options={PLAYER_REMOTE_ACTIONS} onChange={remoteShortcuts.setMediaPlayPause} />
+                <ChoiceRow<LongDownAction>
+                  label="Long Down"
+                  value={remoteShortcuts.longDown}
+                  options={[{ label: "Open channel bar", value: "channels" }, { label: "Open TV Guide", value: "guide" }, { label: "No shortcut", value: "none" }]}
+                  onChange={remoteShortcuts.setLongDown}
+                />
+                <ChoiceRow<LongSelectAction>
+                  label="Long OK/Select"
+                  value={remoteShortcuts.longSelect}
+                  options={[{ label: "Add/remove Favorite", value: "favorite" }, { label: "Previous channel", value: "previous" }, { label: "Show player controls", value: "controls" }, { label: "Open TV Guide", value: "guide" }, { label: "No shortcut", value: "none" }]}
+                  onChange={remoteShortcuts.setLongSelect}
+                />
+                <Action label="Restore remote defaults" icon="refresh-outline" onPress={remoteShortcuts.reset} />
+                <Text style={styles.help}>Mappings apply only while fullscreen playback owns the remote. Guide and drawer D-pad focus paths remain protected.</Text>
+                <View style={styles.divider} />
                 <ToggleRow label="Pointer mode" value={pointerMode} onChange={setPointerMode} />
                 <Text style={styles.help}>D-pad remains the primary TV navigation method. Pointer mode is a fallback for devices with unreliable native focus.</Text>
               </SettingsCard>
@@ -1130,3 +1161,4 @@ const styles = StyleSheet.create({
   miniActionText: { color: "#fff", fontFamily: fonts.medium, fontSize: 8 },
   focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
 });
+
