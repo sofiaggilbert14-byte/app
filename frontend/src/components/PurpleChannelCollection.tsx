@@ -22,12 +22,14 @@ const Card = memo(function Card({
   logos,
   now,
   onPress,
+  onFocus,
   preferredFocus,
 }: {
   channel: Channel;
   logos: boolean;
   now: Date;
   onPress: (channel: Channel) => void;
+  onFocus: () => void;
   preferredFocus?: boolean;
 }) {
   const programs = useGuidePrograms(channel.id);
@@ -35,6 +37,7 @@ const Card = memo(function Card({
   return (
     <Pressable
       hasTVPreferredFocus={preferredFocus}
+      onFocus={onFocus}
       onPress={() => onPress(channel)}
       style={({ focused }: any) => [styles.card, focused && styles.focused]}
       testID={`collection-${channel.id}`}
@@ -85,6 +88,8 @@ export function PurpleChannelCollection({
     }, []),
   );
 
+  const disarmInitialFocus = useCallback(() => setPreferInitialFocus(false), []);
+
   const items = useMemo(() => channels.filter(matcher), [channels, matcher]);
   const playlistEmpty = channels.length === 0;
 
@@ -122,7 +127,7 @@ export function PurpleChannelCollection({
               columnWrapperStyle={styles.row}
               contentContainerStyle={styles.grid}
               renderItem={({ item, index }) => (
-                <Card channel={item} logos={isFocused && channelLogos} now={now} onPress={play} preferredFocus={preferInitialFocus && index === 0} />
+                <Card channel={item} logos={isFocused && channelLogos} now={now} onPress={play} onFocus={disarmInitialFocus} preferredFocus={preferInitialFocus && index === 0} />
               )}
             />
           </>

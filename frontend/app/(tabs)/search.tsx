@@ -204,10 +204,14 @@ export default function SearchScreen() {
   }, [query.length]);
 
   const noteKeyboardFocus = useCallback((index: number) => {
+    setPreferKeyFocus(false);
     focusZoneRef.current = "keyboard";
     keyboardIndexRef.current = index;
   }, []);
-  const noteResultsFocus = useCallback(() => { focusZoneRef.current = "results"; }, []);
+  const noteResultsFocus = useCallback(() => {
+    setPreferKeyFocus(false);
+    focusZoneRef.current = "results";
+  }, []);
 
   const before = query.slice(0, cursor);
   const after = query.slice(cursor);

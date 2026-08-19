@@ -167,6 +167,14 @@ export default function ChannelsScreen() {
     toggleFavorite(id);
   }, [toggleFavorite]);
 
+  const noteChannelFocus = useCallback((id: string) => {
+    // Initial preferred focus is only an entry bootstrap. Once Android has a
+    // real focused row, user D-pad movement owns focus and must never be pulled
+    // back by a still-armed hasTVPreferredFocus flag.
+    setPreferInitialFocus(false);
+    setFocusedChannelId(id);
+  }, []);
+
   useEffect(() => {
     if (!isFocused || editMode || !Platform.isTV) return;
     return addTvLongPressListener((key) => {
@@ -285,7 +293,7 @@ export default function ChannelsScreen() {
                 onPlay={play}
                 onFavorite={favorite}
                 onMove={move}
-                onFocusChannel={setFocusedChannelId}
+                onFocusChannel={noteChannelFocus}
                 preferredFocus={preferInitialFocus && index === 0}
               />
             )}

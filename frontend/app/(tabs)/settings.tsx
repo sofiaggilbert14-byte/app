@@ -406,6 +406,7 @@ export default function SettingsScreen() {
             {section ? (
               <Pressable
                 hasTVPreferredFocus={preferBackFocus}
+                onFocus={() => setPreferBackFocus(false)}
                 onPress={() => {
                   void Haptics.selectionAsync().catch(() => undefined);
                   setBackupStatus(null);
@@ -434,6 +435,7 @@ export default function SettingsScreen() {
                 <Pressable
                   key={tile.id}
                   hasTVPreferredFocus={preferTileFocus && index === 0}
+                  onFocus={() => setPreferTileFocus(false)}
                   onPress={() => choose(tile.id)}
                   style={({ focused }: any) => [styles.tile, focused && styles.focused]}
                   testID={`settings-tile-${tile.id}`}

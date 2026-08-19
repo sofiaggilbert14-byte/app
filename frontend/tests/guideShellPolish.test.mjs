@@ -281,3 +281,20 @@ test("guide top strip is focusable while Left remains drawer-owned with conveyor
   assert.match(preview, /actionColumn: \{ flex: 1, minWidth: 0, gap: 3 \}/);
   assert.doesNotMatch(preview, /actionPlaceholder/);
 });
+
+test("entry preferred focus disarms as soon as real user focus exists", async () => {
+  const [channels, collection, search, settings] = await Promise.all([
+    source("app/(tabs)/channels.tsx"),
+    source("src/components/PurpleChannelCollection.tsx"),
+    source("app/(tabs)/search.tsx"),
+    source("app/(tabs)/settings.tsx"),
+  ]);
+  assert.match(channels, /const noteChannelFocus = useCallback\([\s\S]*?setPreferInitialFocus\(false\)[\s\S]*?setFocusedChannelId\(id\)/);
+  assert.match(channels, /onFocusChannel=\{noteChannelFocus\}/);
+  assert.match(collection, /onFocus=\{onFocus\}/);
+  assert.match(collection, /const disarmInitialFocus = useCallback\(\(\) => setPreferInitialFocus\(false\)/);
+  assert.match(search, /const noteKeyboardFocus = useCallback\([\s\S]*?setPreferKeyFocus\(false\)/);
+  assert.match(search, /const noteResultsFocus = useCallback\([\s\S]*?setPreferKeyFocus\(false\)/);
+  assert.match(settings, /hasTVPreferredFocus=\{preferBackFocus\}[\s\S]{0,100}onFocus=\{\(\) => setPreferBackFocus\(false\)\}/);
+  assert.match(settings, /hasTVPreferredFocus=\{preferTileFocus && index === 0\}[\s\S]{0,100}onFocus=\{\(\) => setPreferTileFocus\(false\)\}/);
+});
