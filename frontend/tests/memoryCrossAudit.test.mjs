@@ -164,3 +164,14 @@ test("moving one custom channel swaps only indexed adjacent rows", async () => {
   assert.match(move, /nextPositionedChannel\(position\)/);
   assert.doesNotMatch(move, /orderedChannels\(\)|indexOfFirst/);
 });
+
+test("native playlist fingerprint tracks provider playback fields without changing user identity", async () => {
+  const source = await readFile(join(root, "src/source.native.ts"), "utf8");
+  const fp = source.match(/function playlistNativeContentFingerprint[\s\S]*?\n}/)?.[0] || "";
+  assert.match(fp, /channel\.url \|\| ""/);
+  assert.match(fp, /channel\.stream_type \|\| "unknown"/);
+  assert.match(fp, /\$\{position\}/);
+  assert.match(fp, /playlist-v2:/);
+  const identity = source.match(/function playlistIdentityFingerprint[\s\S]*?\n}/)?.[0] || "";
+  assert.doesNotMatch(identity, /channel\.url/);
+});

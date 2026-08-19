@@ -212,13 +212,19 @@ function hashFields(value: string, state: { h1: number; h2: number; chars: numbe
 /** Two independent 32-bit hashes keep the cold-start native handshake compact. */
 function playlistNativeContentFingerprint(channels: Channel[]): string {
   const state = { h1: 0x811c9dc5, h2: 0x9e3779b9, chars: 0 };
-  for (const channel of channels) {
+  for (let position = 0; position < channels.length; position += 1) {
+    const channel = channels[position];
+    // This fingerprint protects the native provider catalog, not user identity.
+    // Include every provider-owned playback field so rotating Xtream/M3U stream
+    // URLs, stream-type changes, and provider reorderings cannot leave SQLite
+    // serving stale rows on the next cold start. Stable favorites/customization
+    // remain keyed by channel.id in their separate stores.
     hashFields(
-      `${channel.id}\0${channel.raw_tvg_id || channel.tvg_id || ""}\0${channel.name || ""}\0${channel.playlist_logo || channel.logo || ""}\0${channel.group || ""}\x01`,
+      `${channel.id}\0${channel.raw_tvg_id || channel.tvg_id || ""}\0${channel.name || ""}\0${channel.playlist_logo || channel.logo || ""}\0${channel.group || ""}\0${channel.url || ""}\0${channel.stream_type || "unknown"}\0${position}\x01`,
       state,
     );
   }
-  return `playlist-v1:${channels.length}:${state.chars}:${(state.h1 >>> 0).toString(16)}:${(state.h2 >>> 0).toString(16)}`;
+  return `playlist-v2:${channels.length}:${state.chars}:${(state.h1 >>> 0).toString(16)}:${(state.h2 >>> 0).toString(16)}`;
 }
 
 async function syncMatchesToNative(channels: Channel[], guideEpoch: number): Promise<void> {
