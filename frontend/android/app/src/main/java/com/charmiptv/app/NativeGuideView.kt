@@ -53,6 +53,9 @@ class NativeGuideView(context: Context) : View(context) {
   private var pendingRestoreChannelId: String? = null
   private var pendingRestoreTimeMs: Long? = null
   private var reloadGeneration = 0
+  private val settleSelectionRunnable = Runnable {
+    if (enabled && !disposed && rows.isNotEmpty()) emitSelection(true)
+  }
 
   private val unregisterMemoryListener = CharmMemoryCoordinator.register { level, _ ->
     if (level != CharmTrimLevel.CRITICAL) return@register
@@ -154,6 +157,7 @@ class NativeGuideView(context: Context) : View(context) {
 
   fun setActive(value: Boolean) {
     enabled = value
+    if (!value) removeCallbacks(settleSelectionRunnable)
     if (value) {
       applyPendingRestoreChannel()
       if (rows.isNotEmpty()) {
@@ -184,6 +188,7 @@ class NativeGuideView(context: Context) : View(context) {
 
   fun setReloadGeneration(value: Int) {
     if (value == reloadGeneration) return
+    removeCallbacks(settleSelectionRunnable)
     reloadGeneration = value
     generation += 1
     pendingQuery = null
@@ -300,6 +305,7 @@ class NativeGuideView(context: Context) : View(context) {
   }
 
   override fun onDetachedFromWindow() {
+    removeCallbacks(settleSelectionRunnable)
     generation += 1
     pendingQuery = null
     super.onDetachedFromWindow()
@@ -313,6 +319,7 @@ class NativeGuideView(context: Context) : View(context) {
 
   fun dispose() {
     if (disposed) return
+    removeCallbacks(settleSelectionRunnable)
     disposed = true
     generation += 1
     pendingQuery = null
@@ -324,6 +331,10 @@ class NativeGuideView(context: Context) : View(context) {
 
   override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
     if (!enabled || rows.isEmpty()) return super.onKeyDown(keyCode, event)
+    if (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN ||
+      keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+      removeCallbacks(settleSelectionRunnable)
+    }
     when (keyCode) {
       KeyEvent.KEYCODE_DPAD_UP -> if (selectedRow == 0) emit("upBoundary", null) else moveVertical(-1)
       KeyEvent.KEYCODE_DPAD_DOWN -> moveVertical(1)
@@ -370,7 +381,8 @@ class NativeGuideView(context: Context) : View(context) {
     if (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN ||
       keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
       moveVelocity = 0
-      postDelayed({ emitSelection(true) }, 80L)
+      removeCallbacks(settleSelectionRunnable)
+      if (enabled) postDelayed(settleSelectionRunnable, 80L)
       return true
     }
     return super.onKeyUp(keyCode, event)

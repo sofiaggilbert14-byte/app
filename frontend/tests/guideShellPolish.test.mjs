@@ -338,3 +338,12 @@ test("rapid Guide runway movement debounces duplicate JS programme patching", as
   assert.match(guide, /clearTimeout\(runwayPatchTimer\.current\)/);
   assert.match(guide, /patchProgramsForChannelIds\(pending\.ids, pending\.priorityIds\)/);
 });
+
+test("native Guide cancels delayed settled selection when focus ownership moves", async () => {
+  const native = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");
+  assert.match(native, /settleSelectionRunnable = Runnable/);
+  assert.match(native, /if \(!value\) removeCallbacks\(settleSelectionRunnable\)/);
+  assert.match(native, /removeCallbacks\(settleSelectionRunnable\)[\s\S]{0,120}reloadGeneration = value/);
+  assert.match(native, /if \(enabled\) postDelayed\(settleSelectionRunnable, 80L\)/);
+  assert.doesNotMatch(native, /postDelayed\(\{ emitSelection\(true\) \}, 80L\)/);
+});
