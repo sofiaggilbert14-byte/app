@@ -1,0 +1,48 @@
+name: Phase 9 TiviMate Guide No Information Cells
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-guide-no-info-cells.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Render explicit no-information Guide cells
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          view = Path('frontend/android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt')
+          s = view.read_text()
+          old = '''      val list = programs[row.id].orEmpty()\n      for (program in list) {\n        if (program.endMs <= visibleStartMs || program.startMs >= visibleEndMs) continue\n        val left = timeToX(program.startMs, visibleStartMs, visibleEndMs)\n        val right = timeToX(program.endMs, visibleStartMs, visibleEndMs)\n        val clippedLeft = max(channelWidth, left)\n        val clippedRight = min(width.toFloat(), right)\n        if (clippedRight <= clippedLeft) continue\n        val chosen = rowIndex == selectedRow && program.startMs <= selectedTimeMs && program.endMs > selectedTimeMs\n        canvas.drawRect(\n          RectF(clippedLeft + density, top + density, clippedRight - density, top + rowHeight - 2f * density),\n          if (chosen) selected else cell,\n        )\n        drawClippedText(canvas, program.title, clippedLeft + pad, top + rowHeight * .60f, clippedRight - pad, title)\n      }\n      canvas.drawLine(0f, top + rowHeight, width.toFloat(), top + rowHeight, divider)\n'''
+          new = '''      val list = programs[row.id].orEmpty()\n      var paintedProgramme = false\n      for (program in list) {\n        if (program.endMs <= visibleStartMs || program.startMs >= visibleEndMs) continue\n        val left = timeToX(program.startMs, visibleStartMs, visibleEndMs)\n        val right = timeToX(program.endMs, visibleStartMs, visibleEndMs)\n        val clippedLeft = max(channelWidth, left)\n        val clippedRight = min(width.toFloat(), right)\n        if (clippedRight <= clippedLeft) continue\n        paintedProgramme = true\n        val chosen = rowIndex == selectedRow && program.startMs <= selectedTimeMs && program.endMs > selectedTimeMs\n        canvas.drawRect(\n          RectF(clippedLeft + density, top + density, clippedRight - density, top + rowHeight - 2f * density),\n          if (chosen) selected else cell,\n        )\n        drawClippedText(canvas, program.title, clippedLeft + pad, top + rowHeight * .60f, clippedRight - pad, title)\n      }\n      if (!paintedProgramme) {\n        // A legitimate unmatched/empty EPG row must never look like a broken\n        // black canvas. Keep the row selectable/playable and show a neutral\n        // TiviMate-style placeholder without inventing persisted programme data.\n        val left = channelWidth + density\n        val right = width.toFloat() - density\n        if (right > left) {\n          canvas.drawRect(\n            RectF(left, top + density, right, top + rowHeight - 2f * density),\n            if (rowIndex == selectedRow) selected else cell,\n          )\n          drawClippedText(canvas, "No information", left + pad, top + rowHeight * .60f, right - pad, muted)\n        }\n      }\n      canvas.drawLine(0f, top + rowHeight, width.toFloat(), top + rowHeight, divider)\n'''
+          if 'var paintedProgramme = false' not in s:
+              if old not in s: raise SystemExit('Guide draw placeholder marker not found')
+              view.write_text(s.replace(old, new, 1))
+
+          test = Path('frontend/tests/nativeGuideArchitecture.test.mjs')
+          t = test.read_text()
+          case = '''\ntest("native Guide renders selectable no-information cells instead of black rows", async () => {\n  const view = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");\n  assert.match(view, /var paintedProgramme = false/);\n  assert.match(view, /if \\(!paintedProgramme\\)/);\n  assert.match(view, /drawClippedText\\(canvas, "No information"/);\n  assert.match(view, /if \\(rowIndex == selectedRow\\) selected else cell/);\n});\n'''
+          if 'native Guide renders selectable no-information cells instead of black rows' not in t:
+              t += case
+              test.write_text(t)
+          PY
+      - name: Commit Guide placeholder cells
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt frontend/tests/nativeGuideArchitecture.test.mjs
+          git commit -m "phase9: render Guide no-information cells"
+          git push origin HEAD:phase9/purple-next
