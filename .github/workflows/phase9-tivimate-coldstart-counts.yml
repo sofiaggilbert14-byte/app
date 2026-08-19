@@ -1,0 +1,50 @@
+name: Phase 9 TiviMate Cold Start Counts
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-coldstart-counts.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Reuse EPG counts during native cold start
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt')
+          s = p.read_text()
+          old = '''        val effectiveProgramCount =\n          (if (primaryEnabled) database.count() else 0L) +\n            (if (hasUserOwnership) userDatabase.count() else 0L)\n        val channels = Arguments.createArray()\n'''
+          new = '''        val primaryProgramCount = database.count()\n        val userProgramCount = userDatabase.count()\n        val effectiveProgramCount =\n          (if (primaryEnabled) primaryProgramCount else 0L) +\n            (if (hasUserOwnership) userProgramCount else 0L)\n        val channels = Arguments.createArray()\n'''
+          if 'val primaryProgramCount = database.count()' not in s:
+              if old not in s: raise SystemExit('cold-start count marker not found')
+              s = s.replace(old, new, 1)
+          s = s.replace('putDouble("primaryEpgProgramCount", database.count().toDouble())', 'putDouble("primaryEpgProgramCount", primaryProgramCount.toDouble())')
+          s = s.replace('putDouble("userEpgProgramCount", userDatabase.count().toDouble())', 'putDouble("userEpgProgramCount", userProgramCount.toDouble())')
+          p.write_text(s)
+
+          test = Path('frontend/tests/tivimateColdStartPolicy.test.mjs')
+          t = test.read_text()
+          case = '''\ntest("native cold-start snapshot queries each EPG programme count once", async () => {\n  const native = await source("android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt");\n  const stored = native.match(/fun getStoredPlaylist\\(promise: Promise\\)[\\s\\S]*?EPG_PLAYLIST_UPSERT_FAILED/)?.[0] || native;\n  assert.match(stored, /val primaryProgramCount = database\\.count\\(\\)/);\n  assert.match(stored, /val userProgramCount = userDatabase\\.count\\(\\)/);\n  assert.match(stored, /putDouble\\("primaryEpgProgramCount", primaryProgramCount\\.toDouble\\(\\)\\)/);\n  assert.match(stored, /putDouble\\("userEpgProgramCount", userProgramCount\\.toDouble\\(\\)\\)/);\n});\n'''
+          if 'native cold-start snapshot queries each EPG programme count once' not in t:
+              t += case
+              test.write_text(t)
+          PY
+      - name: Commit cold-start count reuse
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt frontend/tests/tivimateColdStartPolicy.test.mjs
+          git commit -m "phase9: reuse cold-start EPG counts"
+          git push origin HEAD:phase9/purple-next
