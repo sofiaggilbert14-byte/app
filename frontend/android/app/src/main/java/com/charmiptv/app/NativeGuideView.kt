@@ -296,8 +296,10 @@ class NativeGuideView(context: Context) : View(context) {
             programs = merged
             invalidate()
             // Data arrival may update the selected programme payload, but only
-            // key-up/focus ownership may declare navigation settled.
-            emitSelection(false)
+            // key-up/focus ownership may declare navigation settled. If a drawer,
+            // modal, or route owns focus, repaint the cache silently instead of
+            // sending a late Guide selection back across the React bridge.
+            if (enabled) emitSelection(false)
           }
         }
       } finally {

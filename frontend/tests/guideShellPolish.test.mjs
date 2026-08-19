@@ -356,3 +356,9 @@ test("Guide query completion cannot falsely settle held D-pad navigation", async
   assert.match(native, /emitSelection\(false\)[\s\S]{0,220}only[\s\S]{0,100}key-up\/focus ownership/);
   assert.match(native, /putBoolean\("settled", immediate \|\| \(!navigationKeyDown && moveVelocity == 0\)\)/);
 });
+
+test("inactive native Guide query completion cannot reclaim JS focus", async () => {
+  const native = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");
+  assert.match(native, /If a drawer,[\s\S]{0,180}if \(enabled\) emitSelection\(false\)/);
+  assert.doesNotMatch(native, /key-up\/focus ownership may declare navigation settled\.\s*emitSelection\(false\)/);
+});
