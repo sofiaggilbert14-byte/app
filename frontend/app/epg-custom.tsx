@@ -247,7 +247,7 @@ export default function CustomEpgScreen() {
             <Text style={styles.kicker}>PHASE 9 · GUIDE SOURCES</Text>
             <Text style={styles.title}>Custom EPG & Channel Assignments</Text>
           </View>
-          <Pressable hasTVPreferredFocus={preferBackFocus} onPress={() => router.replace("/epg-sources" as any)} style={({ focused }: any) => [styles.back, focused && styles.focused]}>
+          <Pressable hasTVPreferredFocus={preferBackFocus} onFocus={() => setPreferBackFocus(false)} onPress={() => router.replace("/epg-sources" as any)} style={({ focused }: any) => [styles.back, focused && styles.focused]}>
             <Ionicons name="arrow-back" size={14} color="#fff" />
             <Text style={styles.backText}>EPG Settings</Text>
           </Pressable>

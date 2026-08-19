@@ -99,7 +99,7 @@ export default function GroupSettingsScreen() {
             <Text style={styles.kicker}>PHASE 9</Text>
             <Text style={styles.title}>Guide Groups & Tabs</Text>
           </View>
-          <Pressable hasTVPreferredFocus={preferBackFocus} onPress={returnToSettings} style={({ focused }: any) => [styles.back, focused && styles.focused]}>
+          <Pressable hasTVPreferredFocus={preferBackFocus} onFocus={() => setPreferBackFocus(false)} onPress={returnToSettings} style={({ focused }: any) => [styles.back, focused && styles.focused]}>
             <Ionicons name="arrow-back" size={14} color="#fff" />
             <Text style={styles.backText}>Settings</Text>
           </Pressable>

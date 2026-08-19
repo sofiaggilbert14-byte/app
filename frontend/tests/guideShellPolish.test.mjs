@@ -314,3 +314,13 @@ test("Live TV and EPG entry focus bootstrap yields immediately to Android focus"
   assert.match(home, /hasTVPreferredFocus=\{preferInitialFocus\}[\s\S]{0,140}onFocus=\{\(\) => setPreferInitialFocus\(false\)\}/);
   assert.match(epg, /hasTVPreferredFocus=\{preferTopFocus\} onFocus=\{\(\) => setPreferTopFocus\(false\)\}/);
 });
+
+test("Phase 9 management screens disarm their preferred Back focus immediately", async () => {
+  const [customEpg, groups] = await Promise.all([
+    source("app/epg-custom.tsx"),
+    source("app/group-settings.tsx"),
+  ]);
+  for (const body of [customEpg, groups]) {
+    assert.match(body, /hasTVPreferredFocus=\{preferBackFocus\} onFocus=\{\(\) => setPreferBackFocus\(false\)\}/);
+  }
+});
