@@ -53,3 +53,10 @@ test("cold-start Guide freshness follows active EPG ownership", async () => {
   assert.match(native, /putDouble\("guideRefreshedAt", effectiveGuideRefreshedAt\.toDouble\(\)\)/);
   assert.match(native, /putDouble\("epgProgramCount", effectiveProgramCount\.toDouble\(\)\)/);
 });
+
+test("zero source freshness remains due instead of falling back to playlist age", async () => {
+  const native = await source("src/source.native.ts");
+  assert.match(native, /const playlistLast = cached\.playlistRefreshedAt != null \? cached\.playlistRefreshedAt : cached\.ts/);
+  assert.match(native, /const guideLast = cached\.guideRefreshedAt != null \? cached\.guideRefreshedAt : cached\.ts/);
+  assert.doesNotMatch(native, /const guideLast = cached\.guideRefreshedAt \|\| cached\.ts/);
+});

@@ -728,7 +728,7 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
     const cached = MEM || (await readChannelCache());
     if (!force && cached?.channels?.length) {
       const refreshPrefs = await getSourceRefreshPreferences();
-      const playlistLast = cached.playlistRefreshedAt || cached.ts;
+      const playlistLast = cached.playlistRefreshedAt != null ? cached.playlistRefreshedAt : cached.ts;
       if (!isRefreshDue(playlistLast, refreshPrefs.playlistHours)) {
         MEM = cached;
         void syncPlaylistToNative(cached.channels, cached.playlistEpoch || 0)
@@ -1182,7 +1182,7 @@ export async function refreshSourcesIfDue(): Promise<SourceStatus> {
   MEM = cached;
   const prefs = await getSourceRefreshPreferences();
   const now = Date.now();
-  const playlistLast = cached.playlistRefreshedAt || cached.ts;
+  const playlistLast = cached.playlistRefreshedAt != null ? cached.playlistRefreshedAt : cached.ts;
   if (isRefreshDue(playlistLast, prefs.playlistHours, now)) {
     if (!cached.epgError) {
       setProgress({ phase: "update_available", ratio: 0, etaSeconds: null, message: null }, true);
@@ -1190,7 +1190,7 @@ export async function refreshSourcesIfDue(): Promise<SourceStatus> {
     await refreshInternal(true);
     return sourceStatus();
   }
-  const guideLast = cached.guideRefreshedAt || cached.ts;
+  const guideLast = cached.guideRefreshedAt != null ? cached.guideRefreshedAt : cached.ts;
   if (isRefreshDue(guideLast, prefs.epgHours, now)) {
     return refreshEpgOnly();
   }
