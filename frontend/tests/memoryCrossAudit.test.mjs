@@ -145,3 +145,10 @@ test("customization snapshot uses SQLite indexed order instead of Kotlin resort"
   assert.match(snapshot, /val orderPairs = dao\.orderedChannels\(\)/);
   assert.doesNotMatch(snapshot, /filter \{ it\.customPosition != null \}[\s\S]*?sortedBy/);
 });
+
+test("custom group snapshot avoids all-mapping groupBy duplication", async () => {
+  const mod = await readFile(join(root, "android/app/src/main/java/com/charmiptv/app/CustomizationNativeModule.kt"), "utf8");
+  const snapshot = mod.match(/fun getSnapshot\(promise: Promise\)[\s\S]*?promise\.resolve/)?.[0] || "";
+  assert.match(snapshot, /val groupMappings = dao\.mappings\(group\.id\)/);
+  assert.doesNotMatch(snapshot, /dao\.allMappings\(\)\.groupBy/);
+});

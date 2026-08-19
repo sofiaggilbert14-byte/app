@@ -40,15 +40,18 @@ class CustomizationNativeModule(reactContext: ReactApplicationContext) :
         }
         for (row in orderPairs) order.pushString(row.channelId)
 
-        val mappingsByGroup = dao.allMappings().groupBy { it.groupId }
         val groups = Arguments.createArray()
         for (group in dao.groups()) {
+          // Keep native peak RAM bounded: query this group's indexed junction
+          // rows directly instead of materializing all mappings and then
+          // groupBy()-duplicating the entire custom-lineup graph.
+          val groupMappings = dao.mappings(group.id)
           groups.pushMap(Arguments.createMap().apply {
             putString("id", group.id)
             putString("name", group.name)
             putInt("position", group.position)
             putArray("channelIds", Arguments.createArray().apply {
-              for (mapping in mappingsByGroup[group.id].orEmpty()) pushString(mapping.channelId)
+              for (mapping in groupMappings) pushString(mapping.channelId)
             })
           })
         }
