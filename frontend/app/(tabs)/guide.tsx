@@ -420,7 +420,7 @@ export default function PurpleGuideScreen() {
       const selection = getGuideSelection();
       const channelId = selection.channelId || guideSessionChannelId;
       const channel = channelId ? channelById(channelId) : null;
-      if (remoteShortcuts.longSelect === "favorite") {
+      if (selection.surface === "channel" || remoteShortcuts.longSelect === "favorite") {
         if (channelId) toggleFavorite(channelId);
       } else if (remoteShortcuts.longSelect === "controls" && selection.program && channel) {
         modalOriginRef.current = { channelId: channel.id, programStart: selection.program.start };
@@ -1112,7 +1112,6 @@ export default function PurpleGuideScreen() {
                 restoreTimeMs={restoreTimeMs}
                 reloadGeneration={resetToken}
                 channelNumberById={channelNumberById}
-                onChannelPress={play}
                 onProgramPress={openGuideProgram}
                 onChannelFocus={onFocusChannel}
                 onProgramFocus={onFocusProgram}
@@ -1261,4 +1260,5 @@ const styles = StyleSheet.create({
   retryText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 9 },
   focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
 });
+
 

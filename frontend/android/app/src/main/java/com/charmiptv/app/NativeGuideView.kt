@@ -51,6 +51,9 @@ class NativeGuideView(context: Context) : View(context) {
   private var lastHorizontalMoveAt = 0L
   private var moveVelocity = 0
   private var navigationKeyDown = false
+  private var channelRailSelected = false
+  private var selectKeyDown = false
+  private var selectLongPressSeen = false
   private var pendingRestoreChannelId: String? = null
   private var pendingRestoreTimeMs: Long? = null
   private var reloadGeneration = 0
@@ -170,6 +173,8 @@ class NativeGuideView(context: Context) : View(context) {
     if (!value) {
       removeCallbacks(settleSelectionRunnable)
       navigationKeyDown = false
+      selectKeyDown = false
+      selectLongPressSeen = false
       moveVelocity = 0
       return
     }
@@ -327,6 +332,8 @@ class NativeGuideView(context: Context) : View(context) {
   override fun onDetachedFromWindow() {
     removeCallbacks(settleSelectionRunnable)
     navigationKeyDown = false
+    selectKeyDown = false
+    selectLongPressSeen = false
     moveVelocity = 0
     generation += 1
     pendingQuery = null
@@ -366,11 +373,16 @@ class NativeGuideView(context: Context) : View(context) {
       KeyEvent.KEYCODE_DPAD_LEFT -> {
         if (event.repeatCount > 0 && event.eventTime - lastHorizontalMoveAt < 55L) return true
         lastHorizontalMoveAt = event.eventTime
-        if (selectedTimeMs <= windowStartMs + 60_000L) {
+        if (channelRailSelected) {
           emit("topLeftBoundary", null)
           return true
         }
         val current = selectedProgram()
+        if (selectedTimeMs <= windowStartMs + 60_000L || current?.startMs == windowStartMs) {
+          channelRailSelected = true
+          invalidate(); emitSelection(true)
+          return true
+        }
         // A missing painted programme means the newest bounded SQLite runway is
         // still arriving; it is not evidence that the cursor reached Guide Left.
         val nextTime = max(
@@ -386,6 +398,11 @@ class NativeGuideView(context: Context) : View(context) {
       KeyEvent.KEYCODE_DPAD_RIGHT -> {
         if (event.repeatCount > 0 && event.eventTime - lastHorizontalMoveAt < 55L) return true
         lastHorizontalMoveAt = event.eventTime
+        if (channelRailSelected) {
+          channelRailSelected = false
+          invalidate(); emitSelection(true)
+          return true
+        }
         val current = selectedProgram()
         val nextTime = min(windowEndMs - 1, current?.endMs ?: selectedTimeMs + 30L * 60_000L)
         if (nextTime == selectedTimeMs) return true
@@ -396,7 +413,14 @@ class NativeGuideView(context: Context) : View(context) {
         loadPrograms()
         invalidate(); emitSelection(false)
       }
-      KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_BUTTON_A -> emitSelection(true, pressed = true)
+      KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_BUTTON_A -> {
+        if (event.repeatCount == 0) {
+          selectKeyDown = true
+          selectLongPressSeen = false
+        } else if (selectKeyDown) {
+          selectLongPressSeen = true
+        }
+      }
       else -> return super.onKeyDown(keyCode, event)
     }
     return true
@@ -409,6 +433,14 @@ class NativeGuideView(context: Context) : View(context) {
       moveVelocity = 0
       removeCallbacks(settleSelectionRunnable)
       if (enabled) postDelayed(settleSelectionRunnable, 80L)
+      return true
+    }
+    if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER ||
+      keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER || keyCode == KeyEvent.KEYCODE_BUTTON_A) {
+      val shortPress = selectKeyDown && !selectLongPressSeen
+      selectKeyDown = false
+      selectLongPressSeen = false
+      if (shortPress) emitSelection(true, pressed = !channelRailSelected)
       return true
     }
     return super.onKeyUp(keyCode, event)
@@ -453,6 +485,7 @@ class NativeGuideView(context: Context) : View(context) {
       putInt("row", selectedRow)
       putBoolean("settled", immediate || (!navigationKeyDown && moveVelocity == 0))
       putBoolean("pressed", pressed)
+      putString("surface", if (channelRailSelected) "channel" else "program")
       if (program != null) {
         putMap("program", Arguments.createMap().apply {
           putString("title", program.title); putString("desc", program.description ?: "")
@@ -504,7 +537,7 @@ class NativeGuideView(context: Context) : View(context) {
       val rowIndex = firstVisibleRow + slot
       val row = rows.getOrNull(rowIndex) ?: break
       val top = headerHeight + slot * rowHeight
-      channel.color = if (rowIndex == selectedRow) Color.rgb(61, 43, 92) else Color.rgb(26, 22, 38)
+      channel.color = if (rowIndex == selectedRow && channelRailSelected) Color.rgb(119, 74, 219) else Color.rgb(26, 22, 38)
       canvas.drawRect(0f, top, channelWidth, top + rowHeight - density, channel)
       canvas.drawRect(channelWidth, top, width.toFloat(), top + rowHeight - density, rowSurface)
       drawClippedText(canvas, row.label, pad, top + rowHeight * .62f, channelWidth - pad, title)
@@ -519,7 +552,7 @@ class NativeGuideView(context: Context) : View(context) {
         val clippedRight = min(width.toFloat(), right)
         if (clippedRight <= clippedLeft) continue
         paintedProgramme = true
-        val chosen = rowIndex == selectedRow && program.startMs <= selectedTimeMs && program.endMs > selectedTimeMs
+        val chosen = !channelRailSelected && rowIndex == selectedRow && program.startMs <= selectedTimeMs && program.endMs > selectedTimeMs
         canvas.drawRect(
           RectF(clippedLeft + density, top + density, clippedRight - density, top + rowHeight - 2f * density),
           if (chosen) selected else cell,
@@ -535,7 +568,7 @@ class NativeGuideView(context: Context) : View(context) {
         if (right > left) {
           canvas.drawRect(
             RectF(left, top + density, right, top + rowHeight - 2f * density),
-            if (rowIndex == selectedRow) selected else cell,
+            if (!channelRailSelected && rowIndex == selectedRow) selected else cell,
           )
           drawClippedText(canvas, "No information", left + pad, top + rowHeight * .60f, right - pad, muted)
         }
@@ -574,4 +607,5 @@ class NativeGuideView(context: Context) : View(context) {
     private const val LOW_RAM_PAINT_CACHE_CHANNELS = 64
   }
 }
+
 

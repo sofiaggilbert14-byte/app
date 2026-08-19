@@ -1,15 +1,15 @@
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { findNodeHandle, Platform, requireNativeComponent, type NativeSyntheticEvent, View } from "react-native";
 import type { Channel, Program } from "@/src/api";
+import { setGuideFocusedChannel, setGuideFocusedProgram } from "@/src/core/guideSelectionStore";
 
-type SelectionEvent = { channelId: string; row: number; settled: boolean; pressed: boolean; program?: { title: string; desc: string; category: string; startMs: number; endMs: number } };
+type SelectionEvent = { channelId: string; row: number; settled: boolean; pressed: boolean; surface?: "channel" | "program"; program?: { title: string; desc: string; category: string; startMs: number; endMs: number } };
 type RunwayEvent = { ids: string[]; priorityIds: string[]; pageSize: number; velocity: number; direction: number };
 type Props = {
   channels: Channel[]; windowStart: string; windowEnd: string; active: boolean; restoreChannelId?: string | null; restoreTimeMs?: number | null; reloadGeneration?: number;
   channelNumberById: Record<string, number>;
   onChannelFocus: (channel: Channel, settled: boolean) => void;
   onProgramFocus: (program: Program, channel: Channel, settled: boolean) => void;
-  onChannelPress: (channel: Channel) => void;
   onProgramPress: (program: Program, channel: Channel) => void;
   onViewportChannelIds: (ids: string[], priorityIds: string[], pageSize: number, velocity: number) => void;
   onNativeGuideTag?: (tag: number | null) => void;
@@ -29,7 +29,6 @@ export const NativeGuideCanvas = memo(function NativeGuideCanvas({
   channelNumberById,
   onChannelFocus,
   onProgramFocus,
-  onChannelPress,
   onProgramPress,
   onViewportChannelIds,
   onNativeGuideTag,
@@ -96,13 +95,17 @@ export const NativeGuideCanvas = memo(function NativeGuideCanvas({
           stop: new Date(value.program.endMs).toISOString(),
         }
       : null;
-    if (program) onProgramFocus(program, channel, value.settled);
-    else onChannelFocus(channel, value.settled);
-    if (value.pressed) {
-      if (program) onProgramPress(program, channel);
-      else onChannelPress(channel);
+    if (program) {
+      onProgramFocus(program, channel, value.settled);
+      setGuideFocusedProgram(channel.id, program, value.surface === "channel" ? "channel" : "program");
+    } else {
+      onChannelFocus(channel, value.settled);
+      setGuideFocusedChannel(channel.id, value.surface === "channel" ? "channel" : "program");
     }
-  }, [channelById, onChannelFocus, onChannelPress, onProgramFocus, onProgramPress]);
+    if (value.pressed) {
+      if (value.surface !== "channel" && program) onProgramPress(program, channel);
+    }
+  }, [channelById, onChannelFocus, onProgramFocus, onProgramPress]);
 
   const handleRunwayChange = useCallback((event: NativeSyntheticEvent<RunwayEvent>) => {
     const value = event.nativeEvent;
@@ -133,3 +136,4 @@ export const NativeGuideCanvas = memo(function NativeGuideCanvas({
     />
   );
 });
+

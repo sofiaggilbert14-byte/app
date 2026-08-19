@@ -144,5 +144,18 @@ test("native Guide renders selectable no-information cells instead of black rows
   assert.match(view, /var paintedProgramme = false/);
   assert.match(view, /if \(!paintedProgramme\)/);
   assert.match(view, /drawClippedText\(canvas, "No information"/);
-  assert.match(view, /if \(rowIndex == selectedRow\) selected else cell/);
+  assert.match(view, /if \(!channelRailSelected && rowIndex == selectedRow\) selected else cell/);
 });
+
+test("native Guide resolves short versus held Select before opening a programme", async () => {
+  const view = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");
+  const activity = await source("android/app/src/main/java/com/charmiptv/app/MainActivity.kt");
+  const keys = view.match(/override fun onKeyDown[\s\S]*?private fun moveVertical/)?.[0] || "";
+  assert.match(keys, /event\.repeatCount == 0[\s\S]*selectKeyDown = true/);
+  assert.match(keys, /event\.repeatCount[\s\S]*selectLongPressSeen = true/);
+  assert.match(keys, /val shortPress = selectKeyDown && !selectLongPressSeen/);
+  assert.match(keys, /if \(shortPress\) emitSelection\(true, pressed = !channelRailSelected\)/);
+  assert.doesNotMatch(keys, /KEYCODE_DPAD_CENTER[^\n]*emitSelection\(true, pressed = true\)/);
+  assert.match(activity, /TvRemoteModule\.remoteContext != "guide"/);
+});
+

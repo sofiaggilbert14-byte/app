@@ -72,7 +72,8 @@ class MainActivity : ReactActivity() {
       event.action == android.view.KeyEvent.ACTION_DOWN &&
         event.repeatCount > 0 &&
         selectKey &&
-        emittedLongPressKeyCode == event.keyCode
+        emittedLongPressKeyCode == event.keyCode &&
+        TvRemoteModule.remoteContext != "guide"
     ) {
       return true
     }
@@ -248,4 +249,5 @@ class MainActivity : ReactActivity() {
     private const val MIN_DPAD_REPEAT_MS = 48L
   }
 }
+
 

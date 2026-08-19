@@ -372,7 +372,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 4,
-    backgroundColor: tvColors.purple,
+    backgroundColor: tvColors.panelRaised,
     borderRadius: 5,
     borderWidth: 2,
     borderColor: "transparent",
@@ -397,4 +397,5 @@ const styles = StyleSheet.create({
   disabledButton: { opacity: 0.45 },
   focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
 });
+
 
