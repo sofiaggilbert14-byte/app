@@ -4,7 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { usePurpleTvDrawer } from "@/src/components/PurpleTvShell";
 import { fonts, radius, tvColors } from "@/src/theme";
-import { addTvKeyListener, setRemoteContext } from "@/src/utils/tvRemote";
+import { addTvKeyListener, resetRemoteContextIfOwned, setRemoteContext } from "@/src/utils/tvRemote";
 
 /** Consistent, explicit Drawer entry for full-bleed TV pages. */
 export function PurpleDrawerButton({ testID }: { testID: string }) {
@@ -31,7 +31,9 @@ export function PurpleDrawerButton({ testID }: { testID: string }) {
     });
     return () => {
       off();
-      setRemoteContext("default");
+      // Opening the drawer can install main_drawer before this button blurs.
+      // Never let stale edge cleanup overwrite that newer focus owner.
+      resetRemoteContextIfOwned("drawer_edge");
     };
   }, [focused, open]);
 
