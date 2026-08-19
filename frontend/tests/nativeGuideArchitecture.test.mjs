@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const root = new URL("..", import.meta.url).pathname.replace(/^\/(.:)/, "$1");
-const source = (path) => readFile(join(root, path), "utf8");
+const source = async (path) => (await readFile(join(root, path), "utf8")).replace(/\r\n/g, "\n");
 
 test("Guide is a single native logical canvas with predictive prefetch", async () => {
   const [guide, bridge, view, manager, app] = await Promise.all([

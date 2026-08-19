@@ -128,7 +128,8 @@ test("TvRemote suppresses duplicate Guide bridge events without consuming native
   assert.match(activity, /MIN_DPAD_REPEAT_MS = 48L/);
   assert.match(activity, /Static remote flags must never survive/);
   assert.match(activity, /TvRemoteModule\.pointerActive = false/);
-  assert.match(activity, /!TvRemoteModule\.guideNavigationActive \|\| TvRemoteModule\.pointerActive/);
+  assert.match(activity, /val mirrorToJs = TvRemoteModule\.pointerActive \|\| TvRemoteModule\.remoteContext == "player"/);
+  assert.match(activity, /if \(TvRemoteModule\.pointerActive\) return true/);
   // Guide surfing must use Android focus — never consume Up/Down when "active".
   assert.doesNotMatch(activity, /guideNavigationActive && \(key == "UP"/);
   assert.doesNotMatch(plugin, /guideNavigationActive && \(key == "UP"/);

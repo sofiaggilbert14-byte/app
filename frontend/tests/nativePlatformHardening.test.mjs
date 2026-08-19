@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const source = (name) => readFile(path.join(root, name), "utf8");
+const source = async (name) => (await readFile(path.join(root, name), "utf8")).replace(/\r\n/g, "\n");
 
 test("native EPG control plane remains single-source per playlist and scheduled", async () => {
   const [control, scheduler, native] = await Promise.all([
@@ -78,10 +78,12 @@ test("player recovery is bounded and history waits for stable playback", async (
   ]);
   assert.match(player, /STREAM_RETRY_DELAYS_MS = \[1000, 2000, 4000\]/);
   assert.match(player, /STABLE_HISTORY_DELAY_MS = 5000/);
-  assert.match(player, /MAX_TOKEN_REFRESH_CHANNELS = 128/);
-  assert.match(stream, /FROZEN_VIDEO_WATCHDOG_MS = 5000/);
-  assert.match(patch, /ConnectionPool\(8, 5, TimeUnit\.MINUTES\)/);
-  assert.match(player, /refreshPlaylistOnly\(\)/);
+  assert.doesNotMatch(player, /MAX_TOKEN_REFRESH_CHANNELS/);
+  assert.match(stream, /BUFFERING_RESYNC_MS = 5000/);
+  assert.match(stream, /BUFFERING_FAIL_MS = 22000/);
+  assert.match(stream, /MAX_SILENT_BUFFERING_RESYNCS = 2/);
+  assert.match(patch, /ConnectionPool\(15, 5, TimeUnit\.MINUTES\)/);
+  assert.doesNotMatch(player, /refreshPlaylistOnly\(\)/);
   assert.match(nativeSource, /export async function refreshPlaylistOnly/);
   assert.doesNotMatch(nativeSource.match(/export async function refreshPlaylistOnly[\s\S]*?\n}\n/)?.[0] || "", /refreshNativeEpg/);
 });

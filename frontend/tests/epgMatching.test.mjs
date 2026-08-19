@@ -206,7 +206,7 @@ test("native EPG engine strengthens migrate, next-stop, recovery, rare vacuum", 
     readFile(join(root, "android/app/src/main/java/com/charmiptv/app/EpgDatabase.kt"), "utf8"),
     readFile(join(root, "android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt"), "utf8"),
   ]);
-  assert.match(db, /DATABASE_VERSION = 7/);
+  assert.match(db, /DATABASE_VERSION = 10/);
   assert.match(db, /epg_programmes_fts/);
   assert.match(db, /toEpochSeconds/);
   assert.match(db, /Additive only/);

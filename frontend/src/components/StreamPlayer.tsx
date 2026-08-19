@@ -513,7 +513,7 @@ function ExpoStream({
           ? { preferredForwardBufferDuration: lowRam ? 5 : 10, maxBufferBytes: (lowRam ? 32 : 64) * 1024 * 1024 }
           : {
               preferredForwardBufferDuration: lowRam ? 3.5 : (media3Audio === "ffmpeg" ? 6 : 5),
-              maxBufferBytes: (lowRam ? 28 : (media3Audio === "ffmpeg" ? 60 : 52)) * 1024 * 1024,
+              maxBufferBytes: (lowRam ? 28 : 48) * 1024 * 1024,
             };
       const coordinatedCacheBudget = Math.max(
         8 * 1024 * 1024,

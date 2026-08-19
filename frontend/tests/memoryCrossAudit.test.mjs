@@ -43,15 +43,15 @@ test("low-RAM device cap wins over larger user performance profiles", () => {
 });
 
 test("channel customization writes only the state blob that changed", async () => {
-  const customize = await readFile(join(root, "src/core/channelCustomize.ts"), "utf8");
-  assert.match(customize, /function persist\(previous: Snapshot, next: Snapshot\): void/);
+  const customize = (await readFile(join(root, "src/core/channelCustomize.ts"), "utf8")).replace(/\r\n/g, "\n");
+  assert.match(customize, /function persistWeb\(previous: Snapshot, next: Snapshot\)/);
   assert.match(customize, /previous\.hiddenIds !== next\.hiddenIds/);
   assert.match(customize, /previous\.customOrder !== next\.customOrder/);
   assert.match(customize, /previous\.customNumbers !== next\.customNumbers/);
-  assert.match(customize, /pendingDirty\.hiddenIds = true/);
-  assert.match(customize, /pendingDirty\.customOrder = true/);
-  assert.match(customize, /pendingDirty\.customNumbers = true/);
-  assert.match(customize, /void flushPersistence\(\)/);
+  assert.match(customize, /webPendingDirty\.hiddenIds = true/);
+  assert.match(customize, /webPendingDirty\.customOrder = true/);
+  assert.match(customize, /webPendingDirty\.customNumbers = true/);
+  assert.match(customize, /void flushWebPersistence\(\)/);
   assert.doesNotMatch(
     customize,
     /Promise\.all\(\[\s*storage\.setItem\(HIDDEN_KEY[\s\S]*storage\.setItem\(ORDER_KEY[\s\S]*storage\.setItem\(NUMBERS_KEY/,
@@ -59,7 +59,7 @@ test("channel customization writes only the state blob that changed", async () =
 });
 
 test("playlist-only refresh reuses native parser rows instead of cloning the full playlist", async () => {
-  const source = await readFile(join(root, "src/source.native.ts"), "utf8");
+  const source = (await readFile(join(root, "src/source.native.ts"), "utf8")).replace(/\r\n/g, "\n");
   const refreshOnly = source.match(/export async function refreshPlaylistOnly[\s\S]*?\n}\n\n\/\*\* Check persisted/)?.[0] || "";
   assert.match(refreshOnly, /const oldById = new Map<string, Channel>\(\)/);
   assert.match(refreshOnly, /for \(const channel of fresh\)/);
@@ -101,11 +101,11 @@ test("large-list UI paths skip redundant whole-list sorting and Android legacy p
 });
 
 test("custom ordering uses one coalescing storage writer", async () => {
-  const customize = await readFile(join(root, "src/core/channelCustomize.ts"), "utf8");
-  assert.match(customize, /let persistRunning = false/);
-  assert.match(customize, /async function flushPersistence\(\)/);
+  const customize = (await readFile(join(root, "src/core/channelCustomize.ts"), "utf8")).replace(/\r\n/g, "\n");
+  assert.match(customize, /let webPersistRunning = false/);
+  assert.match(customize, /async function flushWebPersistence\(\)/);
   assert.match(customize, /const snapshot = cached/);
-  assert.match(customize, /void flushPersistence\(\)/);
+  assert.match(customize, /void flushWebPersistence\(\)/);
 });
 
 test("Guide fixed start preference is entry-scoped and explicit jumps override it", async () => {
@@ -117,7 +117,7 @@ test("Guide fixed start preference is entry-scoped and explicit jumps override i
 });
 
 test("EPG-only refresh coalesces with active source work and avoids cold-start promise cycles", async () => {
-  const source = await readFile(join(root, "src/source.native.ts"), "utf8");
+  const source = (await readFile(join(root, "src/source.native.ts"), "utf8")).replace(/\r\n/g, "\n");
   const epgOnly = source.match(/export async function refreshEpgOnly\(\)[\s\S]*?\n}\n\nexport function sourceStatus/)?.[0] || "";
   assert.match(epgOnly, /if \(refreshPromise\) \{[\s\S]{0,160}await refreshPromise;[\s\S]{0,120}return sourceStatus\(\)/);
   assert.match(epgOnly, /const cached = MEM \|\| \(await readChannelCache\(\)\)/);

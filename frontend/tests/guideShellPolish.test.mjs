@@ -155,7 +155,7 @@ test("shared page focus has a deterministic Left-edge drawer handoff", async () 
     source("app/(tabs)/channels.tsx"),
   ]);
   assert.match(shell, /testID="purple-left-edge-drawer-target"/);
-  assert.match(shell, /leftEdgeDrawerTarget:[\s\S]{0,180}width: 10/);
+  assert.match(shell, /leftEdgeDrawerTarget:[\s\S]{0,300}width: 10/);
   assert.match(shell, /onFocus=\{\(\) => openDrawer\(\)\}/);
   assert.match(shell, /trapFocusLeft=\{false\}/);
   assert.match(shell, /isGuideScreenActive\(\) && isGuideSurfing\(\)/);
@@ -257,7 +257,7 @@ test("guide top strip is focusable while Left remains drawer-owned with conveyor
     source("src/utils/tvFocus.ts"),
   ]);
   assert.match(guide, /GuidePreviewRail/);
-  assert.match(guide, /another Left enters the drawer/);
+  assert.match(preview, /onOpenDrawer/);
   assert.match(guide, /openDrawer\(\)/);
   assert.match(guide, /focusGuidePreviewSurface\(\)/);
   assert.match(guide, /setPreviewFocusRequestToken/);
@@ -353,7 +353,7 @@ test("Guide query completion cannot falsely settle held D-pad navigation", async
   assert.match(native, /private var navigationKeyDown = false/);
   assert.match(native, /navigationKeyDown = true[\s\S]{0,120}removeCallbacks\(settleSelectionRunnable\)/);
   assert.match(native, /navigationKeyDown = false[\s\S]{0,80}moveVelocity = 0/);
-  assert.match(native, /emitSelection\(false\)[\s\S]{0,220}only[\s\S]{0,100}key-up\/focus ownership/);
+  assert.match(native, /key-up\/focus ownership[\s\S]{0,260}if \(enabled\) emitSelection\(false\)/);
   assert.match(native, /putBoolean\("settled", immediate \|\| \(!navigationKeyDown && moveVelocity == 0\)\)/);
 });
 

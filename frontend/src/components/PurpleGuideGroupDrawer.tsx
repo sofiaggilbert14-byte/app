@@ -130,7 +130,7 @@ const styles = StyleSheet.create({
     zIndex: 90,
     backgroundColor: "rgba(12,7,26,0.98)",
     borderRightWidth: 1,
-    borderRightColor: tvColors.border,
+    borderRightColor: tvColors.line,
   },
   drawer: { flex: 1, paddingHorizontal: 10, paddingVertical: 12 },
   header: { flexDirection: "row", alignItems: "center", gap: 7, marginBottom: 3 },

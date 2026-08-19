@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const source = (path) => readFile(join(root, path), "utf8");
+const source = async (path) => (await readFile(join(root, path), "utf8")).replace(/\r\n/g, "\n");
 
 test("TiviMate-style native cold start is read-only while successful provider refresh advances its own clock", async () => {
   const [appSource, bridge, nativeModule, database] = await Promise.all([
@@ -44,8 +44,8 @@ test("cold-start Guide freshness follows active EPG ownership", async () => {
     source("android/app/src/main/java/com/charmiptv/app/CustomEpgNativeModule.kt"),
     source("android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt"),
   ]);
-  assert.match(custom, /val guideEpoch = \(userDatabase\.getMeta\("guide_epoch"\).*?\+ 1L/s);
-  assert.match(custom, /userDatabase\.setMeta\("guide_refreshed_at", now\.toString\(\)\)/);
+  assert.match(custom, /val guideEpoch = if \(programmeSwapSucceeded\) previousGuideEpoch \+ 1L else previousGuideEpoch/);
+  assert.match(custom, /userDatabase\.setMeta\("guide_refreshed_at", guideRefreshedAt\.toString\(\)\)/);
   assert.match(native, /val hasUserOwnership = userEnabled && userBindings\.isNotEmpty\(\)/);
   assert.match(native, /val effectiveGuideEpoch =[\s\S]*?primaryGuideEpoch[\s\S]*?userGuideEpoch/);
   assert.match(native, /primaryEnabled && hasUserOwnership[\s\S]*?minOf\(primaryGuideRefreshedAt, userGuideRefreshedAt\)/);
