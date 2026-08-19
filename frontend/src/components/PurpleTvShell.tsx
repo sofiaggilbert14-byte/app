@@ -263,11 +263,13 @@ export function PurpleTvShell({
     };
   }, [active, activeGuideGroupName, consumeFocusDrawerTop, drawerOpen, focusDrawerTop]);
 
+  const reopenArmedAtRef = useRef(0);
   useFocusEffect(
     useCallback(() => {
       if (Platform.OS === "web") return;
       const sub = BackHandler.addEventListener("hardwareBackPress", () => {
         if (active === "/guide" && !drawerOpen && !activeProgram) {
+          reopenArmedAtRef.current = 0;
           // Guide owns closed-guide Back so it can enter the dedicated Groups
           // drawer first. The shell never opens a closed drawer from Back.
           return false;
@@ -275,16 +277,30 @@ export function PurpleTvShell({
         const decision = evaluateDrawerBack({
           drawerOpen,
           blockingOverlayOpen: !!activeProgram,
+          reopenArmedAt: reopenArmedAtRef.current,
         });
-        if (decision === "pass-through") return false;
+        if (decision === "pass-through") {
+          reopenArmedAtRef.current = 0;
+          return false;
+        }
+        if (decision === "arm-reopen") {
+          reopenArmedAtRef.current = Date.now();
+          return true;
+        }
+        if (decision === "open-drawer") {
+          reopenArmedAtRef.current = 0;
+          openDrawer({ focusTop: true });
+          return true;
+        }
         if (decision === "close-drawer") {
+          reopenArmedAtRef.current = 0;
           closeDrawer();
           return true;
         }
         return false;
       });
       return () => sub.remove();
-    }, [active, activeProgram, closeDrawer, drawerOpen]),
+    }, [active, activeProgram, closeDrawer, drawerOpen, openDrawer]),
   );
 
   const navigate = useCallback(

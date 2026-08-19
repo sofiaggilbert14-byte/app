@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   alternateEngine, detectStreamKind, parsePipeHeaders, preferredEngine,
 } from "../src/core/streamPolicy.ts";
+import { evaluateDrawerBack } from "../src/core/drawerNavigationPolicy.ts";
 
 // Phase 9 Actions probe: harmless comment-only trigger.
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -48,6 +49,17 @@ test("drawer edge is a typed remote owner and stale blur cleanup cannot clobber 
   assert.match(button, /resetRemoteContextIfOwned\("drawer_edge"\)/);
   assert.doesNotMatch(button, /return \(\) => \{[\s\S]{0,120}setRemoteContext\("default"\)/);
   assert.match(activity, /context == "drawer_edge" && boundaryKey == "LEFT"/);
+});
+
+test("closed main drawer consumes first Back and opens only on a bounded second Back", async () => {
+  assert.equal(evaluateDrawerBack({ drawerOpen: false, blockingOverlayOpen: false, now: 10_000 }), "arm-reopen");
+  assert.equal(evaluateDrawerBack({ drawerOpen: false, blockingOverlayOpen: false, reopenArmedAt: 10_000, now: 10_800 }), "open-drawer");
+  assert.equal(evaluateDrawerBack({ drawerOpen: false, blockingOverlayOpen: false, reopenArmedAt: 10_000, now: 11_500 }), "arm-reopen");
+  assert.equal(evaluateDrawerBack({ drawerOpen: true, blockingOverlayOpen: false }), "close-drawer");
+  assert.equal(evaluateDrawerBack({ drawerOpen: false, blockingOverlayOpen: true }), "pass-through");
+  const shell = await source("src/components/PurpleTvShell.tsx");
+  assert.match(shell, /decision === "arm-reopen"[\s\S]*?reopenArmedAtRef\.current = Date\.now\(\)[\s\S]*?return true/);
+  assert.match(shell, /decision === "open-drawer"[\s\S]*?openDrawer\(\{ focusTop: true \}\)[\s\S]*?return true/);
 });
 
 test("Guide action strip walks all six actions before returning to the native Guide", async () => {
