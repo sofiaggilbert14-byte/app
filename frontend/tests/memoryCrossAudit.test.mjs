@@ -152,3 +152,15 @@ test("custom group snapshot avoids all-mapping groupBy duplication", async () =>
   assert.match(snapshot, /val groupMappings = dao\.mappings\(group\.id\)/);
   assert.doesNotMatch(snapshot, /dao\.allMappings\(\)\.groupBy/);
 });
+
+test("moving one custom channel swaps only indexed adjacent rows", async () => {
+  const db = await readFile(join(root, "android/app/src/main/java/com/charmiptv/app/CharmCustomizationDatabase.kt"), "utf8");
+  const move = db.match(/fun moveChannel\(channelId: String, direction: Int\)[\s\S]*?\n  }/)?.[0] || "";
+  assert.match(db, /fun positionedChannel\(channelId: String\)/);
+  assert.match(db, /fun previousPositionedChannel\(position: Int\)/);
+  assert.match(db, /fun nextPositionedChannel\(position: Int\)/);
+  assert.match(move, /val current = positionedChannel\(channelId\) \?: return/);
+  assert.match(move, /previousPositionedChannel\(position\)/);
+  assert.match(move, /nextPositionedChannel\(position\)/);
+  assert.doesNotMatch(move, /orderedChannels\(\)|indexOfFirst/);
+});

@@ -64,6 +64,15 @@ internal interface CharmCustomizationDao {
   @Query("SELECT * FROM user_channel_customization WHERE customPosition IS NOT NULL ORDER BY customPosition ASC")
   fun orderedChannels(): List<UserChannelCustomizationEntity>
 
+  @Query("SELECT * FROM user_channel_customization WHERE channelId = :channelId AND customPosition IS NOT NULL LIMIT 1")
+  fun positionedChannel(channelId: String): UserChannelCustomizationEntity?
+
+  @Query("SELECT * FROM user_channel_customization WHERE customPosition < :position ORDER BY customPosition DESC LIMIT 1")
+  fun previousPositionedChannel(position: Int): UserChannelCustomizationEntity?
+
+  @Query("SELECT * FROM user_channel_customization WHERE customPosition > :position ORDER BY customPosition ASC LIMIT 1")
+  fun nextPositionedChannel(position: Int): UserChannelCustomizationEntity?
+
   @Query("UPDATE user_channel_customization SET customPosition = NULL")
   fun clearPositions()
 
@@ -142,15 +151,15 @@ internal interface CharmCustomizationDao {
 
   @Transaction
   fun moveChannel(channelId: String, direction: Int) {
-    val rows = orderedChannels()
-    val from = rows.indexOfFirst { it.channelId == channelId }
-    if (from < 0) return
-    val to = (from + direction).coerceIn(0, rows.lastIndex)
-    if (to == from) return
-    val a = rows[from]
-    val b = rows[to]
-    putChannelCustomization(a.copy(customPosition = b.customPosition))
-    putChannelCustomization(b.copy(customPosition = a.customPosition))
+    val current = positionedChannel(channelId) ?: return
+    val position = current.customPosition ?: return
+    val neighbour = if (direction < 0)
+      previousPositionedChannel(position)
+    else
+      nextPositionedChannel(position)
+    val neighbourPosition = neighbour?.customPosition ?: return
+    putChannelCustomization(current.copy(customPosition = neighbourPosition))
+    putChannelCustomization(neighbour.copy(customPosition = position))
   }
 
   @Transaction
