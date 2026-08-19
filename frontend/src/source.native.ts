@@ -788,15 +788,18 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
       }
       if (!ownership.primaryEnabled) {
         // Built-in EPG is truly off: no download, parse, match, or background
-        // refresh. User-bound channels are served solely from the user DB.
-        const guideRefreshedAt = Date.now();
+        // refresh. Re-read effective ownership so user-bound channels use the
+        // custom DB's last successful swap clock (or zero when none exists).
+        const checkedAt = Date.now();
+        const effectiveGuide = await readNativeStoredPlaylist();
         clearProgrammeWindowCache();
         MEM = {
           ...MEM,
-          ts: guideRefreshedAt,
+          ts: checkedAt,
           epgError: undefined,
-          guideEpoch: (MEM.guideEpoch || 0) + 1,
-          guideRefreshedAt,
+          epgProgramCount: effectiveGuide?.epgProgramCount ?? MEM.epgProgramCount,
+          guideEpoch: effectiveGuide?.guideEpoch ?? MEM.guideEpoch,
+          guideRefreshedAt: effectiveGuide?.guideRefreshedAt ?? MEM.guideRefreshedAt,
         };
         await persistMeta(MEM);
         emit();
@@ -1242,17 +1245,19 @@ export async function refreshEpgOnly(): Promise<SourceStatus> {
 
       if (!ownership.primaryEnabled) {
         // A disabled primary source is not downloaded, parsed, rematched, or
-        // scheduled in disguise. Advance the logical Guide epoch so every
-        // consumer drops old row caches and re-queries the selected ownership.
+        // scheduled in disguise. Re-read native ownership so every consumer
+        // drops old row caches without manufacturing a successful refresh time.
         const checkedAt = Date.now();
+        const effectiveGuide = await readNativeStoredPlaylist();
         clearProgrammeWindowCache();
         MEM = {
           ...cached,
           ...MEM,
           ts: checkedAt,
           epgError: undefined,
-          guideEpoch: (cached.guideEpoch || 0) + 1,
-          guideRefreshedAt: checkedAt,
+          epgProgramCount: effectiveGuide?.epgProgramCount ?? cached.epgProgramCount,
+          guideEpoch: effectiveGuide?.guideEpoch ?? cached.guideEpoch,
+          guideRefreshedAt: effectiveGuide?.guideRefreshedAt ?? cached.guideRefreshedAt,
         };
         await persistMeta(MEM);
         emit();

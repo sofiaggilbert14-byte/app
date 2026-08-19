@@ -69,6 +69,18 @@ test("an unchanged provider response cannot fake a successful programme swap", a
   assert.doesNotMatch(unchanged, /guideRefreshedAt: checkedAt/);
 });
 
+test("disabling the primary guide uses active native ownership freshness", async () => {
+  const native = await source("src/source.native.ts");
+  const disabledBranches = [...native.matchAll(/if \(!ownership\.primaryEnabled\) \{[\s\S]*?return MEM;\n      \}/g)].map((match) => match[0]);
+  assert.equal(disabledBranches.length, 2);
+  for (const disabled of disabledBranches) {
+    assert.match(disabled, /const effectiveGuide = await readNativeStoredPlaylist\(\)/);
+    assert.match(disabled, /guideEpoch: effectiveGuide\?\.guideEpoch/);
+    assert.match(disabled, /guideRefreshedAt: effectiveGuide\?\.guideRefreshedAt/);
+    assert.doesNotMatch(disabled, /guideRefreshedAt: checkedAt/);
+  }
+});
+
 test("native cold-start snapshot queries each EPG programme count once", async () => {
   const native = await source("android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt");
   const stored = native.match(/fun getStoredPlaylist\(promise: Promise\)[\s\S]*?EPG_PLAYLIST_UPSERT_FAILED/)?.[0] || native;
