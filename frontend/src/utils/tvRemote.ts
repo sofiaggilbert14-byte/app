@@ -110,10 +110,30 @@ export function setGuideNavigationActive(active: boolean) {
   } catch {}
 }
 
-export type RemoteContext = "default" | "guide" | "guide_groups" | "main_drawer" | "player" | "modal";
+export type RemoteContext =
+  | "default"
+  | "guide"
+  | "guide_groups"
+  | "main_drawer"
+  | "drawer_edge"
+  | "player"
+  | "modal";
+
+// Mirror the last semantic owner in JS so a stale component cleanup cannot
+// overwrite a newer owner (for example drawer_edge blur after main_drawer opens).
+let remoteContextOwner: RemoteContext = "default";
 
 export function setRemoteContext(context: RemoteContext) {
+  remoteContextOwner = context;
   try { TvRemote?.setRemoteContext?.(context); } catch {}
+}
+
+export function resetRemoteContextIfOwned(
+  expected: RemoteContext,
+  fallback: RemoteContext = "default",
+): void {
+  if (remoteContextOwner !== expected) return;
+  setRemoteContext(fallback);
 }
 
 /** Configure the bounded held-key cadence used while the Guide route is active. */
