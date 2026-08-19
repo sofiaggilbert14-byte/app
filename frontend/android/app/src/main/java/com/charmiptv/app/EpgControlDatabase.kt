@@ -62,11 +62,17 @@ internal interface EpgControlDao {
   @Query("SELECT * FROM epg_sources WHERE enabled = 1 ORDER BY playlistId")
   fun enabledSources(): List<EpgSourceEntity>
 
+  @Query("SELECT * FROM epg_sources WHERE playlistId LIKE 'user:%' ORDER BY playlistId")
+  fun userSources(): List<EpgSourceEntity>
+
   @Query("SELECT * FROM epg_sources WHERE playlistId = :playlistId LIMIT 1")
   fun source(playlistId: String): EpgSourceEntity?
 
   @Insert(onConflict = OnConflictStrategy.REPLACE)
   fun putSource(source: EpgSourceEntity)
+
+  @Query("DELETE FROM epg_sources WHERE playlistId = :sourceId")
+  fun removeSource(sourceId: String)
 
   @Query("SELECT * FROM epg_channel_offsets WHERE playlistId = :playlistId")
   fun channelOffsets(playlistId: String): List<EpgChannelOffsetEntity>
@@ -91,6 +97,9 @@ internal interface EpgControlDao {
 
   @Query("DELETE FROM epg_channel_bindings WHERE playlistId = :playlistId AND channelId = :channelId")
   fun clearChannelBinding(playlistId: String, channelId: String)
+
+  @Query("DELETE FROM epg_channel_bindings WHERE playlistId LIKE 'user:%' AND channelId = :channelId")
+  fun clearUserChannelBindings(channelId: String)
 
   @Query("SELECT COUNT(*) FROM epg_channel_bindings WHERE playlistId = :playlistId")
   fun channelBindingCount(playlistId: String): Int
@@ -134,6 +143,19 @@ internal interface EpgControlDao {
     if (xmltvId.isNotBlank()) {
       putChannelBindings(listOf(EpgChannelBindingEntity(playlistId, channelId, xmltvId)))
     }
+  }
+
+  @Transaction
+  fun setExclusiveUserChannelBinding(sourceId: String, channelId: String, xmltvId: String) {
+    clearUserChannelBindings(channelId)
+    if (xmltvId.isNotBlank()) putChannelBindings(listOf(EpgChannelBindingEntity(sourceId, channelId, xmltvId)))
+  }
+
+  @Transaction
+  fun removeUserSource(sourceId: String) {
+    clearChannelBindings(sourceId)
+    clearChannelOffsets(sourceId)
+    removeSource(sourceId)
   }
 
   @Query("SELECT * FROM epg_import_state WHERE playlistId = :playlistId LIMIT 1")

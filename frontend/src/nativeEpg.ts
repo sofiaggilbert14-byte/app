@@ -76,6 +76,7 @@ type CharmEpgModule = {
   upsertPlaylistEpgMatches?(matches: NativePlaylistEpgMatchRow[], guideEpoch: number): Promise<boolean>;
   searchProgrammes?(query: string, limit: number): Promise<NativeProgramme[]>;
   configureGuideOwnership?(primaryEnabled: boolean, userEnabled: boolean, userUrl: string, userOverrides: Record<string, string>): Promise<boolean>;
+  configureUserGuideSources?(primaryEnabled: boolean, sources: { id: string; url: string; enabled: boolean; refreshHours: number }[]): Promise<boolean>;
   setGuideChannelBinding?(channelId: string, xmltvId: string): Promise<number>;
   listUserGuideChannels?(query: string, offset: number, limit: number): Promise<{ total: number; rows: { id: string; name: string }[] }>;
   refreshUserGuide?(url: string): Promise<{ count: number; channelNames?: Record<string, string>; channelIdsWithPrograms?: string[] }>;
@@ -94,6 +95,10 @@ type CharmCustomEpgModule = {
     programmeSwapSucceeded?: boolean;
   }>;
   clearUserGuide?(): Promise<boolean>;
+  setSourceChannelBinding?(sourceId: string, channelId: string, xmltvId: string): Promise<number>;
+  listSourceGuideChannels?(sourceId: string, query: string, offset: number, limit: number): Promise<{ total: number; rows: { id: string; name: string }[] }>;
+  refreshSourceGuide?(sourceId: string, url: string): Promise<{ count: number; directoryCount?: number; bindingCount?: number; guideEpoch?: number; guideRefreshedAt?: number; programmeSwapSucceeded?: boolean }>;
+  clearSourceGuide?(sourceId: string): Promise<boolean>;
 };
 
 type CharmEpgRamModule = {
@@ -339,6 +344,40 @@ export async function configureNativeGuideOwnership(
   }
 }
 
+export type NativeUserGuideSource = { id: string; url: string; enabled: boolean; refreshHours: number };
+
+export async function configureNativeUserGuideSources(primaryEnabled: boolean, sources: NativeUserGuideSource[]): Promise<void> {
+  if (nativeModule?.configureUserGuideSources) {
+    await nativeModule.configureUserGuideSources(primaryEnabled, sources.slice(0, 8));
+  }
+  primaryGuideEnabled = primaryEnabled;
+  ownershipRequiresSqlite = sources.some((source) => source.enabled && !!source.url);
+  if (ramModule) await ramModule.clearMemory().catch(() => undefined);
+}
+
+export async function setNativeSourceGuideBinding(sourceId: string, channelId: string, xmltvId: string | null): Promise<number> {
+  if (!customEpgModule?.setSourceChannelBinding) throw new Error("Multi-source EPG assignments are unavailable on this build");
+  const count = await customEpgModule.setSourceChannelBinding(sourceId, channelId, xmltvId?.trim() || "");
+  if (ramModule) await ramModule.clearMemory().catch(() => undefined);
+  return Math.max(0, Math.round(count));
+}
+
+export async function listNativeSourceGuideChannels(sourceId: string, query = "", offset = 0, limit = 50) {
+  if (!customEpgModule?.listSourceGuideChannels) return { total: 0, rows: [] };
+  return customEpgModule.listSourceGuideChannels(sourceId, query, Math.max(0, offset), Math.max(1, Math.min(100, limit)));
+}
+
+export async function refreshNativeSourceGuide(sourceId: string, url: string) {
+  if (!customEpgModule?.refreshSourceGuide) throw new Error("Multi-source EPG refresh is unavailable on this build");
+  return customEpgModule.refreshSourceGuide(sourceId, url);
+}
+
+export async function clearNativeSourceGuide(sourceId: string): Promise<void> {
+  if (!customEpgModule?.clearSourceGuide) throw new Error("Multi-source EPG clear is unavailable on this build");
+  await customEpgModule.clearSourceGuide(sourceId);
+  if (ramModule) await ramModule.clearMemory().catch(() => undefined);
+}
+
 export async function setNativeGuideChannelBinding(channelId: string, xmltvId: string | null): Promise<number> {
   const bindingModule = customEpgModule?.setGuideChannelBinding ? customEpgModule : nativeModule;
   if (!bindingModule?.setGuideChannelBinding) return 0;
@@ -389,4 +428,3 @@ export async function clearNativeEpg(): Promise<void> {
   if (ramModule) await ramModule.clearMemory();
   if (nativeModule) await nativeModule.clear();
 }
-

@@ -18,6 +18,7 @@ import { useEpgSourcePreferences } from "@/src/core/epgSourcePreferences";
 import { useCustomGuideGroups } from "@/src/core/customGuideGroups";
 import { GUIDE_START_LAST_USED, useGuideUiPreferences } from "@/src/core/guideUiPreferences";
 import { formatRelativeAge } from "@/src/utils/time";
+import { createCustomEpgSourceId, useMultiEpgSources } from "@/src/core/multiEpgSources";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
 
@@ -35,6 +36,7 @@ export default function EpgSourcesScreen() {
   const sourceRefresh = useSourceRefreshPreferences();
   const guideUi = useGuideUiPreferences();
   const epgOwnership = useEpgSourcePreferences();
+  const multiEpg = useMultiEpgSources();
   const customGuideGroups = useCustomGuideGroups();
   const [logoPriority, setLogoPriority] = useLogoPriority();
   const [status, setStatus] = useState<SourceStatus>(() => sourceStatus());
@@ -177,6 +179,10 @@ export default function EpgSourcesScreen() {
             <Card title="Sources" icon="server-outline">
               <SourceRow title="Primary XMLTV Guide" subtitle="Managed by CharmIPTV · locked source" status={!epgOwnership.primaryEnabled ? "Disabled" : status.error ? "Guide error — see below" : "Active"} />
               <SourceRow title={epgOwnership.userName} subtitle="Saved custom XMLTV source · select for settings" status={!epgOwnership.userEnabled ? "Disabled" : epgOwnership.userUrl ? `${Object.keys(epgOwnership.userOverrides).length} assigned channels` : "Enabled · URL required"} onPress={() => router.push("/epg-custom" as any)} />
+              {multiEpg.sources.map((source) => (
+                <SourceRow key={source.id} title={source.name} subtitle="Independent custom XMLTV source · select for settings" status={!source.enabled ? "Disabled" : source.url ? `${Object.keys(source.overrides).length} assigned channels` : "Enabled · URL required"} onPress={() => router.push({ pathname: "/epg-source" as any, params: { sourceId: source.id } })} />
+              ))}
+              {multiEpg.canAdd ? <Action label="Add another EPG source" icon="add-circle-outline" onPress={() => router.push({ pathname: "/epg-source" as any, params: { sourceId: createCustomEpgSourceId(), create: "1" } })} /> : null}
               <SourceRow title="Playlist Channel Map" subtitle="Managed by CharmIPTV · locked source" status={`${status.channel_count || 0} channels`} />
               <SourceRow title="Native EPG Cache" subtitle="Streamed XMLTV on-device (Android)" status={status.error ? "Unavailable" : `${diagnostics?.programs || 0} cached programs`} />
             </Card>
@@ -299,4 +305,3 @@ const styles = StyleSheet.create({
   actionStatus: { color: tvColors.purpleSoft, fontFamily: fonts.medium, fontSize: 8.5, textAlign: "center" },
   disabled: { opacity: 0.55 }, focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
 });
-

@@ -28,7 +28,9 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   ReactContextBaseJavaModule(reactContext) {
 
   private val database = EpgDatabase(reactContext)
-  private val userDatabase = EpgDatabase(reactContext, "charm_epg_user_v1.db")
+  // Registry retains the legacy charm_epg_user_v1.db store while adding one
+  // independent transactional database per additional custom EPG source.
+  private val userDatabase = CustomEpgStoreRegistry.database(reactContext, USER_SOURCE_ID)
   private val controlDao = EpgControlDatabase.get(reactContext).dao()
 
   // Refresh/network/XML work is intentionally isolated from guide reads. A slow
@@ -150,6 +152,45 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         promise.resolve(true)
       } catch (t: Throwable) {
         promise.reject("EPG_OWNERSHIP_CONFIG_FAILED", t.message ?: "Could not save Guide ownership", t)
+      }
+    }
+  }
+
+  @ReactMethod
+  fun configureUserGuideSources(primaryEnabled: Boolean, sources: ReadableArray, promise: Promise) {
+    refreshExecutor.execute {
+      try {
+        val now = System.currentTimeMillis() / 1000L
+        val primary = controlDao.source(DEFAULT_PLAYLIST_ID)
+        controlDao.putSource(EpgSourceEntity(
+          playlistId = DEFAULT_PLAYLIST_ID, url = primary?.url.orEmpty(), enabled = primaryEnabled,
+          refreshHours = primary?.refreshHours ?: 12,
+          serverOffsetMinutes = primary?.serverOffsetMinutes ?: 0,
+          playlistOffsetMinutes = primary?.playlistOffsetMinutes ?: 0,
+          updatedAtSeconds = now,
+        ))
+        val keep = LinkedHashSet<String>()
+        for (index in 0 until minOf(sources.size(), MAX_USER_SOURCES)) {
+          val row = sources.getMap(index) ?: continue
+          val sourceId = CustomEpgStoreRegistry.normalizeSourceId(row.getString("id").orEmpty())
+          val url = row.getString("url").orEmpty().trim()
+          val enabled = row.hasKey("enabled") && row.getBoolean("enabled") && url.isNotEmpty()
+          val previous = controlDao.source(sourceId)
+          controlDao.putSource(EpgSourceEntity(
+            playlistId = sourceId, url = url, enabled = enabled,
+            refreshHours = if (row.hasKey("refreshHours")) row.getInt("refreshHours").coerceIn(0, 24) else previous?.refreshHours ?: 12,
+            serverOffsetMinutes = previous?.serverOffsetMinutes ?: 0,
+            playlistOffsetMinutes = previous?.playlistOffsetMinutes ?: 0,
+            updatedAtSeconds = now,
+          ))
+          keep.add(sourceId)
+        }
+        for (existing in controlDao.userSources()) {
+          if (existing.playlistId != USER_SOURCE_ID && existing.playlistId !in keep) controlDao.removeUserSource(existing.playlistId)
+        }
+        promise.resolve(true)
+      } catch (t: Throwable) {
+        promise.reject("EPG_MULTI_SOURCE_CONFIG_FAILED", t.message ?: "Could not save custom Guide sources", t)
       }
     }
   }
@@ -400,20 +441,29 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
           if (!id.isNullOrEmpty()) ids.add(id)
         }
         val primaryEnabled = controlDao.source(DEFAULT_PLAYLIST_ID)?.enabled ?: true
-        val userSource = controlDao.source(USER_SOURCE_ID)
-        val userEnabled = userSource?.enabled == true && userSource.url.isNotBlank()
-        val bindingRows = if (userEnabled && ids.isNotEmpty()) controlDao.channelBindings(USER_SOURCE_ID, ids) else emptyList()
-        val bindingByChannel = bindingRows.associate { it.channelId to it.xmltvId }
+        val userSources = ArrayList<EpgSourceEntity>(MAX_USER_SOURCES).apply {
+          controlDao.source(USER_SOURCE_ID)?.takeIf { it.enabled && it.url.isNotBlank() }?.let(::add)
+          addAll(controlDao.userSources().filter { it.enabled && it.url.isNotBlank() }.take(MAX_USER_SOURCES - size))
+        }
+        val bindingsBySource = LinkedHashMap<String, List<EpgChannelBindingEntity>>()
+        val customOwnedChannels = LinkedHashSet<String>()
+        for (source in userSources) {
+          val rows = if (ids.isNotEmpty()) controlDao.channelBindings(source.playlistId, ids) else emptyList()
+          bindingsBySource[source.playlistId] = rows
+          rows.forEach { customOwnedChannels.add(it.channelId) }
+        }
         val combined = ArrayList<NativeEpgProgram>()
 
         if (primaryEnabled) {
-          val primaryIds = ids.filterNot { bindingByChannel.containsKey(it) }
+          val primaryIds = ids.filterNot { it in customOwnedChannels }
           if (primaryIds.isNotEmpty()) combined.addAll(database.queryGuideWindow(start, end, primaryIds))
         }
 
-        if (userEnabled && bindingByChannel.isNotEmpty()) {
+        for ((sourceId, bindingRows) in bindingsBySource) {
+          if (bindingRows.isEmpty()) continue
+          val bindingByChannel = bindingRows.associate { it.channelId to it.xmltvId }
           val xmltvIds = bindingByChannel.values.toSet()
-          val userRows = userDatabase.queryWindow(start, end, xmltvIds)
+          val userRows = CustomEpgStoreRegistry.database(reactContext, sourceId).queryWindow(start, end, xmltvIds)
           val playlistIdsByXmltv = HashMap<String, MutableList<String>>()
           for ((playlistId, xmltvId) in bindingByChannel) {
             playlistIdsByXmltv.getOrPut(xmltvId) { ArrayList() }.add(playlistId)
@@ -439,33 +489,54 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         val userSource = controlDao.source(USER_SOURCE_ID)
         val userEnabled = userSource?.enabled == true && userSource.url.isNotBlank()
         val userBindings = if (userEnabled) controlDao.allChannelBindings(USER_SOURCE_ID) else emptyList()
-        val hasUserOwnership = userEnabled && userBindings.isNotEmpty()
+        val extraSources = controlDao.userSources().filter { it.enabled && it.url.isNotBlank() }.take(MAX_USER_SOURCES - 1)
+        val hasUserOwnership = (userEnabled && userBindings.isNotEmpty()) || extraSources.any { controlDao.allChannelBindings(it.playlistId).isNotEmpty() }
         val bindingByPlaylist = userBindings.associate { it.channelId to it.xmltvId }
         val userIcons = if (bindingByPlaylist.isNotEmpty()) userDatabase.iconAliases(bindingByPlaylist.values.toSet()) else emptyMap()
+        val customLogoByPlaylist = HashMap<String, String>()
+        bindingByPlaylist.forEach { (playlistId, xmltvId) -> userIcons[xmltvId]?.let { customLogoByPlaylist[playlistId] = it } }
         val primaryGuideEpoch = database.getMeta("guide_epoch")?.toLongOrNull() ?: 0L
         val userGuideEpoch = userDatabase.getMeta("guide_epoch")?.toLongOrNull() ?: 0L
         val primaryGuideRefreshedAt = database.getMeta("guide_refreshed_at")?.toLongOrNull() ?: 0L
         val userGuideRefreshedAt = userDatabase.getMeta("guide_refreshed_at")?.toLongOrNull() ?: 0L
+        val userProgramCount = userDatabase.count()
+        var combinedUserGuideEpoch = if (userEnabled && userBindings.isNotEmpty()) userGuideEpoch else 0L
+        var combinedUserRefreshedAt = if (userEnabled && userBindings.isNotEmpty()) userGuideRefreshedAt else 0L
+        var combinedUserProgramCount = if (userEnabled && userBindings.isNotEmpty()) userProgramCount else 0L
+        for (source in extraSources) {
+          val sourceBindings = controlDao.allChannelBindings(source.playlistId)
+          if (sourceBindings.isEmpty()) continue
+          val sourceDatabase = CustomEpgStoreRegistry.database(reactContext, source.playlistId)
+          val xmltvIds = sourceBindings.map { it.xmltvId }.toSet()
+          val icons = sourceDatabase.iconAliases(xmltvIds)
+          sourceBindings.forEach { binding -> icons[binding.xmltvId]?.let { customLogoByPlaylist[binding.channelId] = it } }
+          combinedUserGuideEpoch += sourceDatabase.getMeta("guide_epoch")?.toLongOrNull() ?: 0L
+          val refreshedAt = sourceDatabase.getMeta("guide_refreshed_at")?.toLongOrNull() ?: 0L
+          combinedUserRefreshedAt = when {
+            refreshedAt <= 0L -> 0L
+            combinedUserRefreshedAt <= 0L -> refreshedAt
+            else -> minOf(combinedUserRefreshedAt, refreshedAt)
+          }
+          combinedUserProgramCount += sourceDatabase.count()
+        }
         val effectiveGuideEpoch =
           (if (primaryEnabled) primaryGuideEpoch else 0L) +
-            (if (hasUserOwnership) userGuideEpoch else 0L)
+            (if (hasUserOwnership) combinedUserGuideEpoch else 0L)
         val effectiveGuideRefreshedAt = when {
           primaryEnabled && hasUserOwnership ->
-            if (primaryGuideRefreshedAt > 0L && userGuideRefreshedAt > 0L)
-              minOf(primaryGuideRefreshedAt, userGuideRefreshedAt) else 0L
+            if (primaryGuideRefreshedAt > 0L && combinedUserRefreshedAt > 0L)
+              minOf(primaryGuideRefreshedAt, combinedUserRefreshedAt) else 0L
           primaryEnabled -> primaryGuideRefreshedAt
-          hasUserOwnership -> userGuideRefreshedAt
+          hasUserOwnership -> combinedUserRefreshedAt
           else -> 0L
         }
         val primaryProgramCount = database.count()
-        val userProgramCount = userDatabase.count()
         val effectiveProgramCount =
           (if (primaryEnabled) primaryProgramCount else 0L) +
-            (if (hasUserOwnership) userProgramCount else 0L)
+            (if (hasUserOwnership) combinedUserProgramCount else 0L)
         val channels = Arguments.createArray()
         for (row in rows) {
-          val customXmltvId = bindingByPlaylist[row.playlistId]
-          val effectiveEpgLogo = if (customXmltvId != null) userIcons[customXmltvId].orEmpty() else row.epgLogo
+          val effectiveEpgLogo = customLogoByPlaylist[row.playlistId] ?: row.epgLogo
           channels.pushMap(Arguments.createMap().apply {
             putString("id", row.playlistId)
             putString("raw_tvg_id", row.rawTvgId)
@@ -1088,7 +1159,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     playlistExecutor.shutdownNow()
     queryExecutor.shutdownNow()
     database.close()
-    userDatabase.close()
+    CustomEpgStoreRegistry.closeAll()
     super.invalidate()
   }
 
@@ -1166,6 +1237,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     private const val DEFAULT_PLAYLIST_ID = "default"
     private const val USER_SOURCE_ID = "user"
     private const val MAX_USER_BINDINGS = 10_000
+    private const val MAX_USER_SOURCES = 8
     private const val HTTP_ETAG_KEY = "epg_http_etag"
     private const val HTTP_LAST_MODIFIED_KEY = "epg_http_last_modified"
     private const val DB_BLACKOUT_UNTIL_KEY = "epg_database_blackout_until"
@@ -1190,4 +1262,3 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     private const val MIN_VACUUM_DELETED_ROWS = 5_000
   }
 }
-

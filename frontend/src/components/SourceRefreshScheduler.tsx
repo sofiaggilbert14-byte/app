@@ -2,7 +2,8 @@ import { useEffect } from "react";
 import { AppState } from "react-native";
 import { usePathname } from "expo-router";
 import { refreshEpgOnly, refreshSourcesIfDue } from "@/src/source";
-import { consumeNativeScheduledEpgRefresh } from "@/src/nativeEpg";
+import { consumeNativeScheduledEpgRefresh, refreshNativeSourceGuide } from "@/src/nativeEpg";
+import { getMultiEpgSources, saveMultiEpgSource } from "@/src/core/multiEpgSources";
 import { isGuideSurfing } from "@/src/utils/guideSurfGate";
 import { getSourceRefreshPreferences } from "@/src/core/sourceRefreshPreferences";
 
@@ -36,6 +37,24 @@ export function SourceRefreshScheduler() {
         const nativeDue = await consumeNativeScheduledEpgRefresh();
         if (nativeDue) await refreshEpgOnly();
         else await refreshSourcesIfDue();
+        // Independent XMLTV stores refresh serially under this same owner. This
+        // avoids parallel parser/SQLite pressure and preserves each source's
+        // transactional last-good data when another source fails.
+        const customSources = await getMultiEpgSources();
+        for (const source of customSources) {
+          if (!source.enabled || !source.url || source.refreshHours === 0) continue;
+          if (Date.now() - source.lastRefreshAt < source.refreshHours * 60 * 60 * 1000) continue;
+          try {
+            const result = await refreshNativeSourceGuide(source.id, source.url);
+            const swapped = result.programmeSwapSucceeded !== false;
+            saveMultiEpgSource({ ...source,
+              lastRefreshAt: swapped ? Date.now() : source.lastRefreshAt,
+              lastStatus: swapped ? `Indexed ${Math.max(0, Math.round(result.count || 0))} programmes.` : "No usable new rows; kept last-good data.",
+            });
+          } catch (error) {
+            saveMultiEpgSource({ ...source, lastStatus: error instanceof Error ? error.message : "Automatic EPG refresh failed." });
+          }
+        }
       } catch {
         // Last-good playlist/guide remains authoritative; normal source UI surfaces errors.
       } finally {
@@ -62,4 +81,3 @@ export function SourceRefreshScheduler() {
 
   return null;
 }
-

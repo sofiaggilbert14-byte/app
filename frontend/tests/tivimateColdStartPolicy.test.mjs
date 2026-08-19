@@ -46,10 +46,10 @@ test("cold-start Guide freshness follows active EPG ownership", async () => {
   ]);
   assert.match(custom, /val guideEpoch = if \(programmeSwapSucceeded\) previousGuideEpoch \+ 1L else previousGuideEpoch/);
   assert.match(custom, /userDatabase\.setMeta\("guide_refreshed_at", guideRefreshedAt\.toString\(\)\)/);
-  assert.match(native, /val hasUserOwnership = userEnabled && userBindings\.isNotEmpty\(\)/);
-  assert.match(native, /val effectiveGuideEpoch =[\s\S]*?primaryGuideEpoch[\s\S]*?userGuideEpoch/);
-  assert.match(native, /primaryEnabled && hasUserOwnership[\s\S]*?minOf\(primaryGuideRefreshedAt, userGuideRefreshedAt\)/);
-  assert.match(native, /hasUserOwnership -> userGuideRefreshedAt/);
+  assert.match(native, /val extraSources = controlDao\.userSources\(\)[\s\S]*?val hasUserOwnership = \(userEnabled && userBindings\.isNotEmpty\(\)\) \|\| extraSources\.any/);
+  assert.match(native, /val effectiveGuideEpoch =[\s\S]*?primaryGuideEpoch[\s\S]*?combinedUserGuideEpoch/);
+  assert.match(native, /primaryEnabled && hasUserOwnership[\s\S]*?minOf\(primaryGuideRefreshedAt, combinedUserRefreshedAt\)/);
+  assert.match(native, /hasUserOwnership -> combinedUserRefreshedAt/);
   assert.match(native, /putDouble\("guideRefreshedAt", effectiveGuideRefreshedAt\.toDouble\(\)\)/);
   assert.match(native, /putDouble\("epgProgramCount", effectiveProgramCount\.toDouble\(\)\)/);
 });

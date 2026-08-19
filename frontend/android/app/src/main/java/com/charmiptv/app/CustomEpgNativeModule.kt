@@ -30,7 +30,7 @@ import java.util.zip.GZIPInputStream
 class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
   ReactContextBaseJavaModule(reactContext) {
 
-  private val userDatabase = EpgDatabase(reactContext, USER_DATABASE)
+  private val userDatabase = CustomEpgStoreRegistry.database(reactContext, USER_SOURCE_ID)
   private val controlDao = EpgControlDatabase.get(reactContext).dao()
   private val executor = Executors.newSingleThreadExecutor()
 
@@ -90,15 +90,71 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
   }
 
   @ReactMethod
-  fun refreshUserGuide(url: String, promise: Promise) {
+  fun listSourceGuideChannels(sourceId: String, query: String, offset: Double, limit: Double, promise: Promise) {
     executor.execute {
       try {
+        val page = CustomEpgStoreRegistry.database(reactContext, sourceId).listDisplayNameAliases(
+          query, offset.toInt().coerceAtLeast(0), limit.toInt().coerceIn(1, 100),
+        )
+        val rows = Arguments.createArray()
+        for (row in page.rows) rows.pushMap(Arguments.createMap().apply {
+          putString("id", row.channelId)
+          putString("name", row.displayName)
+        })
+        promise.resolve(Arguments.createMap().apply { putInt("total", page.total); putArray("rows", rows) })
+      } catch (t: Throwable) {
+        promise.reject("CUSTOM_EPG_DIRECTORY_FAILED", t.message ?: "Could not read custom Guide channels", t)
+      }
+    }
+  }
+
+  @ReactMethod
+  fun clearSourceGuide(sourceId: String, promise: Promise) {
+    executor.execute {
+      try {
+        CustomEpgStoreRegistry.database(reactContext, sourceId).clear()
+        promise.resolve(true)
+      } catch (t: Throwable) {
+        promise.reject("CUSTOM_EPG_CLEAR_FAILED", t.message ?: "Could not clear custom Guide data", t)
+      }
+    }
+  }
+
+  @ReactMethod
+  fun setSourceChannelBinding(sourceId: String, channelId: String, xmltvId: String, promise: Promise) {
+    executor.execute {
+      try {
+        val source = CustomEpgStoreRegistry.normalizeSourceId(sourceId)
+        val channel = channelId.trim()
+        if (channel.isEmpty()) throw IllegalArgumentException("Channel id is empty")
+        controlDao.setExclusiveUserChannelBinding(source, channel, xmltvId.trim())
+        promise.resolve(controlDao.channelBindingCount(source))
+      } catch (t: Throwable) {
+        promise.reject("CUSTOM_EPG_BINDING_FAILED", t.message ?: "Could not update custom Guide assignment", t)
+      }
+    }
+  }
+
+  @ReactMethod
+  fun refreshUserGuide(url: String, promise: Promise) {
+    executor.execute { refreshSourceGuideInternal(USER_SOURCE_ID, url, promise) }
+  }
+
+  @ReactMethod
+  fun refreshSourceGuide(sourceId: String, url: String, promise: Promise) {
+    executor.execute { refreshSourceGuideInternal(sourceId, url, promise) }
+  }
+
+  private fun refreshSourceGuideInternal(rawSourceId: String, url: String, promise: Promise) {
+      try {
+        val sourceId = CustomEpgStoreRegistry.normalizeSourceId(rawSourceId)
+        val userDatabase = CustomEpgStoreRegistry.database(reactContext, sourceId)
         val sourceUrl = url.trim()
         if (sourceUrl.isEmpty()) throw IllegalArgumentException("Custom EPG URL is empty")
         if (!userDatabase.ensureHealthy()) throw IllegalStateException("Custom Guide database integrity check failed")
         userDatabase.assertRefreshStorageAvailable()
 
-        val bindings = controlDao.allChannelBindings(USER_SOURCE_ID)
+        val bindings = controlDao.allChannelBindings(sourceId)
         val activeXmltvIds = LinkedHashSet<String>()
         for (binding in bindings) {
           binding.xmltvId.trim().takeIf { it.isNotEmpty() }?.let(activeXmltvIds::add)
@@ -175,7 +231,6 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
       } catch (t: Throwable) {
         promise.reject("CUSTOM_EPG_REFRESH_FAILED", t.message ?: "Custom Guide refresh failed", t)
       }
-    }
   }
 
   private fun streamFilteredXmltv(
@@ -413,7 +468,7 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
 
   override fun invalidate() {
     executor.shutdownNow()
-    userDatabase.close()
+    CustomEpgStoreRegistry.closeAll()
     super.invalidate()
   }
 
@@ -434,7 +489,6 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
   }
 
   companion object {
-    private const val USER_DATABASE = "charm_epg_user_v1.db"
     private const val USER_SOURCE_ID = "user"
     private const val BATCH_SIZE = 1000
     private const val NETWORK_BUFFER_SIZE = 64 * 1024
@@ -448,4 +502,3 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
     private const val MAX_PROGRAMME_DURATION_MS = 24L * 60L * 60L * 1000L
   }
 }
-
