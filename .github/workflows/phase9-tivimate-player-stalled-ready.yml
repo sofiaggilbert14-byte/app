@@ -20,6 +20,7 @@ jobs:
           ref: phase9/purple-next
       - name: Recover Media3 frozen-ready playback
         run: |
+          # Retriggered after branch convergence; apply only if the live player still lacks this watchdog.
           python - <<'PY'
           from pathlib import Path
           p = Path('frontend/src/components/StreamPlayer.tsx')
