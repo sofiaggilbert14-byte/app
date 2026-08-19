@@ -98,12 +98,13 @@ test("fullscreen remote mappings use one native semantic router and remain playe
   assert.match(settings, /Restore remote defaults/);
 });
 
-test("Guide long Select opens a trapped programme action drawer before favorite fallback", async () => {
+test("Guide long Select honors the same favorite-or-action-drawer mapping as Player", async () => {
   const [guide, modal] = await Promise.all([
     source("app/(tabs)/guide.tsx"),
     source("src/components/ProgramModal.tsx"),
   ]);
-  assert.match(guide, /if \(selection\.program && channel\)/);
+  assert.match(guide, /remoteShortcuts\.longSelect === "favorite"/);
+  assert.match(guide, /remoteShortcuts\.longSelect === "controls" && selection\.program && channel/);
   assert.match(guide, /openProgram\(selection\.program, channel\)/);
   assert.match(modal, /trapFocusUp trapFocusDown trapFocusLeft trapFocusRight/);
 });

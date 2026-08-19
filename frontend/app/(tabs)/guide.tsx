@@ -71,6 +71,7 @@ import type { StreamStatus } from "@/src/components/StreamPlayer";
 import { subscribeAndroidMemoryPressure } from "@/src/utils/androidMemoryPressure";
 import { addTvLongPressListener, setGuideNavigationActive, setGuideRepeatInterval, setRemoteContext } from "@/src/utils/tvRemote";
 import { focusGuidePreviewSurface } from "@/src/utils/guidePreviewFocus";
+import { useRemoteShortcutPreferences } from "@/src/core/remoteShortcutPreferences";
 
 // Session-only guide position survives the root player route unmounting tabs.
 // Do not persist to disk: this is navigation state, not a user preference.
@@ -250,6 +251,7 @@ export default function PurpleGuideScreen() {
     retainGuideSlidingCache,
     releaseGuideSlidingCache,
   } = useStore();
+  const remoteShortcuts = useRemoteShortcutPreferences();
 
   const {
     pinnedGroups,
@@ -418,16 +420,14 @@ export default function PurpleGuideScreen() {
       const selection = getGuideSelection();
       const channelId = selection.channelId || guideSessionChannelId;
       const channel = channelId ? channelById(channelId) : null;
-      if (selection.program && channel) {
+      if (remoteShortcuts.longSelect === "favorite") {
+        if (channelId) toggleFavorite(channelId);
+      } else if (remoteShortcuts.longSelect === "controls" && selection.program && channel) {
         modalOriginRef.current = { channelId: channel.id, programStart: selection.program.start };
         openProgram(selection.program, channel);
-      } else if (channelId) {
-        // No programme cell exists ("No information"). Preserve the useful
-        // long-OK fallback without inventing an empty context drawer.
-        toggleFavorite(channelId);
       }
     });
-  }, [activeProgram, channelById, drawerOpen, groupDrawerOpen, isFocused, openProgram, toggleFavorite]);
+  }, [activeProgram, channelById, drawerOpen, groupDrawerOpen, isFocused, openProgram, remoteShortcuts.longSelect, toggleFavorite]);
 
   useEffect(() => {
     if (loading || refreshing || channels.length > 0) return;
