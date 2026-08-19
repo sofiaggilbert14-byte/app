@@ -83,3 +83,11 @@ test("AppState resume cannot bypass the automatic cold-start source gate", async
   assert.match(scheduler, /if \(!active \|\| running \|\| Date\.now\(\) < automaticRefreshEligibleAt\) return/);
   assert.match(scheduler, /if \(active\) void check\(\)/);
 });
+
+test("EPG cold-start logo lookup has an additive alias-kind/channel index", async () => {
+  const db = await source("android/app/src/main/java/com/charmiptv/app/EpgDatabase.kt");
+  assert.match(db, /DATABASE_VERSION = 10/);
+  assert.match(db, /idx_epg_alias_kind_channel ON \$ALIAS_TABLE\(alias_kind, channel_id\)/);
+  assert.match(db, /if \(oldVersion < 10\)/);
+  assert.doesNotMatch(db, /DROP TABLE[\s\S]*oldVersion < 10/);
+});

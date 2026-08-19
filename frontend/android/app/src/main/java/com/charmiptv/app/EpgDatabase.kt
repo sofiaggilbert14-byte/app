@@ -108,6 +108,7 @@ internal class EpgDatabase(context: Context, private val databaseName: String = 
     db.execSQL("CREATE INDEX IF NOT EXISTS idx_epg_window ON $LIVE_TABLE(start_time, end_time)")
     db.execSQL("CREATE INDEX IF NOT EXISTS idx_epg_staging_order ON $STAGING_TABLE(channel_id, start_time, id)")
     db.execSQL("CREATE INDEX IF NOT EXISTS idx_epg_alias_norm ON $ALIAS_TABLE(normalized_key)")
+    db.execSQL("CREATE INDEX IF NOT EXISTS idx_epg_alias_kind_channel ON $ALIAS_TABLE(alias_kind, channel_id)")
     db.execSQL("CREATE INDEX IF NOT EXISTS idx_playlist_norm_id ON $PLAYLIST_TABLE(norm_id)")
     db.execSQL("CREATE INDEX IF NOT EXISTS idx_playlist_norm_name ON $PLAYLIST_TABLE(norm_name)")
     db.execSQL("CREATE INDEX IF NOT EXISTS idx_playlist_active_position ON $PLAYLIST_TABLE(deleted_at, provider_position)")
@@ -254,6 +255,11 @@ internal class EpgDatabase(context: Context, private val databaseName: String = 
       ensureColumn(db, PLAYLIST_TABLE, "stream_type", "TEXT NOT NULL DEFAULT 'unknown'")
       ensureColumn(db, PLAYLIST_TABLE, "provider_position", "INTEGER NOT NULL DEFAULT 0")
       db.execSQL("CREATE INDEX IF NOT EXISTS idx_playlist_active_position ON $PLAYLIST_TABLE(deleted_at, provider_position)")
+    }
+    if (oldVersion < 10) {
+      // Cold-start channel reconstruction resolves EPG logos by alias kind +
+      // XMLTV channel id. Index that exact lookup shape for large lineups.
+      db.execSQL("CREATE INDEX IF NOT EXISTS idx_epg_alias_kind_channel ON $ALIAS_TABLE(alias_kind, channel_id)")
     }
   }
 
@@ -901,7 +907,7 @@ internal class EpgDatabase(context: Context, private val databaseName: String = 
 
   companion object {
     private const val STORAGE_RECHECK_BATCHES = 32
-    private const val DATABASE_VERSION = 9
+    private const val DATABASE_VERSION = 10
     private const val LIVE_TABLE = "epg_programmes"
     private const val STAGING_TABLE = "epg_programmes_staging"
     private const val ALIAS_TABLE = "epg_channel_aliases"
