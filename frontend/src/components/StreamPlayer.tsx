@@ -471,6 +471,7 @@ function ExpoStream({
   const tracksCallbackRef = useRef(onTracksAvailable);
   const lastPlaybackTimeRef = useRef(-1);
   const lastPlaybackAdvanceAtRef = useRef(Date.now());
+  const hasAdvancedPlaybackRef = useRef(false);
   const hasPlayedRef = useRef(false);
   const bufferingSinceRef = useRef<number | null>(null);
   const silentResyncCountRef = useRef(0);
@@ -736,6 +737,7 @@ function ExpoStream({
     tearingDownRef.current = false;
     setMediaReady(false);
     hasPlayedRef.current = false;
+    hasAdvancedPlaybackRef.current = false;
     bufferingSinceRef.current = null;
     silentResyncCountRef.current = 0;
     silentResyncInFlightRef.current = false;
@@ -859,6 +861,7 @@ function ExpoStream({
       if (currentTime > lastPlaybackTimeRef.current + 0.05) {
         lastPlaybackTimeRef.current = currentTime;
         lastPlaybackAdvanceAtRef.current = Date.now();
+        hasAdvancedPlaybackRef.current = true;
         // Frames/time are advancing again, so any buffering watchdog is stale.
         bufferingSinceRef.current = null;
       }
@@ -871,9 +874,16 @@ function ExpoStream({
     const watchdog = setInterval(() => {
       if (!mountedRef.current || tearingDownRef.current || paused || blocked) return;
       if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
+      const now = Date.now();
       const bufferingSince = bufferingSinceRef.current;
-      if (bufferingSince == null) return;
-      const bufferingFor = Date.now() - bufferingSince;
+      const stalledReady =
+        bufferingSince == null &&
+        hasAdvancedPlaybackRef.current &&
+        now - lastPlaybackAdvanceAtRef.current >= BUFFERING_RESYNC_MS;
+      if (bufferingSince == null && !stalledReady) return;
+      const bufferingFor = bufferingSince != null
+        ? now - bufferingSince
+        : now - lastPlaybackAdvanceAtRef.current;
       if (bufferingFor < BUFFERING_RESYNC_MS) return;
 
       if (
@@ -882,6 +892,10 @@ function ExpoStream({
       ) {
         silentResyncCountRef.current += 1;
         silentResyncInFlightRef.current = true;
+        // Re-arm only after the replacement clock advances; otherwise a frozen
+        // readyToPlay state would immediately retrigger before Media3 settles.
+        hasAdvancedPlaybackRef.current = false;
+        lastPlaybackAdvanceAtRef.current = Date.now();
         bufferingSinceRef.current = Date.now();
         const contentType = media3ContentType(kind);
         replaceQueueRef.current = replaceQueueRef.current
