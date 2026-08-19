@@ -647,7 +647,9 @@ const styles = StyleSheet.create({
     left: 0,
     top: 0,
     bottom: 0,
-    width: 2,
+    // A 2 px candidate is easy for Android TV spatial focus to skip. Ten px
+    // remains inside our standard page gutter while providing a real Left edge.
+    width: 10,
     zIndex: 2,
     opacity: 0.01,
   },

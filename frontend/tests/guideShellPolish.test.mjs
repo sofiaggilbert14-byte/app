@@ -155,6 +155,7 @@ test("shared page focus has a deterministic Left-edge drawer handoff", async () 
     source("app/(tabs)/channels.tsx"),
   ]);
   assert.match(shell, /testID="purple-left-edge-drawer-target"/);
+  assert.match(shell, /leftEdgeDrawerTarget:[\s\S]{0,180}width: 10/);
   assert.match(shell, /onFocus=\{\(\) => openDrawer\(\)\}/);
   assert.match(shell, /trapFocusLeft=\{false\}/);
   assert.match(shell, /isGuideScreenActive\(\) && isGuideSurfing\(\)/);
