@@ -337,10 +337,14 @@ export async function setNativeGuideChannelBinding(channelId: string, xmltvId: s
   ownershipRequiresSqlite = !primaryGuideEnabled || (userGuideEnabled && count > 0);
 
   // The filtered custom store intentionally did not keep programmes for an id
-  // before it was assigned. Populate the newly active binding set now so Guide
-  // re-entry never depends on the user remembering to press Refresh again.
+  // before it was assigned. Persist ownership synchronously, but do not make a
+  // D-pad assignment wait for a full XMLTV network/parse cycle. The native custom
+  // EPG executor serializes this hydration safely behind the binding write while
+  // Guide continues serving its last-good rows.
   if (normalizedXmltvId && userGuideEnabled && userGuideUrl) {
-    await refreshNativeUserGuide(userGuideUrl);
+    void refreshNativeUserGuide(userGuideUrl).catch((error) => {
+      console.warn("CharmIPTV deferred custom EPG hydration failed", error);
+    });
   }
   if (ramModule) await ramModule.clearMemory().catch(() => undefined);
   return count;

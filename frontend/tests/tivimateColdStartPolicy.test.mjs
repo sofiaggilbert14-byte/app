@@ -111,3 +111,14 @@ test("custom EPG retained-guide refresh result reaches the TV UI", async () => {
   assert.match(screen, /result\.programmeSwapSucceeded === false/);
   assert.match(screen, /Keeping the previous guide/);
 });
+
+test("custom EPG channel assignment does not block remote focus on a full XMLTV refresh", async () => {
+  const [bridge, screen] = await Promise.all([
+    source("src/nativeEpg.ts"),
+    source("app/epg-custom.tsx"),
+  ]);
+  assert.doesNotMatch(bridge, /if \(normalizedXmltvId && userGuideEnabled && userGuideUrl\) \{\s*await refreshNativeUserGuide/);
+  assert.match(bridge, /void refreshNativeUserGuide\(userGuideUrl\)\.catch/);
+  assert.match(bridge, /deferred custom EPG hydration failed/);
+  assert.match(screen, /Guide data will update without blocking navigation/);
+});

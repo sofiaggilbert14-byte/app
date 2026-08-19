@@ -213,7 +213,7 @@ export default function CustomEpgScreen() {
       prefs.setUserOverride(channel.id, xmltvId);
       invalidateGuideOwnershipCaches();
       void Haptics.selectionAsync().catch(() => undefined);
-      setStatus(`${channel.name} now uses custom EPG channel ${xmltvId}.`);
+      setStatus(`${channel.name} now uses custom EPG channel ${xmltvId}. Guide data will update without blocking navigation.`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not assign custom EPG channel.");
     } finally {
