@@ -1,0 +1,74 @@
+name: Phase 9 TiviMate Player Stalled Ready Recovery
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-player-stalled-ready.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Recover Media3 frozen-ready playback
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('frontend/src/components/StreamPlayer.tsx')
+          s = p.read_text()
+
+          old = '''  const lastPlaybackTimeRef = useRef(-1);\n  const lastPlaybackAdvanceAtRef = useRef(Date.now());\n  const hasPlayedRef = useRef(false);\n'''
+          new = '''  const lastPlaybackTimeRef = useRef(-1);\n  const lastPlaybackAdvanceAtRef = useRef(Date.now());\n  const hasAdvancedPlaybackRef = useRef(false);\n  const hasPlayedRef = useRef(false);\n'''
+          if 'const hasAdvancedPlaybackRef = useRef(false);' not in s:
+              if old not in s: raise SystemExit('player advance ref marker not found')
+              s = s.replace(old, new, 1)
+
+          old2 = '''    setMediaReady(false);\n    hasPlayedRef.current = false;\n    bufferingSinceRef.current = null;\n'''
+          new2 = '''    setMediaReady(false);\n    hasPlayedRef.current = false;\n    hasAdvancedPlaybackRef.current = false;\n    bufferingSinceRef.current = null;\n'''
+          if new2 not in s:
+              if old2 not in s: raise SystemExit('player load reset marker not found')
+              s = s.replace(old2, new2, 1)
+
+          old3 = '''      if (currentTime > lastPlaybackTimeRef.current + 0.05) {\n        lastPlaybackTimeRef.current = currentTime;\n        lastPlaybackAdvanceAtRef.current = Date.now();\n        // Frames/time are advancing again, so any buffering watchdog is stale.\n        bufferingSinceRef.current = null;\n      }\n'''
+          new3 = '''      if (currentTime > lastPlaybackTimeRef.current + 0.05) {\n        lastPlaybackTimeRef.current = currentTime;\n        lastPlaybackAdvanceAtRef.current = Date.now();\n        hasAdvancedPlaybackRef.current = true;\n        // Frames/time are advancing again, so any buffering watchdog is stale.\n        bufferingSinceRef.current = null;\n      }\n'''
+          if 'hasAdvancedPlaybackRef.current = true;' not in s:
+              if old3 not in s: raise SystemExit('player timeUpdate marker not found')
+              s = s.replace(old3, new3, 1)
+
+          old4 = '''      const bufferingSince = bufferingSinceRef.current;\n      if (bufferingSince == null) return;\n      const bufferingFor = Date.now() - bufferingSince;\n      if (bufferingFor < BUFFERING_RESYNC_MS) return;\n\n      if (\n'''
+          new4 = '''      const now = Date.now();\n      const bufferingSince = bufferingSinceRef.current;\n      const stalledReady =\n        bufferingSince == null &&\n        hasAdvancedPlaybackRef.current &&\n        now - lastPlaybackAdvanceAtRef.current >= BUFFERING_RESYNC_MS;\n      if (bufferingSince == null && !stalledReady) return;\n      const bufferingFor = bufferingSince != null\n        ? now - bufferingSince\n        : now - lastPlaybackAdvanceAtRef.current;\n      if (bufferingFor < BUFFERING_RESYNC_MS) return;\n\n      if (\n'''
+          if 'const stalledReady =' not in s:
+              if old4 not in s: raise SystemExit('player watchdog marker not found')
+              s = s.replace(old4, new4, 1)
+
+          old5 = '''        silentResyncCountRef.current += 1;\n        silentResyncInFlightRef.current = true;\n        bufferingSinceRef.current = Date.now();\n        const contentType = media3ContentType(kind);\n'''
+          new5 = '''        silentResyncCountRef.current += 1;\n        silentResyncInFlightRef.current = true;\n        // Re-arm only after the replacement clock advances; otherwise a frozen\n        // readyToPlay state would immediately retrigger before Media3 settles.\n        hasAdvancedPlaybackRef.current = false;\n        lastPlaybackAdvanceAtRef.current = Date.now();\n        bufferingSinceRef.current = Date.now();\n        const contentType = media3ContentType(kind);\n'''
+          if 'Re-arm only after the replacement clock advances' not in s:
+              if old5 not in s: raise SystemExit('player resync reset marker not found')
+              s = s.replace(old5, new5, 1)
+
+          p.write_text(s)
+
+          test = Path('frontend/tests/playbackSession.test.mjs')
+          t = test.read_text()
+          case = '''\ntest("Media3 watchdog recovers readyToPlay streams whose playback clock stops", async () => {\n  const player = await source("src/components/StreamPlayer.tsx");\n  assert.match(player, /const hasAdvancedPlaybackRef = useRef\\(false\\)/);\n  assert.match(player, /hasAdvancedPlaybackRef\\.current = true/);\n  assert.match(player, /const stalledReady =[\\s\\S]*?hasAdvancedPlaybackRef\\.current[\\s\\S]*?lastPlaybackAdvanceAtRef\\.current >= BUFFERING_RESYNC_MS/);\n  assert.match(player, /if \\(bufferingSince == null && !stalledReady\\) return/);\n  assert.match(player, /hasAdvancedPlaybackRef\\.current = false;[\\s\\S]{0,180}bufferingSinceRef\\.current = Date\\.now\\(\\)/);\n});\n'''
+          if 'Media3 watchdog recovers readyToPlay streams whose playback clock stops' not in t:
+              t += case
+              test.write_text(t)
+          PY
+      - name: Commit stalled-ready recovery
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/components/StreamPlayer.tsx frontend/tests/playbackSession.test.mjs
+          git commit -m "phase9: recover stalled-ready Media3 playback"
+          git push origin HEAD:phase9/purple-next
