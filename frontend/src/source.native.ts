@@ -1283,7 +1283,10 @@ export async function refreshEpgOnly(): Promise<SourceStatus> {
             typeof epg.guideEpoch === "number" && Number.isFinite(epg.guideEpoch)
               ? Math.round(epg.guideEpoch)
               : cached.guideEpoch,
-          guideRefreshedAt: checkedAt,
+          // A validator hit confirms the provider payload is unchanged, but it
+          // does not perform the transactional programme-table swap. Preserve
+          // the last successful swap clock; `ts` still records this check.
+          guideRefreshedAt: cached.guideRefreshedAt,
         };
         setProgress({ phase: "finalizing", ratio: 0.99, etaSeconds: null }, true);
         await persistMeta(MEM);

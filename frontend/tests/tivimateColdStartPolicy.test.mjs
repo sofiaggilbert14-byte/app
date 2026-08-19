@@ -61,6 +61,14 @@ test("zero source freshness remains due instead of falling back to playlist age"
   assert.doesNotMatch(native, /const guideLast = cached\.guideRefreshedAt \|\| cached\.ts/);
 });
 
+test("an unchanged provider response cannot fake a successful programme swap", async () => {
+  const native = await source("src/source.native.ts");
+  const unchanged = native.match(/if \(epg\.notModified\) \{[\s\S]*?return MEM;\n      \}/)?.[0] || "";
+  assert.match(unchanged, /ts: checkedAt/);
+  assert.match(unchanged, /guideRefreshedAt: cached\.guideRefreshedAt/);
+  assert.doesNotMatch(unchanged, /guideRefreshedAt: checkedAt/);
+});
+
 test("native cold-start snapshot queries each EPG programme count once", async () => {
   const native = await source("android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt");
   const stored = native.match(/fun getStoredPlaylist\(promise: Promise\)[\s\S]*?EPG_PLAYLIST_UPSERT_FAILED/)?.[0] || native;
