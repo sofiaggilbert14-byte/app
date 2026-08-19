@@ -16,9 +16,10 @@ export function SourceRefreshScheduler() {
   useEffect(() => {
     let active = AppState.currentState !== "background" && AppState.currentState !== "inactive";
     let running = false;
+    const automaticRefreshEligibleAt = Date.now() + 30_000;
 
     const check = async () => {
-      if (!active || running) return;
+      if (!active || running || Date.now() < automaticRefreshEligibleAt) return;
       // A native EPG swap competes with guide SQLite reads and player decoder
       // memory on low-RAM televisions. Automatic work waits for a safe screen;
       // Settings / EPG Sources remain the explicit manual refresh paths.

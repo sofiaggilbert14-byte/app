@@ -76,3 +76,10 @@ test("source scheduler cannot bypass the 30-second cold-start refresh deferral",
   assert.match(scheduler, /clearTimeout\(initialTimer\)/);
   assert.doesNotMatch(scheduler, /\n    void check\(\);\n    const timer/);
 });
+
+test("AppState resume cannot bypass the automatic cold-start source gate", async () => {
+  const scheduler = await source("src/components/SourceRefreshScheduler.tsx");
+  assert.match(scheduler, /const automaticRefreshEligibleAt = Date\.now\(\) \+ 30_000/);
+  assert.match(scheduler, /if \(!active \|\| running \|\| Date\.now\(\) < automaticRefreshEligibleAt\) return/);
+  assert.match(scheduler, /if \(active\) void check\(\)/);
+});
