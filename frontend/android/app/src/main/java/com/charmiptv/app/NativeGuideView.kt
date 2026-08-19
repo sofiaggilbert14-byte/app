@@ -158,7 +158,11 @@ class NativeGuideView(context: Context) : View(context) {
 
   fun setActive(value: Boolean) {
     enabled = value
-    if (!value) removeCallbacks(settleSelectionRunnable)
+    if (!value) {
+      removeCallbacks(settleSelectionRunnable)
+      navigationKeyDown = false
+      moveVelocity = 0
+    }
     if (value) {
       applyPendingRestoreChannel()
       if (rows.isNotEmpty()) {
@@ -311,6 +315,8 @@ class NativeGuideView(context: Context) : View(context) {
 
   override fun onDetachedFromWindow() {
     removeCallbacks(settleSelectionRunnable)
+    navigationKeyDown = false
+    moveVelocity = 0
     generation += 1
     pendingQuery = null
     super.onDetachedFromWindow()
@@ -325,6 +331,8 @@ class NativeGuideView(context: Context) : View(context) {
   fun dispose() {
     if (disposed) return
     removeCallbacks(settleSelectionRunnable)
+    navigationKeyDown = false
+    moveVelocity = 0
     disposed = true
     generation += 1
     pendingQuery = null

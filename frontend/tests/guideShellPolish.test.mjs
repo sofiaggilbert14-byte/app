@@ -362,3 +362,11 @@ test("inactive native Guide query completion cannot reclaim JS focus", async () 
   assert.match(native, /If a drawer,[\s\S]{0,180}if \(enabled\) emitSelection\(false\)/);
   assert.doesNotMatch(native, /key-up\/focus ownership may declare navigation settled\.\s*emitSelection\(false\)/);
 });
+
+test("native Guide clears held-navigation state when focus ownership leaves", async () => {
+  const native = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");
+  const setActive = native.match(/fun setActive\(value: Boolean\) \{[\s\S]*?\n  \}/)?.[0] || "";
+  assert.match(setActive, /if \(!value\) \{[\s\S]*navigationKeyDown = false[\s\S]*moveVelocity = 0/);
+  assert.match(native, /onDetachedFromWindow\(\)[\s\S]{0,220}navigationKeyDown = false[\s\S]{0,120}moveVelocity = 0/);
+  assert.match(native, /fun dispose\(\)[\s\S]{0,220}navigationKeyDown = false[\s\S]{0,120}moveVelocity = 0/);
+});
