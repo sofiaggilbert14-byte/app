@@ -91,3 +91,13 @@ test("EPG cold-start logo lookup has an additive alias-kind/channel index", asyn
   assert.match(db, /if \(oldVersion < 10\)/);
   assert.doesNotMatch(db, /DROP TABLE[\s\S]*oldVersion < 10/);
 });
+
+test("custom EPG last-good retention does not fake a successful programme refresh", async () => {
+  const custom = await source("android/app/src/main/java/com/charmiptv/app/CustomEpgNativeModule.kt");
+  assert.match(custom, /var programmeSwapSucceeded = false/);
+  assert.match(custom, /userDatabase\.replaceBatches\(batches\)[\s\S]{0,100}programmeSwapSucceeded = true/);
+  assert.match(custom, /val guideEpoch = if \(programmeSwapSucceeded\) previousGuideEpoch \+ 1L else previousGuideEpoch/);
+  assert.match(custom, /val guideRefreshedAt = if \(programmeSwapSucceeded\) now else previousGuideRefreshedAt/);
+  assert.match(custom, /if \(programmeSwapSucceeded\) \{[\s\S]*?setMeta\("guide_refreshed_at"/);
+  assert.match(custom, /putBoolean\("programmeSwapSucceeded", programmeSwapSucceeded\)/);
+});

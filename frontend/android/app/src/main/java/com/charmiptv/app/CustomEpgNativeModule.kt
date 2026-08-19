@@ -96,6 +96,7 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
         val channelNames = LinkedHashMap<String, String>()
         val channelIcons = LinkedHashMap<String, String>()
         var acceptedProgrammeCount = 0L
+        var programmeSwapSucceeded = false
 
         val batches = streamFilteredXmltv(
           sourceUrl = sourceUrl,
@@ -117,6 +118,7 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
             // EpgDatabase stages batches and atomically swaps LIVE only after a valid
             // non-empty ingest, preserving the prior last-good guide on network/parser failure.
             userDatabase.replaceBatches(batches)
+            programmeSwapSucceeded = true
           } catch (t: IllegalStateException) {
             val emptyFeed =
               acceptedProgrammeCount == 0L &&
@@ -136,9 +138,14 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
           if (logoUrl.isNotBlank()) aliases.add(Triple(channelId, "icon_url", logoUrl))
         }
         userDatabase.replaceChannelAliases(aliases)
-        val guideEpoch = (userDatabase.getMeta("guide_epoch")?.toLongOrNull() ?: 0L) + 1L
-        userDatabase.setMeta("guide_epoch", guideEpoch.toString())
-        userDatabase.setMeta("guide_refreshed_at", now.toString())
+        val previousGuideEpoch = userDatabase.getMeta("guide_epoch")?.toLongOrNull() ?: 0L
+        val previousGuideRefreshedAt = userDatabase.getMeta("guide_refreshed_at")?.toLongOrNull() ?: 0L
+        val guideEpoch = if (programmeSwapSucceeded) previousGuideEpoch + 1L else previousGuideEpoch
+        val guideRefreshedAt = if (programmeSwapSucceeded) now else previousGuideRefreshedAt
+        if (programmeSwapSucceeded) {
+          userDatabase.setMeta("guide_epoch", guideEpoch.toString())
+          userDatabase.setMeta("guide_refreshed_at", guideRefreshedAt.toString())
+        }
         userDatabase.setMeta("custom_programme_scope", activeXmltvIds.size.toString())
 
         promise.resolve(Arguments.createMap().apply {
@@ -146,7 +153,8 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
           putDouble("directoryCount", channelNames.size.toDouble())
           putDouble("bindingCount", activeXmltvIds.size.toDouble())
           putDouble("guideEpoch", guideEpoch.toDouble())
-          putDouble("guideRefreshedAt", now.toDouble())
+          putDouble("guideRefreshedAt", guideRefreshedAt.toDouble())
+          putBoolean("programmeSwapSucceeded", programmeSwapSucceeded)
         })
       } catch (t: Throwable) {
         promise.reject("CUSTOM_EPG_REFRESH_FAILED", t.message ?: "Custom Guide refresh failed", t)
