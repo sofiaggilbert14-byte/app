@@ -1,0 +1,50 @@
+name: Phase 9 TiviMate Drawer Edge Remote Context
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-drawer-edge-remote-context.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Keep drawer-edge ownership consistent across JS and Android
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          remote = Path('frontend/android/app/src/main/java/com/charmiptv/app/TvRemoteModule.kt')
+          s = remote.read_text()
+          old = '''      "guide", "guide_groups", "main_drawer", "player", "modal" -> context'''
+          new = '''      "guide", "guide_groups", "main_drawer", "drawer_edge", "player", "modal" -> context'''
+          if '"main_drawer", "drawer_edge", "player"' not in s:
+              if old not in s:
+                  raise SystemExit('remote context whitelist marker not found')
+              s = s.replace(old, new, 1)
+          remote.write_text(s)
+
+          test = Path('frontend/tests/guideShellPolish.test.mjs')
+          t = test.read_text()
+          case = '''\ntest("Android remote accepts the drawer_edge ownership context used by the shell", async () => {\n  const [nativeRemote, activity, bridge] = await Promise.all([\n    source("android/app/src/main/java/com/charmiptv/app/TvRemoteModule.kt"),\n    source("android/app/src/main/java/com/charmiptv/app/MainActivity.kt"),\n    source("src/utils/tvRemote.ts"),\n  ]);\n  assert.match(nativeRemote, /"main_drawer", "drawer_edge", "player"/);\n  assert.match(activity, /context == "drawer_edge" && boundaryKey == "LEFT"/);\n  assert.match(bridge, /\\| "drawer_edge"/);\n});\n'''
+          if 'Android remote accepts the drawer_edge ownership context used by the shell' not in t:
+              t += case
+              test.write_text(t)
+          PY
+      - name: Commit drawer-edge remote ownership
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/android/app/src/main/java/com/charmiptv/app/TvRemoteModule.kt frontend/tests/guideShellPolish.test.mjs
+          git commit -m "phase9: honor drawer edge remote context"
+          git push origin HEAD:phase9/purple-next
