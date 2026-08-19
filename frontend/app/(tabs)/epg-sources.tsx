@@ -200,6 +200,14 @@ export default function EpgSourcesScreen() {
             <Card title="Refresh Schedule" icon="time-outline">
               <ChoiceRow<SourceRefreshIntervalHours> label="Playlist auto refresh" value={sourceRefresh.playlistHours} options={REFRESH_OPTIONS} onChange={sourceRefresh.setPlaylistHours} />
               <ChoiceRow<SourceRefreshIntervalHours> label="EPG auto refresh" value={sourceRefresh.epgHours} options={REFRESH_OPTIONS} onChange={sourceRefresh.setEpgHours} />
+              <ChoiceRow<1 | 3 | 7 | 14>
+                label="Past days to keep EPG"
+                value={sourceRefresh.epgPastDays}
+                options={[{ label: "1 day", value: 1 }, { label: "3 days", value: 3 }, { label: "7 days", value: 7 }, { label: "14 days", value: 14 }]}
+                onChange={sourceRefresh.setEpgPastDays}
+              />
+              <ToggleRow label="Update EPG on app start" value={sourceRefresh.updateEpgOnAppStart} onChange={sourceRefresh.setUpdateEpgOnAppStart} />
+              <ToggleRow label="Update EPG when playlist changes" value={sourceRefresh.updateEpgOnPlaylistChange} onChange={sourceRefresh.setUpdateEpgOnPlaylistChange} />
               <Text style={styles.help}>Playlist and EPG refresh independently. Only the operation you start runs; repeat OK presses are ignored until it finishes.</Text>
               <Action label={activeAction === "refresh-all" ? "Working…" : "Refresh playlist & EPG now"} icon="refresh" onPress={refreshAll} disabled={busy} />
               <Action label={activeAction === "refresh-epg" ? "Working…" : "Refresh EPG only now"} icon="calendar-outline" onPress={refreshGuide} disabled={busy} />
@@ -288,3 +296,4 @@ const styles = StyleSheet.create({
   actionStatus: { color: tvColors.purpleSoft, fontFamily: fonts.medium, fontSize: 8.5, textAlign: "center" },
   disabled: { opacity: 0.55 }, focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
 });
+

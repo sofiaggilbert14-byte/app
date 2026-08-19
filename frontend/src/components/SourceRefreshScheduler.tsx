@@ -4,6 +4,7 @@ import { usePathname } from "expo-router";
 import { refreshEpgOnly, refreshSourcesIfDue } from "@/src/source";
 import { consumeNativeScheduledEpgRefresh } from "@/src/nativeEpg";
 import { isGuideSurfing } from "@/src/utils/guideSurfGate";
+import { getSourceRefreshPreferences } from "@/src/core/sourceRefreshPreferences";
 
 /**
  * Lightweight scheduler for direct-source builds. It checks freshness when the
@@ -16,10 +17,16 @@ export function SourceRefreshScheduler() {
   useEffect(() => {
     let active = AppState.currentState !== "background" && AppState.currentState !== "inactive";
     let running = false;
+    let initialCheckPending = true;
     const automaticRefreshEligibleAt = Date.now() + 30_000;
 
     const check = async () => {
       if (!active || running || Date.now() < automaticRefreshEligibleAt) return;
+      if (initialCheckPending) {
+        initialCheckPending = false;
+        const prefs = await getSourceRefreshPreferences();
+        if (!prefs.updateEpgOnAppStart) return;
+      }
       // A native EPG swap competes with guide SQLite reads and player decoder
       // memory on low-RAM televisions. Automatic work waits for a safe screen;
       // Settings / EPG Sources remain the explicit manual refresh paths.
@@ -55,3 +62,4 @@ export function SourceRefreshScheduler() {
 
   return null;
 }
+

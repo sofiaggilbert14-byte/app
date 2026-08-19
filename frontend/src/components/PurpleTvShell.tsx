@@ -23,7 +23,7 @@ import { evaluateDrawerBack } from "@/src/core/drawerNavigationPolicy";
 import { requestGuideGroupsOnEntry } from "@/src/core/guideEntryIntent";
 import { isGuideScreenActive, isGuideSurfing } from "@/src/utils/guideSurfGate";
 import { useTvCalibration } from "@/src/tvCalibration";
-import { addTvKeyListener, setGuideNavigationActive, setRemoteContext } from "@/src/utils/tvRemote";
+import { addTvKeyListener, resetRemoteContextIfOwned, setGuideNavigationActive, setRemoteContext } from "@/src/utils/tvRemote";
 
 type Route =
   | "/"
@@ -221,10 +221,14 @@ export function PurpleTvShell({
     return () => {
       off();
       if (active === "/guide") {
-        setRemoteContext("guide");
-        setGuideNavigationActive(true);
+        // A Right transition can let the Groups drawer claim ownership before
+        // this outgoing effect cleans up. Never re-enable the native Guide or
+        // replace that newer owner from stale main-drawer cleanup.
+        if (resetRemoteContextIfOwned("main_drawer", "guide")) {
+          setGuideNavigationActive(true);
+        }
       } else {
-        setRemoteContext("default");
+        resetRemoteContextIfOwned("main_drawer", "default");
       }
     };
   }, [active, closeDrawer, drawerOpen]);
@@ -666,3 +670,4 @@ const styles = StyleSheet.create({
   },
   headerRight: { position: "absolute", top: 10, right: spacing.lg },
 });
+

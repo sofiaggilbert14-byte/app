@@ -171,7 +171,6 @@ export function GuidePreviewRail({
         <View style={styles.actionColumn}>
           <Pressable
             ref={playFocus.setRef}
-            nextFocusDown={guideFocusTag || undefined}
             hasTVPreferredFocus={preferPlayFocus}
             disabled={!channel}
             onPress={onPlay}
@@ -184,7 +183,6 @@ export function GuidePreviewRail({
           </Pressable>
           <Pressable
             ref={favoriteFocus.setRef}
-            nextFocusDown={guideFocusTag || undefined}
             disabled={!channel}
             onPress={onFavorite}
             onFocus={() => { onActionsFocusChange(true); favoriteFocus.onFocus(); }}
@@ -196,7 +194,6 @@ export function GuidePreviewRail({
           </Pressable>
           <Pressable
             ref={remindersFocus.setRef}
-            nextFocusDown={guideFocusTag || undefined}
             onPress={onOpenReminders}
             onFocus={() => { onActionsFocusChange(true); remindersFocus.onFocus(); }}
             style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
@@ -207,7 +204,6 @@ export function GuidePreviewRail({
           </Pressable>
           <Pressable
             ref={drawerFocus.setRef}
-            nextFocusDown={guideFocusTag || undefined}
             onPress={onOpenDrawer}
             onFocus={() => { onActionsFocusChange(true); drawerFocus.onFocus(); }}
             style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
@@ -218,7 +214,6 @@ export function GuidePreviewRail({
           </Pressable>
           <Pressable
             ref={muteFocus.setRef}
-            nextFocusDown={guideFocusTag || undefined}
             disabled={hidePreview}
             onPress={onToggleMute}
             onFocus={() => { onActionsFocusChange(true); muteFocus.onFocus(); }}
@@ -412,3 +407,4 @@ const styles = StyleSheet.create({
   disabledButton: { opacity: 0.45 },
   focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
 });
+

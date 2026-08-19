@@ -60,6 +60,7 @@ type CharmEpgModule = {
     serverOffsetMinutes: number,
     playlistOffsetMinutes: number,
     channelOffsets: Record<string, number>,
+    pastDays: number,
   ): Promise<boolean>;
   consumeScheduledRefreshDue?(): Promise<boolean>;
   refresh(url: string, allowNotModified: boolean, activeXmltvIds: string[], activeChannelNames: string[]): Promise<NativeRefreshResult>;
@@ -197,6 +198,7 @@ export async function configureNativeEpgSource(
   serverOffsetMinutes = 0,
   playlistOffsetMinutes = 0,
   channelOffsets: Record<string, number> = {},
+  pastDays = 7,
 ): Promise<void> {
   if (!nativeModule?.configureSource) return;
   await nativeModule.configureSource(
@@ -206,6 +208,7 @@ export async function configureNativeEpgSource(
     serverOffsetMinutes,
     playlistOffsetMinutes,
     channelOffsets,
+    pastDays,
   );
 }
 
@@ -379,3 +382,4 @@ export async function clearNativeEpg(): Promise<void> {
   if (ramModule) await ramModule.clearMemory();
   if (nativeModule) await nativeModule.clear();
 }
+

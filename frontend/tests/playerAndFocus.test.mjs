@@ -49,3 +49,28 @@ test("drawer edge is a typed remote owner and stale blur cleanup cannot clobber 
   assert.doesNotMatch(button, /return \(\) => \{[\s\S]{0,120}setRemoteContext\("default"\)/);
   assert.match(activity, /context == "drawer_edge" && boundaryKey == "LEFT"/);
 });
+
+test("Guide action strip walks all six actions before returning to the native Guide", async () => {
+  const rail = await source("src/components/GuidePreviewRail.tsx");
+  const actionStripBeforeHide = rail.slice(rail.indexOf("ref={playFocus.setRef}"), rail.indexOf("ref={hideFocus.setRef}"));
+  assert.match(rail, /testID="guide-preview-play"/);
+  assert.match(rail, /testID="guide-preview-favorite"/);
+  assert.match(rail, /testID="guide-preview-remind"/);
+  assert.match(rail, /testID="guide-preview-drawer"/);
+  assert.match(rail, /testID="guide-preview-mute"/);
+  assert.match(rail, /testID="guide-preview-hide"/);
+  assert.doesNotMatch(actionStripBeforeHide, /nextFocusDown=\{guideFocusTag \|\| undefined\}/);
+  assert.match(rail.slice(rail.lastIndexOf("ref={hideFocus.setRef}")), /nextFocusDown=\{guideFocusTag \|\| undefined\}/);
+});
+
+test("main drawer cleanup cannot steal the Guide Groups drawer owner", async () => {
+  const [shell, groups] = await Promise.all([
+    source("src/components/PurpleTvShell.tsx"),
+    source("src/components/PurpleGuideGroupDrawer.tsx"),
+  ]);
+  assert.match(shell, /resetRemoteContextIfOwned\("main_drawer", "guide"\)/);
+  assert.doesNotMatch(shell, /if \(active === "\/guide"\) \{\s*setRemoteContext\("guide"\)/);
+  assert.match(groups, /setRemoteContext\("guide_groups"\)/);
+  assert.match(groups, /hasTVPreferredFocus=\{preferActiveFocus && item\.name === activeNameRef\.current\}/);
+});
+

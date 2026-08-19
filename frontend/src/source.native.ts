@@ -793,7 +793,7 @@ async function refreshInternal(force: boolean): Promise<NativeMeta> {
       if (!SOURCE_EPG) throw new Error("EPG is not configured for this build (missing EXPO_PUBLIC_EPG_URL).");
       setProgress({ phase: "downloading", ratio: 0.2, etaSeconds: null, message: null }, true);
       const activeBindings = activeEpgBindings(channels, userOverrideIds);
-      await configureNativeEpgSource(sourceUrl(SOURCE_EPG), refreshPreferences.epgHours);
+      await configureNativeEpgSource(sourceUrl(SOURCE_EPG), refreshPreferences.epgHours, 0, 0, {}, refreshPreferences.epgPastDays);
       const epg = await refreshNativeEpg(
         sourceUrl(SOURCE_EPG),
         false,
@@ -1181,7 +1181,8 @@ export async function refreshSourcesIfDue(): Promise<SourceStatus> {
     if (!cached.epgError) {
       setProgress({ phase: "update_available", ratio: 0, etaSeconds: null, message: null }, true);
     }
-    await refreshInternal(true);
+    if (prefs.updateEpgOnPlaylistChange) await refreshInternal(true);
+    else await refreshPlaylistOnly();
     return sourceStatus();
   }
   const guideLast = cached.guideRefreshedAt != null ? cached.guideRefreshedAt : cached.ts;
@@ -1258,7 +1259,7 @@ export async function refreshEpgOnly(): Promise<SourceStatus> {
       if (!SOURCE_EPG) throw new Error("EPG is not configured for this build (missing EXPO_PUBLIC_EPG_URL).");
       setProgress({ phase: "downloading", ratio: 0.2, etaSeconds: null, message: null }, true);
       const activeBindings = activeEpgBindings(cached.channels, overrideIds);
-      await configureNativeEpgSource(sourceUrl(SOURCE_EPG), refreshPreferences.epgHours);
+      await configureNativeEpgSource(sourceUrl(SOURCE_EPG), refreshPreferences.epgHours, 0, 0, {}, refreshPreferences.epgPastDays);
       const epg = await refreshNativeEpg(
         sourceUrl(SOURCE_EPG),
         true,
@@ -1472,3 +1473,4 @@ export async function clearGuideCache(): Promise<void> {
   setProgress({ phase: "idle", ratio: 0, etaSeconds: null, message: null }, true);
   emit();
 }
+

@@ -9,3 +9,4 @@ export function consumeGuideGroupsOnEntry(): boolean {
   openGroupsOnNextGuideEntry = false;
   return requested;
 }
+

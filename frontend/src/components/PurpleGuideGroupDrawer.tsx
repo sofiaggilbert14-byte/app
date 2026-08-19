@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { DeviceEventEmitter, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
@@ -26,6 +26,7 @@ export function PurpleGuideGroupDrawer({
   const groupsRef = useRef(groups);
   const closeToGuideRef = useRef(onCloseToGuide);
   const openMainDrawerRef = useRef(onOpenMainDrawer);
+  const [preferActiveFocus, setPreferActiveFocus] = useState(false);
 
   // Keep the latest callbacks/data available to the single open-scoped remote
   // listeners without tearing them down on every Guide render. Group counts and
@@ -43,6 +44,8 @@ export function PurpleGuideGroupDrawer({
     // responds to a physical key at a time.
     setGuideNavigationActive(false);
     setRemoteContext("guide_groups");
+    setPreferActiveFocus(true);
+    const clearPreferred = setTimeout(() => setPreferActiveFocus(false), 240);
     const offKey = addTvKeyListener((key) => {
       if (key === "LEFT" || key === "BACK") {
         openMainDrawerRef.current();
@@ -67,6 +70,8 @@ export function PurpleGuideGroupDrawer({
       offKey();
       offLongPress();
       cancelFocus?.();
+      clearTimeout(clearPreferred);
+      setPreferActiveFocus(false);
       focusedNameRef.current = null;
       // Do not let this outgoing drawer cleanup overwrite a main drawer that
       // already claimed the same physical key transition.
@@ -101,6 +106,7 @@ export function PurpleGuideGroupDrawer({
                 else refs.current.delete(item.name);
               }}
               focusable
+              hasTVPreferredFocus={preferActiveFocus && item.name === activeNameRef.current}
               onFocus={() => { focusedNameRef.current = item.name; }}
               onPress={item.onPress}
               onLongPress={Platform.isTV ? undefined : item.onLongPress}
@@ -157,3 +163,4 @@ const styles = StyleSheet.create({
   activeName: { color: "#fff" },
   count: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 9, marginLeft: 6 },
 });
+

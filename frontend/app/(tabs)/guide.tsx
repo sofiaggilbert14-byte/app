@@ -1258,3 +1258,4 @@ const styles = StyleSheet.create({
   retryText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 9 },
   focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
 });
+

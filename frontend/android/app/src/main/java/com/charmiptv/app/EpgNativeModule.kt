@@ -37,6 +37,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
   private val refreshExecutor = Executors.newSingleThreadExecutor()
   private val playlistExecutor = Executors.newSingleThreadExecutor()
   private val queryExecutor = Executors.newFixedThreadPool(2)
+  @Volatile private var guideHistoryMs = DEFAULT_GUIDE_HISTORY_MS
 
   override fun getName(): String = "CharmEpg"
 
@@ -61,10 +62,12 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     serverOffsetMinutes: Double,
     playlistOffsetMinutes: Double,
     channelOffsets: ReadableMap,
+    pastDays: Double,
     promise: Promise,
   ) {
     refreshExecutor.execute {
       try {
+        guideHistoryMs = pastDays.toInt().coerceIn(1, 14) * 24L * 60L * 60L * 1000L
         val id = playlistId.trim().ifEmpty { DEFAULT_PLAYLIST_ID }
         controlDao.putSource(
           EpgSourceEntity(
@@ -229,7 +232,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
           (sourceConfig?.playlistOffsetMinutes ?: 0)).toLong() * 60_000L
         val channelOffsetMs = controlDao.channelOffsets(DEFAULT_PLAYLIST_ID)
           .associate { it.channelId to it.offsetMinutes.toLong() * 60_000L }
-        val minStop = now - GUIDE_HISTORY_MS
+        val minStop = now - guideHistoryMs
         val maxStart = now + GUIDE_WINDOW_MS
         val channelLogos = LinkedHashMap<String, String>()
         val channelNames = LinkedHashMap<String, String>()
@@ -256,7 +259,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
           val guideEpoch = database.getMeta("guide_epoch")?.toLongOrNull() ?: 0L
           val result = Arguments.createMap().apply {
             putDouble("count", database.count().toDouble())
-            putDouble("windowStartMs", (now - GUIDE_HISTORY_MS).toDouble())
+            putDouble("windowStartMs", (now - guideHistoryMs).toDouble())
             putDouble("windowEndMs", maxStart.toDouble())
             putDouble("guideEpoch", guideEpoch.toDouble())
             putBoolean("notModified", true)
@@ -301,7 +304,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
           )
         )
 
-        val deleted = database.deleteExpired(now - GUIDE_HISTORY_MS)
+        val deleted = database.deleteExpired(now - guideHistoryMs)
         // Rare idle reclaim only after a large expiry — never every refresh.
         database.maybeIncrementalVacuum(MIN_VACUUM_DELETED_ROWS, deleted)
         val logos = Arguments.createMap()
@@ -319,7 +322,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
 
         val result = Arguments.createMap().apply {
           putDouble("count", database.count().toDouble())
-          putDouble("windowStartMs", (now - GUIDE_HISTORY_MS).toDouble())
+          putDouble("windowStartMs", (now - guideHistoryMs).toDouble())
           putDouble("windowEndMs", maxStart.toDouble())
           putDouble("guideEpoch", guideEpoch.toDouble())
           putMap("channelLogos", logos)
@@ -628,7 +631,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
         val sourceUrl = url.trim()
         if (sourceUrl.isEmpty()) throw IllegalArgumentException("Custom EPG URL is empty")
         val now = System.currentTimeMillis()
-        val minStop = now - GUIDE_HISTORY_MS
+        val minStop = now - guideHistoryMs
         val maxStart = now + GUIDE_WINDOW_MS
         val channelLogos = LinkedHashMap<String, String>()
         val channelNames = LinkedHashMap<String, String>()
@@ -1178,7 +1181,7 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     private const val PROGRESS_PROGRAMME_SCALE = 50_000.0
     private const val PROGRESS_BYTE_INTERVAL = 512L * 1024L
     private const val UNKNOWN_LENGTH_PROGRESS_SCALE_BYTES = 16.0 * 1024.0 * 1024.0
-    private const val GUIDE_HISTORY_MS = 6L * 60L * 60L * 1000L
+    private const val DEFAULT_GUIDE_HISTORY_MS = 7L * 24L * 60L * 60L * 1000L
     private const val GUIDE_WINDOW_MS = 72L * 60L * 60L * 1000L
     private const val MAX_QUERY_WINDOW_MS = 24L * 60L * 60L * 1000L
     private const val DEFAULT_PROGRAMME_DURATION_MS = 30L * 60L * 1000L
@@ -1187,3 +1190,4 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     private const val MIN_VACUUM_DELETED_ROWS = 5_000
   }
 }
+

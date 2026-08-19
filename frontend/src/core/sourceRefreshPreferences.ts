@@ -6,14 +6,23 @@ export type SourceRefreshIntervalHours = 0 | 2 | 4 | 6 | 12 | 24;
 export type SourceRefreshPreferences = {
   playlistHours: SourceRefreshIntervalHours;
   epgHours: SourceRefreshIntervalHours;
+  epgPastDays: 1 | 3 | 7 | 14;
+  updateEpgOnAppStart: boolean;
+  updateEpgOnPlaylistChange: boolean;
 };
 
 const PLAYLIST_KEY = "gs_playlist_refresh_interval_hours";
 const EPG_KEY = "gs_epg_refresh_interval_hours";
+const EPG_PAST_DAYS_KEY = "gs_epg_past_days";
+const EPG_ON_START_KEY = "gs_epg_update_on_app_start";
+const EPG_ON_PLAYLIST_CHANGE_KEY = "gs_epg_update_on_playlist_change";
 
 const DEFAULTS: SourceRefreshPreferences = {
   playlistHours: 24,
   epgHours: 6,
+  epgPastDays: 7,
+  updateEpgOnAppStart: true,
+  updateEpgOnPlaylistChange: true,
 };
 
 let cached: SourceRefreshPreferences = DEFAULTS;
@@ -40,13 +49,19 @@ async function load(): Promise<SourceRefreshPreferences> {
   if (loaded) return cached;
   if (loadPromise) return loadPromise;
   loadPromise = (async () => {
-    const [playlistHours, epgHours] = await Promise.all([
+    const [playlistHours, epgHours, epgPastDays, updateEpgOnAppStart, updateEpgOnPlaylistChange] = await Promise.all([
       storage.getItem<SourceRefreshIntervalHours>(PLAYLIST_KEY, DEFAULTS.playlistHours),
       storage.getItem<SourceRefreshIntervalHours>(EPG_KEY, DEFAULTS.epgHours),
+      storage.getItem<SourceRefreshPreferences["epgPastDays"]>(EPG_PAST_DAYS_KEY, DEFAULTS.epgPastDays),
+      storage.getItem<boolean>(EPG_ON_START_KEY, DEFAULTS.updateEpgOnAppStart),
+      storage.getItem<boolean>(EPG_ON_PLAYLIST_CHANGE_KEY, DEFAULTS.updateEpgOnPlaylistChange),
     ]);
     cached = {
       playlistHours: normalize(playlistHours, DEFAULTS.playlistHours),
       epgHours: normalize(epgHours, DEFAULTS.epgHours),
+      epgPastDays: epgPastDays === 1 || epgPastDays === 3 || epgPastDays === 14 ? epgPastDays : 7,
+      updateEpgOnAppStart: updateEpgOnAppStart !== false,
+      updateEpgOnPlaylistChange: updateEpgOnPlaylistChange !== false,
     };
     loaded = true;
     return cached;
@@ -102,9 +117,34 @@ export async function setEpgRefreshInterval(value: SourceRefreshIntervalHours): 
   await storage.setItem(EPG_KEY, next);
 }
 
+export async function setEpgPastDays(value: SourceRefreshPreferences["epgPastDays"]): Promise<void> {
+  const next = value === 1 || value === 3 || value === 14 ? value : 7;
+  cached = { ...cached, epgPastDays: next };
+  loaded = true;
+  emit();
+  await storage.setItem(EPG_PAST_DAYS_KEY, next);
+}
+
+export async function setUpdateEpgOnAppStart(value: boolean): Promise<void> {
+  cached = { ...cached, updateEpgOnAppStart: value === true };
+  loaded = true;
+  emit();
+  await storage.setItem(EPG_ON_START_KEY, cached.updateEpgOnAppStart);
+}
+
+export async function setUpdateEpgOnPlaylistChange(value: boolean): Promise<void> {
+  cached = { ...cached, updateEpgOnPlaylistChange: value === true };
+  loaded = true;
+  emit();
+  await storage.setItem(EPG_ON_PLAYLIST_CHANGE_KEY, cached.updateEpgOnPlaylistChange);
+}
+
 export function useSourceRefreshPreferences(): SourceRefreshPreferences & {
   setPlaylistHours: (value: SourceRefreshIntervalHours) => void;
   setEpgHours: (value: SourceRefreshIntervalHours) => void;
+  setEpgPastDays: (value: SourceRefreshPreferences["epgPastDays"]) => void;
+  setUpdateEpgOnAppStart: (value: boolean) => void;
+  setUpdateEpgOnPlaylistChange: (value: boolean) => void;
 } {
   const [value, setValue] = useState(cached);
 
@@ -133,5 +173,18 @@ export function useSourceRefreshPreferences(): SourceRefreshPreferences & {
       setValue((prev) => ({ ...prev, epgHours: next }));
       void setEpgRefreshInterval(next);
     }, []),
+    setEpgPastDays: useCallback((next: SourceRefreshPreferences["epgPastDays"]) => {
+      setValue((prev) => ({ ...prev, epgPastDays: next }));
+      void setEpgPastDays(next);
+    }, []),
+    setUpdateEpgOnAppStart: useCallback((next: boolean) => {
+      setValue((prev) => ({ ...prev, updateEpgOnAppStart: next }));
+      void setUpdateEpgOnAppStart(next);
+    }, []),
+    setUpdateEpgOnPlaylistChange: useCallback((next: boolean) => {
+      setValue((prev) => ({ ...prev, updateEpgOnPlaylistChange: next }));
+      void setUpdateEpgOnPlaylistChange(next);
+    }, []),
   };
 }
+

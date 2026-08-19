@@ -474,3 +474,4 @@ test("Android remote accepts the drawer_edge ownership context used by the shell
   assert.match(activity, /context == "drawer_edge" && boundaryKey == "LEFT"/);
   assert.match(bridge, /\| "drawer_edge"/);
 });
+
