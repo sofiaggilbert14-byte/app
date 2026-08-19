@@ -1,0 +1,47 @@
+name: Phase 9 TiviMate Custom Order Snapshot
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-custom-order-snapshot.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Use indexed custom-order query
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('frontend/android/app/src/main/java/com/charmiptv/app/CustomizationNativeModule.kt')
+          s = p.read_text()
+          old = '''        val channelRows = dao.channelCustomizations()\n        val hidden = Arguments.createArray()\n        val orderPairs = channelRows\n          .filter { it.customPosition != null }\n          .sortedBy { it.customPosition }\n        val order = Arguments.createArray()\n'''
+          new = '''        val channelRows = dao.channelCustomizations()\n        val hidden = Arguments.createArray()\n        // Let SQLite use the customPosition index instead of allocating a second\n        // 6k+ Kotlin list and sorting it during every snapshot hydration.\n        val orderPairs = dao.orderedChannels()\n        val order = Arguments.createArray()\n'''
+          if 'val orderPairs = dao.orderedChannels()' not in s:
+              if old not in s: raise SystemExit('customization snapshot order marker not found')
+              p.write_text(s.replace(old, new, 1))
+
+          test = Path('frontend/tests/memoryCrossAudit.test.mjs')
+          t = test.read_text()
+          case = '''\ntest("customization snapshot uses SQLite indexed order instead of Kotlin resort", async () => {\n  const mod = await readFile(join(root, "android/app/src/main/java/com/charmiptv/app/CustomizationNativeModule.kt"), "utf8");\n  const snapshot = mod.match(/fun getSnapshot\\(promise: Promise\\)[\\s\\S]*?promise\\.resolve/)?.[0] || "";\n  assert.match(snapshot, /val orderPairs = dao\\.orderedChannels\\(\\)/);\n  assert.doesNotMatch(snapshot, /filter \\{ it\\.customPosition != null \\}[\\s\\S]*?sortedBy/);\n});\n'''
+          if 'customization snapshot uses SQLite indexed order instead of Kotlin resort' not in t:
+              t += case
+              test.write_text(t)
+          PY
+      - name: Commit indexed snapshot hydration
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/android/app/src/main/java/com/charmiptv/app/CustomizationNativeModule.kt frontend/tests/memoryCrossAudit.test.mjs
+          git commit -m "phase9: use indexed custom order snapshot"
+          git push origin HEAD:phase9/purple-next

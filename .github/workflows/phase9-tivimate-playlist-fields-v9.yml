@@ -1,0 +1,100 @@
+name: Phase 9 TiviMate Playlist Fields v9
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-playlist-fields-v9.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Persist provider URL type and position in native playlist rows
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          db = Path('frontend/android/app/src/main/java/com/charmiptv/app/EpgDatabase.kt')
+          s = db.read_text()
+          old_row = '''internal data class PlaylistChannelRow(\n  val playlistId: String,\n  val rawTvgId: String,\n  val name: String,\n  val logo: String,\n  val groupTitle: String,\n)'''
+          new_row = '''internal data class PlaylistChannelRow(\n  val playlistId: String,\n  val rawTvgId: String,\n  val name: String,\n  val logo: String,\n  val groupTitle: String,\n  val streamUrl: String,\n  val streamType: String,\n  val providerPosition: Int,\n)'''
+          if 'val streamUrl: String' not in s:
+              if old_row not in s: raise SystemExit('PlaylistChannelRow marker not found')
+              s = s.replace(old_row, new_row, 1)
+          fresh = '''        norm_name TEXT NOT NULL,\n        updated_at INTEGER NOT NULL,\n        deleted_at INTEGER NOT NULL DEFAULT 0\n'''
+          fresh_new = '''        norm_name TEXT NOT NULL,\n        stream_url TEXT NOT NULL DEFAULT '',\n        stream_type TEXT NOT NULL DEFAULT 'unknown',\n        provider_position INTEGER NOT NULL DEFAULT 0,\n        updated_at INTEGER NOT NULL,\n        deleted_at INTEGER NOT NULL DEFAULT 0\n'''
+          if 'stream_url TEXT NOT NULL DEFAULT' not in s:
+              if fresh not in s: raise SystemExit('fresh playlist schema marker not found')
+              s = s.replace(fresh, fresh_new, 1)
+          v8 = '''    if (oldVersion < 8) {\n      // Provider refreshes use a TiViMate-style soft-delete marker so row\n      // identities and user-owned relationships survive temporary removals.\n      ensureColumn(db, PLAYLIST_TABLE, "deleted_at", "INTEGER NOT NULL DEFAULT 0")\n      db.execSQL("CREATE INDEX IF NOT EXISTS idx_playlist_deleted ON $PLAYLIST_TABLE(deleted_at)")\n    }\n'''
+          v9 = v8 + '''    if (oldVersion < 9) {\n      // Persist the provider-owned playback fields relationally so Android cold\n      // start no longer depends on serializing the entire channel catalog to JSON.\n      ensureColumn(db, PLAYLIST_TABLE, "stream_url", "TEXT NOT NULL DEFAULT ''")\n      ensureColumn(db, PLAYLIST_TABLE, "stream_type", "TEXT NOT NULL DEFAULT 'unknown'")\n      ensureColumn(db, PLAYLIST_TABLE, "provider_position", "INTEGER NOT NULL DEFAULT 0")\n      db.execSQL("CREATE INDEX IF NOT EXISTS idx_playlist_active_position ON $PLAYLIST_TABLE(deleted_at, provider_position)")\n    }\n'''
+          if 'if (oldVersion < 9)' not in s:
+              if v8 not in s: raise SystemExit('v8 migration marker not found')
+              s = s.replace(v8, v9, 1)
+          s = s.replace('private const val DATABASE_VERSION = 8', 'private const val DATABASE_VERSION = 9', 1)
+          db.write_text(s)
+
+          native = Path('frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt')
+          n = native.read_text()
+          old = '''              name = map.getString("name")?.trim().orEmpty(),\n              logo = map.getString("logo")?.trim().orEmpty(),\n              groupTitle = map.getString("group")?.trim().orEmpty(),\n            )'''
+          new = '''              name = map.getString("name")?.trim().orEmpty(),\n              logo = map.getString("logo")?.trim().orEmpty(),\n              groupTitle = map.getString("group")?.trim().orEmpty(),\n              streamUrl = map.getString("url")?.trim().orEmpty(),\n              streamType = map.getString("streamType")?.trim().orEmpty().ifEmpty { "unknown" },\n              providerPosition = if (map.hasKey("position")) map.getDouble("position").toInt().coerceAtLeast(0) else i,\n            )'''
+          if 'streamUrl = map.getString("url")' not in n:
+              if old not in n: raise SystemExit('native playlist row build marker not found')
+              n = n.replace(old, new, 1)
+          native.write_text(n)
+
+          sync = Path('frontend/android/app/src/main/java/com/charmiptv/app/PlaylistSyncCoordinator.kt')
+          t = sync.read_text()
+          t = t.replace(
+              '            norm_id = ?, norm_name = ?, updated_at = ?, deleted_at = 0\n        WHERE playlist_id = ?',
+              '            norm_id = ?, norm_name = ?, stream_url = ?, stream_type = ?,\n            provider_position = ?, updated_at = ?, deleted_at = 0\n        WHERE playlist_id = ?',
+              1,
+          )
+          t = t.replace(
+              '          norm_id, norm_name, updated_at, deleted_at\n        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)',
+              '          norm_id, norm_name, stream_url, stream_type, provider_position, updated_at, deleted_at\n        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)',
+              1,
+          )
+          old_bind = '''          update.bindString(5, normId)\n          update.bindString(6, normName)\n          update.bindLong(7, now)\n          update.bindString(8, row.playlistId)'''
+          new_bind = '''          update.bindString(5, normId)\n          update.bindString(6, normName)\n          update.bindString(7, row.streamUrl)\n          update.bindString(8, row.streamType)\n          update.bindLong(9, row.providerPosition.toLong())\n          update.bindLong(10, now)\n          update.bindString(11, row.playlistId)'''
+          if old_bind in t: t = t.replace(old_bind, new_bind, 1)
+          old_ins = '''          insert.bindString(6, normId)\n          insert.bindString(7, normName)\n          insert.bindLong(8, now)\n          insert.executeInsert()'''
+          new_ins = '''          insert.bindString(6, normId)\n          insert.bindString(7, normName)\n          insert.bindString(8, row.streamUrl)\n          insert.bindString(9, row.streamType)\n          insert.bindLong(10, row.providerPosition.toLong())\n          insert.bindLong(11, now)\n          insert.executeInsert()'''
+          if old_ins in t: t = t.replace(old_ins, new_ins, 1)
+          sync.write_text(t)
+
+          bridge = Path('frontend/src/nativeEpg.ts')
+          b = bridge.read_text()
+          old_type = '''export type NativePlaylistChannelRow = {\n  playlistId: string;\n  rawTvgId?: string;\n  name?: string;\n  logo?: string;\n  group?: string;\n};'''
+          new_type = '''export type NativePlaylistChannelRow = {\n  playlistId: string;\n  rawTvgId?: string;\n  name?: string;\n  logo?: string;\n  group?: string;\n  url?: string;\n  streamType?: string;\n  position?: number;\n};'''
+          if 'position?: number;' not in b:
+              if old_type not in b: raise SystemExit('TS native playlist row type marker not found')
+              b = b.replace(old_type, new_type, 1)
+          bridge.write_text(b)
+
+          source = Path('frontend/src/source.native.ts')
+          x = source.read_text()
+          old_map = '''    channels.map((channel) => ({\n      playlistId: channel.id,\n      rawTvgId: channel.raw_tvg_id || channel.tvg_id || "",\n      name: channel.name || "",\n      logo: channel.logo || "",\n      group: channel.group || "",\n    })),'''
+          new_map = '''    channels.map((channel, position) => ({\n      playlistId: channel.id,\n      rawTvgId: channel.raw_tvg_id || channel.tvg_id || "",\n      name: channel.name || "",\n      logo: channel.logo || "",\n      group: channel.group || "",\n      url: channel.url || "",\n      streamType: channel.stream_type || "unknown",\n      position,\n    })),'''
+          if 'streamType: channel.stream_type' not in x:
+              if old_map not in x: raise SystemExit('source native playlist map marker not found')
+              x = x.replace(old_map, new_map, 1)
+          source.write_text(x)
+          PY
+      - name: Commit native playlist fields
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/android/app/src/main/java/com/charmiptv/app/EpgDatabase.kt frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt frontend/android/app/src/main/java/com/charmiptv/app/PlaylistSyncCoordinator.kt frontend/src/nativeEpg.ts frontend/src/source.native.ts
+          git commit -m "phase9: persist full native playlist channel rows"
+          git push origin HEAD:phase9/purple-next

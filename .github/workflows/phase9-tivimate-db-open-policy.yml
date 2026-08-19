@@ -1,0 +1,53 @@
+name: Phase 9 TiviMate DB Open Policy
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-db-open-policy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Align TiviMate-style DB open and playlist indexes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('frontend/android/app/src/main/java/com/charmiptv/app/EpgDatabase.kt')
+          s = p.read_text()
+          old = '    db.execSQL("PRAGMA synchronous=NORMAL")\n    db.execSQL("PRAGMA temp_store=MEMORY")\n'
+          new = '    db.execSQL("PRAGMA synchronous=NORMAL")\n    db.execSQL("PRAGMA busy_timeout=3000")\n    db.execSQL("PRAGMA temp_store=MEMORY")\n'
+          if 'PRAGMA busy_timeout=3000' not in s:
+              if old not in s: raise SystemExit('onConfigure marker not found')
+              s = s.replace(old, new, 1)
+
+          before_upgrade, after_upgrade = s.split('override fun onUpgrade', 1)
+          norm_idx = '    db.execSQL("CREATE INDEX IF NOT EXISTS idx_playlist_norm_name ON $PLAYLIST_TABLE(norm_name)")\n'
+          additions = ''
+          if 'idx_playlist_deleted ON $PLAYLIST_TABLE(deleted_at)' not in before_upgrade:
+              additions += '    db.execSQL("CREATE INDEX IF NOT EXISTS idx_playlist_deleted ON $PLAYLIST_TABLE(deleted_at)")\n'
+          if 'idx_playlist_active_position ON $PLAYLIST_TABLE(deleted_at, provider_position)' not in before_upgrade:
+              additions += '    db.execSQL("CREATE INDEX IF NOT EXISTS idx_playlist_active_position ON $PLAYLIST_TABLE(deleted_at, provider_position)")\n'
+          if additions:
+              if norm_idx not in before_upgrade: raise SystemExit('playlist index marker not found')
+              before_upgrade = before_upgrade.replace(norm_idx, norm_idx + additions, 1)
+              s = before_upgrade + 'override fun onUpgrade' + after_upgrade
+          p.write_text(s)
+          PY
+      - name: Commit database policy
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/android/app/src/main/java/com/charmiptv/app/EpgDatabase.kt
+          git commit -m "phase9: align fresh playlist indexes with relational cold start"
+          git push origin HEAD:phase9/purple-next

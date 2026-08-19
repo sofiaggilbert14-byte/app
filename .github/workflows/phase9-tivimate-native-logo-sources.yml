@@ -1,0 +1,107 @@
+name: Phase 9 TiviMate Native Logo Sources
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-native-logo-sources.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Persist XMLTV icon aliases and expose separate EPG logo
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          db = Path('frontend/android/app/src/main/java/com/charmiptv/app/EpgDatabase.kt')
+          s = db.read_text()
+          if 'val epgLogo: String = ""' not in s:
+              s = s.replace(
+                  '  val providerPosition: Int,\n)',
+                  '  val providerPosition: Int,\n  val epgLogo: String = "",\n)',
+                  1,
+              )
+          old_query = '''      SELECT playlist_id, raw_tvg_id, name, COALESCE(logo, ''),\n             COALESCE(group_title, ''), stream_url, stream_type, provider_position\n      FROM $PLAYLIST_TABLE\n      WHERE deleted_at = 0 AND stream_url != ''\n'''
+          new_query = '''      SELECT c.playlist_id, c.raw_tvg_id, c.name, COALESCE(c.logo, ''),\n             COALESCE(c.group_title, ''), c.stream_url, c.stream_type, c.provider_position,\n             COALESCE((SELECT a.alias_value FROM $ALIAS_TABLE a\n                       WHERE a.channel_id = m.xmltv_id AND a.alias_kind = 'icon_url' LIMIT 1), '')\n      FROM $PLAYLIST_TABLE c\n      LEFT JOIN $MATCH_TABLE m ON m.playlist_id = c.playlist_id\n      WHERE c.deleted_at = 0 AND c.stream_url != ''\n'''
+          if 'a.alias_kind = \'icon_url\'' not in s:
+              if old_query not in s: raise SystemExit('active playlist query marker not found')
+              s = s.replace(old_query, new_query, 1)
+              s = s.replace(
+                  '            providerPosition = cursor.getInt(7),\n',
+                  '            providerPosition = cursor.getInt(7),\n            epgLogo = cursor.getString(8),\n',
+                  1,
+              )
+          method_marker = '  /** Replace playlist channel rows (independent of EPG live table). */\n'
+          icon_method = '''  fun iconAliases(channelIds: Collection<String>): Map<String, String> {\n    if (channelIds.isEmpty()) return emptyMap()\n    val result = LinkedHashMap<String, String>()\n    for (chunk in channelIds.chunked(IN_CLAUSE_CHUNK)) {\n      val placeholders = chunk.joinToString(",") { "?" }\n      val args = ArrayList<String>(chunk.size + 1)\n      args.add("icon_url")\n      args.addAll(chunk)\n      readableDatabase.rawQuery(\n        "SELECT channel_id, alias_value FROM $ALIAS_TABLE WHERE alias_kind = ? AND channel_id IN ($placeholders)",\n        args.toTypedArray(),\n      ).use { cursor ->\n        while (cursor.moveToNext()) result[cursor.getString(0)] = cursor.getString(1)\n      }\n    }\n    return result\n  }\n\n'''
+          if 'fun iconAliases(channelIds:' not in s:
+              if method_marker not in s: raise SystemExit('icon method marker not found')
+              s = s.replace(method_marker, icon_method + method_marker, 1)
+          db.write_text(s)
+
+          primary = Path('frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt')
+          n = primary.read_text()
+          primary_marker = '''        for ((channelId, displayName) in channelNames) {\n          aliases.add(Triple(channelId, "display_name", displayName))\n          aliases.add(Triple(channelId, "xmltv_id", channelId))\n        }\n        for (channelId in channelIdsWithPrograms) {'''
+          primary_new = '''        for ((channelId, displayName) in channelNames) {\n          aliases.add(Triple(channelId, "display_name", displayName))\n          aliases.add(Triple(channelId, "xmltv_id", channelId))\n        }\n        for ((channelId, logoUrl) in channelLogos) {\n          if (logoUrl.isNotBlank()) aliases.add(Triple(channelId, "icon_url", logoUrl))\n        }\n        for (channelId in channelIdsWithPrograms) {'''
+          if 'aliases.add(Triple(channelId, "icon_url", logoUrl))' not in n:
+              if primary_marker not in n: raise SystemExit('primary alias marker not found')
+              n = n.replace(primary_marker, primary_new, 1)
+
+          stored_old = '''        val rows = database.activePlaylistChannels()\n        val channels = Arguments.createArray()\n        for (row in rows) {\n          channels.pushMap(Arguments.createMap().apply {'''
+          stored_new = '''        val rows = database.activePlaylistChannels()\n        val userSource = controlDao.source(USER_SOURCE_ID)\n        val userEnabled = userSource?.enabled == true && userSource.url.isNotBlank()\n        val userBindings = if (userEnabled) controlDao.allChannelBindings(USER_SOURCE_ID) else emptyList()\n        val bindingByPlaylist = userBindings.associate { it.channelId to it.xmltvId }\n        val userIcons = if (bindingByPlaylist.isNotEmpty()) userDatabase.iconAliases(bindingByPlaylist.values.toSet()) else emptyMap()\n        val channels = Arguments.createArray()\n        for (row in rows) {\n          val customXmltvId = bindingByPlaylist[row.playlistId]\n          val effectiveEpgLogo = if (customXmltvId != null) userIcons[customXmltvId].orEmpty() else row.epgLogo\n          channels.pushMap(Arguments.createMap().apply {'''
+          if 'val effectiveEpgLogo =' not in n:
+              if stored_old not in n: raise SystemExit('stored playlist block marker not found')
+              n = n.replace(stored_old, stored_new, 1)
+              n = n.replace(
+                  '            putString("playlist_logo", row.logo)\n            putString("group", row.groupTitle)',
+                  '            putString("playlist_logo", row.logo)\n            putString("epg_logo", effectiveEpgLogo)\n            putString("group", row.groupTitle)',
+                  1,
+              )
+          primary.write_text(n)
+
+          custom = Path('frontend/android/app/src/main/java/com/charmiptv/app/CustomEpgNativeModule.kt')
+          c = custom.read_text()
+          if 'val channelIcons = LinkedHashMap<String, String>()' not in c:
+              c = c.replace(
+                  '        val channelNames = LinkedHashMap<String, String>()\n        var acceptedProgrammeCount = 0L',
+                  '        val channelNames = LinkedHashMap<String, String>()\n        val channelIcons = LinkedHashMap<String, String>()\n        var acceptedProgrammeCount = 0L',
+                  1,
+              )
+              c = c.replace(
+                  '          channelNames = channelNames,\n          onAcceptedProgramme =',
+                  '          channelNames = channelNames,\n          channelIcons = channelIcons,\n          onAcceptedProgramme =',
+                  1,
+              )
+              c = c.replace(
+                  '        for ((channelId, displayName) in channelNames) {\n          aliases.add(Triple(channelId, "display_name", displayName))\n          aliases.add(Triple(channelId, "xmltv_id", channelId))\n        }\n        userDatabase.replaceChannelAliases(aliases)',
+                  '        for ((channelId, displayName) in channelNames) {\n          aliases.add(Triple(channelId, "display_name", displayName))\n          aliases.add(Triple(channelId, "xmltv_id", channelId))\n        }\n        for ((channelId, logoUrl) in channelIcons) {\n          if (logoUrl.isNotBlank()) aliases.add(Triple(channelId, "icon_url", logoUrl))\n        }\n        userDatabase.replaceChannelAliases(aliases)',
+                  1,
+              )
+              c = c.replace(
+                  '    channelNames: MutableMap<String, String>,\n    onAcceptedProgramme: () -> Unit,',
+                  '    channelNames: MutableMap<String, String>,\n    channelIcons: MutableMap<String, String>,\n    onAcceptedProgramme: () -> Unit,',
+                  1,
+              )
+              icon_marker = '''            "display-name" -> {\n              val id = metadataChannelId\n              if (!id.isNullOrBlank()) {\n                val displayName = parser.nextText().trim()\n                if (displayName.isNotEmpty() && !channelNames.containsKey(id)) {\n                  channelNames[id] = displayName\n                }\n              }\n            }\n            "programme" -> {'''
+              icon_new = '''            "display-name" -> {\n              val id = metadataChannelId\n              if (!id.isNullOrBlank()) {\n                val displayName = parser.nextText().trim()\n                if (displayName.isNotEmpty() && !channelNames.containsKey(id)) {\n                  channelNames[id] = displayName\n                }\n              }\n            }\n            "icon" -> {\n              val id = metadataChannelId\n              val src = parser.getAttributeValue(null, "src")?.trim().orEmpty()\n              if (!id.isNullOrBlank() && src.isNotEmpty() && !channelIcons.containsKey(id)) {\n                channelIcons[id] = src\n              }\n            }\n            "programme" -> {'''
+              if icon_marker not in c: raise SystemExit('custom XMLTV icon marker not found')
+              c = c.replace(icon_marker, icon_new, 1)
+          custom.write_text(c)
+          PY
+      - name: Commit native logo sources
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/android/app/src/main/java/com/charmiptv/app/EpgDatabase.kt frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt frontend/android/app/src/main/java/com/charmiptv/app/CustomEpgNativeModule.kt
+          git commit -m "phase9: persist separate playlist and EPG logo sources"
+          git push origin HEAD:phase9/purple-next

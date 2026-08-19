@@ -1,0 +1,123 @@
+name: Build 8 Repair Validation
+
+on:
+  push:
+    branches:
+      - fix/purple-next-build8-tester-pass
+    paths:
+      - "frontend/**"
+      - ".github/workflows/build8-fix-validation.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build8-repair-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+      - name: Install Android compile SDK and pinned NDK
+        run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006"
+      - name: Install dependencies
+        id: install
+        continue-on-error: true
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Verify native config
+        id: native_config
+        continue-on-error: true
+        run: npm run verify:native-config
+      - name: Expo doctor
+        id: doctor
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          npm run doctor 2>&1 | tee /tmp/build8-doctor.log
+      - name: Unit and wiring tests
+        id: tests
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee /tmp/build8-tests.log
+      - name: Typecheck
+        id: typecheck
+        continue-on-error: true
+        run: npm run typecheck
+      - name: Lint
+        id: lint
+        continue-on-error: true
+        run: npm run lint
+      - name: Compile native Kotlin and Java
+        id: native_compile
+        continue-on-error: true
+        env:
+          CI: "1"
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx3g -Dorg.gradle.workers.max=1"
+        run: |
+          set -o pipefail
+          chmod +x android/gradlew
+          ./android/gradlew -p android \
+            :ffmpeg-audio:compileDebugJavaWithJavac \
+            :app:compileDebugKotlin \
+            :app:compileDebugJavaWithJavac \
+            --no-daemon --max-workers=1 --stacktrace 2>&1 | tee /tmp/build8-native-compile.log
+      - name: Record validation result
+        if: always()
+        working-directory: .
+        env:
+          INSTALL: ${{ steps.install.outcome }}
+          NATIVE_CONFIG: ${{ steps.native_config.outcome }}
+          DOCTOR: ${{ steps.doctor.outcome }}
+          TESTS: ${{ steps.tests.outcome }}
+          TYPECHECK: ${{ steps.typecheck.outcome }}
+          LINT: ${{ steps.lint.outcome }}
+          NATIVE_COMPILE: ${{ steps.native_compile.outcome }}
+        run: |
+          cat > .build8-validation-status.txt <<EOF
+          source_sha=${GITHUB_SHA}
+          install=${INSTALL}
+          native_config=${NATIVE_CONFIG}
+          doctor=${DOCTOR}
+          tests=${TESTS}
+          typecheck=${TYPECHECK}
+          lint=${LINT}
+          native_compile=${NATIVE_COMPILE}
+          EOF
+          if [ "${DOCTOR}" != success ] && [ -f /tmp/build8-doctor.log ]; then
+            printf '\n--- doctor tail ---\n' >> .build8-validation-status.txt
+            tail -n 60 /tmp/build8-doctor.log >> .build8-validation-status.txt
+          fi
+          if [ "${TESTS}" != success ] && [ -f /tmp/build8-tests.log ]; then
+            printf '\n--- tests tail ---\n' >> .build8-validation-status.txt
+            tail -n 100 /tmp/build8-tests.log >> .build8-validation-status.txt
+          fi
+          if [ "${NATIVE_COMPILE}" != success ] && [ -f /tmp/build8-native-compile.log ]; then
+            printf '\n--- native compile tail ---\n' >> .build8-validation-status.txt
+            tail -n 120 /tmp/build8-native-compile.log >> .build8-validation-status.txt
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .build8-validation-status.txt
+          git commit -m "Record Build 8 validation result" || true
+          git push
+          if [ "${INSTALL}" != success ] || [ "${NATIVE_CONFIG}" != success ] || [ "${DOCTOR}" != success ] || [ "${TESTS}" != success ] || [ "${TYPECHECK}" != success ] || [ "${LINT}" != success ] || [ "${NATIVE_COMPILE}" != success ]; then
+            exit 1
+          fi

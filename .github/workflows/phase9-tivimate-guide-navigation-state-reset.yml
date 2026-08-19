@@ -1,0 +1,66 @@
+name: Phase 9 TiviMate Guide Navigation State Reset
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-guide-navigation-state-reset.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Reset held navigation state whenever Guide loses ownership
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          native = Path('frontend/android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt')
+          s = native.read_text()
+
+          old_active = '''  fun setActive(value: Boolean) {\n    enabled = value\n    if (!value) removeCallbacks(settleSelectionRunnable)\n    if (value) {'''
+          new_active = '''  fun setActive(value: Boolean) {\n    enabled = value\n    if (!value) {\n      removeCallbacks(settleSelectionRunnable)\n      navigationKeyDown = false\n      moveVelocity = 0\n    }\n    if (value) {'''
+          if 'navigationKeyDown = false\n      moveVelocity = 0\n    }\n    if (value)' not in s:
+              if old_active not in s:
+                  raise SystemExit('setActive ownership reset marker not found')
+              s = s.replace(old_active, new_active, 1)
+
+          old_detach = '''  override fun onDetachedFromWindow() {\n    removeCallbacks(settleSelectionRunnable)\n    generation += 1'''
+          new_detach = '''  override fun onDetachedFromWindow() {\n    removeCallbacks(settleSelectionRunnable)\n    navigationKeyDown = false\n    moveVelocity = 0\n    generation += 1'''
+          if 'override fun onDetachedFromWindow() {\n    removeCallbacks(settleSelectionRunnable)\n    navigationKeyDown = false' not in s:
+              if old_detach not in s:
+                  raise SystemExit('detach navigation reset marker not found')
+              s = s.replace(old_detach, new_detach, 1)
+
+          old_dispose = '''  fun dispose() {\n    if (disposed) return\n    removeCallbacks(settleSelectionRunnable)\n    disposed = true'''
+          new_dispose = '''  fun dispose() {\n    if (disposed) return\n    removeCallbacks(settleSelectionRunnable)\n    navigationKeyDown = false\n    moveVelocity = 0\n    disposed = true'''
+          if 'fun dispose() {\n    if (disposed) return\n    removeCallbacks(settleSelectionRunnable)\n    navigationKeyDown = false' not in s:
+              if old_dispose not in s:
+                  raise SystemExit('dispose navigation reset marker not found')
+              s = s.replace(old_dispose, new_dispose, 1)
+
+          native.write_text(s)
+
+          test = Path('frontend/tests/guideShellPolish.test.mjs')
+          t = test.read_text()
+          case = '''\ntest("native Guide clears held-navigation state when focus ownership leaves", async () => {\n  const native = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");\n  const setActive = native.match(/fun setActive\\(value: Boolean\\) \\{[\\s\\S]*?\\n  \\}/)?.[0] || "";\n  assert.match(setActive, /if \\(!value\\) \\{[\\s\\S]*navigationKeyDown = false[\\s\\S]*moveVelocity = 0/);\n  assert.match(native, /onDetachedFromWindow\\(\\)[\\s\\S]{0,220}navigationKeyDown = false[\\s\\S]{0,120}moveVelocity = 0/);\n  assert.match(native, /fun dispose\\(\\)[\\s\\S]{0,220}navigationKeyDown = false[\\s\\S]{0,120}moveVelocity = 0/);\n});\n'''
+          if 'native Guide clears held-navigation state when focus ownership leaves' not in t:
+              t += case
+              test.write_text(t)
+          PY
+      - name: Commit Guide ownership reset
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt frontend/tests/guideShellPolish.test.mjs
+          git commit -m "phase9: reset guide navigation state on focus exit"
+          git push origin HEAD:phase9/purple-next

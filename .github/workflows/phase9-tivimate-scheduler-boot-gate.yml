@@ -1,0 +1,48 @@
+name: Phase 9 TiviMate Scheduler Boot Gate
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-scheduler-boot-gate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Gate every automatic source check during cold start
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('frontend/src/components/SourceRefreshScheduler.tsx')
+          s = p.read_text()
+          old = '''  useEffect(() => {\n    let active = AppState.currentState !== "background" && AppState.currentState !== "inactive";\n    let running = false;\n\n    const check = async () => {\n      if (!active || running) return;\n'''
+          new = '''  useEffect(() => {\n    let active = AppState.currentState !== "background" && AppState.currentState !== "inactive";\n    let running = false;\n    const automaticRefreshEligibleAt = Date.now() + 30_000;\n\n    const check = async () => {\n      if (!active || running || Date.now() < automaticRefreshEligibleAt) return;\n'''
+          if 'const automaticRefreshEligibleAt = Date.now() + 30_000;' not in s:
+              if old not in s: raise SystemExit('scheduler boot-gate marker not found')
+              s = s.replace(old, new, 1)
+          p.write_text(s)
+
+          test = Path('frontend/tests/tivimateColdStartPolicy.test.mjs')
+          t = test.read_text()
+          case = '''\ntest("AppState resume cannot bypass the automatic cold-start source gate", async () => {\n  const scheduler = await source("src/components/SourceRefreshScheduler.tsx");\n  assert.match(scheduler, /const automaticRefreshEligibleAt = Date\\.now\\(\\) \\+ 30_000/);\n  assert.match(scheduler, /if \\(!active \\|\\| running \\|\\| Date\\.now\\(\\) < automaticRefreshEligibleAt\\) return/);\n  assert.match(scheduler, /if \\(active\\) void check\\(\\)/);\n});\n'''
+          if 'AppState resume cannot bypass the automatic cold-start source gate' not in t:
+              t += case
+              test.write_text(t)
+          PY
+      - name: Commit automatic source boot gate
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/components/SourceRefreshScheduler.tsx frontend/tests/tivimateColdStartPolicy.test.mjs
+          git commit -m "phase9: gate automatic source work during cold start"
+          git push origin HEAD:phase9/purple-next

@@ -1,0 +1,67 @@
+name: Phase 9 TiviMate Custom Order Index
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-custom-order-index.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Index custom channel order non-destructively
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('frontend/android/app/src/main/java/com/charmiptv/app/CharmCustomizationDatabase.kt')
+          s = p.read_text()
+          if 'androidx.room.migration.Migration' not in s:
+              s = s.replace(
+                  'import androidx.room.RoomDatabase\n',
+                  'import androidx.room.RoomDatabase\nimport androidx.room.migration.Migration\nimport androidx.sqlite.db.SupportSQLiteDatabase\n',
+                  1,
+              )
+          old_entity = '@Entity(tableName = "user_channel_customization")\ninternal data class UserChannelCustomizationEntity('
+          new_entity = '@Entity(\n  tableName = "user_channel_customization",\n  indices = [Index("customPosition")],\n)\ninternal data class UserChannelCustomizationEntity('
+          if new_entity not in s:
+              if old_entity not in s: raise SystemExit('customization entity marker not found')
+              s = s.replace(old_entity, new_entity, 1)
+          if 'version = 2,' not in s:
+              if 'version = 1,' not in s: raise SystemExit('customization DB version marker not found')
+              s = s.replace('version = 1,', 'version = 2,', 1)
+          old_builder = '''      instance ?: Room.databaseBuilder(\n        context.applicationContext,\n        CharmCustomizationDatabase::class.java,\n        "charm_user_customization_v1.db",\n      ).setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING).build().also { instance = it }\n'''
+          new_builder = '''      instance ?: Room.databaseBuilder(\n        context.applicationContext,\n        CharmCustomizationDatabase::class.java,\n        "charm_user_customization_v1.db",\n      )\n        .addMigrations(MIGRATION_1_2)\n        .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)\n        .build()\n        .also { instance = it }\n'''
+          if '.addMigrations(MIGRATION_1_2)' not in s:
+              if old_builder not in s: raise SystemExit('customization DB builder marker not found')
+              s = s.replace(old_builder, new_builder, 1)
+          marker = '  companion object {\n    @Volatile private var instance: CharmCustomizationDatabase? = null\n'
+          migrated = '''  companion object {\n    private val MIGRATION_1_2 = object : Migration(1, 2) {\n      override fun migrate(db: SupportSQLiteDatabase) {\n        db.execSQL(\n          "CREATE INDEX IF NOT EXISTS index_user_channel_customization_customPosition " +\n            "ON user_channel_customization(customPosition)"\n        )\n      }\n    }\n\n    @Volatile private var instance: CharmCustomizationDatabase? = null\n'''
+          if 'private val MIGRATION_1_2' not in s:
+              if marker not in s: raise SystemExit('customization migration insertion marker not found')
+              s = s.replace(marker, migrated, 1)
+          p.write_text(s)
+
+          test = Path('frontend/tests/memoryCrossAudit.test.mjs')
+          t = test.read_text()
+          case = '''\ntest("native custom channel order is indexed with a non-destructive Room migration", async () => {\n  const db = await readFile(join(root, "android/app/src/main/java/com/charmiptv/app/CharmCustomizationDatabase.kt"), "utf8");\n  assert.match(db, /indices = \\[Index\\("customPosition"\\)\\]/);\n  assert.match(db, /version = 2/);\n  assert.match(db, /Migration\\(1, 2\\)/);\n  assert.match(db, /CREATE INDEX IF NOT EXISTS index_user_channel_customization_customPosition/);\n  assert.match(db, /\\.addMigrations\\(MIGRATION_1_2\\)/);\n  assert.doesNotMatch(db, /fallbackToDestructiveMigration/);\n});\n'''
+          if 'native custom channel order is indexed with a non-destructive Room migration' not in t:
+              t += case
+              test.write_text(t)
+          PY
+      - name: Commit custom order index migration
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/android/app/src/main/java/com/charmiptv/app/CharmCustomizationDatabase.kt frontend/tests/memoryCrossAudit.test.mjs
+          git commit -m "phase9: index native custom channel order"
+          git push origin HEAD:phase9/purple-next

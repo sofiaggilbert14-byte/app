@@ -1,0 +1,51 @@
+name: Phase 9 TiviMate EPG Refresh Coalescing
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-epg-refresh-coalescing.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Coalesce EPG refresh ownership
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          source = Path('frontend/src/source.native.ts')
+          s = source.read_text()
+          old = '''/** Refresh XMLTV only — keep current playlist rows (independent epochs). */\nexport async function refreshEpgOnly(): Promise<SourceStatus> {\n  // Wait for any in-flight refresh, then always rematch with the current policy.\n  if (refreshPromise) await refreshPromise;\n  refreshPromise = (async () => {\n    const cached = MEM || (await readChannelCache());\n    if (!cached?.channels?.length) {\n      return refreshInternal(true);\n    }\n    lastSourceError = null;\n'''
+          new = '''/** Refresh XMLTV only — keep current playlist rows (independent epochs). */\nexport async function refreshEpgOnly(): Promise<SourceStatus> {\n  // TiviMate-style single refresh owner: if a full/EPG refresh is already doing\n  // the provider work, join it. Do not queue an immediate duplicate XMLTV pass.\n  if (refreshPromise) {\n    await refreshPromise;\n    return sourceStatus();\n  }\n\n  // Resolve cold/empty fallback before claiming refreshPromise. Calling\n  // refreshInternal while this function owns that same promise creates a\n  // self-referential promise cycle because refreshInternal coalesces on it.\n  const cached = MEM || (await readChannelCache());\n  if (!cached?.channels?.length) {\n    await refreshInternal(true);\n    return sourceStatus();\n  }\n\n  refreshPromise = (async () => {\n    lastSourceError = null;\n'''
+          if 'TiviMate-style single refresh owner' not in s:
+              if old not in s: raise SystemExit('EPG refresh ownership marker not found')
+              s = s.replace(old, new, 1)
+          source.write_text(s)
+
+          test = Path('frontend/tests/memoryCrossAudit.test.mjs')
+          t = test.read_text()
+          case = '''\ntest("EPG-only refresh coalesces with active source work and avoids cold-start promise cycles", async () => {\n  const source = await readFile(join(root, "src/source.native.ts"), "utf8");\n  const epgOnly = source.match(/export async function refreshEpgOnly\\(\\)[\\s\\S]*?\\n}\\n\\nexport function sourceStatus/)?.[0] || "";\n  assert.match(epgOnly, /if \\(refreshPromise\\) \\{[\\s\\S]{0,160}await refreshPromise;[\\s\\S]{0,120}return sourceStatus\\(\\)/);\n  assert.match(epgOnly, /const cached = MEM \\|\\| \\(await readChannelCache\\(\\)\\)/);\n  assert.match(epgOnly, /if \\(!cached\\?\\.channels\\?\\.length\\) \\{[\\s\\S]{0,160}await refreshInternal\\(true\\);[\\s\\S]{0,100}return sourceStatus\\(\\)/);\n  assert.ok(\n    epgOnly.indexOf('const cached = MEM || (await readChannelCache())') < epgOnly.indexOf('refreshPromise = (async () => {'),\n    "cold source fallback must resolve before EPG-only owns refreshPromise",\n  );\n  assert.doesNotMatch(epgOnly, /refreshPromise = \\(async \\(\\) => \\{[\\s\\S]{0,240}return refreshInternal\\(true\\)/);\n});\n'''
+          if 'EPG-only refresh coalesces with active source work' not in t:
+              t += case
+          test.write_text(t)
+          PY
+      - name: Commit EPG refresh coalescing
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/source.native.ts frontend/tests/memoryCrossAudit.test.mjs
+          git commit -m "phase9: coalesce EPG refresh ownership"
+          git push origin HEAD:phase9/purple-next
+
+# retry after concurrent Phase 9 helper commits

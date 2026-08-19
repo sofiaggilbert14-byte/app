@@ -1,0 +1,60 @@
+name: Phase 9 TiviMate Custom EPG Assignment Deferral
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-custom-epg-assignment-deferral.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Keep assignment focus responsive while custom guide hydrates
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          bridge = Path('frontend/src/nativeEpg.ts')
+          b = bridge.read_text()
+          old = '''  // The filtered custom store intentionally did not keep programmes for an id\n  // before it was assigned. Populate the newly active binding set now so Guide\n  // re-entry never depends on the user remembering to press Refresh again.\n  if (normalizedXmltvId && userGuideEnabled && userGuideUrl) {\n    await refreshNativeUserGuide(userGuideUrl);\n  }\n  if (ramModule) await ramModule.clearMemory().catch(() => undefined);\n  return count;'''
+          new = '''  // The filtered custom store intentionally did not keep programmes for an id\n  // before it was assigned. Persist ownership synchronously, but do not make a\n  // D-pad assignment wait for a full XMLTV network/parse cycle. The native custom\n  // EPG executor serializes this hydration safely behind the binding write while\n  // Guide continues serving its last-good rows.\n  if (normalizedXmltvId && userGuideEnabled && userGuideUrl) {\n    void refreshNativeUserGuide(userGuideUrl).catch((error) => {\n      console.warn("CharmIPTV deferred custom EPG hydration failed", error);\n    });\n  }\n  if (ramModule) await ramModule.clearMemory().catch(() => undefined);\n  return count;'''
+          if 'CharmIPTV deferred custom EPG hydration failed' not in b:
+              if old not in b:
+                  raise SystemExit('blocking custom EPG assignment refresh marker not found')
+              b = b.replace(old, new, 1)
+          bridge.write_text(b)
+
+          screen = Path('frontend/app/epg-custom.tsx')
+          s = screen.read_text()
+          old_status = '''      setStatus(`${channel.name} now uses custom EPG channel ${xmltvId}.`);'''
+          new_status = '''      setStatus(`${channel.name} now uses custom EPG channel ${xmltvId}. Guide data will update without blocking navigation.`);'''
+          if 'Guide data will update without blocking navigation.' not in s:
+              if old_status not in s:
+                  raise SystemExit('custom EPG assignment status marker not found')
+              s = s.replace(old_status, new_status, 1)
+          screen.write_text(s)
+
+          test = Path('frontend/tests/tivimateColdStartPolicy.test.mjs')
+          t = test.read_text()
+          case = '''\ntest("custom EPG channel assignment does not block remote focus on a full XMLTV refresh", async () => {\n  const [bridge, screen] = await Promise.all([\n    source("src/nativeEpg.ts"),\n    source("app/epg-custom.tsx"),\n  ]);\n  assert.doesNotMatch(bridge, /if \\(normalizedXmltvId && userGuideEnabled && userGuideUrl\\) \\{\\s*await refreshNativeUserGuide/);\n  assert.match(bridge, /void refreshNativeUserGuide\\(userGuideUrl\\)\\.catch/);\n  assert.match(bridge, /deferred custom EPG hydration failed/);\n  assert.match(screen, /Guide data will update without blocking navigation/);\n});\n'''
+          if 'custom EPG channel assignment does not block remote focus on a full XMLTV refresh' not in t:
+              t += case
+              test.write_text(t)
+          PY
+      - name: Commit non-blocking assignment hydration
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/nativeEpg.ts frontend/app/epg-custom.tsx frontend/tests/tivimateColdStartPolicy.test.mjs
+          git commit -m "phase9: keep custom EPG assignment responsive"
+          git push origin HEAD:phase9/purple-next

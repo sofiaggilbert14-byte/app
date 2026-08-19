@@ -1,0 +1,47 @@
+name: Phase 9 TiviMate Custom Group Snapshot Memory
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-custom-group-snapshot-memory.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Hydrate custom groups one indexed group at a time
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('frontend/android/app/src/main/java/com/charmiptv/app/CustomizationNativeModule.kt')
+          s = p.read_text()
+          old = '''        val mappingsByGroup = dao.allMappings().groupBy { it.groupId }\n        val groups = Arguments.createArray()\n        for (group in dao.groups()) {\n          groups.pushMap(Arguments.createMap().apply {\n            putString("id", group.id)\n            putString("name", group.name)\n            putInt("position", group.position)\n            putArray("channelIds", Arguments.createArray().apply {\n              for (mapping in mappingsByGroup[group.id].orEmpty()) pushString(mapping.channelId)\n            })\n          })\n        }\n'''
+          new = '''        val groups = Arguments.createArray()\n        for (group in dao.groups()) {\n          // Keep native peak RAM bounded: query this group's indexed junction\n          // rows directly instead of materializing all mappings and then\n          // groupBy()-duplicating the entire custom-lineup graph.\n          val groupMappings = dao.mappings(group.id)\n          groups.pushMap(Arguments.createMap().apply {\n            putString("id", group.id)\n            putString("name", group.name)\n            putInt("position", group.position)\n            putArray("channelIds", Arguments.createArray().apply {\n              for (mapping in groupMappings) pushString(mapping.channelId)\n            })\n          })\n        }\n'''
+          if 'val groupMappings = dao.mappings(group.id)' not in s:
+              if old not in s: raise SystemExit('custom group snapshot memory marker not found')
+              p.write_text(s.replace(old, new, 1))
+
+          test = Path('frontend/tests/memoryCrossAudit.test.mjs')
+          t = test.read_text()
+          case = '''\ntest("custom group snapshot avoids all-mapping groupBy duplication", async () => {\n  const mod = await readFile(join(root, "android/app/src/main/java/com/charmiptv/app/CustomizationNativeModule.kt"), "utf8");\n  const snapshot = mod.match(/fun getSnapshot\\(promise: Promise\\)[\\s\\S]*?promise\\.resolve/)?.[0] || "";\n  assert.match(snapshot, /val groupMappings = dao\\.mappings\\(group\\.id\\)/);\n  assert.doesNotMatch(snapshot, /dao\\.allMappings\\(\\)\\.groupBy/);\n});\n'''
+          if 'custom group snapshot avoids all-mapping groupBy duplication' not in t:
+              t += case
+              test.write_text(t)
+          PY
+      - name: Commit custom-group snapshot memory repair
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/android/app/src/main/java/com/charmiptv/app/CustomizationNativeModule.kt frontend/tests/memoryCrossAudit.test.mjs
+          git commit -m "phase9: bound native custom group snapshot memory"
+          git push origin HEAD:phase9/purple-next

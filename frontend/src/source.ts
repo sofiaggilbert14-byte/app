@@ -94,6 +94,9 @@ export function trimProgrammeWindowCacheForMemoryPressure(
 ): void {
   /* native-only */
 }
+export function invalidateGuideOwnershipCaches(): void {
+  /* native ownership is Android-only; shared export keeps settings type-safe. */
+}
 export async function loadGuideProgramsForChannelIds(
   _channelIds: string[],
   _startISO?: string,
@@ -103,6 +106,10 @@ export async function loadGuideProgramsForChannelIds(
 }
 export async function refreshEpgOnly(): Promise<SourceStatus> {
   return refreshSource(true);
+}
+
+export async function refreshSourcesIfDue(): Promise<SourceStatus> {
+  return refreshSource(false);
 }
 
 function sortChannelsAlphabetically(channels: Channel[]): Channel[] {
@@ -1107,6 +1114,11 @@ export async function refreshSource(force = false): Promise<SourceStatus> {
   const parsed = await ensureParsed(force);
   if (force && !API_BASE && SOURCE_EPG) await loadEpg(parsed.channels, true);
   return sourceStatus();
+}
+
+/** Web fallback; native overrides this with a playlist-only streamed refresh. */
+export async function refreshPlaylistOnly(): Promise<SourceStatus> {
+  return refreshSource(true);
 }
 
 export function sourceStatus(): SourceStatus {

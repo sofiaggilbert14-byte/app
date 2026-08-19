@@ -1,6 +1,6 @@
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -10,6 +10,7 @@ import { PurpleDrawerButton } from "@/src/components/PurpleDrawerButton";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { Channel } from "@/src/api";
 import { useStore } from "@/src/store";
+import { useGuidePrograms } from "@/src/core/guideProgramsStore";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { nowNext } from "@/src/utils/time";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
@@ -21,15 +22,22 @@ const Card = memo(function Card({
   logos,
   now,
   onPress,
+  onFocus,
+  preferredFocus,
 }: {
   channel: Channel;
   logos: boolean;
   now: Date;
   onPress: (channel: Channel) => void;
+  onFocus: () => void;
+  preferredFocus?: boolean;
 }) {
-  const current = nowNext(channel.programs, now).current;
+  const programs = useGuidePrograms(channel.id);
+  const current = nowNext(programs, now).current;
   return (
     <Pressable
+      hasTVPreferredFocus={preferredFocus}
+      onFocus={onFocus}
       onPress={() => onPress(channel)}
       style={({ focused }: any) => [styles.card, focused && styles.focused]}
       testID={`collection-${channel.id}`}
@@ -61,7 +69,7 @@ export function PurpleChannelCollection({
   const { channels, addRecent, channelLogos, hardRefresh, loading, refreshing, error } = useStore();
   const columns = width >= 1500 ? 6 : width >= 1050 ? 5 : 4;
   const [now, setNow] = useState(() => new Date());
-  const [preferEmptyFocus, setPreferEmptyFocus] = useState(true);
+  const [preferInitialFocus, setPreferInitialFocus] = useState(true);
 
   useEffect(() => {
     if (!isFocused) return;
@@ -70,11 +78,17 @@ export function PurpleChannelCollection({
     return () => clearInterval(timer);
   }, [isFocused]);
 
-  useEffect(() => {
-    if (!preferEmptyFocus) return;
-    const timer = setTimeout(() => setPreferEmptyFocus(false), 700);
-    return () => clearTimeout(timer);
-  }, [preferEmptyFocus]);
+  // Tabs can stay mounted after navigation. Re-arm preferred focus on every
+  // route entry so Android TV never returns to a collection with no focus owner.
+  useFocusEffect(
+    useCallback(() => {
+      setPreferInitialFocus(true);
+      const timer = setTimeout(() => setPreferInitialFocus(false), 180);
+      return () => clearTimeout(timer);
+    }, []),
+  );
+
+  const disarmInitialFocus = useCallback(() => setPreferInitialFocus(false), []);
 
   const items = useMemo(() => channels.filter(matcher), [channels, matcher]);
   const playlistEmpty = channels.length === 0;
@@ -112,8 +126,8 @@ export function PurpleChannelCollection({
               showsVerticalScrollIndicator={false}
               columnWrapperStyle={styles.row}
               contentContainerStyle={styles.grid}
-              renderItem={({ item }) => (
-                <Card channel={item} logos={isFocused && channelLogos} now={now} onPress={play} />
+              renderItem={({ item, index }) => (
+                <Card channel={item} logos={isFocused && channelLogos} now={now} onPress={play} onFocus={disarmInitialFocus} preferredFocus={preferInitialFocus && index === 0} />
               )}
             />
           </>
@@ -129,7 +143,7 @@ export function PurpleChannelCollection({
             </Text>
             {playlistEmpty ? (
               <Pressable
-                hasTVPreferredFocus={preferEmptyFocus}
+                hasTVPreferredFocus={preferInitialFocus}
                 onPress={() => void hardRefresh()}
                 disabled={loading || refreshing}
                 style={({ focused }: any) => [styles.emptyButton, focused && styles.focused]}
@@ -139,7 +153,7 @@ export function PurpleChannelCollection({
               </Pressable>
             ) : (
               <Pressable
-                hasTVPreferredFocus={preferEmptyFocus}
+                hasTVPreferredFocus={preferInitialFocus}
                 onPress={() => router.replace("/guide" as any)}
                 style={({ focused }: any) => [styles.emptyButton, focused && styles.focused]}
               >

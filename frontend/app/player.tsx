@@ -25,15 +25,18 @@ import {
   clearFullscreenCircuit,
   isFullscreenCircuitOpen,
   type StreamTrack,
+  type PlayerScaleMode,
 } from "@/src/components/StreamPlayer";
 import { useStore } from "@/src/store";
 import { fonts, radius, tvColors } from "@/src/theme";
-import { addTvKeyListener } from "@/src/utils/tvRemote";
+import { addTvKeyListener, addTvLongPressListener, setRemoteContext } from "@/src/utils/tvRemote";
+import { useRemoteShortcutPreferences } from "@/src/core/remoteShortcutPreferences";
 import { getTvSafeInsets } from "@/src/utils/tvLayout";
 import { requestNativeFocus } from "@/src/utils/tvFocus";
 import { stopFullscreenSession, stopAllPlaybackSessions, pauseSessionDecoders, type SessionFailReason } from "@/src/core/playbackSession";
 import { fmtTime, nowNext, progressPct } from "@/src/utils/time";
 import { useGuidePrograms } from "@/src/core/guideProgramsStore";
+import { requestGuideJump } from "@/src/core/guideSearchJump";
 import {
   audioDiagnosticsExtras,
   getLastAudioDiagnostics,
@@ -42,12 +45,14 @@ import { pickDefaultSubtitleTrack, useSubtitlePreferences } from "@/src/core/sub
 import { pickPreferredAudioTrack, useAudioTrackPreferences } from "@/src/core/audioTrackPreferences";
 import { clearStreamFailure, noteStreamFailure } from "@/src/core/streamFailureRegistry";
 import * as FileSystem from "expo-file-system/legacy";
+import type { Channel } from "@/src/api";
 
 const CHANNEL_PREVIEW_DELAY_MS = 650;
 const CHANNEL_ZAP_SETTLE_MS = 850;
-const STREAM_RETRY_MS = 3000;
+const STREAM_RETRY_DELAYS_MS = [1000, 2000, 4000] as const;
 const MAX_AUTO_STREAM_RETRIES = 4;
 const SWITCH_NOTICE_MS = 1800;
+const STABLE_HISTORY_DELAY_MS = 5000;
 
 const FAIL_REASON_LABEL: Record<SessionFailReason, string> = {
   "start-timeout": "start timeout — trying alternate engine",
@@ -74,13 +79,15 @@ function AutoScrollProgramDescription({ text }: { text: string; activeKey: strin
 
 export default function PlayerScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ channelId: string }>();
+  const params = useLocalSearchParams<{ channelId: string; returnToGuide?: string }>();
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const {
     channels,
+    recent,
     channelById,
     addRecent,
+    toggleFavorite,
     playerControlsTimeoutMs,
     autoRetryStreams,
     channelLogos,
@@ -95,29 +102,47 @@ export default function PlayerScreen() {
   const [failReason, setFailReason] = useState<SessionFailReason | null>(null);
   const [retryToken, setRetryToken] = useState(0);
   const [controls, setControls] = useState(true);
-  const [channelsOpen, setChannelsOpen] = useState(false);
+  const [playerOverlay, setPlayerOverlay] = useState<"channels" | "tracks" | "more" | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [retryAttempt, setRetryAttempt] = useState(0);
   const [playerNow, setPlayerNow] = useState(() => new Date());
   // Decoder is disarmed while rapid Next/Prev or strip surfing — prevents VLC pile-up / audio leaks.
   const [decoderArmed, setDecoderArmed] = useState(true);
+  const [playbackPaused, setPlaybackPaused] = useState(false);
+  const [scaleMode, setScaleMode] = useState<PlayerScaleMode>("fit");
   const [audioTracks, setAudioTracks] = useState<StreamTrack[]>([]);
   const [textTracks, setTextTracks] = useState<StreamTrack[]>([]);
   const [audioTrackId, setAudioTrackId] = useState<string | number | undefined>(undefined);
   const [textTrackId, setTextTrackId] = useState<string | number | undefined>(undefined);
-  const [tracksOpen, setTracksOpen] = useState(false);
+  const channelsOpen = playerOverlay === "channels";
+  const tracksOpen = playerOverlay === "tracks";
+  const moreOpen = playerOverlay === "more";
+  const setOverlayOpen = useCallback((name: "channels" | "tracks" | "more", next: React.SetStateAction<boolean>) => {
+    setPlayerOverlay((current) => {
+      const open = current === name;
+      const resolved = typeof next === "function" ? next(open) : next;
+      return resolved ? name : current === name ? null : current;
+    });
+  }, []);
+  const setChannelsOpen = useCallback((next: React.SetStateAction<boolean>) => setOverlayOpen("channels", next), [setOverlayOpen]);
+  const setTracksOpen = useCallback((next: React.SetStateAction<boolean>) => setOverlayOpen("tracks", next), [setOverlayOpen]);
+  const setMoreOpen = useCallback((next: React.SetStateAction<boolean>) => setOverlayOpen("more", next), [setOverlayOpen]);
   const { defaultLanguage: subtitleDefaultLanguage } = useSubtitlePreferences();
   const audioPreferences = useAudioTrackPreferences();
+  const remoteShortcuts = useRemoteShortcutPreferences();
 
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const zapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stableHistoryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const controlsRef = useRef(true);
   const channelsOpenRef = useRef(false);
   const generationRef = useRef(0);
   const channelsButtonRef = useRef<any>(null);
+  const moreButtonRef = useRef<any>(null);
+  const overlayOpenerRef = useRef<any>(null);
   const nextButtonRef = useRef<any>(null);
   const prevButtonRef = useRef<any>(null);
   const preferControlRef = useRef<"next" | "prev" | null>(null);
@@ -125,12 +150,18 @@ export default function PlayerScreen() {
   const rapidStripUntilRef = useRef(0);
   const pendingChannelIdRef = useRef(params.channelId);
   const channelIdRef = useRef(params.channelId);
+  const previousChannelIdRef = useRef<string | null>(null);
   const textTrackIdRef = useRef<string | number | undefined>(undefined);
   const subtitleDefaultLanguageRef = useRef(subtitleDefaultLanguage);
   const subtitleAutoAppliedRef = useRef<string | null>(null);
   const audioAutoAppliedRef = useRef<string | null>(null);
 
   const isTV = Platform.OS !== "web" && Platform.isTV;
+  useEffect(() => {
+    if (!isTV) return;
+    setRemoteContext("player");
+    return () => setRemoteContext("default");
+  }, [isTV]);
   const overlayHideMs = playerControlsTimeoutMs;
   const safe = useMemo(
     () => getTvSafeInsets(width, height, deviceLayoutMode),
@@ -142,16 +173,30 @@ export default function PlayerScreen() {
     () => (channelMeta ? { ...channelMeta, programs: channelPrograms } : undefined),
     [channelMeta, channelPrograms],
   );
-  const sortedChannels = useMemo(
-    () => [...channels].sort((a, b) => (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" })),
-    [channels],
-  );
-  const streamChannels = useMemo(() => sortedChannels.filter((item) => !!item.url), [sortedChannels]);
+  // Native source/cache channels are already name-sorted and playable. Avoid
+  // cloning/sorting several 6k+ arrays while the fullscreen decoder is starting.
+  const streamChannels = channels;
+  const historyChannels = useMemo(() => {
+    const seen = new Set<string>();
+    const out: Channel[] = [];
+    for (const item of recent) {
+      if (!item.url || seen.has(item.id)) continue;
+      seen.add(item.id);
+      out.push(item);
+    }
+    for (const item of streamChannels) {
+      if (!item.url || seen.has(item.id)) continue;
+      seen.add(item.id);
+      out.push(item);
+    }
+    return out;
+  }, [recent, streamChannels]);
   const numberById = useMemo(() => {
     const result: Record<string, number> = {};
-    sortedChannels.forEach((item, index) => { result[item.id] = index + 1; });
+    if (!channelNumbers) return result;
+    for (let index = 0; index < channels.length; index += 1) result[channels[index].id] = index + 1;
     return result;
-  }, [sortedChannels]);
+  }, [channelNumbers, channels]);
 
   useEffect(() => {
     const timer = setInterval(() => setPlayerNow(new Date()), 30_000);
@@ -187,7 +232,7 @@ export default function PlayerScreen() {
     subtitleAutoAppliedRef.current = null;
     audioAutoAppliedRef.current = null;
     setTracksOpen(false);
-  }, [channelId, retryToken]);
+  }, [channelId, retryToken, setTracksOpen]);
 
   const { current, next } = nowNext(channel?.programs, playerNow);
   const progress = current ? progressPct(current, playerNow) : 0;
@@ -207,8 +252,10 @@ export default function PlayerScreen() {
       controlsRef.current = false;
       setControls(false);
       setChannelsOpen(false);
+      setTracksOpen(false);
+      setMoreOpen(false);
     }, overlayHideMs);
-  }, [overlayHideMs]);
+  }, [overlayHideMs, setChannelsOpen, setMoreOpen, setTracksOpen]);
 
   const revealControls = useCallback((opts?: { claimChannelsFocus?: boolean }) => {
     const wasHidden = !controlsRef.current;
@@ -242,6 +289,7 @@ export default function PlayerScreen() {
       setRetryAttempt(0);
       setStatus("loading");
       setFailReason(null);
+      setPlaybackPaused(false);
       setDecoderArmed(true);
       setRetryToken((value) => value + 1);
     }, delayMs);
@@ -257,13 +305,15 @@ export default function PlayerScreen() {
     if (haptic) void Haptics.selectionAsync().catch(() => undefined);
 
     pendingChannelIdRef.current = id;
+    if (channelIdRef.current && channelIdRef.current !== id) previousChannelIdRef.current = channelIdRef.current;
     channelIdRef.current = id;
     generationRef.current += 1;
     setRetryAttempt(0);
     setStatus("loading");
     setFailReason(null);
     setChannelId(id);
-    addRecent(target);
+    setPlaybackPaused(false);
+    if (stableHistoryTimer.current) clearTimeout(stableHistoryTimer.current);
     showNotice(`Switching to ${target.name}`);
     // Keep strip/card focus — do not reclaim Channels button.
     revealControls({ claimChannelsFocus: false });
@@ -280,7 +330,7 @@ export default function PlayerScreen() {
     pauseSessionDecoders("fullscreen");
     setDecoderArmed(false);
     armDecoderAfterSettle(CHANNEL_ZAP_SETTLE_MS);
-  }, [addRecent, armDecoderAfterSettle, channelById, revealControls, showNotice]);
+  }, [armDecoderAfterSettle, channelById, revealControls, showNotice]);
 
   const previewChannel = useCallback((id: string) => {
     if (id === pendingChannelIdRef.current) return;
@@ -295,7 +345,7 @@ export default function PlayerScreen() {
     setChannelId(id);
     const target = channelById(id);
     if (target) {
-      addRecent(target);
+      if (stableHistoryTimer.current) clearTimeout(stableHistoryTimer.current);
       showNotice(`Switching to ${target.name}`);
     }
     pauseSessionDecoders("fullscreen");
@@ -318,7 +368,7 @@ export default function PlayerScreen() {
       if (pendingChannelIdRef.current !== id) return;
       armDecoderAfterSettle(40);
     }, delay);
-  }, [addRecent, armDecoderAfterSettle, channelById, revealControls, showNotice]);
+  }, [armDecoderAfterSettle, channelById, revealControls, showNotice]);
 
   const stepChannel = useCallback((direction: -1 | 1) => {
     if (streamChannels.length < 2) return;
@@ -331,6 +381,22 @@ export default function PlayerScreen() {
     // Debounced zap: UI + notice update now; decoder remounts only after settle.
     changeChannel(target.id, true);
   }, [changeChannel, streamChannels]);
+
+  const returnToPreviousChannel = useCallback(() => {
+    const previous = previousChannelIdRef.current;
+    if (!previous || previous === channelIdRef.current) return;
+    changeChannel(previous, true, { immediate: true });
+    setPlayerOverlay(null);
+  }, [changeChannel]);
+
+  const cycleScaleMode = useCallback(() => {
+    setScaleMode((current) => {
+      const next: PlayerScaleMode = current === "fit" ? "zoom" : current === "zoom" ? "stretch" : "fit";
+      showNotice(next === "fit" ? "Aspect: Fit" : next === "zoom" ? "Aspect: Zoom" : "Aspect: Stretch");
+      return next;
+    });
+    revealControls({ claimChannelsFocus: false });
+  }, [revealControls, showNotice]);
 
   const restartStream = useCallback((clearCircuit: boolean) => {
     if (!hasStream) return;
@@ -367,6 +433,13 @@ export default function PlayerScreen() {
     channelsOpenRef.current = channelsOpen;
   }, [channelsOpen]);
 
+  const closeOverlayAndRestoreFocus = useCallback(() => {
+    setPlayerOverlay(null);
+    const opener = overlayOpenerRef.current;
+    overlayOpenerRef.current = null;
+    if (opener) requestAnimationFrame(() => requestNativeFocus(opener));
+  }, []);
+
   // Cold mount / explicit retry only — channel zaps must not reclaim Channels focus.
   useEffect(() => {
     revealControls({ claimChannelsFocus: true });
@@ -375,6 +448,7 @@ export default function PlayerScreen() {
       if (previewTimer.current) clearTimeout(previewTimer.current);
       if (zapTimer.current) clearTimeout(zapTimer.current);
       if (retryTimer.current) clearTimeout(retryTimer.current);
+      if (stableHistoryTimer.current) clearTimeout(stableHistoryTimer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional cold-mount/retry only
   }, [retryToken]);
@@ -385,7 +459,7 @@ export default function PlayerScreen() {
       if (zapTimer.current) clearTimeout(zapTimer.current);
       if (previewTimer.current) clearTimeout(previewTimer.current);
     },
-    [],
+    [setTracksOpen],
   );
 
   useEffect(() => {
@@ -401,8 +475,18 @@ export default function PlayerScreen() {
     if (status === "playing") {
       setRetryAttempt(0);
       if (controlsRef.current) scheduleHide();
+      if (stableHistoryTimer.current) clearTimeout(stableHistoryTimer.current);
+      const stableChannelId = channelIdRef.current;
+      stableHistoryTimer.current = setTimeout(() => {
+        if (status !== "playing" || channelIdRef.current !== stableChannelId) return;
+        const stableChannel = channelById(stableChannelId);
+        if (stableChannel) addRecent(stableChannel);
+      }, STABLE_HISTORY_DELAY_MS);
+      return () => {
+        if (stableHistoryTimer.current) clearTimeout(stableHistoryTimer.current);
+      };
     }
-  }, [scheduleHide, status]);
+  }, [addRecent, channelById, scheduleHide, status]);
 
   useEffect(() => {
     if (status !== "error" && hasStream) return;
@@ -418,7 +502,7 @@ export default function PlayerScreen() {
     // the deliberate Retry button (which clears the breaker).
     if (failReason === "circuit-open" || isFullscreenCircuitOpen(channel?.url)) return;
     if (retryTimer.current) clearTimeout(retryTimer.current);
-    const delay = STREAM_RETRY_MS * Math.min(4, 2 ** retryAttempt);
+    const delay = STREAM_RETRY_DELAYS_MS[Math.min(retryAttempt, STREAM_RETRY_DELAYS_MS.length - 1)];
     retryTimer.current = setTimeout(() => restartStream(false), delay);
     return () => {
       if (retryTimer.current) clearTimeout(retryTimer.current);
@@ -454,11 +538,21 @@ export default function PlayerScreen() {
     if (zapTimer.current) clearTimeout(zapTimer.current);
     if (previewTimer.current) clearTimeout(previewTimer.current);
     if (retryTimer.current) clearTimeout(retryTimer.current);
+    const currentChannelId = pendingChannelIdRef.current || channelIdRef.current;
     generationRef.current += 1;
     setDecoderArmed(false);
     stopFullscreenSession();
+
+    // A fullscreen session launched from Guide owns a Guide return anchor.
+    // Use the currently tuned channel (including rapid zaps), not the channel
+    // that originally opened the player. Other entry points keep normal Back.
+    if (params.returnToGuide === "1" && currentChannelId) {
+      requestGuideJump({ channelId: currentChannelId, group: "All" });
+      router.replace("/guide" as any);
+      return;
+    }
     router.back();
-  }, [router]);
+  }, [params.returnToGuide, router]);
 
   const handleStreamStatus = useCallback(
     (next: StreamStatus, reason?: SessionFailReason | null) => {
@@ -480,13 +574,17 @@ export default function PlayerScreen() {
         reason !== "circuit-open"
       ) {
         noteStreamFailure(channelIdRef.current);
+        // Keep generic playback recovery local to the active decoder. A transient
+        // live-stream stall must not trigger a full 6k+ playlist download/parse
+        // while Media3/VLC is simultaneously retrying. Source refresh remains an
+        // explicit Settings/source operation instead of competing with playback.
       }
       if (next === "playing") {
         setFailReason(null);
         clearStreamFailure(channelIdRef.current);
       }
     },
-    [],
+    [setTracksOpen],
   );
 
   const saveAudioReport = useCallback(async () => {
@@ -518,11 +616,60 @@ export default function PlayerScreen() {
     if (zapTimer.current) clearTimeout(zapTimer.current);
     if (previewTimer.current) clearTimeout(previewTimer.current);
     if (retryTimer.current) clearTimeout(retryTimer.current);
+    const currentChannelId = pendingChannelIdRef.current || channelIdRef.current;
+    if (currentChannelId) {
+      requestGuideJump({
+        channelId: currentChannelId,
+        // Raw provider groups can be hidden in Phase 9. Restore the exact
+        // channel through All so fullscreen -> Guide never depends on an
+        // invisible M3U category.
+        group: "All",
+      });
+    }
     generationRef.current += 1;
     setDecoderArmed(false);
     stopFullscreenSession();
     router.replace("/guide" as any);
   }, [router]);
+
+  useEffect(() => {
+    if (!isTV) return;
+    // TV-remote semantic long presses, limited to actions Charm already owns.
+    // Long Down exposes channel browsing without triggering a stream reload;
+    // Long Select simply wakes the controls/quick-action surface.
+    return addTvLongPressListener((key) => {
+      if (key === "DOWN") {
+        if (remoteShortcuts.longDown === "guide") {
+          goGuide();
+          return;
+        }
+        if (remoteShortcuts.longDown === "channels") {
+          controlsRef.current = true;
+          setControls(true);
+          setMoreOpen(false);
+          setTracksOpen(false);
+          setChannelsOpen(true);
+          scheduleHide();
+        }
+        return;
+      }
+      if (key === "SELECT") {
+        if (remoteShortcuts.longSelect === "favorite") {
+          const target = pendingChannelIdRef.current || channelIdRef.current;
+          if (target) {
+            toggleFavorite(target);
+            showNotice("Favorite updated");
+          }
+          return;
+        }
+        if (remoteShortcuts.longSelect === "guide") {
+          goGuide();
+          return;
+        }
+        if (remoteShortcuts.longSelect === "controls") revealControls({ claimChannelsFocus: true });
+      }
+    });
+  }, [goGuide, isTV, remoteShortcuts.longDown, remoteShortcuts.longSelect, revealControls, scheduleHide, setChannelsOpen, setMoreOpen, setTracksOpen, showNotice, toggleFavorite]);
 
   useEffect(() => {
     if (!params.channelId || params.channelId === channelIdRef.current) return;
@@ -536,12 +683,17 @@ export default function PlayerScreen() {
         return true;
       }
       if (tracksOpen) {
-        setTracksOpen(false);
+        closeOverlayAndRestoreFocus();
+        scheduleHide();
+        return true;
+      }
+      if (moreOpen) {
+        closeOverlayAndRestoreFocus();
         scheduleHide();
         return true;
       }
       if (channelsOpen) {
-        setChannelsOpen(false);
+        closeOverlayAndRestoreFocus();
         scheduleHide();
         return true;
       }
@@ -549,7 +701,7 @@ export default function PlayerScreen() {
       return true;
     });
     return () => sub.remove();
-  }, [channelsOpen, revealControls, scheduleHide, stopAndExit, tracksOpen]);
+  }, [channelsOpen, closeOverlayAndRestoreFocus, moreOpen, revealControls, scheduleHide, stopAndExit, tracksOpen]);
 
   return (
     <View style={styles.root}>
@@ -584,6 +736,8 @@ export default function PlayerScreen() {
             sessionRole="fullscreen"
             audioTrack={audioTrackId}
             textTrack={textTrackId}
+            paused={playbackPaused}
+            scaleMode={scaleMode}
             onTracksAvailable={(tracks) => {
               const audio = tracks.audio.filter((track) => track.id !== "" && track.id != null);
               const text = tracks.text.filter((track) => track.id !== "" && track.id != null);
@@ -628,6 +782,8 @@ export default function PlayerScreen() {
             controlsRef.current = false;
             setControls(false);
             setChannelsOpen(false);
+            setTracksOpen(false);
+            setMoreOpen(false);
           } else {
             revealControls();
           }
@@ -739,28 +895,17 @@ export default function PlayerScreen() {
               </Pressable>
               <Pressable
                 ref={channelsButtonRef}
-                onPress={() => setChannelsOpen((value) => !value)}
+                onPress={() => {
+                  overlayOpenerRef.current = channelsButtonRef.current;
+                  setTracksOpen(false);
+                  setMoreOpen(false);
+                  setChannelsOpen((value) => !value);
+                  scheduleHide();
+                }}
                 style={({ focused }: any) => [styles.textControl, channelsOpen && styles.controlActive, focused && styles.focused]}
               >
                 <Ionicons name="list" size={15} color="#fff" />
                 <Text style={styles.controlLabel}>Channels</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => setTracksOpen((value) => !value)}
-                style={({ focused }: any) => [styles.textControl, tracksOpen && styles.controlActive, focused && styles.focused]}
-              >
-                <Ionicons name="musical-notes-outline" size={15} color="#fff" />
-                <Text style={styles.controlLabel}>Audio/CC</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  void saveAudioReport();
-                }}
-                style={({ focused }: any) => [styles.textControl, focused && styles.focused]}
-                testID="player-report-audio"
-              >
-                <Ionicons name="bug-outline" size={15} color="#fff" />
-                <Text style={styles.controlLabel}>Report</Text>
               </Pressable>
               <View style={styles.controlsSpacer} />
               <Pressable
@@ -772,15 +917,14 @@ export default function PlayerScreen() {
                 <Ionicons name="play-skip-back" size={18} color="#fff" />
               </Pressable>
               <Pressable
-                accessibilityLabel="Hide player controls"
+                accessibilityLabel={playbackPaused ? "Play stream" : "Pause stream"}
                 onPress={() => {
-                  controlsRef.current = false;
-                  setControls(false);
-                  setChannelsOpen(false);
+                  setPlaybackPaused((value) => !value);
+                  revealControls({ claimChannelsFocus: false });
                 }}
                 style={({ focused }: any) => [styles.pauseControl, focused && styles.focused]}
               >
-                <Ionicons name="eye-off-outline" size={18} color="#fff" />
+                <Ionicons name={playbackPaused ? "play" : "pause"} size={18} color="#fff" />
               </Pressable>
               <Pressable
                 ref={nextButtonRef}
@@ -791,13 +935,65 @@ export default function PlayerScreen() {
                 <Ionicons name="play-skip-forward" size={18} color="#fff" />
               </Pressable>
               <View style={styles.controlsSpacer} />
-              <Pressable onPress={() => router.replace("/settings" as any)} style={({ focused }: any) => [styles.iconControl, focused && styles.focused]}>
-                <Ionicons name="settings-outline" size={16} color="#fff" />
+              <Pressable
+                ref={moreButtonRef}
+                onPress={() => {
+                  overlayOpenerRef.current = moreButtonRef.current;
+                  setChannelsOpen(false);
+                  setTracksOpen(false);
+                  setMoreOpen((value) => !value);
+                  scheduleHide();
+                }}
+                style={({ focused }: any) => [styles.textControl, moreOpen && styles.controlActive, focused && styles.focused]}
+              >
+                <Ionicons name="ellipsis-horizontal" size={15} color="#fff" />
+                <Text style={styles.controlLabel}>More</Text>
               </Pressable>
-              <Pressable onPress={stopAndExit} style={({ focused }: any) => [styles.iconControl, focused && styles.focused]}>
-                <Ionicons name="close" size={18} color="#fff" />
+              <Pressable onPress={stopAndExit} style={({ focused }: any) => [styles.textControl, focused && styles.focused]}>
+                <Ionicons name="stop" size={15} color="#fff" />
+                <Text style={styles.controlLabel}>Stop</Text>
               </Pressable>
             </View>
+
+            {moreOpen ? (
+              <View style={styles.tracksPanel}>
+                <Pressable onPress={returnToPreviousChannel} style={({ focused }: any) => [styles.trackRow, focused && styles.focused]}>
+                  <Ionicons name="return-up-back-outline" size={15} color="#fff" />
+                  <Text style={styles.controlLabel}>Previous channel</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => { overlayOpenerRef.current = moreButtonRef.current; setTracksOpen(true); scheduleHide(); }}
+                  style={({ focused }: any) => [styles.trackRow, focused && styles.focused]}
+                >
+                  <Ionicons name="musical-notes-outline" size={15} color="#fff" />
+                  <Text style={styles.controlLabel}>Audio / Subtitles</Text>
+                </Pressable>
+                <Pressable onPress={cycleScaleMode} style={({ focused }: any) => [styles.trackRow, focused && styles.focused]}>
+                  <Ionicons name="resize-outline" size={15} color="#fff" />
+                  <Text style={styles.controlLabel}>Aspect · {scaleMode === "fit" ? "Fit" : scaleMode === "zoom" ? "Zoom" : "Stretch"}</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    const next = sleepTimerMinutes === 0 ? 15 : sleepTimerMinutes === 15 ? 30 : sleepTimerMinutes === 30 ? 60 : sleepTimerMinutes === 60 ? 90 : 0;
+                    setSleepTimerMinutes(next);
+                    showNotice(next ? `Sleep timer: ${next} min` : "Sleep timer: Off");
+                    scheduleHide();
+                  }}
+                  style={({ focused }: any) => [styles.trackRow, focused && styles.focused]}
+                >
+                  <Ionicons name="moon-outline" size={15} color="#fff" />
+                  <Text style={styles.controlLabel}>Sleep Timer · {sleepTimerMinutes ? `${sleepTimerMinutes}m` : "Off"}</Text>
+                </Pressable>
+                <Pressable onPress={() => router.replace("/settings" as any)} style={({ focused }: any) => [styles.trackRow, focused && styles.focused]}>
+                  <Ionicons name="settings-outline" size={15} color="#fff" />
+                  <Text style={styles.controlLabel}>Settings</Text>
+                </Pressable>
+                <Pressable onPress={() => void saveAudioReport()} style={({ focused }: any) => [styles.trackRow, focused && styles.focused]} testID="player-report-audio">
+                  <Ionicons name="bug-outline" size={15} color="#fff" />
+                  <Text style={styles.controlLabel}>Diagnostics</Text>
+                </Pressable>
+              </View>
+            ) : null}
 
             {tracksOpen ? (
               <View style={styles.tracksPanel}>
@@ -842,8 +1038,10 @@ export default function PlayerScreen() {
             ) : null}
 
             {channelsOpen ? (
+              <View>
+                <Text style={styles.controlLabel}>Previous & recent channels</Text>
               <FlatList
-                data={streamChannels}
+                data={historyChannels}
                 horizontal
                 keyExtractor={(item) => item.id}
                 initialNumToRender={8}
@@ -863,6 +1061,7 @@ export default function PlayerScreen() {
                   </Pressable>
                 )}
               />
+              </View>
             ) : null}
           </LinearGradient>
         </>

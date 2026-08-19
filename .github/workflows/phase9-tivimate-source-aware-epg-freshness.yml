@@ -1,0 +1,72 @@
+name: Phase 9 TiviMate Source-Aware EPG Freshness
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-source-aware-epg-freshness.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Make cold-start EPG freshness ownership-aware
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          custom = Path('frontend/android/app/src/main/java/com/charmiptv/app/CustomEpgNativeModule.kt')
+          s = custom.read_text()
+          old = '''        userDatabase.replaceChannelAliases(aliases)\n        userDatabase.setMeta("guide_refreshed_at", now.toString())\n        userDatabase.setMeta("custom_programme_scope", activeXmltvIds.size.toString())\n\n        promise.resolve(Arguments.createMap().apply {\n          putDouble("count", userDatabase.count().toDouble())\n          putDouble("directoryCount", channelNames.size.toDouble())\n          putDouble("bindingCount", activeXmltvIds.size.toDouble())\n        })\n'''
+          new = '''        userDatabase.replaceChannelAliases(aliases)\n        val guideEpoch = (userDatabase.getMeta("guide_epoch")?.toLongOrNull() ?: 0L) + 1L\n        userDatabase.setMeta("guide_epoch", guideEpoch.toString())\n        userDatabase.setMeta("guide_refreshed_at", now.toString())\n        userDatabase.setMeta("custom_programme_scope", activeXmltvIds.size.toString())\n\n        promise.resolve(Arguments.createMap().apply {\n          putDouble("count", userDatabase.count().toDouble())\n          putDouble("directoryCount", channelNames.size.toDouble())\n          putDouble("bindingCount", activeXmltvIds.size.toDouble())\n          putDouble("guideEpoch", guideEpoch.toDouble())\n          putDouble("guideRefreshedAt", now.toDouble())\n        })\n'''
+          if 'putDouble("guideEpoch", guideEpoch.toDouble())' not in s:
+              if old not in s: raise SystemExit('custom EPG freshness marker not found')
+              custom.write_text(s.replace(old, new, 1))
+
+          native = Path('frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt')
+          n = native.read_text()
+          old = '''        val userSource = controlDao.source(USER_SOURCE_ID)\n        val userEnabled = userSource?.enabled == true && userSource.url.isNotBlank()\n        val userBindings = if (userEnabled) controlDao.allChannelBindings(USER_SOURCE_ID) else emptyList()\n        val bindingByPlaylist = userBindings.associate { it.channelId to it.xmltvId }\n        val userIcons = if (bindingByPlaylist.isNotEmpty()) userDatabase.iconAliases(bindingByPlaylist.values.toSet()) else emptyMap()\n        val channels = Arguments.createArray()\n'''
+          new = '''        val primaryEnabled = controlDao.source(DEFAULT_PLAYLIST_ID)?.enabled ?: true\n        val userSource = controlDao.source(USER_SOURCE_ID)\n        val userEnabled = userSource?.enabled == true && userSource.url.isNotBlank()\n        val userBindings = if (userEnabled) controlDao.allChannelBindings(USER_SOURCE_ID) else emptyList()\n        val hasUserOwnership = userEnabled && userBindings.isNotEmpty()\n        val bindingByPlaylist = userBindings.associate { it.channelId to it.xmltvId }\n        val userIcons = if (bindingByPlaylist.isNotEmpty()) userDatabase.iconAliases(bindingByPlaylist.values.toSet()) else emptyMap()\n        val primaryGuideEpoch = database.getMeta("guide_epoch")?.toLongOrNull() ?: 0L\n        val userGuideEpoch = userDatabase.getMeta("guide_epoch")?.toLongOrNull() ?: 0L\n        val primaryGuideRefreshedAt = database.getMeta("guide_refreshed_at")?.toLongOrNull() ?: 0L\n        val userGuideRefreshedAt = userDatabase.getMeta("guide_refreshed_at")?.toLongOrNull() ?: 0L\n        val effectiveGuideEpoch =\n          (if (primaryEnabled) primaryGuideEpoch else 0L) +\n            (if (hasUserOwnership) userGuideEpoch else 0L)\n        val effectiveGuideRefreshedAt = when {\n          primaryEnabled && hasUserOwnership ->\n            if (primaryGuideRefreshedAt > 0L && userGuideRefreshedAt > 0L)\n              minOf(primaryGuideRefreshedAt, userGuideRefreshedAt) else 0L\n          primaryEnabled -> primaryGuideRefreshedAt\n          hasUserOwnership -> userGuideRefreshedAt\n          else -> 0L\n        }\n        val effectiveProgramCount =\n          (if (primaryEnabled) database.count() else 0L) +\n            (if (hasUserOwnership) userDatabase.count() else 0L)\n        val channels = Arguments.createArray()\n'''
+          if 'val effectiveGuideEpoch =' not in n:
+              if old not in n: raise SystemExit('stored playlist ownership marker not found')
+              n = n.replace(old, new, 1)
+
+          old2 = '''          putDouble("guideEpoch", (database.getMeta("guide_epoch")?.toLongOrNull() ?: 0L).toDouble())\n          putDouble("guideRefreshedAt", (database.getMeta("guide_refreshed_at")?.toLongOrNull() ?: 0L).toDouble())\n          putDouble("epgProgramCount", database.count().toDouble())\n'''
+          new2 = '''          putDouble("guideEpoch", effectiveGuideEpoch.toDouble())\n          putDouble("guideRefreshedAt", effectiveGuideRefreshedAt.toDouble())\n          putDouble("epgProgramCount", effectiveProgramCount.toDouble())\n          putDouble("primaryGuideRefreshedAt", primaryGuideRefreshedAt.toDouble())\n          putDouble("userGuideRefreshedAt", userGuideRefreshedAt.toDouble())\n          putDouble("primaryEpgProgramCount", database.count().toDouble())\n          putDouble("userEpgProgramCount", userDatabase.count().toDouble())\n'''
+          if 'putDouble("primaryGuideRefreshedAt"' not in n:
+              if old2 not in n: raise SystemExit('stored playlist freshness output marker not found')
+              n = n.replace(old2, new2, 1)
+          native.write_text(n)
+
+          bridge = Path('frontend/src/nativeEpg.ts')
+          b = bridge.read_text()
+          old3 = '  getStoredPlaylist?(): Promise<{ channels: Channel[]; playlistEpoch?: number; playlistRefreshedAt?: number; guideEpoch?: number; guideRefreshedAt?: number; epgProgramCount?: number }>;\n'
+          new3 = '  getStoredPlaylist?(): Promise<{ channels: Channel[]; playlistEpoch?: number; playlistRefreshedAt?: number; guideEpoch?: number; guideRefreshedAt?: number; epgProgramCount?: number; primaryGuideRefreshedAt?: number; userGuideRefreshedAt?: number; primaryEpgProgramCount?: number; userEpgProgramCount?: number }>;\n'
+          if new3 not in b:
+              if old3 not in b: raise SystemExit('native EPG stored playlist type marker not found')
+              b = b.replace(old3, new3, 1)
+          bridge.write_text(b)
+
+          test = Path('frontend/tests/tivimateColdStartPolicy.test.mjs')
+          t = test.read_text()
+          case = '''\ntest("cold-start Guide freshness follows active EPG ownership", async () => {\n  const [custom, native] = await Promise.all([\n    source("android/app/src/main/java/com/charmiptv/app/CustomEpgNativeModule.kt"),\n    source("android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt"),\n  ]);\n  assert.match(custom, /val guideEpoch = \\(userDatabase\\.getMeta\\("guide_epoch"\\).*?\\+ 1L/s);\n  assert.match(custom, /userDatabase\\.setMeta\\("guide_refreshed_at", now\\.toString\\(\\)\\)/);\n  assert.match(native, /val hasUserOwnership = userEnabled && userBindings\\.isNotEmpty\\(\\)/);\n  assert.match(native, /val effectiveGuideEpoch =[\\s\\S]*?primaryGuideEpoch[\\s\\S]*?userGuideEpoch/);\n  assert.match(native, /primaryEnabled && hasUserOwnership[\\s\\S]*?minOf\\(primaryGuideRefreshedAt, userGuideRefreshedAt\\)/);\n  assert.match(native, /hasUserOwnership -> userGuideRefreshedAt/);\n  assert.match(native, /putDouble\\("guideRefreshedAt", effectiveGuideRefreshedAt\\.toDouble\\(\\)\\)/);\n  assert.match(native, /putDouble\\("epgProgramCount", effectiveProgramCount\\.toDouble\\(\\)\\)/);\n});\n'''
+          if 'cold-start Guide freshness follows active EPG ownership' not in t:
+              t += case
+              test.write_text(t)
+          PY
+      - name: Commit source-aware EPG freshness
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/android/app/src/main/java/com/charmiptv/app/CustomEpgNativeModule.kt frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt frontend/src/nativeEpg.ts frontend/tests/tivimateColdStartPolicy.test.mjs
+          git commit -m "phase9: make EPG freshness ownership-aware"
+          git push origin HEAD:phase9/purple-next

@@ -1,0 +1,49 @@
+name: Phase 9 TiviMate Guide Horizontal Cache Miss
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-guide-horizontal-cache-miss.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Keep horizontal navigation inside real Guide bounds during cache misses
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          view = Path('frontend/android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt')
+          v = view.read_text()
+          old = '''      KeyEvent.KEYCODE_DPAD_LEFT -> {\n        if (event.repeatCount > 0 && event.eventTime - lastHorizontalMoveAt < 55L) return true\n        lastHorizontalMoveAt = event.eventTime\n        val current = selectedProgram()\n        if (current == null || selectedTimeMs <= windowStartMs + 60_000L) { emit("topLeftBoundary", null); return true }\n        selectedTimeMs = max(windowStartMs, current.startMs - 1)\n        ensureSelectedTimeVisible()\n        invalidate(); emitSelection(false)\n      }\n      KeyEvent.KEYCODE_DPAD_RIGHT -> {\n        if (event.repeatCount > 0 && event.eventTime - lastHorizontalMoveAt < 55L) return true\n        lastHorizontalMoveAt = event.eventTime\n        val current = selectedProgram()\n        val nextTime = min(windowEndMs - 1, current?.endMs ?: selectedTimeMs + 30L * 60_000L)\n        if (nextTime == selectedTimeMs) return true\n        selectedTimeMs = nextTime\n        ensureSelectedTimeVisible()\n        invalidate(); emitSelection(false)\n      }\n'''
+          new = '''      KeyEvent.KEYCODE_DPAD_LEFT -> {\n        if (event.repeatCount > 0 && event.eventTime - lastHorizontalMoveAt < 55L) return true\n        lastHorizontalMoveAt = event.eventTime\n        if (selectedTimeMs <= windowStartMs + 60_000L) {\n          emit("topLeftBoundary", null)\n          return true\n        }\n        val current = selectedProgram()\n        // A missing painted programme means the newest bounded SQLite runway is\n        // still arriving; it is not evidence that the cursor reached Guide Left.\n        val nextTime = max(\n          windowStartMs,\n          current?.let { it.startMs - 1L } ?: (selectedTimeMs - 30L * 60_000L),\n        )\n        if (nextTime == selectedTimeMs) return true\n        selectedTimeMs = nextTime\n        ensureSelectedTimeVisible()\n        loadPrograms()\n        invalidate(); emitSelection(false)\n      }\n      KeyEvent.KEYCODE_DPAD_RIGHT -> {\n        if (event.repeatCount > 0 && event.eventTime - lastHorizontalMoveAt < 55L) return true\n        lastHorizontalMoveAt = event.eventTime\n        val current = selectedProgram()\n        val nextTime = min(windowEndMs - 1, current?.endMs ?: selectedTimeMs + 30L * 60_000L)\n        if (nextTime == selectedTimeMs) return true\n        selectedTimeMs = nextTime\n        ensureSelectedTimeVisible()\n        // Horizontal cache misses must request the newest runway even when the\n        // viewport guard did not move. scheduleQueryDrain coalesces old requests.\n        loadPrograms()\n        invalidate(); emitSelection(false)\n      }\n'''
+          if 'A missing painted programme means the newest bounded SQLite runway' not in v:
+              if old not in v: raise SystemExit('native horizontal navigation marker not found')
+              v = v.replace(old, new, 1)
+          view.write_text(v)
+
+          test = Path('frontend/tests/nativeGuideArchitecture.test.mjs')
+          t = test.read_text()
+          case = '''\ntest("native Guide treats horizontal cache misses as loading, not false boundaries", async () => {\n  const view = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");\n  const keys = view.match(/override fun onKeyDown[\\s\\S]*?override fun onKeyUp/)?.[0] || "";\n  assert.doesNotMatch(keys, /current == null \\|\\| selectedTimeMs <= windowStartMs/);\n  assert.match(keys, /selectedTimeMs <= windowStartMs \\+ 60_000L/);\n  assert.match(keys, /current\\?\\.let \\{ it\\.startMs - 1L \\} \\?: \\(selectedTimeMs - 30L \\* 60_000L\\)/);\n  const horizontalLoads = keys.match(/loadPrograms\\(\\)/g) || [];\n  assert.ok(horizontalLoads.length >= 2, "left and right navigation must both refresh the bounded runway");\n  assert.match(view, /Keep at most one active read plus the newest requested runway/);\n});\n'''
+          if 'native Guide treats horizontal cache misses as loading' not in t:
+              t += case
+          test.write_text(t)
+          PY
+      - name: Commit horizontal Guide cache-miss handling
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt frontend/tests/nativeGuideArchitecture.test.mjs
+          git commit -m "phase9: keep horizontal Guide navigation alive through cache misses"
+          git push origin HEAD:phase9/purple-next

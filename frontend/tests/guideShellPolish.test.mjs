@@ -46,10 +46,9 @@ test("guideGroups buildGroupCounts / smart HD / pin", () => {
   assert.equal(counts.All, 3);
   assert.equal(counts.Favorites, 1);
   assert.equal(counts["Recently Watched"], 1);
-  assert.equal(counts["HD Only"], 2); // ESPN HD + News 4K (hidden excluded)
+  assert.equal(counts["HD Only"], 2);
   assert.equal(counts["Failed Streams"], 1);
   assert.equal(counts["Unmatched EPG"], 1);
-  // Curated + raw playlist group share the Sports key (counted once per matching pass).
   assert.ok(counts.Sports >= 1);
   assert.ok(channelMatchesSmart(channels[0], "HD Only", {
     hasEpgMatch: () => true,
@@ -109,7 +108,6 @@ test("streamFailureRegistry stays bounded", () => {
 });
 
 test("parental pin normalize via verify after set", async () => {
-  // Async-shaped set (storage-backed wrapper syncs this memory in parentalPin.ts).
   const set = async (pin) => setParentalPinMemory(pin);
   await set(null);
   assert.equal(verifyParentalPin("1234"), false);
@@ -129,17 +127,289 @@ test("drawer shell boots closed without an icon rail", async () => {
   assert.match(shell, /isGuideSurfing/);
   assert.match(shell, /focusable=\{drawerOpen\}/);
   assert.match(shell, /outputRange: \[-PURPLE_SIDEBAR_WIDTH, 0\]/);
+  assert.doesNotMatch(shell, /Catch Up|\/catchup/);
+  assert.match(shell, /autoFocus=\{!drawerOpen && active !== "\/guide"\}/);
 });
 
-test("guide.tsx routes its left boundary to GuidePreviewRail with conveyor retain", async () => {
-  const guide = await source("app/(tabs)/guide.tsx");
+test("drawer route changes release drawer focus ownership before mounting the next screen", async () => {
+  const shell = await source("src/components/PurpleTvShell.tsx");
+  const navigate = shell.match(/const navigate = useCallback\([\s\S]*?\n  \);/)?.[0] || "";
+  assert.match(navigate, /closeDrawer\(\{ force: true \}\)/);
+  assert.match(navigate, /if \(route === active\) return/);
+  assert.match(navigate, /requestAnimationFrame\(\(\) => \{/);
+  assert.match(navigate, /router\.replace\(route as any\)/);
+  assert.ok(
+    navigate.indexOf('closeDrawer({ force: true })') < navigate.indexOf('requestAnimationFrame'),
+    "drawer must close before route handoff",
+  );
+  assert.doesNotMatch(navigate, /closeDrawer\(\);[\s\S]*router\.replace/);
+});
+
+test("shared page focus has a deterministic Left-edge drawer handoff", async () => {
+  const [shell, collection, favorites, reminders, live, channels] = await Promise.all([
+    source("src/components/PurpleTvShell.tsx"),
+    source("src/components/PurpleChannelCollection.tsx"),
+    source("app/(tabs)/favorites.tsx"),
+    source("app/(tabs)/reminders.tsx"),
+    source("app/(tabs)/index.tsx"),
+    source("app/(tabs)/channels.tsx"),
+  ]);
+  assert.match(shell, /testID="purple-left-edge-drawer-target"/);
+  assert.match(shell, /leftEdgeDrawerTarget:[\s\S]{0,180}width: 10/);
+  assert.match(shell, /onFocus=\{\(\) => openDrawer\(\)\}/);
+  assert.match(shell, /trapFocusLeft=\{false\}/);
+  assert.match(shell, /isGuideScreenActive\(\) && isGuideSurfing\(\)/);
+  for (const page of [collection, favorites, reminders, live, channels]) {
+    assert.match(page, /preferInitialFocus/);
+    assert.match(page, /setPreferInitialFocus\(false\)/);
+  }
+  assert.doesNotMatch(reminders, /hasTVPreferredFocus\s*\n/);
+  assert.match(reminders, /hasTVPreferredFocus=\{preferInitialFocus\}/);
+});
+
+test("Live preview has an explicit D-pad bridge into the recent channel list", async () => {
+  const live = await source("app/(tabs)/index.tsx");
+  assert.match(live, /findNodeHandle/);
+  assert.match(live, /nextFocusDown=\{firstRecentTag\}/);
+  assert.match(live, /inputRef=\{index === 0 \? bindFirstRecentRef : undefined\}/);
+  assert.match(live, /nextFocusUp=\{index === 0 \? heroButtonTag : undefined\}/);
+  assert.match(live, /ref=\{bindHeroButtonRef as any\}/);
+  assert.match(live, /ref=\{inputRef as any\}/);
+});
+
+test("automatic refresh stays away from guide and player screens", async () => {
+  const [scheduler, preferences] = await Promise.all([
+    source("src/components/SourceRefreshScheduler.tsx"),
+    source("src/core/sourceRefreshPreferences.ts"),
+  ]);
+  assert.match(scheduler, /pathname\?\.startsWith\("\/guide"\)/);
+  assert.match(scheduler, /pathname\?\.startsWith\("\/player"\)/);
+  assert.match(scheduler, /isGuideSurfing\(\)/);
+  assert.match(preferences, /playlistHours: 24/);
+  assert.match(preferences, /epgHours: 6/);
+});
+
+test("EPG and playlist controls live only on the dedicated EPG settings page", async () => {
+  const [settings, epg] = await Promise.all([
+    source("app/(tabs)/settings.tsx"),
+    source("app/(tabs)/epg-sources.tsx"),
+  ]);
+  for (const label of [
+    "Guide EPG filter",
+    "Guide window",
+    "Prefer tvg-id matching only",
+    "Playlist auto refresh",
+    "EPG auto refresh",
+    "Channel logos priority",
+    "Clear & rebuild guide cache",
+  ]) {
+    assert.doesNotMatch(settings, new RegExp(label));
+    assert.match(epg, new RegExp(label));
+  }
+  assert.match(epg, /Refresh playlist & EPG now/);
+  assert.match(epg, /Refresh EPG only now/);
+  assert.match(epg, /operationInFlight\.current/);
+  assert.doesNotMatch(epg, /<Pressable disabled=\{disabled\}/);
+  assert.match(epg, /accessibilityState=\{\{ busy: Boolean\(disabled\) \}\}/);
+  assert.match(epg, /<ScrollView/);
+  assert.match(epg, /<FocusGuide/);
+  assert.match(epg, /hasTVPreferredFocus=\{preferTopFocus\}/);
+  assert.match(epg, /scrollRef\.current\?\.scrollTo\(\{ y: 0, animated: false \}\)/);
+  assert.match(epg, /nestedScrollEnabled/);
+});
+
+test("native guide preserves last-good paint across transient query failures", async () => {
+  const nativeGuide = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");
+  assert.match(nativeGuide, /catch \(_: Throwable\) \{ null \}/);
+  assert.match(nativeGuide, /if \(loaded == null\) continue/);
+  assert.match(nativeGuide, /programs = programs\.filterKeys/);
+});
+
+test("Search hands suggestion focus to results without opening a competing modal", async () => {
+  const [search, canvas, manager] = await Promise.all([
+    source("app/(tabs)/search.tsx"),
+    source("src/components/NativeGuideCanvas.tsx"),
+    source("android/app/src/main/java/com/charmiptv/app/NativeGuidePackage.kt"),
+  ]);
+  assert.match(search, /focusResultsWhenReadyRef/);
+  assert.match(search, /requestNativeFocusWithRetry\(firstResultRef\.current/);
+  assert.doesNotMatch(search, /openProgram\(opts\.program/);
+  assert.match(search, /programStart: opts\?\.programStart/);
+  assert.match(canvas, /restoreTimeMs/);
+  assert.match(manager, /@ReactProp\(name = "restoreTimeMs"/);
+});
+
+test("pointer BACK exits pointer mode and tap coordinates honor Android density", async () => {
+  const [activity, remote] = await Promise.all([
+    source("android/app/src/main/java/com/charmiptv/app/MainActivity.kt"),
+    source("android/app/src/main/java/com/charmiptv/app/TvRemoteModule.kt"),
+  ]);
+  assert.match(activity, /KEYCODE_BACK -> "BACK"/);
+  assert.match(remote, /displayMetrics\.density/);
+  assert.match(remote, /x \* density/);
+  assert.match(remote, /y \* density/);
+});
+
+test("guide top strip is focusable while Left remains drawer-owned with conveyor retain", async () => {
+  const [guide, preview, focus] = await Promise.all([
+    source("app/(tabs)/guide.tsx"),
+    source("src/components/GuidePreviewRail.tsx"),
+    source("src/utils/tvFocus.ts"),
+  ]);
   assert.match(guide, /GuidePreviewRail/);
+  assert.match(guide, /another Left enters the drawer/);
+  assert.match(guide, /openDrawer\(\)/);
   assert.match(guide, /focusGuidePreviewSurface\(\)/);
+  assert.match(guide, /setPreviewFocusRequestToken/);
+  assert.match(preview, /hasTVPreferredFocus=\{preferPlayFocus\}/);
+  assert.match(focus, /typeof focus === "function"/);
+  assert.match(focus, /dispatchViewManagerCommand/);
   assert.match(guide, /onOpenReminders=/);
+  for (const action of ["play", "favorite", "remind", "drawer", "mute", "hide"]) {
+    assert.match(preview, new RegExp(`testID="guide-preview-${action}"`));
+  }
+  for (const handler of ["onPlay", "onFavorite", "onOpenReminders", "onOpenDrawer", "onToggleMute", "onHideToggle"]) {
+    assert.match(preview, new RegExp(`onPress=\\{${handler}\\}`));
+  }
   assert.match(guide, /expandRunwayKeepSet/);
+  assert.match(guide, /MAX_REMEMBERED_GUIDE_GROUPS = 128/);
   assert.match(guide, /retainGuideSlidingCache/);
   assert.doesNotMatch(guide, /focusPurpleIconRail/);
   assert.match(guide, /buildVisibleGroups/);
   assert.doesNotMatch(guide, /NowPlayingBar/);
-  assert.doesNotMatch(guide, /focusPurpleIconRail/);
+  assert.match(preview, /width: 138/);
+  assert.match(preview, /actionColumn: \{ flex: 1, minWidth: 0, gap: 3 \}/);
+  assert.doesNotMatch(preview, /actionPlaceholder/);
+});
+
+test("entry preferred focus disarms as soon as real user focus exists", async () => {
+  const [channels, collection, search, settings] = await Promise.all([
+    source("app/(tabs)/channels.tsx"),
+    source("src/components/PurpleChannelCollection.tsx"),
+    source("app/(tabs)/search.tsx"),
+    source("app/(tabs)/settings.tsx"),
+  ]);
+  assert.match(channels, /const noteChannelFocus = useCallback\([\s\S]*?setPreferInitialFocus\(false\)[\s\S]*?setFocusedChannelId\(id\)/);
+  assert.match(channels, /onFocusChannel=\{noteChannelFocus\}/);
+  assert.match(collection, /onFocus=\{onFocus\}/);
+  assert.match(collection, /const disarmInitialFocus = useCallback\(\(\) => setPreferInitialFocus\(false\)/);
+  assert.match(search, /const noteKeyboardFocus = useCallback\([\s\S]*?setPreferKeyFocus\(false\)/);
+  assert.match(search, /const noteResultsFocus = useCallback\([\s\S]*?setPreferKeyFocus\(false\)/);
+  assert.match(settings, /hasTVPreferredFocus=\{preferBackFocus\}[\s\S]{0,100}onFocus=\{\(\) => setPreferBackFocus\(false\)\}/);
+  assert.match(settings, /hasTVPreferredFocus=\{preferTileFocus && index === 0\}[\s\S]{0,100}onFocus=\{\(\) => setPreferTileFocus\(false\)\}/);
+});
+
+test("Guide preview uses a large channel-logo placeholder while tuning", async () => {
+  const rail = await source("src/components/GuidePreviewRail.tsx");
+  const matches = rail.match(/size=\{132\}/g) || [];
+  assert.equal(matches.length, 2);
+  assert.doesNotMatch(rail, /size=\{104\}/);
+});
+
+test("Live TV and EPG entry focus bootstrap yields immediately to Android focus", async () => {
+  const [home, epg] = await Promise.all([
+    source("app/(tabs)/index.tsx"),
+    source("app/(tabs)/epg-sources.tsx"),
+  ]);
+  assert.match(home, /hasTVPreferredFocus=\{preferInitialFocus\}[\s\S]{0,140}onFocus=\{\(\) => setPreferInitialFocus\(false\)\}/);
+  assert.match(epg, /hasTVPreferredFocus=\{preferTopFocus\} onFocus=\{\(\) => setPreferTopFocus\(false\)\}/);
+});
+
+test("Phase 9 management screens disarm their preferred Back focus immediately", async () => {
+  const [customEpg, groups] = await Promise.all([
+    source("app/epg-custom.tsx"),
+    source("app/group-settings.tsx"),
+  ]);
+  for (const body of [customEpg, groups]) {
+    assert.match(body, /hasTVPreferredFocus=\{preferBackFocus\} onFocus=\{\(\) => setPreferBackFocus\(false\)\}/);
+  }
+});
+
+test("rapid Guide runway movement debounces duplicate JS programme patching", async () => {
+  const [guide, canvas] = await Promise.all([
+    source("app/(tabs)/guide.tsx"),
+    source("src/components/NativeGuideCanvas.tsx"),
+  ]);
+  assert.match(canvas, /pageSize: number, velocity: number/);
+  assert.match(canvas, /Math\.max\(0, value\.velocity \|\| 0\)/);
+  assert.match(guide, /pendingRunwayPatchRef/);
+  assert.match(guide, /const rapid = velocity > 0 \|\| isGuideSurfing\(\)/);
+  assert.match(guide, /const delay = rapid \? 110 : 0/);
+  assert.match(guide, /clearTimeout\(runwayPatchTimer\.current\)/);
+  assert.match(guide, /patchProgramsForChannelIds\(pending\.ids, pending\.priorityIds\)/);
+});
+
+test("native Guide cancels delayed settled selection when focus ownership moves", async () => {
+  const native = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");
+  assert.match(native, /settleSelectionRunnable = Runnable/);
+  assert.match(native, /if \(!value\) \{[\s\S]{0,180}removeCallbacks\(settleSelectionRunnable\)[\s\S]{0,120}navigationKeyDown = false[\s\S]{0,120}moveVelocity = 0/);
+  assert.match(native, /removeCallbacks\(settleSelectionRunnable\)[\s\S]{0,120}reloadGeneration = value/);
+  assert.match(native, /if \(enabled\) postDelayed\(settleSelectionRunnable, 80L\)/);
+  assert.doesNotMatch(native, /postDelayed\(\{ emitSelection\(true\) \}, 80L\)/);
+});
+
+test("Guide query completion cannot falsely settle held D-pad navigation", async () => {
+  const native = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");
+  assert.match(native, /private var navigationKeyDown = false/);
+  assert.match(native, /navigationKeyDown = true[\s\S]{0,120}removeCallbacks\(settleSelectionRunnable\)/);
+  assert.match(native, /navigationKeyDown = false[\s\S]{0,80}moveVelocity = 0/);
+  assert.match(native, /emitSelection\(false\)[\s\S]{0,220}only[\s\S]{0,100}key-up\/focus ownership/);
+  assert.match(native, /putBoolean\("settled", immediate \|\| \(!navigationKeyDown && moveVelocity == 0\)\)/);
+});
+
+test("inactive native Guide query completion cannot reclaim JS focus", async () => {
+  const native = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");
+  assert.match(native, /If a drawer,[\s\S]{0,180}if \(enabled\) emitSelection\(false\)/);
+  assert.doesNotMatch(native, /key-up\/focus ownership may declare navigation settled\.\s*emitSelection\(false\)/);
+});
+
+test("native Guide clears held-navigation state when focus ownership leaves", async () => {
+  const native = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");
+  const setActive = native.match(/fun setActive\(value: Boolean\) \{[\s\S]*?\n  \}/)?.[0] || "";
+  assert.match(setActive, /if \(!value\) \{[\s\S]*navigationKeyDown = false[\s\S]*moveVelocity = 0/);
+  assert.match(native, /onDetachedFromWindow\(\)[\s\S]{0,220}navigationKeyDown = false[\s\S]{0,120}moveVelocity = 0/);
+  assert.match(native, /fun dispose\(\)[\s\S]{0,220}navigationKeyDown = false[\s\S]{0,120}moveVelocity = 0/);
+});
+
+test("native Guide does no database or bridge work for blocked vertical moves", async () => {
+  const native = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");
+  const move = native.match(/private fun moveVertical\(delta: Int\) \{[\s\S]*?\n  \}/)?.[0] || "";
+  assert.match(move, /val nextRow = \(selectedRow \+ delta\)\.coerceIn/);
+  assert.match(move, /if \(nextRow == selectedRow\) return/);
+  assert.ok(move.indexOf('if (nextRow == selectedRow) return') < move.indexOf('loadPrograms()'));
+  assert.ok(move.indexOf('if (nextRow == selectedRow) return') < move.indexOf('emitRunway(delta)'));
+});
+
+test("native Guide only takes focus on an inactive-to-active ownership transition", async () => {
+  const native = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");
+  const setActive = native.match(/fun setActive\(value: Boolean\) \{[\s\S]*?\n  \}/)?.[0] || "";
+  assert.match(setActive, /val wasEnabled = enabled/);
+  assert.match(setActive, /if \(!wasEnabled && rows\.isNotEmpty\(\)\) \{/);
+  assert.ok(setActive.indexOf('if (!wasEnabled && rows.isNotEmpty())') < setActive.indexOf('requestFocus()'));
+});
+
+test("Guide preview actions have a deterministic D-pad Down return to the native Guide", async () => {
+  const [canvas, rail, guide] = await Promise.all([
+    source("src/components/NativeGuideCanvas.tsx"),
+    source("src/components/GuidePreviewRail.tsx"),
+    source("app/(tabs)/guide.tsx"),
+  ]);
+  assert.match(canvas, /findNodeHandle/);
+  assert.match(canvas, /onNativeGuideTag\?\./);
+  assert.match(canvas, /ref=\{bindNativeGuideRef\}/);
+  assert.match(rail, /nextFocusDown=\{guideFocusTag \|\| undefined\}/);
+  assert.match(guide, /nativeGuideFocusTag/);
+  assert.match(guide, /onNativeGuideTag=\{setNativeGuideFocusTag\}/);
+  assert.match(guide, /guideFocusTag=\{nativeGuideFocusTag\}/);
+});
+
+test("Android remote accepts the drawer_edge ownership context used by the shell", async () => {
+  const [nativeRemote, activity, bridge] = await Promise.all([
+    source("android/app/src/main/java/com/charmiptv/app/TvRemoteModule.kt"),
+    source("android/app/src/main/java/com/charmiptv/app/MainActivity.kt"),
+    source("src/utils/tvRemote.ts"),
+  ]);
+  assert.match(nativeRemote, /"main_drawer", "drawer_edge", "player"/);
+  assert.match(activity, /context == "drawer_edge" && boundaryKey == "LEFT"/);
+  assert.match(bridge, /\| "drawer_edge"/);
 });

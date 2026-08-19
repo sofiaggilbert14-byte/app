@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-test("player remounts Media3/VLC engines when compatibility settings change", async () => {
+test("player remounts engines for compatibility changes and adapts buffers to device memory", async () => {
   const source = await readFile(join(root, "src/components/StreamPlayer.tsx"), "utf8");
   assert.match(source, /vlcEngineKey/);
   assert.match(source, /media3EngineKey/);
@@ -20,7 +20,11 @@ test("player remounts Media3/VLC engines when compatibility settings change", as
   assert.match(source, /\$\{role\}:\$\{uri\}:\$\{initialEngine\}:\$\{appliedCompatKeyRef\.current\}/);
   // Preview freezes compat keys while Guide is unfocused (Tabs keep-alive).
   assert.match(source, /role !== "preview" \|\| isFocused/);
-  assert.match(source, /maxBufferBytes: 48 \* 1024 \* 1024/);
+  // Fullscreen buffers scale down on low-RAM devices; preview stays tightly bounded.
+  assert.match(source, /shouldUseLowRamTuning/);
+  assert.match(source, /lowRam \? 28 : 48/);
+  assert.match(source, /coordinatedCacheBudget/);
+  assert.match(source, /Math\.min\(12 \* 1024 \* 1024, coordinatedCacheBudget\)/);
   assert.match(source, /if \(media3Audio === "ffmpeg"\) return selectedAudio != null/);
   assert.match(source, /export function isFullscreenCircuitOpen/);
   assert.match(source, /hardStop\(\);\s*setBlocked\(true\)/);

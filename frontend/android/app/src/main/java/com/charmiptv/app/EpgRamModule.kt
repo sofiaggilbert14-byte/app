@@ -1,0 +1,143 @@
+package com.charmiptv.app
+
+import com.facebook.react.bridge.Arguments
+import com.facebook.react.bridge.Promise
+import com.facebook.react.bridge.ReactApplicationContext
+import com.facebook.react.bridge.ReactContextBaseJavaModule
+import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.bridge.ReadableArray
+import com.facebook.react.bridge.WritableArray
+import com.facebook.react.bridge.WritableMap
+import java.util.concurrent.Executors
+
+/** Experimental RAM serving layer. SQLite stays authoritative and is never cleared here. */
+class EpgRamModule(private val reactContext: ReactApplicationContext) :
+  ReactContextBaseJavaModule(reactContext) {
+
+  private val database = EpgDatabase(reactContext)
+  private val engine = EpgRamEngine(database)
+  private val worker = Executors.newSingleThreadExecutor()
+  private val queryPool = Executors.newFixedThreadPool(2)
+  @Volatile private var warmGuideEpoch = -1L
+
+  override fun getName(): String = "CharmEpgRam"
+
+  @ReactMethod
+  fun replaceMatches(matches: ReadableArray, promise: Promise) {
+    worker.execute {
+      try {
+        val rows = ArrayList<PlaylistEpgMatchRow>(matches.size())
+        for (i in 0 until matches.size()) {
+          val map = matches.getMap(i) ?: continue
+          val playlistId = map.getString("playlistId")?.trim().orEmpty()
+          if (playlistId.isEmpty()) continue
+          rows.add(
+            PlaylistEpgMatchRow(
+              playlistId = playlistId,
+              xmltvId = map.getString("xmltvId")?.trim().orEmpty(),
+              logoXmltvId = map.getString("logoXmltvId")?.trim().orEmpty(),
+              ambiguous = if (map.hasKey("ambiguous")) map.getBoolean("ambiguous") else false,
+              matchPolicy = map.getString("matchPolicy")?.trim().orEmpty().ifEmpty { "full" },
+              manual = if (map.hasKey("manual")) map.getBoolean("manual") else false,
+            )
+          )
+        }
+        engine.replaceMatches(rows)
+        promise.resolve(true)
+      } catch (_: Throwable) {
+        promise.resolve(false)
+      }
+    }
+  }
+
+  @ReactMethod
+  fun queryGuideWindow(startMs: Double, endMs: Double, playlistChannelIds: ReadableArray, promise: Promise) {
+    queryPool.execute {
+      try {
+        ensureWarmForCurrentEpoch()
+        val ids = readIds(playlistChannelIds)
+        val programmes = engine.queryGuideWindow(startMs.toLong(), endMs.toLong(), ids)
+        if (programmes == null) promise.resolve(null) else promise.resolve(groupPrograms(programmes))
+      } catch (_: Throwable) {
+        // null explicitly tells JS to use the existing SQLite Guide path.
+        promise.resolve(null)
+      }
+    }
+  }
+
+  @ReactMethod
+  fun getWindow(startMs: Double, endMs: Double, channelIds: ReadableArray, promise: Promise) {
+    queryPool.execute {
+      try {
+        ensureWarmForCurrentEpoch()
+        val ids = readIds(channelIds)
+        val programmes = engine.queryWindow(startMs.toLong(), endMs.toLong(), ids)
+        if (programmes == null) promise.resolve(null) else promise.resolve(groupPrograms(programmes))
+      } catch (_: Throwable) {
+        promise.resolve(null)
+      }
+    }
+  }
+
+  @ReactMethod
+  fun clearMemory(promise: Promise) {
+    engine.clear()
+    warmGuideEpoch = -1L
+    promise.resolve(true)
+  }
+
+  @ReactMethod
+  fun stats(promise: Promise) {
+    val result = Arguments.createMap()
+    for ((key, value) in engine.stats()) result.putDouble(key, value.toDouble())
+    result.putBoolean("warm", engine.isWarm())
+    result.putDouble("guideEpoch", warmGuideEpoch.toDouble())
+    promise.resolve(result)
+  }
+
+  private fun ensureWarmForCurrentEpoch() {
+    val epoch = currentGuideEpoch()
+    if (warmGuideEpoch == epoch) return
+    engine.clearPrograms()
+    warmGuideEpoch = epoch
+  }
+
+  private fun currentGuideEpoch(): Long = database.getMeta("guide_epoch")?.toLongOrNull() ?: 0L
+
+  private fun readIds(array: ReadableArray): List<String> {
+    val ids = ArrayList<String>(array.size())
+    for (i in 0 until array.size()) {
+      val id = array.getString(i)?.trim()
+      if (!id.isNullOrEmpty()) ids.add(id)
+    }
+    return ids
+  }
+
+  private fun programToMap(program: NativeEpgProgram) = Arguments.createMap().apply {
+    putString("channelId", program.channelId)
+    putString("title", program.title)
+    if (program.description != null) putString("description", program.description) else putNull("description")
+    if (!program.category.isNullOrBlank()) putString("category", program.category) else putNull("category")
+    putDouble("startMs", program.startMs.toDouble())
+    putDouble("endMs", program.endMs.toDouble())
+  }
+
+  private fun groupPrograms(programmes: List<NativeEpgProgram>): WritableMap {
+    val grouped = Arguments.createMap()
+    val arrays = HashMap<String, WritableArray>()
+    for (program in programmes) {
+      arrays.getOrPut(program.channelId) { Arguments.createArray() }.pushMap(programToMap(program))
+    }
+    for ((channelId, array) in arrays) grouped.putArray(channelId, array)
+    return grouped
+  }
+
+  override fun invalidate() {
+    engine.dispose()
+    worker.shutdownNow()
+    queryPool.shutdownNow()
+    database.close()
+    super.invalidate()
+  }
+
+}

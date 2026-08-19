@@ -1,0 +1,87 @@
+name: Phase 9 - TiviMate route remote owner cleanup
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - .github/workflows/phase9-tivimate-route-remote-owner-cleanup.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: phase9/purple-next
+          fetch-depth: 0
+
+      - name: Make player and guide cleanup owner-aware
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          player_path = Path('frontend/app/player.tsx')
+          player = player_path.read_text()
+          old_import = 'import { addTvKeyListener, addTvLongPressListener, setRemoteContext } from "@/src/utils/tvRemote";'
+          new_import = 'import { addTvKeyListener, addTvLongPressListener, resetRemoteContextIfOwned, setRemoteContext } from "@/src/utils/tvRemote";'
+          if new_import not in player:
+              if old_import not in player:
+                  raise SystemExit('player remote import marker missing')
+              player = player.replace(old_import, new_import, 1)
+          player = player.replace('    return () => setRemoteContext("default");\n', '    return () => resetRemoteContextIfOwned("player");\n', 1)
+          player_path.write_text(player)
+
+          guide_path = Path('frontend/app/(tabs)/guide.tsx')
+          guide = guide_path.read_text()
+          old_guide_import = 'import { addTvLongPressListener, setGuideNavigationActive, setGuideRepeatInterval, setRemoteContext } from "@/src/utils/tvRemote";'
+          new_guide_import = 'import { addTvLongPressListener, resetRemoteContextIfOwned, setGuideNavigationActive, setGuideRepeatInterval, setRemoteContext } from "@/src/utils/tvRemote";'
+          if new_guide_import not in guide:
+              if old_guide_import not in guide:
+                  raise SystemExit('guide remote import marker missing')
+              guide = guide.replace(old_guide_import, new_guide_import, 1)
+          old_cleanup = '''        setGuideScreenActive(false);\n        setGuideNavigationActive(false);\n        setRemoteContext("default");\n'''
+          new_cleanup = '''        setGuideScreenActive(false);\n        setGuideNavigationActive(false);\n        resetRemoteContextIfOwned("guide");\n'''
+          if new_cleanup not in guide:
+              if old_cleanup not in guide:
+                  raise SystemExit('guide focus cleanup marker missing')
+              guide = guide.replace(old_cleanup, new_cleanup, 1)
+          guide_path.write_text(guide)
+
+          test_path = Path('frontend/tests/playerAndFocus.test.mjs')
+          t = test_path.read_text()
+          name = 'player and Guide route cleanup cannot clobber a newer remote owner'
+          if name not in t:
+              t += r'''
+
+test("player and Guide route cleanup cannot clobber a newer remote owner", async () => {
+  const [player, guide] = await Promise.all([
+    source("app/player.tsx"),
+    source("app/(tabs)/guide.tsx"),
+  ]);
+  assert.match(player, /resetRemoteContextIfOwned/);
+  assert.match(player, /return \(\) => resetRemoteContextIfOwned\("player"\)/);
+  assert.doesNotMatch(player, /return \(\) => setRemoteContext\("default"\)/);
+  assert.match(guide, /resetRemoteContextIfOwned/);
+  assert.match(guide, /setGuideNavigationActive\(false\);[\s\S]{0,100}resetRemoteContextIfOwned\("guide"\)/);
+});
+'''
+              test_path.write_text(t)
+          PY
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/app/player.tsx 'frontend/app/(tabs)/guide.tsx' frontend/tests/playerAndFocus.test.mjs
+          if git diff --cached --quiet; then
+            echo "No changes needed"
+            exit 0
+          fi
+          git commit -m "phase9: make route remote cleanup owner-aware"
+          git push origin HEAD:phase9/purple-next

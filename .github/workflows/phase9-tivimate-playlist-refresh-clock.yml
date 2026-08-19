@@ -1,0 +1,78 @@
+name: Phase 9 TiviMate Playlist Refresh Clock
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-playlist-refresh-clock.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Add targeted native refresh-clock update
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          native = Path('frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt')
+          n = native.read_text()
+          marker = '  @ReactMethod\n  fun isPlaylistCurrent(contentFingerprint: String, promise: Promise) {\n'
+          method = '''  @ReactMethod\n  fun touchPlaylistRefresh(playlistEpoch: Double, promise: Promise) {\n    refreshExecutor.execute {\n      try {\n        val now = System.currentTimeMillis()\n        database.setMeta("playlist_epoch", playlistEpoch.toLong().coerceAtLeast(0L).toString())\n        database.setMeta("playlist_refreshed_at", now.toString())\n        promise.resolve(true)\n      } catch (t: Throwable) {\n        promise.reject("EPG_PLAYLIST_TOUCH_FAILED", t.message ?: "Could not update playlist refresh clock", t)\n      }\n    }\n  }\n\n'''
+          if 'fun touchPlaylistRefresh(' not in n:
+              if marker not in n: raise SystemExit('playlist current marker not found')
+              n = n.replace(marker, method + marker, 1)
+          native.write_text(n)
+
+          bridge = Path('frontend/src/nativeEpg.ts')
+          b = bridge.read_text()
+          if 'touchPlaylistRefresh?' not in b:
+              type_marker = '  isPlaylistCurrent?(contentFingerprint: string): Promise<boolean>;\n'
+              if type_marker not in b: raise SystemExit('isPlaylistCurrent type marker not found')
+              b = b.replace(type_marker, type_marker + '  touchPlaylistRefresh?(playlistEpoch: number): Promise<boolean>;\n', 1)
+          if 'export async function touchNativePlaylistRefresh' not in b:
+              insert_marker = 'export async function upsertNativePlaylistChannels(\n'
+              if insert_marker not in b: raise SystemExit('upsert playlist wrapper marker not found')
+              method2 = '''export async function touchNativePlaylistRefresh(playlistEpoch: number): Promise<void> {\n  if (nativeModule?.touchPlaylistRefresh) {\n    await nativeModule.touchPlaylistRefresh(playlistEpoch);\n  }\n}\n\n'''
+              b = b.replace(insert_marker, method2 + insert_marker, 1)
+          bridge.write_text(b)
+
+          source = Path('frontend/src/source.native.ts')
+          s = source.read_text()
+          if 'touchNativePlaylistRefresh,' not in s:
+              import_marker = '  nativePlaylistIsCurrent,\n'
+              if import_marker not in s: raise SystemExit('nativePlaylistIsCurrent import marker not found')
+              s = s.replace(import_marker, import_marker + '  touchNativePlaylistRefresh,\n', 1)
+
+          # TiviMate keeps provider last-update time separate from row diffs.
+          # Advance it only after actual successful M3U fetch paths, never from
+          # read-only SQLite cold start or EPG-only refresh.
+          full_target = '      await syncPlaylistToNative(channels, playlistEpoch);\n'
+          full_replacement = full_target + '      await touchNativePlaylistRefresh(playlistEpoch);\n'
+          if full_replacement not in s:
+              if full_target not in s: raise SystemExit('full playlist sync marker not found')
+              s = s.replace(full_target, full_replacement, 1)
+
+          playlist_only_anchor = '''    await persistMeta(MEM);\n    await syncPlaylistToNative(channels, playlistEpoch);\n    await syncMatchesToNative(channels, MEM.guideEpoch || 0);'''
+          playlist_only_replacement = '''    await persistMeta(MEM);\n    await syncPlaylistToNative(channels, playlistEpoch);\n    await touchNativePlaylistRefresh(playlistEpoch);\n    await syncMatchesToNative(channels, MEM.guideEpoch || 0);'''
+          if playlist_only_replacement not in s:
+              if playlist_only_anchor not in s: raise SystemExit('playlist-only sync marker not found')
+              s = s.replace(playlist_only_anchor, playlist_only_replacement, 1)
+          source.write_text(s)
+          PY
+      - name: Commit refresh clock fix
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt frontend/src/nativeEpg.ts frontend/src/source.native.ts
+          git commit -m "phase9: track successful playlist refresh separately from row diffs"
+          git push origin HEAD:phase9/purple-next

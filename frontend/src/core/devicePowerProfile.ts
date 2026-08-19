@@ -57,13 +57,29 @@ const PROFILES: Record<PowerProfile, PowerProfileTuning> = {
   },
 };
 
+// Android's ActivityManager memory class is a hard safety boundary for retained
+// programme rows. It intentionally does not rewrite the user's selected profile:
+// preview timing/remote cadence can remain Max Preview while cache size stays safe.
+let deviceLowRamCacheCap = false;
+
+export function setDeviceLowRamCacheCap(enabled: boolean): void {
+  deviceLowRamCacheCap = !!enabled;
+}
+
 export function resolvePowerProfile(value: string | null | undefined): PowerProfile {
   if (value === "weak" || value === "max_preview" || value === "normal") return value;
   return "normal";
 }
 
 export function getPowerProfileTuning(profile: PowerProfile): PowerProfileTuning {
-  return PROFILES[profile] || PROFILES.normal;
+  const base = PROFILES[profile] || PROFILES.normal;
+  if (!deviceLowRamCacheCap || base.programmeRowCacheLimit <= PROFILES.weak.programmeRowCacheLimit) {
+    return base;
+  }
+  return {
+    ...base,
+    programmeRowCacheLimit: PROFILES.weak.programmeRowCacheLimit,
+  };
 }
 
 export const POWER_PROFILE_OPTIONS: { label: string; value: PowerProfile }[] = [

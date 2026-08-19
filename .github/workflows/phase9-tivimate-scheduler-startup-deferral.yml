@@ -1,0 +1,53 @@
+name: Phase 9 TiviMate Scheduler Startup Deferral
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-scheduler-startup-deferral.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Defer scheduler's first heavy-source check
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('frontend/src/components/SourceRefreshScheduler.tsx')
+          s = p.read_text()
+          old = '''    void check();\n    const timer = setInterval(() => void check(), 10 * 60 * 1000);\n    const sub = AppState.addEventListener("change", (state) => {\n'''
+          new = '''    // TiviMate-style cold start: let UI/playback own CPU, sockets and SQLite\n    // first. The source layer has the same 30s boot window; keeping this scheduler\n    // aligned prevents a second immediate path from bypassing that protection.\n    const initialTimer = setTimeout(() => void check(), 30_000);\n    const timer = setInterval(() => void check(), 10 * 60 * 1000);\n    const sub = AppState.addEventListener("change", (state) => {\n'''
+          if 'const initialTimer = setTimeout(() => void check(), 30_000);' not in s:
+              if old not in s: raise SystemExit('scheduler initial check marker not found')
+              s = s.replace(old, new, 1)
+          old2 = '''    return () => {\n      clearInterval(timer);\n      sub.remove();\n    };\n'''
+          new2 = '''    return () => {\n      clearTimeout(initialTimer);\n      clearInterval(timer);\n      sub.remove();\n    };\n'''
+          if 'clearTimeout(initialTimer);' not in s:
+              if old2 not in s: raise SystemExit('scheduler cleanup marker not found')
+              s = s.replace(old2, new2, 1)
+          p.write_text(s)
+
+          test = Path('frontend/tests/tivimateColdStartPolicy.test.mjs')
+          t = test.read_text()
+          case = '''\ntest("source scheduler cannot bypass the 30-second cold-start refresh deferral", async () => {\n  const scheduler = await source("src/components/SourceRefreshScheduler.tsx");\n  assert.match(scheduler, /const initialTimer = setTimeout\\(\\(\\) => void check\\(\\), 30_000\\)/);\n  assert.match(scheduler, /clearTimeout\\(initialTimer\\)/);\n  assert.doesNotMatch(scheduler, /\\n    void check\\(\\);\\n    const timer/);\n});\n'''
+          if 'source scheduler cannot bypass the 30-second cold-start refresh deferral' not in t:
+              t += case
+              test.write_text(t)
+          PY
+      - name: Commit scheduler startup deferral
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/components/SourceRefreshScheduler.tsx frontend/tests/tivimateColdStartPolicy.test.mjs
+          git commit -m "phase9: defer scheduler cold-start refresh check"
+          git push origin HEAD:phase9/purple-next

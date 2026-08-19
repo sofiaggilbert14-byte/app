@@ -1,0 +1,68 @@
+name: Phase 9 TiviMate Custom EPG Refresh Result
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-custom-epg-refresh-result.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Preserve TiviMate-style last-good refresh result through the UI
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          bridge = Path('frontend/src/nativeEpg.ts')
+          b = bridge.read_text()
+
+          custom_old = '''  refreshUserGuide?(url: string): Promise<{\n    count: number;\n    directoryCount?: number;\n    bindingCount?: number;\n  }>;'''
+          custom_new = '''  refreshUserGuide?(url: string): Promise<{\n    count: number;\n    directoryCount?: number;\n    bindingCount?: number;\n    guideEpoch?: number;\n    guideRefreshedAt?: number;\n    programmeSwapSucceeded?: boolean;\n  }>;'''
+          if 'programmeSwapSucceeded?: boolean;' not in b:
+              if custom_old not in b:
+                  raise SystemExit('custom EPG bridge result marker not found')
+              b = b.replace(custom_old, custom_new, 1)
+
+          return_old = '''export async function refreshNativeUserGuide(url: string): Promise<{\n  count: number;\n  channelNames?: Record<string, string>;\n  channelIdsWithPrograms?: string[];\n}> {'''
+          return_new = '''export async function refreshNativeUserGuide(url: string): Promise<{\n  count: number;\n  channelNames?: Record<string, string>;\n  channelIdsWithPrograms?: string[];\n  directoryCount?: number;\n  bindingCount?: number;\n  guideEpoch?: number;\n  guideRefreshedAt?: number;\n  programmeSwapSucceeded?: boolean;\n}> {'''
+          if 'programmeSwapSucceeded?: boolean;\n}> {' not in b:
+              if return_old not in b:
+                  raise SystemExit('refreshNativeUserGuide return marker not found')
+              b = b.replace(return_old, return_new, 1)
+          bridge.write_text(b)
+
+          screen = Path('frontend/app/epg-custom.tsx')
+          s = screen.read_text()
+          old_status = '''      setXmltvRows(firstPage.rows || []);\n      setXmltvTotal(Math.max(0, Number(firstPage.total) || 0));\n      setStatus(`Custom EPG indexed ${Math.max(0, Math.round(result.count || 0))} programmes.`);'''
+          new_status = '''      setXmltvRows(firstPage.rows || []);\n      setXmltvTotal(Math.max(0, Number(firstPage.total) || 0));\n      const programmeCount = Math.max(0, Math.round(result.count || 0));\n      setStatus(\n        result.programmeSwapSucceeded === false\n          ? `Custom EPG returned no usable new programme data. Keeping the previous guide (${programmeCount} programmes).`\n          : `Custom EPG indexed ${programmeCount} programmes.`,\n      );'''
+          if 'Custom EPG returned no usable new programme data.' not in s:
+              if old_status not in s:
+                  raise SystemExit('custom EPG refresh status marker not found')
+              s = s.replace(old_status, new_status, 1)
+          screen.write_text(s)
+
+          test = Path('frontend/tests/tivimateColdStartPolicy.test.mjs')
+          t = test.read_text()
+          case = '''\ntest("custom EPG retained-guide refresh result reaches the TV UI", async () => {\n  const [bridge, screen] = await Promise.all([\n    source("src/nativeEpg.ts"),\n    source("app/epg-custom.tsx"),\n  ]);\n  assert.match(bridge, /programmeSwapSucceeded\\?: boolean/);\n  assert.match(screen, /result\\.programmeSwapSucceeded === false/);\n  assert.match(screen, /Keeping the previous guide/);\n});\n'''
+          if 'custom EPG retained-guide refresh result reaches the TV UI' not in t:
+              t += case
+              test.write_text(t)
+          PY
+      - name: Commit refresh-result wiring
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/nativeEpg.ts frontend/app/epg-custom.tsx frontend/tests/tivimateColdStartPolicy.test.mjs
+          git commit -m "phase9: surface retained custom EPG refresh state"
+          git push origin HEAD:phase9/purple-next

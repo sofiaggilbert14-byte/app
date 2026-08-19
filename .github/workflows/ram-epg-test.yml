@@ -1,0 +1,94 @@
+name: RAM EPG Experiment Validation
+
+on:
+  push:
+    branches:
+      - experiment/full-ram-epg-engine
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      EXPO_PUBLIC_M3U_URL: ${{ secrets.M3U_URL || vars.EXPO_PUBLIC_M3U_URL }}
+      EXPO_PUBLIC_EPG_URL: ${{ secrets.EPG_URL || vars.EXPO_PUBLIC_EPG_URL }}
+      EXPO_PUBLIC_GUIDE_WINDOW_HOURS: ${{ vars.EXPO_PUBLIC_GUIDE_WINDOW_HOURS || '6' }}
+      CMAKE_BUILD_PARALLEL_LEVEL: "1"
+      CI: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+      - run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006" "cmake;3.22.1"
+      - run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Verify TiViMate/RAM architecture invariants
+        run: node scripts/verify-overhaul-architecture.mjs
+      - run: npm run verify:native-config
+      - run: npm run typecheck
+      - run: npm run lint
+      - name: Run frontend regression tests
+        run: npm test -- --runInBand
+      - name: Build pinned LGPL FFmpeg audio extension
+        run: |
+          chmod +x scripts/build-media3-ffmpeg-audio.sh
+          ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/27.1.12297006" ./scripts/build-media3-ffmpeg-audio.sh
+      - name: Configure deterministic low-memory build
+        run: |
+          cat >> android/gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx5g -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8
+          org.gradle.parallel=false
+          org.gradle.workers.max=1
+          org.gradle.vfs.watch=false
+          kotlin.compiler.execution.strategy=in-process
+          kotlin.daemon.enabled=false
+          reactNativeArchitectures=armeabi-v7a,arm64-v8a
+          EOF
+      - name: Compile Android native code
+        run: |
+          chmod +x android/gradlew
+          ./android/gradlew -p android :app:compileDebugKotlin :app:compileDebugJavaWithJavac --no-daemon --max-workers=1 --stacktrace
+      - name: Build RAM experiment universal tester APK
+        if: github.event_name == 'push'
+        run: ./android/gradlew -p android :app:assembleSideload --no-daemon --max-workers=1 --stacktrace
+      - name: Verify and stage APK
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          APK="android/app/build/outputs/apk/sideload/app-sideload.apk"
+          test -f "$APK"
+          unzip -l "$APK" | grep -Eq "(assets/index\.android\.bundle|assets/.*\.bundle)"
+          unzip -l "$APK" | grep -q "lib/armeabi-v7a/"
+          unzip -l "$APK" | grep -q "lib/arm64-v8a/"
+          unzip -l "$APK" | grep -Eq "lib/(armeabi-v7a|arm64-v8a)/.*ffmpeg"
+          mkdir -p artifacts
+          cp "$APK" "artifacts/CharmIPTV-RAM-Experiment-Universal-${GITHUB_RUN_NUMBER}.apk"
+          sha256sum "artifacts/CharmIPTV-RAM-Experiment-Universal-${GITHUB_RUN_NUMBER}.apk" > artifacts/SHA256SUMS.txt
+      - name: Upload RAM experiment APK
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: CharmIPTV-RAM-Experiment-Universal-${{ github.run_number }}
+          path: |
+            frontend/artifacts/CharmIPTV-RAM-Experiment-Universal-${{ github.run_number }}.apk
+            frontend/artifacts/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0

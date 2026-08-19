@@ -1,0 +1,78 @@
+name: Phase 9 TiviMate Guide Runway Debounce
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-guide-runway-debounce.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Keep repeated vertical focus out of duplicate JS guide queries
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          canvas = Path('frontend/src/components/NativeGuideCanvas.tsx')
+          c = canvas.read_text()
+          c = c.replace(
+            '  onViewportChannelIds: (ids: string[], priorityIds: string[], pageSize: number) => void;',
+            '  onViewportChannelIds: (ids: string[], priorityIds: string[], pageSize: number, velocity: number) => void;',
+            1,
+          )
+          c = c.replace(
+            '    onViewportChannelIds(value.ids || [], value.priorityIds || [], value.pageSize || 8);',
+            '    onViewportChannelIds(value.ids || [], value.priorityIds || [], value.pageSize || 8, Math.max(0, value.velocity || 0));',
+            1,
+          )
+          canvas.write_text(c)
+
+          guide = Path('frontend/app/(tabs)/guide.tsx')
+          g = guide.read_text()
+          marker = '  const memoryLogoRestoreTimer = useRef<ReturnType<typeof setTimeout> | null>(null);\n'
+          addition = marker + '  const runwayPatchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);\n  const pendingRunwayPatchRef = useRef<{ ids: string[]; priorityIds: string[] } | null>(null);\n'
+          if 'pendingRunwayPatchRef' not in g:
+              if marker not in g:
+                  raise SystemExit('guide timer marker not found')
+              g = g.replace(marker, addition, 1)
+
+          cleanup = '''      if (memoryLogoRestoreTimer.current) clearTimeout(memoryLogoRestoreTimer.current);\n      previewTimer.current = null;\n      previewRecoverTimer.current = null;\n      surfReleaseTimer.current = null;\n      memoryLogoRestoreTimer.current = null;\n      setViewportGuideChannelIds(null);'''
+          cleanup_new = '''      if (memoryLogoRestoreTimer.current) clearTimeout(memoryLogoRestoreTimer.current);\n      if (runwayPatchTimer.current) clearTimeout(runwayPatchTimer.current);\n      previewTimer.current = null;\n      previewRecoverTimer.current = null;\n      surfReleaseTimer.current = null;\n      memoryLogoRestoreTimer.current = null;\n      runwayPatchTimer.current = null;\n      pendingRunwayPatchRef.current = null;\n      setViewportGuideChannelIds(null);'''
+          if 'pendingRunwayPatchRef.current = null;' not in g:
+              if cleanup not in g:
+                  raise SystemExit('guide unmount cleanup marker not found')
+              g = g.replace(cleanup, cleanup_new, 1)
+
+          old = '''  const onViewportChannelIds = useCallback((ids: string[], priorityIds: string[] = [], pageSize = 8) => {\n    const focusIndex = Math.max(0, ids.indexOf(priorityIds[0] || ""));\n    const dataIds = isGuideSurfing()\n      ? ids.slice(\n          Math.max(0, focusIndex - pageSize * 2),\n          Math.min(ids.length, focusIndex + pageSize * 4 + 1),\n        )\n      : ids;\n    lastRunwayRef.current = { ids: dataIds, priority: priorityIds, pageSize };\n    setViewportGuideChannelIds(ids);\n    if (channels.length >= 400) {\n      // Match the focused/next rows first. A symmetric runway starts at its\n      // oldest retained row, which must not delay the visible edge.\n      setPriorityMatchChannelIds(\n        Array.from(new Set([...priorityIds, ...ids])).slice(0, 400),\n      );\n    } else {\n      setPriorityMatchChannelIds([]);\n    }\n    // Conveyor belt: fetch the runway, retain fetch ± 1 page so reverse surfing\n    // does not blank rows the user just left, and drop everything else.\n    retainGuideSlidingCache(\n      expandRunwayKeepSet(orderedFilteredIds, ids, pageSize, 1, filteredIdIndex),\n    );\n    // Retain the wider focus runway for reverse movement, but query only a compact\n    // data runway during a sustained hold. The settled pass expands it again.\n    void patchProgramsForChannelIds(dataIds, priorityIds);\n  }, ['''
+          new = '''  const onViewportChannelIds = useCallback((ids: string[], priorityIds: string[] = [], pageSize = 8, velocity = 0) => {\n    const focusIndex = Math.max(0, ids.indexOf(priorityIds[0] || ""));\n    const rapid = velocity > 0 || isGuideSurfing();\n    const dataIds = rapid\n      ? ids.slice(\n          Math.max(0, focusIndex - pageSize * 2),\n          Math.min(ids.length, focusIndex + pageSize * 4 + 1),\n        )\n      : ids;\n    lastRunwayRef.current = { ids: dataIds, priority: priorityIds, pageSize };\n    setViewportGuideChannelIds(ids);\n    if (channels.length >= 400) {\n      // Match the focused/next rows first. A symmetric runway starts at its\n      // oldest retained row, which must not delay the visible edge.\n      setPriorityMatchChannelIds(\n        Array.from(new Set([...priorityIds, ...ids])).slice(0, 400),\n      );\n    } else {\n      setPriorityMatchChannelIds([]);\n    }\n    // Conveyor belt: retain focus ± 1 page immediately so reverse movement never\n    // blanks. Native Guide already performs the bounded SQLite paint query itself.\n    retainGuideSlidingCache(\n      expandRunwayKeepSet(orderedFilteredIds, ids, pageSize, 1, filteredIdIndex),\n    );\n\n    // TiViMate-style hot path: while a key is repeating, do not start a second JS\n    // programme fetch for every native focus hop. Keep only the newest runway and\n    // hydrate preview/metadata once navigation settles. This removes duplicate DB\n    // pressure without delaying the native highlight or last-good canvas paint.\n    pendingRunwayPatchRef.current = { ids: dataIds, priorityIds };\n    if (runwayPatchTimer.current) clearTimeout(runwayPatchTimer.current);\n    const delay = rapid ? 110 : 0;\n    runwayPatchTimer.current = setTimeout(() => {\n      runwayPatchTimer.current = null;\n      const pending = pendingRunwayPatchRef.current;\n      pendingRunwayPatchRef.current = null;\n      if (!pending) return;\n      void patchProgramsForChannelIds(pending.ids, pending.priorityIds);\n    }, delay);\n  }, ['''
+          if 'TiViMate-style hot path: while a key is repeating' not in g:
+              if old not in g:
+                  raise SystemExit('guide runway callback marker not found')
+              g = g.replace(old, new, 1)
+          guide.write_text(g)
+
+          test = Path('frontend/tests/guideShellPolish.test.mjs')
+          t = test.read_text()
+          case = '''\ntest("rapid Guide runway movement debounces duplicate JS programme patching", async () => {\n  const [guide, canvas] = await Promise.all([\n    source("app/(tabs)/guide.tsx"),\n    source("src/components/NativeGuideCanvas.tsx"),\n  ]);\n  assert.match(canvas, /pageSize: number, velocity: number/);\n  assert.match(canvas, /Math\\.max\\(0, value\\.velocity \\|\\| 0\\)/);\n  assert.match(guide, /pendingRunwayPatchRef/);\n  assert.match(guide, /const rapid = velocity > 0 \\|\\| isGuideSurfing\\(\\)/);\n  assert.match(guide, /const delay = rapid \\? 110 : 0/);\n  assert.match(guide, /clearTimeout\\(runwayPatchTimer\\.current\\)/);\n  assert.match(guide, /patchProgramsForChannelIds\\(pending\\.ids, pending\\.priorityIds\\)/);\n});\n'''
+          if 'rapid Guide runway movement debounces duplicate JS programme patching' not in t:
+              t += case
+              test.write_text(t)
+          PY
+      - name: Commit Guide repeat-path debounce
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/components/NativeGuideCanvas.tsx frontend/app/'(tabs)'/guide.tsx frontend/tests/guideShellPolish.test.mjs
+          git commit -m "phase9: debounce duplicate guide runway reads"
+          git push origin HEAD:phase9/purple-next

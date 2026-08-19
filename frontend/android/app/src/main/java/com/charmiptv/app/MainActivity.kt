@@ -16,8 +16,67 @@ class MainActivity : ReactActivity() {
 
   private var lastAcceptedDirectionalRepeatAt = 0L
   private var lastAcceptedDirectionalKeyCode = -1
+  private var emittedLongPressKeyCode = -1
 
   override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+    // Emit one semantic long-press event per physical hold. This is the
+    // authoritative path for long OK/Select favorites on installed Android TV builds.
+    if (event.action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount > 0 && emittedLongPressKeyCode != event.keyCode) {
+      val longKey = when (event.keyCode) {
+        android.view.KeyEvent.KEYCODE_DPAD_DOWN -> "DOWN"
+        android.view.KeyEvent.KEYCODE_DPAD_CENTER,
+        android.view.KeyEvent.KEYCODE_ENTER,
+        android.view.KeyEvent.KEYCODE_NUMPAD_ENTER,
+        android.view.KeyEvent.KEYCODE_BUTTON_A -> "SELECT"
+        android.view.KeyEvent.KEYCODE_BACK -> "BACK"
+        else -> null
+      }
+      if (longKey != null) {
+        emittedLongPressKeyCode = event.keyCode
+        emitRemoteEvent("TvRemoteLongPress", longKey)
+      }
+    } else if (event.action == android.view.KeyEvent.ACTION_UP && event.keyCode == emittedLongPressKeyCode) {
+      emittedLongPressKeyCode = -1
+    }
+
+    // Once a held OK/Select has become a semantic long press, suppress the
+    // remaining repeat DOWN events for that same physical hold. Otherwise the
+    // fullscreen player's raw TvRemoteKey stream can wake/move controls while
+    // the long-OK Favorite action is firing. Do not apply this to directional
+    // keys: held Guide Up/Down must keep their bounded native repeat cadence.
+    val selectKey =
+      event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER ||
+        event.keyCode == android.view.KeyEvent.KEYCODE_ENTER ||
+        event.keyCode == android.view.KeyEvent.KEYCODE_NUMPAD_ENTER ||
+        event.keyCode == android.view.KeyEvent.KEYCODE_BUTTON_A
+    if (
+      event.action == android.view.KeyEvent.ACTION_DOWN &&
+        event.repeatCount > 0 &&
+        selectKey &&
+        emittedLongPressKeyCode == event.keyCode
+    ) {
+      return true
+    }
+
+    // Phase 9 remote ownership. Drawers own only their boundary transitions;
+    // Up/Down/OK remain native focus events inside the active drawer.
+    if (event.action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount == 0 && !TvRemoteModule.pointerActive) {
+      val context = TvRemoteModule.remoteContext
+      val boundaryKey = when (event.keyCode) {
+        android.view.KeyEvent.KEYCODE_DPAD_LEFT -> "LEFT"
+        android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> "RIGHT"
+        android.view.KeyEvent.KEYCODE_BACK -> "BACK"
+        else -> null
+      }
+      val owned =
+        (context == "guide_groups" && boundaryKey != null) ||
+          (context == "main_drawer" && boundaryKey == "RIGHT") ||
+          (context == "drawer_edge" && boundaryKey == "LEFT")
+      if (owned && boundaryKey != null) {
+        emitRemoteEvent("TvRemoteKey", boundaryKey)
+        return true
+      }
+    }
     // Dedicated Channel/Page buttons provide safe one-page Guide jumps. They
     // never overload ordinary D-pad taps, so channel-by-channel focus remains
     // deterministic and a held arrow cannot accidentally trigger a page jump.
@@ -91,14 +150,16 @@ class MainActivity : ReactActivity() {
         android.view.KeyEvent.KEYCODE_ENTER,
         android.view.KeyEvent.KEYCODE_NUMPAD_ENTER,
         android.view.KeyEvent.KEYCODE_BUTTON_A -> "SELECT"
+        android.view.KeyEvent.KEYCODE_BACK -> "BACK"
         else -> null
       }
     } else null
-    if (key != null && (!TvRemoteModule.guideNavigationActive || TvRemoteModule.pointerActive)) {
+    val mirrorToJs = TvRemoteModule.pointerActive || TvRemoteModule.remoteContext == "player"
+    if (key != null && mirrorToJs) {
       emitRemoteEvent("TvRemoteKey", key)
-      // Pointer mode owns the D-pad entirely. Guide Up/Down must NOT be consumed —
-      // Android's focus engine moves between guide cells; JS only handles boundaries
-      // (Up → group tabs, bottom lock). Consuming Up/Down freezes guide surfing.
+      // Pointer mode owns the D-pad entirely. Ordinary TV pages use Android's
+      // native focus engine and must not receive a duplicate JS copy of the
+      // same physical arrow; that duplicate was a source of focus drift.
       if (TvRemoteModule.pointerActive) return true
     }
     return super.dispatchKeyEvent(event)
@@ -137,6 +198,7 @@ class MainActivity : ReactActivity() {
     // A stale pointer flag consumes every D-pad key before Android focus sees it.
     TvRemoteModule.pointerActive = false
     TvRemoteModule.guideNavigationActive = false
+    TvRemoteModule.remoteContext = "default"
     super.onDestroy()
   }
 

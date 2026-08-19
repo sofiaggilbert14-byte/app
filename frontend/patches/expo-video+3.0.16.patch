@@ -335,7 +335,7 @@ diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/ut
 index 7e213f7..13bd7aa 100644
 --- a/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/DataSourceUtils.kt
 +++ b/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/DataSourceUtils.kt
-@@ -10,8 +10,11 @@ import androidx.media3.datasource.DefaultDataSource
+@@ -10,8 +10,29 @@ import androidx.media3.datasource.DefaultDataSource
  import androidx.media3.datasource.cache.CacheDataSource
  import androidx.media3.datasource.okhttp.OkHttpDataSource
  import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -344,10 +344,31 @@ index 7e213f7..13bd7aa 100644
  import expo.modules.video.records.VideoSource
 +import expo.modules.video.enums.ContentType
 +import expo.modules.video.HlsAudioRecoveryPlaylistParserFactory
++import okhttp3.ConnectionPool
++import okhttp3.Dispatcher
  import okhttp3.OkHttpClient
++import java.util.concurrent.TimeUnit
++
++private object CharmPlayerHttpPool {
++  private val dispatcher = Dispatcher().apply {
++    maxRequests = 32
++    maxRequestsPerHost = 8
++  }
++  val client: OkHttpClient = OkHttpClient.Builder()
++    .dispatcher(dispatcher)
++    .connectionPool(ConnectionPool(15, 5, TimeUnit.MINUTES))
++    .connectTimeout(5, TimeUnit.SECONDS)
++    .readTimeout(5, TimeUnit.SECONDS)
++    .writeTimeout(15, TimeUnit.SECONDS)
++    .retryOnConnectionFailure(true)
++    .build()
++}
  
  @OptIn(UnstableApi::class)
-@@ -63,8 +66,18 @@ fun buildExpoVideoMediaSource(context: Context, videoSource: VideoSource): Media
+@@ -31,1 +52,1 @@ fun buildOkHttpDataSourceFactory(context: Context, videoSource: VideoSource): Ok
+-  val client = OkHttpClient.Builder().build()
++  val client = CharmPlayerHttpPool.client
+@@ -63,8 +84,18 @@ fun buildExpoVideoMediaSource(context: Context, videoSource: VideoSource): Media
    } else {
      buildBaseDataSourceFactory(context, videoSource)
    }
@@ -391,3 +412,20 @@ index 204f98d..f10de9a 100644
  };
  //# sourceMappingURL=VideoPlayer.types.d.ts.map
 \ No newline at end of file
+
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerLoadControl.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerLoadControl.kt
+--- a/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerLoadControl.kt
++++ b/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerLoadControl.kt
+@@ -42,7 +42,11 @@ class VideoPlayerLoadControl : DefaultLoadControl() {
+       (bufferOptions.minBufferForPlayback * 1000).toLong()
+     }
+     bufferForPlaybackMs = safeBufferForPlayback
+-    bufferForPlaybackAfterRebufferMs = safeBufferForPlayback
++    // Live IPTV should start quickly, but after a network dip require at least
++    // one second before resuming so we do not bounce straight back into BUFFERING.
++    // This mirrors the TiviMate-style 500ms start / 1000ms rebuffer split while
++    // preserving larger user-selected startup thresholds.
++    bufferForPlaybackAfterRebufferMs = maxOf(1_000L, safeBufferForPlayback)
+ 
+     updateAllocator()
+   }

@@ -15,7 +15,7 @@ import {
   trimProgrammeWindowCacheForMemoryPressure,
   subscribeSource,
 } from "@/src/source";
-import { isGuideSurfing, onGuideSurfSettled } from "@/src/utils/guideSurfGate";
+import { isGuideScreenActive, isGuideSurfing, onGuideSurfSettled } from "@/src/utils/guideSurfGate";
 import {
   applyGuidePrograms,
   getGuidePrograms,
@@ -28,12 +28,18 @@ import { pickKeepIdsAroundFocus } from "@/src/core/guideSlidingCache";
 import { buildGuidePatchTiers, keepUsefulGuidePatch } from "@/src/core/guidePatchPolicy";
 import { reminderKey, setTimeFormat24h } from "@/src/utils/time";
 import { subscribeAndroidMemoryPressure } from "@/src/utils/androidMemoryPressure";
-import { clearChannelLogoMemory } from "@/src/components/ChannelLogo";
+import { clearChannelLogoMemory, setChannelLogoMemoryProfile } from "@/src/components/ChannelLogo";
 import { sanitizeFavoriteIds, toggleFavoriteId } from "@/src/utils/favoriteIds";
 import { pushRecentId, sanitizeRecentIds } from "@/src/utils/recentIds";
 import { sanitizeReminders } from "@/src/utils/reminderIds";
 import { remapStoredChannelIds } from "@/src/utils/channelIdentityMigrate";
-import { getPowerProfileTuning, resolvePowerProfile, type PowerProfile } from "@/src/core/devicePowerProfile";
+import {
+  getPowerProfileTuning,
+  resolvePowerProfile,
+  setDeviceLowRamCacheCap,
+  type PowerProfile,
+} from "@/src/core/devicePowerProfile";
+import { readDeviceMemoryProfile, shouldUseLowRamTuning } from "@/src/core/deviceMemoryProfile";
 import { resolveStoredGuideLayout } from "@/src/core/guideLayoutDefault";
 import { applyManualEpgRemaps, resolveEpgGuideFilter, sanitizeEpgManualRemap, type EpgGuideFilter } from "@/src/core/epgUserOverrides";
 import {
@@ -403,9 +409,17 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     const next = resolvePowerProfile(v);
     setPowerProfileState(next);
     storage.setItem(POWER_PROFILE_KEY, next);
-    const tuning = getPowerProfileTuning(next);
-    setLogosOffWhileSurfingState(tuning.logosOffWhileSurfingDefault);
-    storage.setItem(LOGOS_OFF_SURF_KEY, tuning.logosOffWhileSurfingDefault);
+    const visualTuning = getPowerProfileTuning(next);
+    void readDeviceMemoryProfile().then((memory) => {
+      const lowRam = shouldUseLowRamTuning(memory);
+      setDeviceLowRamCacheCap(lowRam);
+      const memorySafeTuning = getPowerProfileTuning(next);
+      setGuideProgramRowLimit(memorySafeTuning.programmeRowCacheLimit);
+      setProgrammeWindowCacheLimit(memorySafeTuning.programmeRowCacheLimit);
+      setChannelLogoMemoryProfile(next === "weak" || lowRam, memory?.logoMemoryBytes);
+    });
+    setLogosOffWhileSurfingState(visualTuning.logosOffWhileSurfingDefault);
+    storage.setItem(LOGOS_OFF_SURF_KEY, visualTuning.logosOffWhileSurfingDefault);
   }, []);
 
   const setLogosOffWhileSurfing = useCallback((v: boolean) => {
@@ -742,7 +756,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
         }
         // Strip all nested programs from meta rows. Rendered guide rows subscribe
         // to their own external programme pointer, so one viewport delta cannot
-        // replace the FlashList data for every channel.
+        // replace the native Guide data for every channel.
         return nextChannels.map((channel) => ({
           id: channel.id,
           tvg_id: channel.tvg_id,
@@ -910,7 +924,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       patchTimerRef.current = null;
     }
     // Strict retain first so blur cannot leave hundreds of off-runway rows warm.
-    // Force empties subscribed off-keep rows — FlashList may still be mounted.
+    // Force empties subscribed off-keep rows — Guide consumers may still be mounted.
     retainGuidePrograms(keep, { force: true });
     retainProgrammeWindowCache(keep);
     trimGuideProgramRows(keep, true);
@@ -984,6 +998,16 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       setPreferTvgIdOnlyMatching(tvgOnly);
       const profile = resolvePowerProfile(await storage.getItem<string>(POWER_PROFILE_KEY, "normal"));
       setPowerProfileState(profile);
+      const deviceMemory = await readDeviceMemoryProfile();
+      const lowRamDevice = shouldUseLowRamTuning(deviceMemory);
+      setDeviceLowRamCacheCap(lowRamDevice);
+      const memorySafeTuning = getPowerProfileTuning(profile);
+      setGuideProgramRowLimit(memorySafeTuning.programmeRowCacheLimit);
+      setProgrammeWindowCacheLimit(memorySafeTuning.programmeRowCacheLimit);
+      setChannelLogoMemoryProfile(
+        profile === "weak" || lowRamDevice,
+        deviceMemory?.logoMemoryBytes,
+      );
       const rawLogosOffWhileSurfing = await storage.getItem<boolean | null>(LOGOS_OFF_SURF_KEY, null);
       setLogosOffWhileSurfingState(
         typeof rawLogosOffWhileSurfing === "boolean"
@@ -1032,6 +1056,9 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       // Health check after the UI can accept D-pad input.
       healthTimer = setTimeout(() => {
         if (disposed) return;
+        // Never replace source/EPG state underneath the native Guide. The
+        // route-aware scheduler retries freshness checks on a safe screen.
+        if (isGuideScreenActive() || isGuideSurfing()) return;
         void (async () => {
           try {
             const status = await refreshSource(false);
@@ -1056,7 +1083,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
     let disposed = false;
     // Native EPG emits partial + final phases. Coalesce them so one refresh does
-    // not rebuild every channel/TimelineGrid row multiple times on weak sticks.
+    // not rebuild every channel/native Guide runway multiple times on weak sticks.
     const unsubscribe = subscribeSource(() => {
       if (refreshTimer) clearTimeout(refreshTimer);
       refreshTimer = setTimeout(() => {
@@ -1109,7 +1136,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   }, [loading, refreshing]);
   useEffect(() => {
     const timer = setInterval(() => {
-      if (busyRef.current || isGuideSurfing()) return;
+      if (busyRef.current || isGuideScreenActive() || isGuideSurfing()) return;
       void refresh(true);
     }, 60 * 60 * 1000);
     return () => clearInterval(timer);

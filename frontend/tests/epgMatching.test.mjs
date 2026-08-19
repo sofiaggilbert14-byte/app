@@ -182,7 +182,8 @@ test("Android source path stays native-only (no JS XMLTV inflate/parse)", async 
   assert.match(native, /Array\.from\(\s*new Set\(/);
   assert.doesNotMatch(native, /parseXMLTV|inflateToTextChunks|from "fflate"|epgDb/);
   assert.match(native, /Native EPG engine is unavailable/);
-  assert.match(native, /Never mutate EMPTY_PROGRAMS/);
+  assert.match(native, /const EMPTY_PROGRAMS: Program\[\] = \[\]/);
+  assert.doesNotMatch(native, /EMPTY_PROGRAMS\.(?:push|pop|shift|unshift|splice|sort|reverse)\(/);
   // Weak-stick memory: bounded programme cache + no full-playlist warm emit hitch.
   assert.match(native, /maxProgrammeWindowKeys = 1800/);
   assert.match(native, /setProgrammeWindowCacheLimit/);
@@ -205,7 +206,9 @@ test("native EPG engine strengthens migrate, next-stop, recovery, rare vacuum", 
     readFile(join(root, "android/app/src/main/java/com/charmiptv/app/EpgDatabase.kt"), "utf8"),
     readFile(join(root, "android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt"), "utf8"),
   ]);
-  assert.match(db, /DATABASE_VERSION = 6/);
+  assert.match(db, /DATABASE_VERSION = 7/);
+  assert.match(db, /epg_programmes_fts/);
+  assert.match(db, /toEpochSeconds/);
   assert.match(db, /Additive only/);
   assert.match(db, /inferMissingStopsFromNextProgram/);
   assert.match(db, /ensureHealthy/);

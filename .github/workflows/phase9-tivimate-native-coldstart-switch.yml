@@ -1,0 +1,83 @@
+name: Phase 9 TiviMate Native Cold Start Switch
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-native-coldstart-switch.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Preserve SQL EPG match and prefer native snapshot on cold start
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          db = Path('frontend/android/app/src/main/java/com/charmiptv/app/EpgDatabase.kt')
+          s = db.read_text()
+          if 'val matchedXmltvId: String = ""' not in s:
+              s = s.replace(
+                  '  val epgLogo: String = "",\n)',
+                  '  val epgLogo: String = "",\n  val matchedXmltvId: String = "",\n)',
+                  1,
+              )
+          old_select = '''             COALESCE(c.group_title, ''), c.stream_url, c.stream_type, c.provider_position,\n             COALESCE((SELECT a.alias_value FROM $ALIAS_TABLE a\n                       WHERE a.channel_id = m.xmltv_id AND a.alias_kind = 'icon_url' LIMIT 1), '')\n'''
+          new_select = '''             COALESCE(c.group_title, ''), c.stream_url, c.stream_type, c.provider_position,\n             COALESCE((SELECT a.alias_value FROM $ALIAS_TABLE a\n                       WHERE a.channel_id = m.xmltv_id AND a.alias_kind = 'icon_url' LIMIT 1), ''),\n             COALESCE(m.xmltv_id, '')\n'''
+          if 'COALESCE(m.xmltv_id' not in s:
+              if old_select not in s: raise SystemExit('active playlist selected columns marker not found')
+              s = s.replace(old_select, new_select, 1)
+              s = s.replace(
+                  '            epgLogo = cursor.getString(8),\n',
+                  '            epgLogo = cursor.getString(8),\n            matchedXmltvId = cursor.getString(9),\n',
+                  1,
+              )
+          db.write_text(s)
+
+          native = Path('frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt')
+          n = native.read_text()
+          n = n.replace(
+              '            putString("tvg_id", row.rawTvgId)\n',
+              '            putString("tvg_id", row.matchedXmltvId.ifBlank { row.rawTvgId })\n',
+              1,
+          )
+          native.write_text(n)
+
+          source = Path('frontend/src/source.native.ts')
+          x = source.read_text()
+          if 'readNativeStoredPlaylist,' not in x:
+              x = x.replace(
+                  '  fetchNativePlaylist,\n',
+                  '  fetchNativePlaylist,\n  readNativeStoredPlaylist,\n',
+                  1,
+              )
+          helper_marker = 'async function readChannelCache(): Promise<NativeMeta | null> {\n'
+          helper = '''async function readNativeChannelCache(): Promise<NativeMeta | null> {\n  if (!nativeEpgAvailable) return null;\n  try {\n    const stored = await readNativeStoredPlaylist();\n    if (!stored?.channels?.length) return null;\n    const logoPriority = await getLogoPriority();\n    for (const channel of stored.channels) {\n      const playlistLogo = channel.playlist_logo || channel.logo || "";\n      const epgLogo = channel.epg_logo || "";\n      channel.playlist_logo = playlistLogo;\n      channel.logo = logoPriority === "epg" ? (epgLogo || playlistLogo) : (playlistLogo || epgLogo);\n    }\n    sortChannelsInPlace(stored.channels);\n    const guideRefreshedAt = stored.guideRefreshedAt || 0;\n    const playlistRefreshedAt = stored.playlistRefreshedAt || 0;\n    return {\n      ts: guideRefreshedAt || playlistRefreshedAt,\n      channels: stored.channels,\n      epgProgramCount: stored.epgProgramCount || 0,\n      epgChannelCount: 0,\n      playlistEpoch: stored.playlistEpoch || 0,\n      guideEpoch: stored.guideEpoch || 0,\n      playlistRefreshedAt,\n      guideRefreshedAt,\n      playlistIdentityFingerprint: playlistIdentityFingerprint(stored.channels),\n    };\n  } catch {\n    return null;\n  }\n}\n\n'''
+          if 'async function readNativeChannelCache()' not in x:
+              if helper_marker not in x: raise SystemExit('readChannelCache marker not found')
+              x = x.replace(helper_marker, helper + helper_marker, 1)
+
+          old_load = '  const cached = await readChannelCache();\n  if (cached) {\n'
+          new_load = '  const nativeCached = await readNativeChannelCache();\n  const cached = nativeCached || (await readChannelCache());\n  if (cached) {\n'
+          if 'const nativeCached = await readNativeChannelCache();' not in x:
+              if old_load not in x: raise SystemExit('ensureLoaded cache marker not found')
+              x = x.replace(old_load, new_load, 1)
+          source.write_text(x)
+          PY
+      - name: Commit native cold-start switch
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/android/app/src/main/java/com/charmiptv/app/EpgDatabase.kt frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt frontend/src/source.native.ts
+          git commit -m "phase9: prefer relational native channel snapshot on cold start"
+          git push origin HEAD:phase9/purple-next

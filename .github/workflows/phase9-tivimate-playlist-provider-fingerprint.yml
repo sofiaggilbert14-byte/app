@@ -1,0 +1,51 @@
+name: Phase 9 TiviMate Playlist Provider Fingerprint
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-playlist-provider-fingerprint.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Fingerprint every provider-owned playback field
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('frontend/src/source.native.ts')
+          s = p.read_text()
+          old = '''  for (const channel of channels) {\n    hashFields(\n      `${channel.id}\\0${channel.raw_tvg_id || channel.tvg_id || ""}\\0${channel.name || ""}\\0${channel.playlist_logo || channel.logo || ""}\\0${channel.group || ""}\\x01`,\n      state,\n    );\n  }\n'''
+          new = '''  for (let position = 0; position < channels.length; position += 1) {\n    const channel = channels[position];\n    // This fingerprint protects the native provider catalog, not user identity.\n    // Include every provider-owned playback field so rotating Xtream/M3U stream\n    // URLs, stream-type changes, and provider reorderings cannot leave SQLite\n    // serving stale rows on the next cold start. Stable favorites/customization\n    // remain keyed by channel.id in their separate stores.\n    hashFields(\n      `${channel.id}\\0${channel.raw_tvg_id || channel.tvg_id || ""}\\0${channel.name || ""}\\0${channel.playlist_logo || channel.logo || ""}\\0${channel.group || ""}\\0${channel.url || ""}\\0${channel.stream_type || "unknown"}\\0${position}\\x01`,\n      state,\n    );\n  }\n'''
+          if 'rotating Xtream/M3U stream' not in s:
+              if old not in s: raise SystemExit('native playlist fingerprint marker not found')
+              s = s.replace(old, new, 1)
+          # Bump fingerprint namespace so existing old-format stored hashes are
+          # guaranteed to perform one corrective sync after upgrade.
+          s = s.replace('return `playlist-v1:${channels.length}:', 'return `playlist-v2:${channels.length}:', 1)
+          p.write_text(s)
+
+          test = Path('frontend/tests/memoryCrossAudit.test.mjs')
+          t = test.read_text()
+          case = '''\ntest("native playlist fingerprint tracks provider playback fields without changing user identity", async () => {\n  const source = await readFile(join(root, "src/source.native.ts"), "utf8");\n  const fp = source.match(/function playlistNativeContentFingerprint[\\s\\S]*?\\n}/)?.[0] || "";\n  assert.match(fp, /channel\\.url \\|\\| ""/);\n  assert.match(fp, /channel\\.stream_type \\|\\| "unknown"/);\n  assert.match(fp, /\\$\\{position\\}/);\n  assert.match(fp, /playlist-v2:/);\n  const identity = source.match(/function playlistIdentityFingerprint[\\s\\S]*?\\n}/)?.[0] || "";\n  assert.doesNotMatch(identity, /channel\\.url/);\n});\n'''
+          if 'native playlist fingerprint tracks provider playback fields' not in t:
+              t += case
+              test.write_text(t)
+          PY
+      - name: Commit provider playback fingerprint repair
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/source.native.ts frontend/tests/memoryCrossAudit.test.mjs
+          git commit -m "phase9: refresh native provider playback fields"
+          git push origin HEAD:phase9/purple-next

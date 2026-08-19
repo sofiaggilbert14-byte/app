@@ -1,0 +1,58 @@
+name: Phase 9 TiviMate Custom EPG Success Clock
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-custom-epg-success-clock.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Advance custom Guide freshness only after a real programme swap
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('frontend/android/app/src/main/java/com/charmiptv/app/CustomEpgNativeModule.kt')
+          s = p.read_text()
+          old = '''        var acceptedProgrammeCount = 0L\n\n        val batches = streamFilteredXmltv(\n'''
+          new = '''        var acceptedProgrammeCount = 0L\n        var programmeSwapSucceeded = false\n\n        val batches = streamFilteredXmltv(\n'''
+          if 'var programmeSwapSucceeded = false' not in s:
+              if old not in s: raise SystemExit('custom EPG swap state marker not found')
+              s = s.replace(old, new, 1)
+          old2 = '''            userDatabase.replaceBatches(batches)\n          } catch (t: IllegalStateException) {\n'''
+          new2 = '''            userDatabase.replaceBatches(batches)\n            programmeSwapSucceeded = true\n          } catch (t: IllegalStateException) {\n'''
+          if 'programmeSwapSucceeded = true' not in s:
+              if old2 not in s: raise SystemExit('custom EPG successful swap marker not found')
+              s = s.replace(old2, new2, 1)
+          old3 = '''        userDatabase.replaceChannelAliases(aliases)\n        val guideEpoch = (userDatabase.getMeta("guide_epoch")?.toLongOrNull() ?: 0L) + 1L\n        userDatabase.setMeta("guide_epoch", guideEpoch.toString())\n        userDatabase.setMeta("guide_refreshed_at", now.toString())\n        userDatabase.setMeta("custom_programme_scope", activeXmltvIds.size.toString())\n\n        promise.resolve(Arguments.createMap().apply {\n          putDouble("count", userDatabase.count().toDouble())\n          putDouble("directoryCount", channelNames.size.toDouble())\n          putDouble("bindingCount", activeXmltvIds.size.toDouble())\n          putDouble("guideEpoch", guideEpoch.toDouble())\n          putDouble("guideRefreshedAt", now.toDouble())\n        })\n'''
+          new3 = '''        userDatabase.replaceChannelAliases(aliases)\n        val previousGuideEpoch = userDatabase.getMeta("guide_epoch")?.toLongOrNull() ?: 0L\n        val previousGuideRefreshedAt = userDatabase.getMeta("guide_refreshed_at")?.toLongOrNull() ?: 0L\n        val guideEpoch = if (programmeSwapSucceeded) previousGuideEpoch + 1L else previousGuideEpoch\n        val guideRefreshedAt = if (programmeSwapSucceeded) now else previousGuideRefreshedAt\n        if (programmeSwapSucceeded) {\n          userDatabase.setMeta("guide_epoch", guideEpoch.toString())\n          userDatabase.setMeta("guide_refreshed_at", guideRefreshedAt.toString())\n        }\n        userDatabase.setMeta("custom_programme_scope", activeXmltvIds.size.toString())\n\n        promise.resolve(Arguments.createMap().apply {\n          putDouble("count", userDatabase.count().toDouble())\n          putDouble("directoryCount", channelNames.size.toDouble())\n          putDouble("bindingCount", activeXmltvIds.size.toDouble())\n          putDouble("guideEpoch", guideEpoch.toDouble())\n          putDouble("guideRefreshedAt", guideRefreshedAt.toDouble())\n          putBoolean("programmeSwapSucceeded", programmeSwapSucceeded)\n        })\n'''
+          if 'putBoolean("programmeSwapSucceeded", programmeSwapSucceeded)' not in s:
+              if old3 not in s: raise SystemExit('custom EPG success clock marker not found')
+              s = s.replace(old3, new3, 1)
+          p.write_text(s)
+
+          test = Path('frontend/tests/tivimateColdStartPolicy.test.mjs')
+          t = test.read_text()
+          case = '''\ntest("custom EPG last-good retention does not fake a successful programme refresh", async () => {\n  const custom = await source("android/app/src/main/java/com/charmiptv/app/CustomEpgNativeModule.kt");\n  assert.match(custom, /var programmeSwapSucceeded = false/);\n  assert.match(custom, /userDatabase\\.replaceBatches\\(batches\\)[\\s\\S]{0,100}programmeSwapSucceeded = true/);\n  assert.match(custom, /val guideEpoch = if \\(programmeSwapSucceeded\\) previousGuideEpoch \\+ 1L else previousGuideEpoch/);\n  assert.match(custom, /val guideRefreshedAt = if \\(programmeSwapSucceeded\\) now else previousGuideRefreshedAt/);\n  assert.match(custom, /if \\(programmeSwapSucceeded\\) \\{[\\s\\S]*?setMeta\\("guide_refreshed_at"/);\n  assert.match(custom, /putBoolean\\("programmeSwapSucceeded", programmeSwapSucceeded\\)/);\n});\n'''
+          if 'custom EPG last-good retention does not fake a successful programme refresh' not in t:
+              t += case
+              test.write_text(t)
+          PY
+      - name: Commit custom EPG success clock semantics
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/android/app/src/main/java/com/charmiptv/app/CustomEpgNativeModule.kt frontend/tests/tivimateColdStartPolicy.test.mjs
+          git commit -m "phase9: preserve custom EPG success freshness"
+          git push origin HEAD:phase9/purple-next

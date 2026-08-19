@@ -14,8 +14,10 @@ import { ProgramModal } from "@/src/components/ProgramModal";
 import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { PointerOverlay } from "@/src/components/PointerOverlay";
 import { PurpleTvDrawerProvider } from "@/src/components/PurpleTvShell";
+import { SourceRefreshScheduler } from "@/src/components/SourceRefreshScheduler";
 import { TvCalibrationFrame, TvCalibrationProvider } from "@/src/tvCalibration";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
+import { StartupVersion4 } from "@/src/components/StartupVersion4";
 
 // Keep real errors visible for TV QA; only silence known noisy module warnings.
 LogBox.ignoreLogs([
@@ -110,6 +112,7 @@ export default function RootLayout() {
               <PurpleTvDrawerProvider>
                 <StatusBar style="light" />
                 <NotificationRouter />
+                <SourceRefreshScheduler />
                 <ReminderCleanup />
                 <StartScreenRedirect />
                 <ErrorBoundary>
@@ -122,6 +125,7 @@ export default function RootLayout() {
                   <ProgramModal />
                 </ErrorBoundary>
                 <PointerOverlay />
+                <StartupVersion4 />
               </PurpleTvDrawerProvider>
             </GuideProvider>
           </TvCalibrationFrame>

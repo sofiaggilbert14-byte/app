@@ -1,0 +1,37 @@
+name: Apply Build 8 Final Memory Patch
+
+on:
+  push:
+    branches:
+      - fix/purple-next-build8-tester-pass
+    paths:
+      - ci/apply-build8-final-memory.txt
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: fix/purple-next-build8-tester-pass
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.13"
+      - name: Patch token-only playlist refresh allocations
+        run: python ci/patch-build8-final-memory.py
+      - name: Commit product change
+        run: |
+          if git diff --quiet -- frontend/src/source.native.ts; then
+            echo "No product changes needed"
+            exit 0
+          fi
+          git config user.name "Build 8 Memory Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add frontend/src/source.native.ts
+          git commit -m "perf(memory): reuse parsed rows on playlist-only refresh"
+          git push origin HEAD:fix/purple-next-build8-tester-pass

@@ -1,0 +1,49 @@
+name: Finalize Build 8 Second Cross-Audit
+
+on:
+  push:
+    branches:
+      - fix/purple-next-build8-tester-pass
+    paths:
+      - ci/finalize-build8-rescan2.txt
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: fix/purple-next-build8-tester-pass
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.13"
+      - name: Apply final source/test refinements
+        working-directory: .
+        run: python ci/patch-build8-rescan2-finalize.py
+      - name: Align Expo SDK patch versions
+        run: npm install 'expo@~54.0.37' 'expo-constants@~18.0.14' 'expo-file-system@~19.0.24' --legacy-peer-deps --no-audit --no-fund
+      - name: Commit final audit changes
+        working-directory: .
+        run: |
+          if git diff --quiet -- frontend; then
+            echo "No final changes needed"
+            exit 0
+          fi
+          git config user.name "Build 8 Cross-Audit Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add frontend
+          git commit -m "fix(build8): finalize second cross-audit validation"
+          git push origin HEAD:fix/purple-next-build8-tester-pass
