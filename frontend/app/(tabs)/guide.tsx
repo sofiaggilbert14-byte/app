@@ -62,6 +62,7 @@ import {
   noteStreamFailure,
 } from "@/src/core/streamFailureRegistry";
 import { consumeGuideJump, peekGuideJump } from "@/src/core/guideSearchJump";
+import { consumeGuideGroupsOnEntry } from "@/src/core/guideEntryIntent";
 import { fonts, spacing, tvColors } from "@/src/theme";
 import { nowNext } from "@/src/utils/time";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
@@ -115,6 +116,7 @@ function GuideSelectionPreview({
   onOpenReminders,
   onHideToggle,
   onOpenDrawer,
+  onActionsFocusChange,
   focusRequestToken,
   guideFocusTag,
 }: {
@@ -139,6 +141,7 @@ function GuideSelectionPreview({
   onOpenReminders: () => void;
   onHideToggle: () => void;
   onOpenDrawer: () => void;
+  onActionsFocusChange: (focused: boolean) => void;
   focusRequestToken: number;
   guideFocusTag?: number | null;
 }) {
@@ -197,6 +200,7 @@ function GuideSelectionPreview({
       onOpenReminders={onOpenReminders}
       onHideToggle={onHideToggle}
       onOpenDrawer={onOpenDrawer}
+      onActionsFocusChange={onActionsFocusChange}
       focusRequestToken={focusRequestToken}
       guideFocusTag={guideFocusTag}
     />
@@ -291,6 +295,7 @@ export default function PurpleGuideScreen() {
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewStatus, setPreviewStatus] = useState<StreamStatus>("loading");
   const [previewFocusRequestToken, setPreviewFocusRequestToken] = useState(0);
+  const [previewActionsFocused, setPreviewActionsFocused] = useState(false);
   const [nativeGuideFocusTag, setNativeGuideFocusTag] = useState<number | null>(null);
   const [resetToken, setResetToken] = useState(0);
   const [restoreTimeMs, setRestoreTimeMs] = useState<number | null>(null);
@@ -403,6 +408,12 @@ export default function PurpleGuideScreen() {
     });
     return () => sub.remove();
   }, [closeDrawer, isFocused]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (consumeGuideGroupsOnEntry()) setGroupDrawerOpen(true);
+    }, []),
+  );
 
   useEffect(() => {
     if (!isFocused || drawerOpen || groupDrawerOpen || activeProgram) return;
@@ -924,8 +935,11 @@ export default function PurpleGuideScreen() {
   }, [activeProgram, drawerOpen, groupDrawerOpen]);
 
   const onGuideUpBoundary = useCallback(() => {
+    // Disable the native canvas before requesting a React action. A single
+    // focus owner prevents the canvas from reclaiming focus during the handoff.
+    setPreviewActionsFocused(true);
     setPreviewFocusRequestToken((value) => value + 1);
-    focusGuidePreviewSurface();
+    requestAnimationFrame(() => focusGuidePreviewSurface());
   }, []);
 
   // One-shot Search/Health/player jump — apply on focus/mount only.
@@ -1078,6 +1092,7 @@ export default function PurpleGuideScreen() {
               }}
               onHideToggle={() => setHidePreview(!hidePreview)}
               onOpenDrawer={openDrawerFromPreview}
+              onActionsFocusChange={setPreviewActionsFocused}
               focusRequestToken={previewFocusRequestToken}
               guideFocusTag={nativeGuideFocusTag}
             />
@@ -1089,7 +1104,7 @@ export default function PurpleGuideScreen() {
                 channels={filtered}
                 windowStart={windowStart}
                 windowEnd={windowEnd}
-                active={isFocused && !activeProgram && !drawerOpen && !groupDrawerOpen}
+                active={isFocused && !activeProgram && !drawerOpen && !groupDrawerOpen && !previewActionsFocused}
                 restoreChannelId={guideSessionChannelId}
                 restoreTimeMs={restoreTimeMs}
                 reloadGeneration={resetToken}

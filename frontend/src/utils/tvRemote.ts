@@ -131,9 +131,10 @@ export function setRemoteContext(context: RemoteContext) {
 export function resetRemoteContextIfOwned(
   expected: RemoteContext,
   fallback: RemoteContext = "default",
-): void {
-  if (remoteContextOwner !== expected) return;
+): boolean {
+  if (remoteContextOwner !== expected) return false;
   setRemoteContext(fallback);
+  return true;
 }
 
 /** Configure the bounded held-key cadence used while the Guide route is active. */

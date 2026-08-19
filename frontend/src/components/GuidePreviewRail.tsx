@@ -6,6 +6,7 @@ import type { Channel, Program } from "@/src/api";
 import { ChannelLogo } from "@/src/components/ChannelLogo";
 import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { StreamPlayer, type StreamStatus } from "@/src/components/StreamPlayer";
+import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { getLastAudioDiagnostics } from "@/src/core/audioDiagnostics";
 import {
   noteGuidePreviewFocus,
@@ -37,6 +38,7 @@ type Props = {
   onHideToggle: () => void;
   /** Opens the app drawer and lands focus on the top drawer row. */
   onOpenDrawer: () => void;
+  onActionsFocusChange: (focused: boolean) => void;
   focusRequestToken: number;
   guideFocusTag?: number | null;
 };
@@ -75,6 +77,7 @@ export function GuidePreviewRail({
   onOpenReminders,
   onHideToggle,
   onOpenDrawer,
+  onActionsFocusChange,
   focusRequestToken,
   guideFocusTag,
 }: Props) {
@@ -164,7 +167,7 @@ export function GuidePreviewRail({
         )}
       </View>
 
-      <View style={styles.actionGrid}>
+      <FocusGuide style={styles.actionGrid} onFocusLost={() => onActionsFocusChange(false)}>
         <View style={styles.actionColumn}>
           <Pressable
             ref={playFocus.setRef}
@@ -172,7 +175,7 @@ export function GuidePreviewRail({
             hasTVPreferredFocus={preferPlayFocus}
             disabled={!channel}
             onPress={onPlay}
-            onFocus={playFocus.onFocus}
+            onFocus={() => { onActionsFocusChange(true); playFocus.onFocus(); }}
             style={({ focused }: any) => [styles.watchButton, focused && styles.focused]}
             testID="guide-preview-play"
           >
@@ -184,7 +187,7 @@ export function GuidePreviewRail({
             nextFocusDown={guideFocusTag || undefined}
             disabled={!channel}
             onPress={onFavorite}
-            onFocus={favoriteFocus.onFocus}
+            onFocus={() => { onActionsFocusChange(true); favoriteFocus.onFocus(); }}
             style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
             testID="guide-preview-favorite"
           >
@@ -195,7 +198,7 @@ export function GuidePreviewRail({
             ref={remindersFocus.setRef}
             nextFocusDown={guideFocusTag || undefined}
             onPress={onOpenReminders}
-            onFocus={remindersFocus.onFocus}
+            onFocus={() => { onActionsFocusChange(true); remindersFocus.onFocus(); }}
             style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
             testID="guide-preview-remind"
           >
@@ -206,7 +209,7 @@ export function GuidePreviewRail({
             ref={drawerFocus.setRef}
             nextFocusDown={guideFocusTag || undefined}
             onPress={onOpenDrawer}
-            onFocus={drawerFocus.onFocus}
+            onFocus={() => { onActionsFocusChange(true); drawerFocus.onFocus(); }}
             style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
             testID="guide-preview-drawer"
           >
@@ -218,7 +221,7 @@ export function GuidePreviewRail({
             nextFocusDown={guideFocusTag || undefined}
             disabled={hidePreview}
             onPress={onToggleMute}
-            onFocus={muteFocus.onFocus}
+            onFocus={() => { onActionsFocusChange(true); muteFocus.onFocus(); }}
             style={({ focused }: any) => [styles.secondaryButton, hidePreview && styles.disabledButton, focused && styles.focused]}
             testID="guide-preview-mute"
           >
@@ -229,7 +232,7 @@ export function GuidePreviewRail({
             ref={hideFocus.setRef}
             nextFocusDown={guideFocusTag || undefined}
             onPress={onHideToggle}
-            onFocus={hideFocus.onFocus}
+            onFocus={() => { onActionsFocusChange(true); hideFocus.onFocus(); }}
             style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
             testID="guide-preview-hide"
           >
@@ -237,7 +240,7 @@ export function GuidePreviewRail({
             <Text style={styles.secondaryText}>{hidePreview ? "Show" : "Hide"}</Text>
           </Pressable>
         </View>
-      </View>
+      </FocusGuide>
 
       <View style={styles.copy}>
         <Text numberOfLines={1} style={styles.channelName}>

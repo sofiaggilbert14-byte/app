@@ -20,6 +20,7 @@ import { combineTvEdgeInsets, getTvSafeInsets } from "@/src/utils/tvLayout";
 import { requestNativeFocusWithRetry } from "@/src/utils/tvFocus";
 import { useStore } from "@/src/store";
 import { evaluateDrawerBack } from "@/src/core/drawerNavigationPolicy";
+import { requestGuideGroupsOnEntry } from "@/src/core/guideEntryIntent";
 import { isGuideScreenActive, isGuideSurfing } from "@/src/utils/guideSurfGate";
 import { useTvCalibration } from "@/src/tvCalibration";
 import { addTvKeyListener, setGuideNavigationActive, setRemoteContext } from "@/src/utils/tvRemote";
@@ -295,7 +296,13 @@ export function PurpleTvShell({
       // A normal close can be rejected by the anti-bounce opening guard, which
       // previously allowed two live focus owners during rapid drawer selection.
       closeDrawer({ force: true });
-      if (route === active) return;
+      if (route === active) {
+        if (route === "/guide") {
+          requestAnimationFrame(() => DeviceEventEmitter.emit("CharmGuideGroupsRequestOpen"));
+        }
+        return;
+      }
+      if (route === "/guide") requestGuideGroupsOnEntry();
 
       requestAnimationFrame(() => {
         if (route === "/settings") DeviceEventEmitter.emit("CharmShowAllSettings");

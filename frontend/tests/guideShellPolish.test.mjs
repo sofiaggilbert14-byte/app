@@ -135,7 +135,7 @@ test("drawer route changes release drawer focus ownership before mounting the ne
   const shell = await source("src/components/PurpleTvShell.tsx");
   const navigate = shell.match(/const navigate = useCallback\([\s\S]*?\n  \);/)?.[0] || "";
   assert.match(navigate, /closeDrawer\(\{ force: true \}\)/);
-  assert.match(navigate, /if \(route === active\) return/);
+  assert.match(navigate, /if \(route === active\) \{[\s\S]*CharmGuideGroupsRequestOpen[\s\S]*return;[\s\S]*\}/);
   assert.match(navigate, /requestAnimationFrame\(\(\) => \{/);
   assert.match(navigate, /router\.replace\(route as any\)/);
   assert.ok(
@@ -279,6 +279,10 @@ test("guide top strip is focusable while Left remains drawer-owned with conveyor
   assert.match(preview, /onOpenDrawer/);
   assert.match(guide, /openDrawer\(\)/);
   assert.match(guide, /focusGuidePreviewSurface\(\)/);
+  assert.match(guide, /setPreviewActionsFocused\(true\)/);
+  assert.match(guide, /!previewActionsFocused/);
+  assert.match(preview, /onActionsFocusChange\(true\)/);
+  assert.match(preview, /onFocusLost=\{\(\) => onActionsFocusChange\(false\)\}/);
   assert.match(guide, /setPreviewFocusRequestToken/);
   assert.match(preview, /hasTVPreferredFocus=\{preferPlayFocus\}/);
   assert.match(focus, /typeof focus === "function"/);
@@ -299,6 +303,44 @@ test("guide top strip is focusable while Left remains drawer-owned with conveyor
   assert.match(preview, /width: 138/);
   assert.match(preview, /actionColumn: \{ flex: 1, minWidth: 0, gap: 3 \}/);
   assert.doesNotMatch(preview, /actionPlaceholder/);
+});
+
+test("custom XMLTV ownership and user tabs stay isolated from provider parser rows", async () => {
+  const [settings, epg, customEpg, customGroups, nativeEpg, nativeControl] = await Promise.all([
+    source("app/(tabs)/settings.tsx"),
+    source("app/(tabs)/epg-sources.tsx"),
+    source("app/epg-custom.tsx"),
+    source("src/core/customGuideGroups.ts"),
+    source("android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt"),
+    source("android/app/src/main/java/com/charmiptv/app/EpgBindingNativeModule.kt"),
+  ]);
+  assert.match(settings, /router\.push\("\/epg-sources"/);
+  assert.match(epg, /Custom EPG & channel assignments/);
+  assert.match(epg, /Manage Guide groups & custom tabs/);
+  assert.match(epg, /Guide opens on/);
+  assert.match(customEpg, /Custom XMLTV URL/);
+  assert.match(customEpg, /refreshNativeUserGuide\(url\)/);
+  assert.match(customEpg, /setNativeGuideChannelBinding\(channel\.id, xmltvId\)/);
+  assert.match(nativeEpg, /charm_epg_user_v1\.db/);
+  assert.match(nativeControl, /dao\.setChannelBinding\(USER_SOURCE_ID, cleanChannelId, cleanXmltvId\)/);
+  assert.match(customGroups, /channelIds: string\[\]/);
+  assert.doesNotMatch(customGroups, /streamUrl|epgRows|programmes:/);
+});
+
+test("TV Guide drawer entry opens groups first and overlay cleanup preserves the next owner", async () => {
+  const [shell, groups, remote, guide, intent] = await Promise.all([
+    source("src/components/PurpleTvShell.tsx"),
+    source("src/components/PurpleGuideGroupDrawer.tsx"),
+    source("src/utils/tvRemote.ts"),
+    source("app/(tabs)/guide.tsx"),
+    source("src/core/guideEntryIntent.ts"),
+  ]);
+  assert.match(shell, /if \(route === "\/guide"\) requestGuideGroupsOnEntry\(\)/);
+  assert.match(guide, /consumeGuideGroupsOnEntry\(\)/);
+  assert.match(intent, /openGroupsOnNextGuideEntry/);
+  assert.match(remote, /\): boolean \{/);
+  assert.match(groups, /resetRemoteContextIfOwned\("guide_groups", "guide"\)/);
+  assert.doesNotMatch(groups, /setRemoteContext\("guide"\);\s*setGuideNavigationActive\(true\)/);
 });
 
 test("entry preferred focus disarms as soon as real user focus exists", async () => {

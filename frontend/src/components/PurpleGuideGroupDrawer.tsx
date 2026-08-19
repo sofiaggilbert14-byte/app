@@ -5,7 +5,7 @@ import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import type { PurpleGuideGroup } from "@/src/components/PurpleTvShell";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { requestNativeFocusWithRetry } from "@/src/utils/tvFocus";
-import { addTvKeyListener, addTvLongPressListener, setGuideNavigationActive, setRemoteContext } from "@/src/utils/tvRemote";
+import { addTvKeyListener, addTvLongPressListener, resetRemoteContextIfOwned, setGuideNavigationActive, setRemoteContext } from "@/src/utils/tvRemote";
 
 export const GUIDE_GROUP_DRAWER_WIDTH = 188;
 
@@ -68,8 +68,11 @@ export function PurpleGuideGroupDrawer({
       offLongPress();
       cancelFocus?.();
       focusedNameRef.current = null;
-      setRemoteContext("guide");
-      setGuideNavigationActive(true);
+      // Do not let this outgoing drawer cleanup overwrite a main drawer that
+      // already claimed the same physical key transition.
+      if (resetRemoteContextIfOwned("guide_groups", "guide")) {
+        setGuideNavigationActive(true);
+      }
     };
   }, [open]);
 
