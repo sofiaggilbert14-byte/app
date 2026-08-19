@@ -157,18 +157,21 @@ class NativeGuideView(context: Context) : View(context) {
   fun setWindowEnd(end: Double) = setWindow(windowStartMs.toDouble(), end)
 
   fun setActive(value: Boolean) {
+    val wasEnabled = enabled
     enabled = value
     if (!value) {
       removeCallbacks(settleSelectionRunnable)
       navigationKeyDown = false
       moveVelocity = 0
+      return
     }
-    if (value) {
-      applyPendingRestoreChannel()
-      if (rows.isNotEmpty()) {
-        requestFocus()
-        emitSelection(true)
-      }
+    applyPendingRestoreChannel()
+    // React may re-apply an unchanged active=true prop while Preview owns focus.
+    // Only a real inactive -> active ownership transition may take Android focus
+    // back into the Guide; otherwise keep the user's current focused surface.
+    if (!wasEnabled && rows.isNotEmpty()) {
+      requestFocus()
+      emitSelection(true)
     }
   }
 

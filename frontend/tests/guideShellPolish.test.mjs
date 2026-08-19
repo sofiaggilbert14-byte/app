@@ -379,3 +379,11 @@ test("native Guide does no database or bridge work for blocked vertical moves", 
   assert.ok(move.indexOf('if (nextRow == selectedRow) return') < move.indexOf('loadPrograms()'));
   assert.ok(move.indexOf('if (nextRow == selectedRow) return') < move.indexOf('emitRunway(delta)'));
 });
+
+test("native Guide only takes focus on an inactive-to-active ownership transition", async () => {
+  const native = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");
+  const setActive = native.match(/fun setActive\(value: Boolean\) \{[\s\S]*?\n  \}/)?.[0] || "";
+  assert.match(setActive, /val wasEnabled = enabled/);
+  assert.match(setActive, /if \(!wasEnabled && rows\.isNotEmpty\(\)\) \{/);
+  assert.ok(setActive.indexOf('if (!wasEnabled && rows.isNotEmpty())') < setActive.indexOf('requestFocus()'));
+});
