@@ -111,8 +111,10 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
         if (activeXmltvIds.isEmpty()) {
           // Consume the feed once so the full channel directory is indexed, but do not
           // let an empty binding set mean "all programmes" as the old parser did.
+          // TiViMate-style retention: zero active bindings means the cached programme
+          // rows are inactive, not disposable. Keeping last-good rows makes toggles and
+          // later re-assignment instant while ownership prevents them from being queried.
           for (ignored in batches) Unit
-          userDatabase.clear()
         } else {
           try {
             // EpgDatabase stages batches and atomically swaps LIVE only after a valid

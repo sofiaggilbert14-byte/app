@@ -122,3 +122,11 @@ test("custom EPG channel assignment does not block remote focus on a full XMLTV 
   assert.match(bridge, /deferred custom EPG hydration failed/);
   assert.match(screen, /Guide data will update without blocking navigation/);
 });
+
+test("zero custom EPG bindings retain last-good programme data", async () => {
+  const custom = await source("android/app/src/main/java/com/charmiptv/app/CustomEpgNativeModule.kt");
+  const zeroBindings = custom.match(/if \(activeXmltvIds\.isEmpty\(\)\) \{[\s\S]*?\} else \{/);
+  assert.ok(zeroBindings, "zero-binding branch missing");
+  assert.doesNotMatch(zeroBindings[0], /userDatabase\.clear\(\)/);
+  assert.match(zeroBindings[0], /last-good rows/);
+});
