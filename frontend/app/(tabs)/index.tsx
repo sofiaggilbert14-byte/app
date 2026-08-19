@@ -210,6 +210,7 @@ export default function LiveTvHomeScreen() {
                 ref={bindHeroButtonRef as any}
                 hasTVPreferredFocus={preferInitialFocus}
                 nextFocusDown={firstRecentTag}
+                onFocus={() => setPreferInitialFocus(false)}
                 onPress={() => play(heroChannel)}
                 style={({ focused }: any) => [styles.primaryButton, focused && styles.focused]}
                 testID="home-continue-watching"
@@ -220,6 +221,7 @@ export default function LiveTvHomeScreen() {
             ) : (
               <Pressable
                 hasTVPreferredFocus={preferInitialFocus}
+                onFocus={() => setPreferInitialFocus(false)}
                 onPress={() => void hardRefresh()}
                 disabled={loading || refreshing}
                 style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}

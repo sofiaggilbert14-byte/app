@@ -305,3 +305,12 @@ test("Guide preview uses a large channel-logo placeholder while tuning", async (
   assert.equal(matches.length, 2);
   assert.doesNotMatch(rail, /size=\{104\}/);
 });
+
+test("Live TV and EPG entry focus bootstrap yields immediately to Android focus", async () => {
+  const [home, epg] = await Promise.all([
+    source("app/(tabs)/index.tsx"),
+    source("app/(tabs)/epg-sources.tsx"),
+  ]);
+  assert.match(home, /hasTVPreferredFocus=\{preferInitialFocus\}[\s\S]{0,140}onFocus=\{\(\) => setPreferInitialFocus\(false\)\}/);
+  assert.match(epg, /hasTVPreferredFocus=\{preferTopFocus\} onFocus=\{\(\) => setPreferTopFocus\(false\)\}/);
+});
