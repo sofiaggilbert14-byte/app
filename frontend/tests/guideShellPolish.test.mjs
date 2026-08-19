@@ -370,3 +370,12 @@ test("native Guide clears held-navigation state when focus ownership leaves", as
   assert.match(native, /onDetachedFromWindow\(\)[\s\S]{0,220}navigationKeyDown = false[\s\S]{0,120}moveVelocity = 0/);
   assert.match(native, /fun dispose\(\)[\s\S]{0,220}navigationKeyDown = false[\s\S]{0,120}moveVelocity = 0/);
 });
+
+test("native Guide does no database or bridge work for blocked vertical moves", async () => {
+  const native = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");
+  const move = native.match(/private fun moveVertical\(delta: Int\) \{[\s\S]*?\n  \}/)?.[0] || "";
+  assert.match(move, /val nextRow = \(selectedRow \+ delta\)\.coerceIn/);
+  assert.match(move, /if \(nextRow == selectedRow\) return/);
+  assert.ok(move.indexOf('if (nextRow == selectedRow) return') < move.indexOf('loadPrograms()'));
+  assert.ok(move.indexOf('if (nextRow == selectedRow) return') < move.indexOf('emitRunway(delta)'));
+});

@@ -404,10 +404,12 @@ class NativeGuideView(context: Context) : View(context) {
   }
 
   private fun moveVertical(delta: Int) {
+    val nextRow = (selectedRow + delta).coerceIn(0, rows.lastIndex)
+    if (nextRow == selectedRow) return
     val now = SystemClock.uptimeMillis()
     moveVelocity = if (now - lastMoveAt < 150L) min(4, moveVelocity + 1) else 0
     lastMoveAt = now
-    selectedRow = (selectedRow + delta).coerceIn(0, rows.lastIndex)
+    selectedRow = nextRow
     ensureVisible()
     loadPrograms()
     invalidate()
