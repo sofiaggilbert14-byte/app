@@ -138,3 +138,10 @@ test("native custom channel order is indexed with a non-destructive Room migrati
   assert.match(db, /\.addMigrations\(MIGRATION_1_2\)/);
   assert.doesNotMatch(db, /fallbackToDestructiveMigration/);
 });
+
+test("customization snapshot uses SQLite indexed order instead of Kotlin resort", async () => {
+  const mod = await readFile(join(root, "android/app/src/main/java/com/charmiptv/app/CustomizationNativeModule.kt"), "utf8");
+  const snapshot = mod.match(/fun getSnapshot\(promise: Promise\)[\s\S]*?promise\.resolve/)?.[0] || "";
+  assert.match(snapshot, /val orderPairs = dao\.orderedChannels\(\)/);
+  assert.doesNotMatch(snapshot, /filter \{ it\.customPosition != null \}[\s\S]*?sortedBy/);
+});

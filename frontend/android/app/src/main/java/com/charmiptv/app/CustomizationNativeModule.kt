@@ -29,9 +29,9 @@ class CustomizationNativeModule(reactContext: ReactApplicationContext) :
       try {
         val channelRows = dao.channelCustomizations()
         val hidden = Arguments.createArray()
-        val orderPairs = channelRows
-          .filter { it.customPosition != null }
-          .sortedBy { it.customPosition }
+        // Let SQLite use the customPosition index instead of allocating a second
+        // 6k+ Kotlin list and sorting it during every snapshot hydration.
+        val orderPairs = dao.orderedChannels()
         val order = Arguments.createArray()
         val numbers = Arguments.createMap()
         for (row in channelRows) {
