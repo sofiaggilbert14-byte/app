@@ -295,6 +295,8 @@ export default function PurpleGuideScreen() {
   const previewRecoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const surfReleaseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const memoryLogoRestoreTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const runwayPatchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingRunwayPatchRef = useRef<{ ids: string[]; priorityIds: string[] } | null>(null);
   const groupChangedAt = useRef(0);
   const bootRetryRef = useRef(0);
   const lastFocusAtRef = useRef(0);
@@ -425,10 +427,13 @@ export default function PurpleGuideScreen() {
       if (previewRecoverTimer.current) clearTimeout(previewRecoverTimer.current);
       if (surfReleaseTimer.current) clearTimeout(surfReleaseTimer.current);
       if (memoryLogoRestoreTimer.current) clearTimeout(memoryLogoRestoreTimer.current);
+      if (runwayPatchTimer.current) clearTimeout(runwayPatchTimer.current);
       previewTimer.current = null;
       previewRecoverTimer.current = null;
       surfReleaseTimer.current = null;
       memoryLogoRestoreTimer.current = null;
+      runwayPatchTimer.current = null;
+      pendingRunwayPatchRef.current = null;
       setViewportGuideChannelIds(null);
     },
     [],
@@ -580,9 +585,10 @@ export default function PurpleGuideScreen() {
   orderedFilteredIdsRef.current = orderedFilteredIds;
   filteredIdIndexRef.current = filteredIdIndex;
 
-  const onViewportChannelIds = useCallback((ids: string[], priorityIds: string[] = [], pageSize = 8) => {
+  const onViewportChannelIds = useCallback((ids: string[], priorityIds: string[] = [], pageSize = 8, velocity = 0) => {
     const focusIndex = Math.max(0, ids.indexOf(priorityIds[0] || ""));
-    const dataIds = isGuideSurfing()
+    const rapid = velocity > 0 || isGuideSurfing();
+    const dataIds = rapid
       ? ids.slice(
           Math.max(0, focusIndex - pageSize * 2),
           Math.min(ids.length, focusIndex + pageSize * 4 + 1),
@@ -599,14 +605,26 @@ export default function PurpleGuideScreen() {
     } else {
       setPriorityMatchChannelIds([]);
     }
-    // Conveyor belt: fetch the runway, retain fetch ± 1 page so reverse surfing
-    // does not blank rows the user just left, and drop everything else.
+    // Conveyor belt: retain focus ± 1 page immediately so reverse movement never
+    // blanks. Native Guide already performs the bounded SQLite paint query itself.
     retainGuideSlidingCache(
       expandRunwayKeepSet(orderedFilteredIds, ids, pageSize, 1, filteredIdIndex),
     );
-    // Retain the wider focus runway for reverse movement, but query only a compact
-    // data runway during a sustained hold. The settled pass expands it again.
-    void patchProgramsForChannelIds(dataIds, priorityIds);
+
+    // TiViMate-style hot path: while a key is repeating, do not start a second JS
+    // programme fetch for every native focus hop. Keep only the newest runway and
+    // hydrate preview/metadata once navigation settles. This removes duplicate DB
+    // pressure without delaying the native highlight or last-good canvas paint.
+    pendingRunwayPatchRef.current = { ids: dataIds, priorityIds };
+    if (runwayPatchTimer.current) clearTimeout(runwayPatchTimer.current);
+    const delay = rapid ? 110 : 0;
+    runwayPatchTimer.current = setTimeout(() => {
+      runwayPatchTimer.current = null;
+      const pending = pendingRunwayPatchRef.current;
+      pendingRunwayPatchRef.current = null;
+      if (!pending) return;
+      void patchProgramsForChannelIds(pending.ids, pending.priorityIds);
+    }, delay);
   }, [
     channels.length,
     filteredIdIndex,

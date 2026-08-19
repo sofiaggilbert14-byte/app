@@ -11,7 +11,7 @@ type Props = {
   onProgramFocus: (program: Program, channel: Channel, settled: boolean) => void;
   onChannelPress: (channel: Channel) => void;
   onProgramPress: (program: Program, channel: Channel) => void;
-  onViewportChannelIds: (ids: string[], priorityIds: string[], pageSize: number) => void;
+  onViewportChannelIds: (ids: string[], priorityIds: string[], pageSize: number, velocity: number) => void;
   onLeftBoundary: () => void;
   onUpBoundary: () => void;
 };
@@ -104,7 +104,7 @@ export const NativeGuideCanvas = memo(function NativeGuideCanvas({
 
   const handleRunwayChange = useCallback((event: NativeSyntheticEvent<RunwayEvent>) => {
     const value = event.nativeEvent;
-    onViewportChannelIds(value.ids || [], value.priorityIds || [], value.pageSize || 8);
+    onViewportChannelIds(value.ids || [], value.priorityIds || [], value.pageSize || 8, Math.max(0, value.velocity || 0));
   }, [onViewportChannelIds]);
 
   if (!Native) return <View style={{ flex: 1 }} />;

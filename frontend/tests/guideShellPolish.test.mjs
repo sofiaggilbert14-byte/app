@@ -324,3 +324,17 @@ test("Phase 9 management screens disarm their preferred Back focus immediately",
     assert.match(body, /hasTVPreferredFocus=\{preferBackFocus\} onFocus=\{\(\) => setPreferBackFocus\(false\)\}/);
   }
 });
+
+test("rapid Guide runway movement debounces duplicate JS programme patching", async () => {
+  const [guide, canvas] = await Promise.all([
+    source("app/(tabs)/guide.tsx"),
+    source("src/components/NativeGuideCanvas.tsx"),
+  ]);
+  assert.match(canvas, /pageSize: number, velocity: number/);
+  assert.match(canvas, /Math\.max\(0, value\.velocity \|\| 0\)/);
+  assert.match(guide, /pendingRunwayPatchRef/);
+  assert.match(guide, /const rapid = velocity > 0 \|\| isGuideSurfing\(\)/);
+  assert.match(guide, /const delay = rapid \? 110 : 0/);
+  assert.match(guide, /clearTimeout\(runwayPatchTimer\.current\)/);
+  assert.match(guide, /patchProgramsForChannelIds\(pending\.ids, pending\.priorityIds\)/);
+});
