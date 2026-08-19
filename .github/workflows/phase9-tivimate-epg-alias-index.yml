@@ -1,0 +1,56 @@
+name: Phase 9 TiviMate EPG Alias Index
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-epg-alias-index.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Add alias lookup index with additive DB migration
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('frontend/android/app/src/main/java/com/charmiptv/app/EpgDatabase.kt')
+          s = p.read_text()
+          if 'private const val DATABASE_VERSION = 10' not in s:
+              if 'private const val DATABASE_VERSION = 9' not in s: raise SystemExit('EPG DB version marker not found')
+              s = s.replace('private const val DATABASE_VERSION = 9', 'private const val DATABASE_VERSION = 10', 1)
+          create_anchor = '    db.execSQL("CREATE INDEX IF NOT EXISTS idx_epg_alias_norm ON $ALIAS_TABLE(normalized_key)")\n'
+          create_new = create_anchor + '    db.execSQL("CREATE INDEX IF NOT EXISTS idx_epg_alias_kind_channel ON $ALIAS_TABLE(alias_kind, channel_id)")\n'
+          if 'idx_epg_alias_kind_channel' not in s:
+              if create_anchor not in s: raise SystemExit('EPG alias index create marker not found')
+              s = s.replace(create_anchor, create_new, 1)
+          upgrade_anchor = '''    if (oldVersion < 9) {\n      // Persist the provider-owned playback fields relationally so Android cold\n      // start no longer depends on serializing the entire channel catalog to JSON.\n      ensureColumn(db, PLAYLIST_TABLE, "stream_url", "TEXT NOT NULL DEFAULT ''")\n      ensureColumn(db, PLAYLIST_TABLE, "stream_type", "TEXT NOT NULL DEFAULT 'unknown'")\n      ensureColumn(db, PLAYLIST_TABLE, "provider_position", "INTEGER NOT NULL DEFAULT 0")\n      db.execSQL("CREATE INDEX IF NOT EXISTS idx_playlist_active_position ON $PLAYLIST_TABLE(deleted_at, provider_position)")\n    }\n'''
+          upgrade_new = upgrade_anchor + '''    if (oldVersion < 10) {\n      // Cold-start channel reconstruction resolves EPG logos by alias kind +\n      // XMLTV channel id. Index that exact lookup shape for large lineups.\n      db.execSQL("CREATE INDEX IF NOT EXISTS idx_epg_alias_kind_channel ON $ALIAS_TABLE(alias_kind, channel_id)")\n    }\n'''
+          if 'if (oldVersion < 10)' not in s:
+              if upgrade_anchor not in s: raise SystemExit('EPG v10 migration anchor not found')
+              s = s.replace(upgrade_anchor, upgrade_new, 1)
+          p.write_text(s)
+
+          test = Path('frontend/tests/tivimateColdStartPolicy.test.mjs')
+          t = test.read_text()
+          case = '''\ntest("EPG cold-start logo lookup has an additive alias-kind/channel index", async () => {\n  const db = await source("android/app/src/main/java/com/charmiptv/app/EpgDatabase.kt");\n  assert.match(db, /DATABASE_VERSION = 10/);\n  assert.match(db, /idx_epg_alias_kind_channel ON \\$ALIAS_TABLE\\(alias_kind, channel_id\\)/);\n  assert.match(db, /if \\(oldVersion < 10\\)/);\n  assert.doesNotMatch(db, /DROP TABLE[\\s\\S]*oldVersion < 10/);\n});\n'''
+          if 'EPG cold-start logo lookup has an additive alias-kind/channel index' not in t:
+              t += case
+              test.write_text(t)
+          PY
+      - name: Commit alias lookup index
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/android/app/src/main/java/com/charmiptv/app/EpgDatabase.kt frontend/tests/tivimateColdStartPolicy.test.mjs
+          git commit -m "phase9: index EPG logo alias lookup"
+          git push origin HEAD:phase9/purple-next
