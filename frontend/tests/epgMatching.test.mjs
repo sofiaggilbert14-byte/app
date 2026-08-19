@@ -160,6 +160,10 @@ test("formatNativeEpgError maps engine/network failures to readable copy", () =>
     /TV guide engine unavailable/,
   );
   assert.match(formatNativeEpgError(new Error("EPG HTTP 503")), /Could not download/);
+  assert.equal(
+    formatNativeEpgError(new Error("unknown error (code 0 SQLITE_OK): Queries can be performed using rawQuery methods only")),
+    "The saved TV guide could not be read. Your channels are unchanged; try Reload guide.",
+  );
 });
 
 test("legacy cleanup never targets live native v3 DB names", () => {

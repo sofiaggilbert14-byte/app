@@ -198,6 +198,10 @@ export function PurpleTvShell({
   const isWatching = !!watchingChannelId;
   const [drawerAutoFocus, setDrawerAutoFocus] = useState(drawerOpen);
   const [drawerPreferredRoute, setDrawerPreferredRoute] = useState<Route | null>(drawerOpen ? active : null);
+  const activeGuideGroupName = useMemo(
+    () => guideGroups?.find((item) => item.active)?.name || null,
+    [guideGroups],
+  );
 
   useEffect(() => {
     if (!drawerOpen) return;
@@ -231,9 +235,9 @@ export function PurpleTvShell({
       return;
     }
 
-    const preferredGuideGroup =
-      !focusDrawerTop && active === "/guide" ? guideGroups?.find((item) => item.active) : undefined;
-    const preferredRoute: Route | null = preferredGuideGroup ? null : focusDrawerTop ? NAV[0].route : active;
+    const preferredGuideGroupName =
+      !focusDrawerTop && active === "/guide" ? activeGuideGroupName : null;
+    const preferredRoute: Route | null = preferredGuideGroupName ? null : focusDrawerTop ? NAV[0].route : active;
     if (focusDrawerTop) consumeFocusDrawerTop();
     setDrawerPreferredRoute(preferredRoute);
     setDrawerAutoFocus(true);
@@ -242,8 +246,8 @@ export function PurpleTvShell({
       setDrawerAutoFocus(false);
       setDrawerPreferredRoute(null);
     }, 220);
-    const preferredNode = preferredGuideGroup
-      ? guideGroupRefs.current.get(preferredGuideGroup.name)
+    const preferredNode = preferredGuideGroupName
+      ? guideGroupRefs.current.get(preferredGuideGroupName)
       : preferredRoute
         ? navRefs.current.get(preferredRoute)
         : null;
@@ -252,7 +256,7 @@ export function PurpleTvShell({
       clearTimeout(clearPreferred);
       cancelFocus?.();
     };
-  }, [active, activeProgram, consumeFocusDrawerTop, drawerOpen, focusDrawerTop, guideGroups]);
+  }, [active, activeGuideGroupName, consumeFocusDrawerTop, drawerOpen, focusDrawerTop]);
 
   useFocusEffect(
     useCallback(() => {

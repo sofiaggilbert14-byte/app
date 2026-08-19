@@ -334,6 +334,9 @@ export function formatNativeEpgError(raw: unknown): string {
   if (lower.includes("not enough storage")) {
     return "Not enough storage to update Guide. The saved Guide is unchanged; free space and try again.";
   }
+  if (lower.includes("sqlite") || lower.includes("database") || lower.includes("rawquery") || lower.includes("query methods")) {
+    return "The saved TV guide could not be read. Your channels are unchanged; try Reload guide.";
+  }
   return message.length > 160 ? `${message.slice(0, 157)}…` : message;
 }
 

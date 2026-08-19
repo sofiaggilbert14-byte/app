@@ -37,6 +37,29 @@ test("programme persistence uses epoch seconds, FTS, and a guarded last-good dat
   assert.match(search, /searchNativeEpg/);
 });
 
+test("EPG low-storage refusal closes already-open provider connections", async () => {
+  const modules = await Promise.all([
+    source("android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt"),
+    source("android/app/src/main/java/com/charmiptv/app/CustomEpgNativeModule.kt"),
+  ]);
+  for (const native of modules) {
+    assert.match(native, /try \{\n\s*\/\/ The connection is already open here[\s\S]{0,220}assertRefreshStorageAvailable\(declaredLength\)/);
+    assert.match(native, /catch \(t: Throwable\) \{\n\s*connection\.disconnect\(\)\n\s*throw t/);
+    assert.doesNotMatch(native, /assertRefreshStorageAvailable\(declaredLength\)\n\s*\n\s*try \{/);
+  }
+});
+
+test("native provider connections close when connect or response acquisition fails", async () => {
+  const modules = await Promise.all([
+    source("android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt"),
+    source("android/app/src/main/java/com/charmiptv/app/CustomEpgNativeModule.kt"),
+    source("android/app/src/main/java/com/charmiptv/app/NativePlaylistParser.kt"),
+  ]);
+  for (const native of modules) {
+    assert.match(native, /val status = try \{\n\s*connection\.connect\(\)\n\s*connection\.responseCode\n\s*\} catch \(t: Throwable\) \{\n\s*connection\.disconnect\(\)/);
+  }
+});
+
 test("memory and logo work is bounded and releases native listeners", async () => {
   const [memory, ram, logo, local, glide, application] = await Promise.all([
     source("android/app/src/main/java/com/charmiptv/app/CharmMemoryCoordinator.kt"),

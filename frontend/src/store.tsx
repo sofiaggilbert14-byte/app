@@ -26,6 +26,7 @@ import {
 } from "@/src/core/guideProgramsStore";
 import { pickKeepIdsAroundFocus } from "@/src/core/guideSlidingCache";
 import { buildGuidePatchTiers, keepUsefulGuidePatch } from "@/src/core/guidePatchPolicy";
+import { formatNativeEpgError } from "@/src/core/epgMatching";
 import { reminderKey, setTimeFormat24h } from "@/src/utils/time";
 import { subscribeAndroidMemoryPressure } from "@/src/utils/androidMemoryPressure";
 import { clearChannelLogoMemory, setChannelLogoMemoryProfile } from "@/src/components/ChannelLogo";
@@ -791,7 +792,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       });
     } catch (e: any) {
       if (requestId !== refreshRequestRef.current) return;
-      setError(e?.message || "Failed to load guide");
+      setError(formatNativeEpgError(e));
     } finally {
       if (!silent && requestId === refreshRequestRef.current) setLoading(false);
     }

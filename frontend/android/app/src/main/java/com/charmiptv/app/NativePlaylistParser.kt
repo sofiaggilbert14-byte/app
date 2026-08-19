@@ -160,9 +160,13 @@ internal object NativePlaylistParser {
       connection.setRequestProperty("User-Agent", "CharmIPTV/Experimental-v3")
       connection.setRequestProperty("Accept", "*/*")
       connection.setRequestProperty("Accept-Encoding", "gzip")
-      connection.connect()
-
-      val status = connection.responseCode
+      val status = try {
+        connection.connect()
+        connection.responseCode
+      } catch (t: Throwable) {
+        connection.disconnect()
+        throw t
+      }
       if (isRedirectStatus(status)) {
         val location = connection.getHeaderField("Location")?.trim().orEmpty()
         connection.disconnect()

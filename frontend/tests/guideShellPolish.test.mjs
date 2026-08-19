@@ -145,6 +145,13 @@ test("drawer route changes release drawer focus ownership before mounting the ne
   assert.doesNotMatch(navigate, /closeDrawer\(\);[\s\S]*router\.replace/);
 });
 
+test("main drawer focus retries ignore EPG group-count and programme churn", async () => {
+  const shell = await source("src/components/PurpleTvShell.tsx");
+  assert.match(shell, /const activeGuideGroupName = useMemo/);
+  assert.match(shell, /\[active, activeGuideGroupName, consumeFocusDrawerTop, drawerOpen, focusDrawerTop\]/);
+  assert.doesNotMatch(shell, /\[active, activeProgram, consumeFocusDrawerTop, drawerOpen, focusDrawerTop, guideGroups\]/);
+});
+
 test("shared page focus has a deterministic Left-edge drawer handoff", async () => {
   const [shell, collection, favorites, reminders, live, channels] = await Promise.all([
     source("src/components/PurpleTvShell.tsx"),

@@ -69,6 +69,14 @@ test("playlist-only refresh reuses native parser rows instead of cloning the ful
   assert.doesNotMatch(refreshOnly, /const channels = fresh\.map/);
 });
 
+test("all source refresh modes share one provider/cache/SQLite owner", async () => {
+  const native = await readFile(join(root, "src/source.native.ts"), "utf8");
+  assert.match(native, /async function refreshInternal[\s\S]{0,520}if \(playlistOnlyRefreshPromise\) await playlistOnlyRefreshPromise;[\s\S]{0,120}if \(refreshPromise\) return refreshPromise/);
+  assert.match(native, /export async function refreshEpgOnly[\s\S]{0,720}if \(playlistOnlyRefreshPromise\) await playlistOnlyRefreshPromise;[\s\S]{0,180}if \(refreshPromise\)/);
+  assert.match(native, /refreshing: !!refreshPromise \|\| !!playlistOnlyRefreshPromise/);
+  assert.match(native, /refreshInFlight: !!refreshPromise \|\| !!playlistOnlyRefreshPromise/);
+});
+
 
 test("direct IPTV sources preserve HTTP and cache writes avoid reparsing the old full channel graph", async () => {
   const source = await readFile(join(root, "src/source.native.ts"), "utf8");

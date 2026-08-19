@@ -80,16 +80,6 @@ let MEM: NativeMeta | null = null;
 let refreshPromise: Promise<NativeMeta> | null = null;
 let playlistOnlyRefreshPromise: Promise<SourceStatus> | null = null;
 let lastSourceError: string | null = null;
-let startupRefreshTimer: ReturnType<typeof setTimeout> | null = null;
-const STARTUP_SOURCE_REFRESH_DELAY_MS = 30_000;
-
-function scheduleStartupSourceRefresh(): void {
-  if (startupRefreshTimer) return;
-  startupRefreshTimer = setTimeout(() => {
-    startupRefreshTimer = null;
-    void refreshSourcesIfDue().catch(() => undefined);
-  }, STARTUP_SOURCE_REFRESH_DELAY_MS);
-}
 const listeners = new Set<() => void>();
 let sourceEmitScheduled = false;
 
@@ -710,7 +700,6 @@ async function ensureLoaded(): Promise<NativeMeta> {
         .then(() => syncMatchesToNative(cached.channels, cached.guideEpoch || 0))
         .catch(() => undefined);
     }
-    scheduleStartupSourceRefresh();
     return cached;
   }
 
@@ -729,6 +718,11 @@ async function ensureLoaded(): Promise<NativeMeta> {
 }
 
 async function refreshInternal(force: boolean): Promise<NativeMeta> {
+  if (refreshPromise) return refreshPromise;
+  // Playlist-only refresh owns the same provider/cache/SQLite resources. Join
+  // it before claiming the full-refresh slot, then re-check because another
+  // full refresh may have started while this caller was waiting.
+  if (playlistOnlyRefreshPromise) await playlistOnlyRefreshPromise;
   if (refreshPromise) return refreshPromise;
   refreshPromise = (async () => {
     const cached = MEM || (await readChannelCache());
@@ -1186,6 +1180,7 @@ export async function refreshSourcesIfDue(): Promise<SourceStatus> {
     await refreshPromise;
     return sourceStatus();
   }
+  if (playlistOnlyRefreshPromise) await playlistOnlyRefreshPromise;
   const cached = MEM || (await readChannelCache());
   if (!cached?.channels?.length) return sourceStatus();
   MEM = cached;
@@ -1210,6 +1205,11 @@ export async function refreshSourcesIfDue(): Promise<SourceStatus> {
 export async function refreshEpgOnly(): Promise<SourceStatus> {
   // TiviMate-style single refresh owner: if a full/EPG refresh is already doing
   // the provider work, join it. Do not queue an immediate duplicate XMLTV pass.
+  if (refreshPromise) {
+    await refreshPromise;
+    return sourceStatus();
+  }
+  if (playlistOnlyRefreshPromise) await playlistOnlyRefreshPromise;
   if (refreshPromise) {
     await refreshPromise;
     return sourceStatus();
@@ -1392,7 +1392,7 @@ export function sourceStatus(): SourceStatus {
     channel_count: channels.length,
     channels_with_epg: MEM?.epgChannelCount || 0,
     last_refresh: MEM && MEM.ts > 0 ? new Date(MEM.ts).toISOString() : null,
-    refreshing: !!refreshPromise,
+    refreshing: !!refreshPromise || !!playlistOnlyRefreshPromise,
     error: MEM?.epgError || lastSourceError,
   };
 }
@@ -1432,7 +1432,7 @@ export async function sourceDiagnostics(): Promise<SourceDiagnostics> {
     cacheAgeMinutes: MEM && MEM.ts > 0 ? Math.max(0, Math.round((Date.now() - MEM.ts) / 60000)) : null,
     channels: MEM?.channels.length || 0,
     programs: MEM?.epgProgramCount || 0,
-    refreshInFlight: !!refreshPromise,
+    refreshInFlight: !!refreshPromise || !!playlistOnlyRefreshPromise,
     epgError: MEM?.epgError || lastSourceError,
     nextAutoRefresh: nextAutoRefreshAt ? new Date(nextAutoRefreshAt).toISOString() : null,
     matchQuality: MEM?.matchQuality || null,

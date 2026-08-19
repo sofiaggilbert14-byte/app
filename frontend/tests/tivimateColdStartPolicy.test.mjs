@@ -91,10 +91,14 @@ test("native cold-start snapshot queries each EPG programme count once", async (
 });
 
 test("source scheduler cannot bypass the 30-second cold-start refresh deferral", async () => {
-  const scheduler = await source("src/components/SourceRefreshScheduler.tsx");
+  const [scheduler, nativeSource] = await Promise.all([
+    source("src/components/SourceRefreshScheduler.tsx"),
+    source("src/source.native.ts"),
+  ]);
   assert.match(scheduler, /const initialTimer = setTimeout\(\(\) => void check\(\), 30_000\)/);
   assert.match(scheduler, /clearTimeout\(initialTimer\)/);
   assert.doesNotMatch(scheduler, /\n    void check\(\);\n    const timer/);
+  assert.doesNotMatch(nativeSource, /scheduleStartupSourceRefresh|STARTUP_SOURCE_REFRESH_DELAY_MS/);
 });
 
 test("AppState resume cannot bypass the automatic cold-start source gate", async () => {

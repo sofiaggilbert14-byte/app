@@ -284,9 +284,13 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
       connection.setRequestProperty("User-Agent", "CharmIPTV/Experimental-v3")
       connection.setRequestProperty("Accept", "*/*")
       connection.setRequestProperty("Accept-Encoding", "gzip")
-      connection.connect()
-
-      val status = connection.responseCode
+      val status = try {
+        connection.connect()
+        connection.responseCode
+      } catch (t: Throwable) {
+        connection.disconnect()
+        throw t
+      }
       if (isRedirect(status)) {
         val location = connection.getHeaderField("Location")?.trim().orEmpty()
         connection.disconnect()
@@ -305,9 +309,10 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
         connection.disconnect()
         throw IllegalStateException("Custom EPG exceeds compressed safety limit")
       }
-      userDatabase.assertRefreshStorageAvailable(declaredLength)
-
       try {
+        // The connection is already open here. Keep the storage gate inside the
+        // disconnect guard so a low-space refusal cannot leak a provider socket.
+        userDatabase.assertRefreshStorageAvailable(declaredLength)
         val connectionStream = object : FilterInputStream(connection.inputStream) {
           override fun close() {
             try { super.close() } finally { connection.disconnect() }

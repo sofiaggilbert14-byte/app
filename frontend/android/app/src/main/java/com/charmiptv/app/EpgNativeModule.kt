@@ -919,9 +919,13 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
           connection.setRequestProperty("If-Modified-Since", it)
         }
       }
-      connection.connect()
-
-      val status = connection.responseCode
+      val status = try {
+        connection.connect()
+        connection.responseCode
+      } catch (t: Throwable) {
+        connection.disconnect()
+        throw t
+      }
       if (isHttpRedirect(status)) {
         val location = connection.getHeaderField("Location")?.trim().orEmpty()
         connection.disconnect()
@@ -951,9 +955,10 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
           "EPG download exceeds the ${MAX_COMPRESSED_EPG_BYTES / (1024L * 1024L)} MiB compressed safety limit"
         )
       }
-      targetDatabase.assertRefreshStorageAvailable(declaredLength)
-
       try {
+        // The connection is already open here. Keep the storage gate inside the
+        // disconnect guard so a low-space refusal cannot leak a provider socket.
+        targetDatabase.assertRefreshStorageAvailable(declaredLength)
         val connectionStream = object : FilterInputStream(connection.inputStream) {
           override fun close() {
             try {
