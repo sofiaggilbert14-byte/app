@@ -7,6 +7,7 @@ import {
   alternateEngine, detectStreamKind, parsePipeHeaders, preferredEngine,
 } from "../src/core/streamPolicy.ts";
 
+// Phase 9 Actions probe: harmless comment-only trigger.
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const source = (path) => readFile(join(root, path), "utf8");
 
