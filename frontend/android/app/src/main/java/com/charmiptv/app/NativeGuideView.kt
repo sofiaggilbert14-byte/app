@@ -50,6 +50,7 @@ class NativeGuideView(context: Context) : View(context) {
   private var lastMoveAt = 0L
   private var lastHorizontalMoveAt = 0L
   private var moveVelocity = 0
+  private var navigationKeyDown = false
   private var pendingRestoreChannelId: String? = null
   private var pendingRestoreTimeMs: Long? = null
   private var reloadGeneration = 0
@@ -294,7 +295,9 @@ class NativeGuideView(context: Context) : View(context) {
             }
             programs = merged
             invalidate()
-            emitSelection(true)
+            // Data arrival may update the selected programme payload, but only
+            // key-up/focus ownership may declare navigation settled.
+            emitSelection(false)
           }
         }
       } finally {
@@ -333,6 +336,7 @@ class NativeGuideView(context: Context) : View(context) {
     if (!enabled || rows.isEmpty()) return super.onKeyDown(keyCode, event)
     if (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN ||
       keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+      navigationKeyDown = true
       removeCallbacks(settleSelectionRunnable)
     }
     when (keyCode) {
@@ -380,6 +384,7 @@ class NativeGuideView(context: Context) : View(context) {
   override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
     if (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN ||
       keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+      navigationKeyDown = false
       moveVelocity = 0
       removeCallbacks(settleSelectionRunnable)
       if (enabled) postDelayed(settleSelectionRunnable, 80L)
@@ -423,7 +428,7 @@ class NativeGuideView(context: Context) : View(context) {
     val payload = Arguments.createMap().apply {
       putString("channelId", row.id)
       putInt("row", selectedRow)
-      putBoolean("settled", immediate || moveVelocity == 0)
+      putBoolean("settled", immediate || (!navigationKeyDown && moveVelocity == 0))
       putBoolean("pressed", pressed)
       if (program != null) {
         putMap("program", Arguments.createMap().apply {

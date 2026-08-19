@@ -347,3 +347,12 @@ test("native Guide cancels delayed settled selection when focus ownership moves"
   assert.match(native, /if \(enabled\) postDelayed\(settleSelectionRunnable, 80L\)/);
   assert.doesNotMatch(native, /postDelayed\(\{ emitSelection\(true\) \}, 80L\)/);
 });
+
+test("Guide query completion cannot falsely settle held D-pad navigation", async () => {
+  const native = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");
+  assert.match(native, /private var navigationKeyDown = false/);
+  assert.match(native, /navigationKeyDown = true[\s\S]{0,120}removeCallbacks\(settleSelectionRunnable\)/);
+  assert.match(native, /navigationKeyDown = false[\s\S]{0,80}moveVelocity = 0/);
+  assert.match(native, /emitSelection\(false\)[\s\S]{0,220}only[\s\S]{0,100}key-up\/focus ownership/);
+  assert.match(native, /putBoolean\("settled", immediate \|\| \(!navigationKeyDown && moveVelocity == 0\)\)/);
+});
