@@ -35,7 +35,10 @@ export function SourceRefreshScheduler() {
       }
     };
 
-    void check();
+    // TiviMate-style cold start: let UI/playback own CPU, sockets and SQLite
+    // first. The source layer has the same 30s boot window; keeping this scheduler
+    // aligned prevents a second immediate path from bypassing that protection.
+    const initialTimer = setTimeout(() => void check(), 30_000);
     const timer = setInterval(() => void check(), 10 * 60 * 1000);
     const sub = AppState.addEventListener("change", (state) => {
       active = state !== "background" && state !== "inactive";
@@ -43,6 +46,7 @@ export function SourceRefreshScheduler() {
     });
 
     return () => {
+      clearTimeout(initialTimer);
       clearInterval(timer);
       sub.remove();
     };

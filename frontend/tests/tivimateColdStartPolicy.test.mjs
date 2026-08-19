@@ -69,3 +69,10 @@ test("native cold-start snapshot queries each EPG programme count once", async (
   assert.match(stored, /putDouble\("primaryEpgProgramCount", primaryProgramCount\.toDouble\(\)\)/);
   assert.match(stored, /putDouble\("userEpgProgramCount", userProgramCount\.toDouble\(\)\)/);
 });
+
+test("source scheduler cannot bypass the 30-second cold-start refresh deferral", async () => {
+  const scheduler = await source("src/components/SourceRefreshScheduler.tsx");
+  assert.match(scheduler, /const initialTimer = setTimeout\(\(\) => void check\(\), 30_000\)/);
+  assert.match(scheduler, /clearTimeout\(initialTimer\)/);
+  assert.doesNotMatch(scheduler, /\n    void check\(\);\n    const timer/);
+});
