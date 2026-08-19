@@ -1,0 +1,52 @@
+name: Phase 9 TiviMate Management Focus
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-management-focus.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Disarm management-screen preferred focus on real focus
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          for file, target in [
+              ('frontend/app/epg-custom.tsx', 'router.replace("/epg-sources" as any)'),
+              ('frontend/app/group-settings.tsx', 'returnToSettings'),
+          ]:
+              p = Path(file)
+              s = p.read_text()
+              old = '<Pressable hasTVPreferredFocus={preferBackFocus} onPress='
+              new = '<Pressable hasTVPreferredFocus={preferBackFocus} onFocus={() => setPreferBackFocus(false)} onPress='
+              if new not in s:
+                  if old not in s: raise SystemExit(f'preferred back focus marker not found in {file}')
+                  s = s.replace(old, new, 1)
+                  p.write_text(s)
+
+          test = Path('frontend/tests/guideShellPolish.test.mjs')
+          t = test.read_text()
+          case = '''\ntest("Phase 9 management screens disarm their preferred Back focus immediately", async () => {\n  const [customEpg, groups] = await Promise.all([\n    source("app/epg-custom.tsx"),\n    source("app/group-settings.tsx"),\n  ]);\n  for (const body of [customEpg, groups]) {\n    assert.match(body, /hasTVPreferredFocus=\\{preferBackFocus\\} onFocus=\\{\\(\\) => setPreferBackFocus\\(false\\)\\}/);\n  }\n});\n'''
+          if 'Phase 9 management screens disarm their preferred Back focus immediately' not in t:
+              t += case
+              test.write_text(t)
+          PY
+      - name: Commit management focus ownership
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/app/epg-custom.tsx frontend/app/group-settings.tsx frontend/tests/guideShellPolish.test.mjs
+          git commit -m "phase9: finish management focus ownership"
+          git push origin HEAD:phase9/purple-next
