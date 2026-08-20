@@ -22,7 +22,7 @@ replace_once(
 
 replace_once(
     '''  const playerRef = useRef<any>(null);\n  const { uri, headers } = useMemo(() => parsePipeHeaders(rawUri), [rawUri]);''',
-    '''  const playerRef = useRef<any>(null);\n  const vlcHasPlayedRef = useRef(false);\n  const vlcProgressSeenRef = useRef(false);\n  const vlcLastProgressAtRef = useRef(Date.now());\n  const vlcBufferingSinceRef = useRef<number | null>(null);\n  const { uri, headers } = useMemo(() => parsePipeHeaders(rawUri), [rawUri]);''',
+    '''  const playerRef = useRef<any>(null);\n  const vlcHasPlayedRef = useRef(false);\n  const vlcProgressSeenRef = useRef(false);\n  const vlcLastProgressValueRef = useRef<number | null>(null);\n  const vlcLastProgressAtRef = useRef(Date.now());\n  const vlcBufferingSinceRef = useRef<number | null>(null);\n  const { uri, headers } = useMemo(() => parsePipeHeaders(rawUri), [rawUri]);''',
     "VLC watchdog refs",
 )
 
@@ -34,7 +34,7 @@ replace_once(
 
 replace_once(
     '''      onOpen={() => activeRef.current && !tearingDownRef.current && emit("loading")}\n      onBuffering={() => activeRef.current && !tearingDownRef.current && emit("loading")}\n      onPlaying={() => {''',
-    '''      onOpen={() => activeRef.current && !tearingDownRef.current && emit("loading")}\n      onBuffering={() => {\n        if (!activeRef.current || tearingDownRef.current) return;\n        if (vlcHasPlayedRef.current && vlcBufferingSinceRef.current == null) {\n          vlcBufferingSinceRef.current = Date.now();\n        }\n        emit("loading");\n      }}\n      onProgress={() => {\n        if (!activeRef.current || tearingDownRef.current) return;\n        if (!isSessionCurrent(sessionRole, sessionGeneration)) return;\n        vlcProgressSeenRef.current = true;\n        vlcLastProgressAtRef.current = Date.now();\n        vlcBufferingSinceRef.current = null;\n      }}\n      onPlaying={() => {''',
+    '''      onOpen={() => activeRef.current && !tearingDownRef.current && emit("loading")}\n      onBuffering={() => {\n        if (!activeRef.current || tearingDownRef.current) return;\n        if (vlcHasPlayedRef.current && vlcBufferingSinceRef.current == null) {\n          vlcBufferingSinceRef.current = Date.now();\n        }\n        emit("loading");\n      }}\n      onProgress={(info: any) => {\n        if (!activeRef.current || tearingDownRef.current) return;\n        if (!isSessionCurrent(sessionRole, sessionGeneration)) return;\n        const currentTime = Number(info?.currentTime);\n        const position = Number(info?.position);\n        const progressValue = Number.isFinite(currentTime)\n          ? currentTime\n          : Number.isFinite(position)\n            ? position\n            : Number.NaN;\n        if (!Number.isFinite(progressValue)) return;\n        const previous = vlcLastProgressValueRef.current;\n        vlcLastProgressValueRef.current = progressValue;\n        if (previous == null || Math.abs(progressValue - previous) > 0.0001) {\n          if (previous != null) vlcProgressSeenRef.current = true;\n          vlcLastProgressAtRef.current = Date.now();\n          vlcBufferingSinceRef.current = null;\n        }\n      }}\n      onPlaying={() => {''',
     "VLC event callbacks",
 )
 
