@@ -1,5 +1,7 @@
 /** User EPG overrides — manual remaps + browse filters. */
 
+import { additionalEpgOwnsChannel } from "@/src/core/additionalEpgOwnership";
+
 export type EpgGuideFilter = "all" | "matched" | "unmatched";
 
 export type EpgManualRemap = Record<string, string>;
@@ -29,10 +31,6 @@ export function applyManualEpgRemaps<T extends { id: string; tvg_id: string }>(
 ): T[] {
   if (!remaps) return channels;
 
-  // Native source already applies remaps before Store sees the list. The old
-  // channels.map(...) path still allocated a second full 6k array on Store's
-  // defensive pass even when every tvg_id already matched. Find the first real
-  // change before allocating anything.
   let firstChanged = -1;
   for (let index = 0; index < channels.length; index++) {
     const channel = channels[index];
@@ -58,6 +56,10 @@ export function channelHasOwnedEpgMatch(
   channel: { tvg_id?: string; id: string; programs?: unknown[] },
   ownership: { primaryEnabled: boolean; userEnabled: boolean; userOverrides: Record<string, string> },
 ): boolean {
+  // Additional saved XMLTV sources use the same exclusive native binding model
+  // as the legacy custom source. They must participate in Matched/Unmatched
+  // filtering even when the built-in primary EPG is disabled.
+  if (additionalEpgOwnsChannel(channel.id)) return true;
   if (ownership.userEnabled && !!ownership.userOverrides[channel.id]) return true;
   if (!ownership.primaryEnabled) return false;
   return channelHasEpgMatch(channel);
