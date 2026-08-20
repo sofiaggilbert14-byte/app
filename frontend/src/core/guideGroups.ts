@@ -4,7 +4,7 @@ import {
   getGuideGroupDisplayName,
   getGuideGroupTabPreferencesSnapshot,
   resolveGuideGroupIdentity,
-} from "@/src/core/guideGroupTabPreferences";
+} from "./guideGroupTabPreferences.ts";
 
 /** Built-in buckets that are not raw playlist group names. */
 export const SYSTEM_GROUPS = ["All", "Favorites"] as const;
@@ -113,7 +113,6 @@ export function channelInGroup(
 
 export type GroupCountMap = Record<string, number>;
 
-/** Single O(n) pass — safe to run when channels/favorites change, not per focus. */
 export function buildGroupCounts(
   channels: Channel[],
   opts: {
