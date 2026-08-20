@@ -22,7 +22,9 @@ const DEFAULTS: SourceRefreshPreferences = {
   playlistHours: 24,
   epgHours: 6,
   epgPastDays: 7,
-  updateEpgOnAppStart: true,
+  // Cold start must prefer last-good cached channels/guide. A forced provider
+  // refresh is opt-in only and may be enabled explicitly from EPG settings.
+  updateEpgOnAppStart: false,
   updateEpgOnPlaylistChange: true,
 };
 
@@ -61,7 +63,9 @@ async function load(): Promise<SourceRefreshPreferences> {
       playlistHours: normalize(playlistHours, DEFAULTS.playlistHours),
       epgHours: normalize(epgHours, DEFAULTS.epgHours),
       epgPastDays: epgPastDays === 1 || epgPastDays === 3 || epgPastDays === 14 ? epgPastDays : 7,
-      updateEpgOnAppStart: updateEpgOnAppStart !== false,
+      // Missing/legacy preference must stay OFF. Only an explicit true opts into
+      // a cold-start force refresh.
+      updateEpgOnAppStart: updateEpgOnAppStart === true,
       updateEpgOnPlaylistChange: updateEpgOnPlaylistChange !== false,
     };
     loaded = true;
