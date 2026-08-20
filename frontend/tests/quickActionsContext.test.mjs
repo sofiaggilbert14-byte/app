@@ -8,10 +8,11 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const source = async (path) => (await readFile(join(root, path), "utf8")).replace(/\r\n/g, "\n");
 
 test("Guide long Select routes channel rail and programme cells contextually", async () => {
-  const [overlay, modal, selection] = await Promise.all([
+  const [overlay, modal, selection, guide] = await Promise.all([
     source("src/components/TvQuickActionsOverlay.tsx"),
     source("src/components/ProgramModal.tsx"),
     source("src/core/guideSelectionStore.ts"),
+    source("app/(tabs)/guide.tsx"),
   ]);
 
   assert.match(selection, /surface: "channel" \| "program"/);
@@ -21,6 +22,8 @@ test("Guide long Select routes channel rail and programme cells contextually", a
   assert.match(overlay, /setChannelId\(id\)[\s\S]{0,180}setOpen\(true\)[\s\S]{0,180}setRemoteContext\("modal"\)/);
   assert.match(modal, /setRemoteContext\("modal"\)/);
   assert.match(modal, /resetRemoteContextIfOwned\("modal", restore\)/);
+  assert.doesNotMatch(guide, /addTvLongPressListener/);
+  assert.doesNotMatch(guide, /remoteShortcuts\.longSelect/);
 });
 
 test("Player Quick Actions dispatch into the mounted player instead of duplicating decoder state", async () => {
