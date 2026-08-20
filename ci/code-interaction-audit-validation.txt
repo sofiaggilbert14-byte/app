@@ -1,61 +1,18 @@
-source_head=751277872a4009bcf1cfae2b7e855154e826758b
+source_head=a553baa62dedb0f283ec4c7531dd008654086cde
 install=0
-test=1
+test=0
 typecheck=2
 native_config=0
 doctor=0
 lint=0
 
---- failing assertions ---
-650-  ...
-651-# Subtest: guide top strip is focusable while Left remains drawer-owned with conveyor retain
-652:not ok 108 - guide top strip is focusable while Left remains drawer-owned with conveyor retain
-653-  ---
-654-  duration_ms: 2.27275
-655-  type: 'test'
-656-  location: '/home/runner/work/app/app/frontend/tests/guideShellPolish.test.mjs:272:1'
-657-  failureType: 'testCodeFailure'
-658-  error: |-
-659-    The input did not match the regular expression /requestAnimationFrame\(\(\) => focusGuidePreviewSurface\(\)\)/. Input:
-660-    
-661-    'import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";\n' +
-662-      'import {\n' +
-663-      '  ActivityIndicator,\n' +
-664-      '  DeviceEventEmitter,\n' +
-665-      '  Pressable,\n' +
-666-      '  StyleSheet,\n' +
-667-      '  Text,\n' +
-668-      '  View,\n' +
-669-      '  useWindowDimensions,\n' +
-670-      '} from "react-native";\n' +
-671-      'import { useFocusEffect, useRouter } from "expo-router";\n' +
-672-      'import { useIsFocused } from "@react-navigation/native";\n' +
-673-      'import { Ionicons } from "@expo/vector-icons";\n' +
-674-      'import * as Haptics from "expo-haptics";\n' +
-675-      'import {\n' +
-676-      '  PurpleTvShell,\n' +
-677-      '  usePurpleTvDrawer,\n' +
-678-      '  type PurpleGuideGroup,\n' +
-679-      '} from "@/src/components/PurpleTvShell";\n' +
-680-      'import { NativeGuideCanvas } from "@/src/components/NativeGuideCanvas";\n' +
-681-      'import { PurpleGuideGroupDrawer } from "@/src/components/PurpleGuideGroupDrawer";\n' +
-682-      'import { FocusGuide } from "@/src/components/TVFocusGuideView";\n' +
-683-      'import { GuidePreviewRail } from "@/src/components/GuidePreviewRail";\n' +
-684-      'import { EpgProgressBar } from "@/src/components/EpgProgressBar";\n' +
-685-      'import { Channel, Program } from "@/src/api";\n' +
-686-      'import { useStore } from "@/src/store";\n' +
-687-      'import { setPriorityMatchChannelIds, setViewportGuideChannelIds } from "@/src/source";\n' +
+--- typecheck diagnostics ---
 
---- test summary ---
-  duration_ms: 0.992921
-  type: 'test'
-  ...
-1..198
-# tests 198
-# suites 0
-# pass 197
-# fail 1
-# cancelled 0
-# skipped 0
-# todo 0
-# duration_ms 265.047712
+> frontend@1.0.0 typecheck
+> tsc --noEmit
+
+app/player.tsx(166,13): error TS2345: Argument of type '() => (() => boolean) | undefined' is not assignable to parameter of type 'EffectCallback'.
+  Type '(() => boolean) | undefined' is not assignable to type 'void | Destructor'.
+    Type '() => boolean' is not assignable to type 'void | Destructor'.
+      Type '() => boolean' is not assignable to type 'Destructor'.
+        Type 'boolean' is not assignable to type 'void | { [UNDEFINED_VOID_ONLY]: never; }'.
