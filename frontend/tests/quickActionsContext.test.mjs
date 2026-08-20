@@ -22,3 +22,24 @@ test("Guide long Select routes channel rail and programme cells contextually", a
   assert.match(modal, /setRemoteContext\("modal"\)/);
   assert.match(modal, /resetRemoteContextIfOwned\("modal", restore\)/);
 });
+
+test("Player Quick Actions dispatch into the mounted player instead of duplicating decoder state", async () => {
+  const [overlay, player, remote] = await Promise.all([
+    source("src/components/TvQuickActionsOverlay.tsx"),
+    source("app/player.tsx"),
+    source("src/utils/tvRemote.ts"),
+  ]);
+
+  assert.match(remote, /export type PlayerQuickCommand = "OPEN_TRACKS" \| "CYCLE_ASPECT"/);
+  assert.match(remote, /DeviceEventEmitter\.emit\("CharmPlayerQuickCommand", command\)/);
+  assert.match(remote, /addPlayerQuickCommandListener/);
+
+  assert.match(overlay, /label="Aspect ratio"[\s\S]{0,180}runPlayerCommand\("CYCLE_ASPECT"\)/);
+  assert.match(overlay, /label="Audio \/ subtitles"[\s\S]{0,180}runPlayerCommand\("OPEN_TRACKS"\)/);
+  assert.match(overlay, /close\(\);[\s\S]{0,120}emitPlayerQuickCommand\(command\)/);
+
+  assert.match(player, /addPlayerQuickCommandListener\(\(command\) =>/);
+  assert.match(player, /command === "CYCLE_ASPECT"[\s\S]{0,100}cycleScaleMode\(\)/);
+  assert.match(player, /command === "OPEN_TRACKS"[\s\S]{0,240}setTracksOpen\(true\)/);
+  assert.doesNotMatch(player, /if \(key === "SELECT"\)/);
+});
