@@ -37,6 +37,7 @@ const DEFAULTS: EpgSourcePreferences = {
 let cached = DEFAULTS;
 let loaded = false;
 let loadPromise: Promise<EpgSourcePreferences> | null = null;
+let mutationEpoch = 0;
 let writeActive = false;
 let pendingWrite: EpgSourcePreferences | null = null;
 let nativeBindingsHydrated = false;
@@ -118,6 +119,7 @@ async function flush() {
 }
 
 function commitPrepared(value: EpgSourcePreferences) {
+  mutationEpoch += 1;
   cached = value;
   loaded = true;
   emit();
@@ -128,8 +130,10 @@ function commitPrepared(value: EpgSourcePreferences) {
 async function load(): Promise<EpgSourcePreferences> {
   if (loaded) return cached;
   if (loadPromise) return loadPromise;
+  const loadEpoch = mutationEpoch;
   loadPromise = (async () => {
     const legacy = normalize(await storage.getItem<StoredEpgSourcePreferences>(KEY, DEFAULTS));
+    if (loaded || loadEpoch !== mutationEpoch) return cached;
     if (!nativeEpgBindingsAvailable) {
       cached = legacy;
       loaded = true;
@@ -142,6 +146,10 @@ async function load(): Promise<EpgSourcePreferences> {
       // stale AsyncStorage data after a reinstall/update cycle.
       await importLegacyNativeEpgBindings(legacy.userOverrides);
       const nativeOverrides = cleanOverrides(await readNativeEpgBindings());
+      // A setting/binding edit performed while native migration/read was in
+      // flight owns the newer state. The migration itself is idempotent, but its
+      // older snapshot must never be published over a newer user mutation.
+      if (loaded || loadEpoch !== mutationEpoch) return cached;
       cached = { ...legacy, userOverrides: nativeOverrides };
       nativeBindingsHydrated = true;
       loaded = true;
@@ -152,7 +160,9 @@ async function load(): Promise<EpgSourcePreferences> {
       return cached;
     } catch {
       // Keep the legacy map intact if the bridge/database was not ready. A later
-      // process start can retry migration without losing assignments.
+      // process start can retry migration without losing assignments. Never
+      // publish it if a newer user mutation already won ownership.
+      if (loaded || loadEpoch !== mutationEpoch) return cached;
       cached = legacy;
       loaded = true;
       return cached;
@@ -235,4 +245,3 @@ export function useEpgSourcePreferences() {
     clearUserOverrides,
   };
 }
-
