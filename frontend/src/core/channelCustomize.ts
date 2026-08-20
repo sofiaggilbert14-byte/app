@@ -28,6 +28,7 @@ type Snapshot = {
 let cached: Snapshot = { hiddenIds: [], customOrder: [], customNumbers: {} };
 let loaded = false;
 let loadPromise: Promise<Snapshot> | null = null;
+let mutationEpoch = 0;
 const listeners = new Set<(value: Snapshot) => void>();
 
 type DirtyState = { hiddenIds: boolean; customOrder: boolean; customNumbers: boolean };
@@ -41,6 +42,7 @@ function emit() {
 }
 
 function commit(next: Snapshot) {
+  mutationEpoch += 1;
   cached = next;
   loaded = true;
   emit();
@@ -78,10 +80,12 @@ function sanitizeNumbers(raw: unknown): Record<string, number> {
 async function load(): Promise<Snapshot> {
   if (loaded) return cached;
   if (loadPromise) return loadPromise;
+  const loadEpoch = mutationEpoch;
   loadPromise = (async () => {
+    let next: Snapshot;
     if (nativeCustomizationAvailable) {
       const native = await loadNativeCustomizationWithMigration();
-      cached = {
+      next = {
         hiddenIds: sanitizeIds(native.hiddenIds, MAX_HIDDEN),
         customOrder: sanitizeIds(native.customOrder, MAX_ORDER),
         customNumbers: sanitizeNumbers(native.customNumbers),
@@ -92,12 +96,16 @@ async function load(): Promise<Snapshot> {
         storage.getItem<unknown>(LEGACY_ORDER_KEY, []),
         storage.getItem<unknown>(LEGACY_NUMBERS_KEY, {}),
       ]);
-      cached = {
+      next = {
         hiddenIds: sanitizeIds(hidden, MAX_HIDDEN),
         customOrder: sanitizeIds(order, MAX_ORDER),
         customNumbers: sanitizeNumbers(numbers),
       };
     }
+    // User changes made while initial hydration was in flight own the newer
+    // snapshot; a stale disk/native read must never reinstall older state.
+    if (loaded || loadEpoch !== mutationEpoch) return cached;
+    cached = next;
     loaded = true;
     return cached;
   })();
