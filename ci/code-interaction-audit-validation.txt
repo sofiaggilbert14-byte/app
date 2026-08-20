@@ -1,139 +1,61 @@
-source_head=0e9ea9de17618588f907a36f7132a4d6fc89c7a0
+source_head=751277872a4009bcf1cfae2b7e855154e826758b
 install=0
 test=1
-typecheck=0
+typecheck=2
 native_config=0
 doctor=0
 lint=0
 
 --- failing assertions ---
-518-  ...
-519-# Subtest: Media3 watchdog recovers real buffering and a genuinely frozen native clock
-520:not ok 86 - Media3 watchdog recovers real buffering and a genuinely frozen native clock
-521-  ---
-522-  duration_ms: 2.427479
-523-  type: 'test'
-524-  location: '/home/runner/work/app/app/frontend/tests/playbackSession.test.mjs:196:1'
-525-  failureType: 'testCodeFailure'
-526-  error: |-
-527-    The input did not match the regular expression /Boolean\(\(player as any\)\.playing\)/. Input:
-528-    
-529-    'import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";\n' +
-530-      'import { AppState, Platform, UIManager, StyleProp, ViewStyle } from "react-native";\n' +
-531-      'import { VideoView, useVideoPlayer } from "expo-video";\n' +
-532-      'import { usePathname } from "expo-router";\n' +
-533-      'import { useIsFocused } from "@react-navigation/native";\n' +
-534-      'import { usePlayerEnginePreference } from "@/src/playerEnginePreference";\n' +
-535-      'import {\n' +
-536-      '  alternateEngine,\n' +
-537-      '  detectStreamKind,\n' +
-538-      '  media3ContentType,\n' +
-539-      '  parsePipeHeaders,\n' +
-540-      '  preferredEngine,\n' +
-541-      '  type Engine,\n' +
-542-      '} from "@/src/core/streamPolicy";\n' +
-543-      'import {\n' +
-544-      '  beginSession,\n' +
-545-      '  isSessionCurrent,\n' +
-546-      '  registerSessionStop,\n' +
-547-      '  setSessionPhase,\n' +
-548-      '  type SessionFailReason,\n' +
-549-      '  type SessionRole,\n' +
-550-      '} from "@/src/core/playbackSession";\n' +
-551-      'import {\n' +
-552-      '  fingerprintStreamUri,\n' +
-553-      '  recordAudioDiagnostics,\n' +
-554-      '} from "@/src/core/audioDiagnostics";\n' +
-555-      'import {\n' +
---
-2224-  ...
-2225-# Subtest: guide top strip is focusable while Left remains drawer-owned with conveyor retain
-2226:not ok 102 - guide top strip is focusable while Left remains drawer-owned with conveyor retain
-2227-  ---
-2228-  duration_ms: 1.219706
-2229-  type: 'test'
-2230-  location: '/home/runner/work/app/app/frontend/tests/guideShellPolish.test.mjs:272:1'
-2231-  failureType: 'testCodeFailure'
-2232-  error: |-
-2233-    The input did not match the regular expression /setPreviewActionsFocused\(true\)/. Input:
-2234-    
-2235-    'import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";\n' +
-2236-      'import {\n' +
-2237-      '  ActivityIndicator,\n' +
-2238-      '  DeviceEventEmitter,\n' +
-2239-      '  Pressable,\n' +
-2240-      '  StyleSheet,\n' +
-2241-      '  Text,\n' +
-2242-      '  View,\n' +
-2243-      '  useWindowDimensions,\n' +
-2244-      '} from "react-native";\n' +
-2245-      'import { useFocusEffect, useRouter } from "expo-router";\n' +
-2246-      'import { useIsFocused } from "@react-navigation/native";\n' +
-2247-      'import { Ionicons } from "@expo/vector-icons";\n' +
-2248-      'import * as Haptics from "expo-haptics";\n' +
-2249-      'import {\n' +
-2250-      '  PurpleTvShell,\n' +
-2251-      '  usePurpleTvDrawer,\n' +
-2252-      '  type PurpleGuideGroup,\n' +
-2253-      '} from "@/src/components/PurpleTvShell";\n' +
-2254-      'import { NativeGuideCanvas } from "@/src/components/NativeGuideCanvas";\n' +
-2255-      'import { PurpleGuideGroupDrawer } from "@/src/components/PurpleGuideGroupDrawer";\n' +
-2256-      'import { FocusGuide } from "@/src/components/TVFocusGuideView";\n' +
-2257-      'import { GuidePreviewRail } from "@/src/components/GuidePreviewRail";\n' +
-2258-      'import { EpgProgressBar } from "@/src/components/EpgProgressBar";\n' +
-2259-      'import { Channel, Program } from "@/src/api";\n' +
-2260-      'import { useStore } from "@/src/store";\n' +
-2261-      'import { setPriorityMatchChannelIds, setViewportGuideChannelIds } from "@/src/source";\n' +
---
-3710-  ...
-3711-# Subtest: native guide live-follow advances programme cells with wall clock without stealing manual horizontal browsing
-3712:not ok 118 - native guide live-follow advances programme cells with wall clock without stealing manual horizontal browsing
-3713-  ---
-3714-  duration_ms: 1.322297
-3715-  type: 'test'
-3716-  location: '/home/runner/work/app/app/frontend/tests/guideShellPolish.test.mjs:481:1'
-3717-  failureType: 'testCodeFailure'
-3718-  error: |-
-3719-    The input did not match the regular expression /postInvalidateDelayed\(30_000L\)/. Input:
-3720-    
-3721-    'package com.charmiptv.app\n' +
-3722-      '\n' +
-3723-      'import android.content.Context\n' +
-3724-      'import android.graphics.Canvas\n' +
-3725-      'import android.graphics.Color\n' +
-3726-      'import android.graphics.Paint\n' +
-3727-      'import android.graphics.RectF\n' +
-3728-      'import android.os.SystemClock\n' +
-3729-      'import android.view.KeyEvent\n' +
-3730-      'import android.view.View\n' +
-3731-      'import com.facebook.react.bridge.Arguments\n' +
-3732-      'import com.facebook.react.bridge.ReadableArray\n' +
-3733-      'import com.facebook.react.uimanager.ThemedReactContext\n' +
-3734-      'import com.facebook.react.uimanager.events.RCTEventEmitter\n' +
-3735-      'import java.text.SimpleDateFormat\n' +
-3736-      'import java.util.Date\n' +
-3737-      'import java.util.Locale\n' +
-3738-      'import java.util.concurrent.Executors\n' +
-3739-      'import java.util.concurrent.atomic.AtomicBoolean\n' +
-3740-      'import kotlin.math.abs\n' +
-3741-      'import kotlin.math.ceil\n' +
-3742-      'import kotlin.math.max\n' +
-3743-      'import kotlin.math.min\n' +
-3744-      '\n' +
-3745-      '/**\n' +
-3746-      ' * Constant-view-count TV guide. Selection is logical coordinates, never Android focus nodes.\n' +
-3747-      ' * Program X/width are always derived from real start/end times against the same viewport used\n' +
+650-  ...
+651-# Subtest: guide top strip is focusable while Left remains drawer-owned with conveyor retain
+652:not ok 108 - guide top strip is focusable while Left remains drawer-owned with conveyor retain
+653-  ---
+654-  duration_ms: 2.27275
+655-  type: 'test'
+656-  location: '/home/runner/work/app/app/frontend/tests/guideShellPolish.test.mjs:272:1'
+657-  failureType: 'testCodeFailure'
+658-  error: |-
+659-    The input did not match the regular expression /requestAnimationFrame\(\(\) => focusGuidePreviewSurface\(\)\)/. Input:
+660-    
+661-    'import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";\n' +
+662-      'import {\n' +
+663-      '  ActivityIndicator,\n' +
+664-      '  DeviceEventEmitter,\n' +
+665-      '  Pressable,\n' +
+666-      '  StyleSheet,\n' +
+667-      '  Text,\n' +
+668-      '  View,\n' +
+669-      '  useWindowDimensions,\n' +
+670-      '} from "react-native";\n' +
+671-      'import { useFocusEffect, useRouter } from "expo-router";\n' +
+672-      'import { useIsFocused } from "@react-navigation/native";\n' +
+673-      'import { Ionicons } from "@expo/vector-icons";\n' +
+674-      'import * as Haptics from "expo-haptics";\n' +
+675-      'import {\n' +
+676-      '  PurpleTvShell,\n' +
+677-      '  usePurpleTvDrawer,\n' +
+678-      '  type PurpleGuideGroup,\n' +
+679-      '} from "@/src/components/PurpleTvShell";\n' +
+680-      'import { NativeGuideCanvas } from "@/src/components/NativeGuideCanvas";\n' +
+681-      'import { PurpleGuideGroupDrawer } from "@/src/components/PurpleGuideGroupDrawer";\n' +
+682-      'import { FocusGuide } from "@/src/components/TVFocusGuideView";\n' +
+683-      'import { GuidePreviewRail } from "@/src/components/GuidePreviewRail";\n' +
+684-      'import { EpgProgressBar } from "@/src/components/EpgProgressBar";\n' +
+685-      'import { Channel, Program } from "@/src/api";\n' +
+686-      'import { useStore } from "@/src/store";\n' +
+687-      'import { setPriorityMatchChannelIds, setViewportGuideChannelIds } from "@/src/source";\n' +
 
 --- test summary ---
-  duration_ms: 0.929842
+  duration_ms: 0.992921
   type: 'test'
   ...
-1..192
-# tests 192
+1..198
+# tests 198
 # suites 0
-# pass 189
-# fail 3
+# pass 197
+# fail 1
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 265.62898
+# duration_ms 265.047712
