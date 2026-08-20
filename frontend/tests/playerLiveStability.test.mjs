@@ -50,6 +50,7 @@ test("VLC post-playback stalls become bounded recovery events", async () => {
   assert.match(player, /now - vlcLastProgressAtRef\.current >= VLC_FROZEN_PROGRESS_MS/);
   assert.match(player, /if \(!bufferingStalled && !progressStalled\) return/);
   assert.match(player, /vlcHasPlayedRef\.current = false;\s*fail\(\)/);
+  assert.match(player, /onError=\{fail\}\s*onStopped=\{fail\}/);
 });
 
 test("late stable-stream failure clears the stable gate and bounds fallback startup", async () => {
