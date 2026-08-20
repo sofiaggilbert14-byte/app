@@ -31,3 +31,5 @@ jobs:
           git add frontend/src/source.native.ts frontend/tests/startupPlaylistAcquisition.test.mjs frontend/tests/run-tests.mjs
           git commit -m "fix(startup): restore bounded HTTP playlist acquisition"
           git push origin HEAD:agent/phase9-tivimate-scan-repair
+
+# retrigger: HTTP M3U/XMLTV compatibility repair
