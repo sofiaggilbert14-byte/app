@@ -34,7 +34,6 @@ test("TiviMate-style native cold start is read-only while successful provider re
   assert.match(nativeModule, /fun touchPlaylistRefresh\(playlistEpoch: Double, promise: Promise\)/);
   assert.match(nativeModule, /database\.setMeta\("playlist_refreshed_at", now\.toString\(\)\)/);
 
-  // Fresh installs and upgraded installs must both support provider-order reads efficiently.
   const onCreate = database.match(/override fun onCreate\(db: SQLiteDatabase\)[\s\S]*?\n  }\n\n  private fun createProgrammeTable/)?.[0] || "";
   assert.match(onCreate, /idx_playlist_active_position ON \$PLAYLIST_TABLE\(deleted_at, provider_position\)/);
 });
@@ -45,7 +44,7 @@ test("cold-start Guide freshness follows active EPG ownership", async () => {
     source("android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt"),
   ]);
   assert.match(custom, /val guideEpoch = if \(programmeSwapSucceeded\) previousGuideEpoch \+ 1L else previousGuideEpoch/);
-  assert.match(custom, /userDatabase\.setMeta\("guide_refreshed_at", guideRefreshedAt\.toString\(\)\)/);
+  assert.match(custom, /targetDatabase\.setMeta\("guide_refreshed_at", guideRefreshedAt\.toString\(\)\)/);
   assert.match(native, /val extraSources = controlDao\.userSources\(\)[\s\S]*?val hasUserOwnership = \(userEnabled && userBindings\.isNotEmpty\(\)\) \|\| extraSources\.any/);
   assert.match(native, /val effectiveGuideEpoch =[\s\S]*?primaryGuideEpoch[\s\S]*?combinedUserGuideEpoch/);
   assert.match(native, /primaryEnabled && hasUserOwnership[\s\S]*?minOf\(primaryGuideRefreshedAt, combinedUserRefreshedAt\)/);
@@ -104,7 +103,8 @@ test("source scheduler cannot bypass the 30-second cold-start refresh deferral",
 test("AppState resume cannot bypass the automatic cold-start source gate", async () => {
   const scheduler = await source("src/components/SourceRefreshScheduler.tsx");
   assert.match(scheduler, /const automaticRefreshEligibleAt = Date\.now\(\) \+ 30_000/);
-  assert.match(scheduler, /if \(!active \|\| running \|\| Date\.now\(\) < automaticRefreshEligibleAt\) return/);
+  assert.match(scheduler, /const stillOwner = \(\) => !cancelled && generation === schedulerGeneration && active/);
+  assert.match(scheduler, /if \(!screenIsSafe\(\) \|\| running \|\| Date\.now\(\) < automaticRefreshEligibleAt\) return/);
   assert.match(scheduler, /if \(active\) void check\(\)/);
 });
 
@@ -129,10 +129,10 @@ test("Android SQLite PRAGMA operations use query cursors instead of execSQL", as
 test("custom EPG last-good retention does not fake a successful programme refresh", async () => {
   const custom = await source("android/app/src/main/java/com/charmiptv/app/CustomEpgNativeModule.kt");
   assert.match(custom, /var programmeSwapSucceeded = false/);
-  assert.match(custom, /userDatabase\.replaceBatches\(batches\)[\s\S]{0,100}programmeSwapSucceeded = true/);
+  assert.match(custom, /targetDatabase\.replaceBatches\(batches\)[\s\S]{0,100}programmeSwapSucceeded = true/);
   assert.match(custom, /val guideEpoch = if \(programmeSwapSucceeded\) previousGuideEpoch \+ 1L else previousGuideEpoch/);
   assert.match(custom, /val guideRefreshedAt = if \(programmeSwapSucceeded\) now else previousGuideRefreshedAt/);
-  assert.match(custom, /if \(programmeSwapSucceeded\) \{[\s\S]*?setMeta\("guide_refreshed_at"/);
+  assert.match(custom, /if \(programmeSwapSucceeded\) \{[\s\S]*?targetDatabase\.setMeta\("guide_refreshed_at"/);
   assert.match(custom, /putBoolean\("programmeSwapSucceeded", programmeSwapSucceeded\)/);
 });
 
@@ -161,6 +161,7 @@ test("zero custom EPG bindings retain last-good programme data", async () => {
   const custom = await source("android/app/src/main/java/com/charmiptv/app/CustomEpgNativeModule.kt");
   const zeroBindings = custom.match(/if \(activeXmltvIds\.isEmpty\(\)\) \{[\s\S]*?\} else \{/);
   assert.ok(zeroBindings, "zero-binding branch missing");
-  assert.doesNotMatch(zeroBindings[0], /userDatabase\.clear\(\)/);
-  assert.match(zeroBindings[0], /last-good rows/);
+  assert.doesNotMatch(zeroBindings[0], /(?:userDatabase|targetDatabase)\.clear\(\)/);
+  assert.doesNotMatch(zeroBindings[0], /targetDatabase\.replaceBatches\(batches\)/);
+  assert.match(zeroBindings[0], /for \(ignored in batches\) Unit/);
 });
