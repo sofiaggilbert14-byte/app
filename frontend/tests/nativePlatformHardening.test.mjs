@@ -66,20 +66,21 @@ test("EPG low-storage refusal closes already-open provider connections", async (
   }
 });
 
-test("native provider transports close resources and bound provider waits", async () => {
-  const [epg, custom, playlist] = await Promise.all([
+test("native provider connections close when connect or response acquisition fails", async () => {
+  const [primary, custom, playlist] = await Promise.all([
     source("android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt"),
     source("android/app/src/main/java/com/charmiptv/app/CustomEpgNativeModule.kt"),
     source("android/app/src/main/java/com/charmiptv/app/NativePlaylistParser.kt"),
   ]);
-  for (const native of [epg, custom]) {
+  for (const native of [primary, custom]) {
     assert.match(native, /val status = try \{[\s\S]{0,180}connection\.connect\(\)[\s\S]{0,120}connection\.responseCode[\s\S]{0,180}catch \(t: Throwable\) \{[\s\S]{0,100}connection\.disconnect\(\)/);
   }
   assert.match(playlist, /OkHttpClientProvider\.getOkHttpClient\(\)\.newBuilder\(\)/);
-  assert.match(playlist, /\.callTimeout\(CALL_TIMEOUT_SECONDS, TimeUnit\.SECONDS\)/);
+  assert.match(playlist, /callTimeout\(CALL_TIMEOUT_SECONDS, TimeUnit\.SECONDS\)/);
+  assert.match(playlist, /if \(!response\.isSuccessful\)[\s\S]{0,180}response\.close\(\)/);
+  assert.match(playlist, /if \(body == null\)[\s\S]{0,120}response\.close\(\)/);
   assert.match(playlist, /ResponseClosingInputStream\(body\.byteStream\(\), response\)/);
-  assert.match(playlist, /finally \{\s*response\.close\(\)/);
-  assert.match(playlist, /private const val CALL_TIMEOUT_SECONDS = 90L/);
+  assert.match(playlist, /catch \(t: Throwable\) \{\s*response\.close\(\)\s*throw t/);
 });
 
 test("memory and logo work is bounded and releases native listeners", async () => {
