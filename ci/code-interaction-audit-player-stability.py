@@ -12,5 +12,14 @@ new_timeout = ".readTimeout(30, TimeUnit.SECONDS)"
 if old_timeout not in text and new_timeout not in text:
     raise SystemExit("shared OkHttp read timeout block not found")
 text = text.replace(old_timeout, new_timeout)
-
 patch_path.write_text(text, encoding="utf-8")
+
+player_path = Path("frontend/app/player.tsx")
+player = player_path.read_text(encoding="utf-8")
+old_commit = '''      const pending = pendingChannelIdRef.current;\n      channelIdRef.current = pending;\n      setChannelId(pending);'''
+new_commit = '''      const pending = pendingChannelIdRef.current;\n      // Strip focus updates the visible channel before its decoder is armed.\n      // Preserve the actually tuned channel at commit time so Previous channel\n      // remains correct after a debounced strip-based zap. Next/Prev already\n      // updates this history earlier, so the equality guard keeps that path intact.\n      const previous = channelIdRef.current;\n      if (previous && previous !== pending) previousChannelIdRef.current = previous;\n      channelIdRef.current = pending;\n      setChannelId(pending);'''
+if old_commit in player:
+    player = player.replace(old_commit, new_commit, 1)
+elif "Preserve the actually tuned channel at commit time" not in player:
+    raise SystemExit("player debounced commit anchor not found")
+player_path.write_text(player, encoding="utf-8")
