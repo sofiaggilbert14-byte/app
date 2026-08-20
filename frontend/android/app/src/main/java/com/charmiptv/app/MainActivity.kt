@@ -38,31 +38,39 @@ class MainActivity : ReactActivity() {
         return true
       }
     }
-    // Emit one semantic long-press event per physical hold. This is the
-    // authoritative path for long OK/Select favorites on installed Android TV builds.
+
+    // One semantic long-press event per physical hold. Long OK/Select is now a
+    // dedicated contextual quick-actions route, not a Favorite shortcut. This
+    // prevents old Guide/player long-select listeners from firing underneath
+    // the overlay while preserving Long Down/Back behavior.
     if (event.action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount > 0 && emittedLongPressKeyCode != event.keyCode) {
-      val longKey = when (event.keyCode) {
-        android.view.KeyEvent.KEYCODE_DPAD_DOWN -> "DOWN"
-        android.view.KeyEvent.KEYCODE_DPAD_CENTER,
-        android.view.KeyEvent.KEYCODE_ENTER,
-        android.view.KeyEvent.KEYCODE_NUMPAD_ENTER,
-        android.view.KeyEvent.KEYCODE_BUTTON_A -> "SELECT"
-        android.view.KeyEvent.KEYCODE_BACK -> "BACK"
-        else -> null
-      }
-      if (longKey != null) {
+      val selectKey =
+        event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER ||
+          event.keyCode == android.view.KeyEvent.KEYCODE_ENTER ||
+          event.keyCode == android.view.KeyEvent.KEYCODE_NUMPAD_ENTER ||
+          event.keyCode == android.view.KeyEvent.KEYCODE_BUTTON_A
+      val context = TvRemoteModule.remoteContext
+      if (selectKey && (context == "guide" || context == "player")) {
         emittedLongPressKeyCode = event.keyCode
-        emitRemoteEvent("TvRemoteLongPress", longKey)
+        emitRemoteEvent("TvRemoteQuickActions", context)
+      } else {
+        val longKey = when (event.keyCode) {
+          android.view.KeyEvent.KEYCODE_DPAD_DOWN -> "DOWN"
+          android.view.KeyEvent.KEYCODE_BACK -> "BACK"
+          else -> null
+        }
+        if (longKey != null) {
+          emittedLongPressKeyCode = event.keyCode
+          emitRemoteEvent("TvRemoteLongPress", longKey)
+        }
       }
     } else if (event.action == android.view.KeyEvent.ACTION_UP && event.keyCode == emittedLongPressKeyCode) {
       emittedLongPressKeyCode = -1
     }
 
-    // Once a held OK/Select has become a semantic long press, suppress the
-    // remaining repeat DOWN events for that same physical hold. Otherwise the
-    // fullscreen player's raw TvRemoteKey stream can wake/move controls while
-    // the long-OK Favorite action is firing. Do not apply this to directional
-    // keys: held Guide Up/Down must keep their bounded native repeat cadence.
+    // Once held OK/Select becomes Quick Actions, suppress every remaining repeat
+    // for the same physical hold in both Guide and Player. The overlay is the
+    // sole focus/input owner until release, matching TiViMate's window router.
     val selectKey =
       event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER ||
         event.keyCode == android.view.KeyEvent.KEYCODE_ENTER ||
@@ -72,8 +80,7 @@ class MainActivity : ReactActivity() {
       event.action == android.view.KeyEvent.ACTION_DOWN &&
         event.repeatCount > 0 &&
         selectKey &&
-        emittedLongPressKeyCode == event.keyCode &&
-        TvRemoteModule.remoteContext != "guide"
+        emittedLongPressKeyCode == event.keyCode
     ) {
       return true
     }
@@ -249,5 +256,3 @@ class MainActivity : ReactActivity() {
     private const val MIN_DPAD_REPEAT_MS = 48L
   }
 }
-
-
