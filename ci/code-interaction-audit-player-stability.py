@@ -34,3 +34,33 @@ while "import kotlin.math.abs\nimport kotlin.math.abs\n" in native_guide:
 if native_guide.count("import kotlin.math.abs\n") != 1:
     raise SystemExit("NativeGuideView abs import normalization failed")
 native_guide_path.write_text(native_guide, encoding="utf-8")
+
+activity_path = Path("frontend/android/app/src/main/java/com/charmiptv/app/MainActivity.kt")
+activity = activity_path.read_text(encoding="utf-8")
+old_owner = '(context == "guide_groups" && boundaryKey != null)'
+new_owner = '(context == "guide_groups" && (boundaryKey == "LEFT" || boundaryKey == "RIGHT"))'
+if old_owner in activity:
+    activity = activity.replace(old_owner, new_owner, 1)
+elif new_owner not in activity:
+    raise SystemExit("guide groups native boundary owner anchor not found")
+activity_path.write_text(activity, encoding="utf-8")
+
+groups_path = Path("frontend/src/components/PurpleGuideGroupDrawer.tsx")
+groups = groups_path.read_text(encoding="utf-8")
+groups = groups.replace(
+    "// The groups drawer owns horizontal/back remote actions. Up/Down and OK stay",
+    "// The groups drawer owns horizontal remote actions. BACK stays with the",
+    1,
+)
+groups = groups.replace(
+    "// with Android's native focus engine inside the drawer, so only one layer\n    // responds to a physical key at a time.",
+    "// Guide Back hierarchy so each drawer transition keeps its deliberate\n    // double-Back gesture. Up/Down and OK stay with Android native focus.",
+    1,
+)
+old_back = '      if (key === "LEFT" || key === "BACK") {'
+new_back = '      if (key === "LEFT") {'
+if old_back in groups:
+    groups = groups.replace(old_back, new_back, 1)
+elif new_back not in groups:
+    raise SystemExit("Guide Groups BACK ownership anchor not found")
+groups_path.write_text(groups, encoding="utf-8")
