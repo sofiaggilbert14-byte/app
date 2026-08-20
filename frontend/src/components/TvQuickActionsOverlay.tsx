@@ -12,7 +12,6 @@ import { useGlobalSearchParams, usePathname, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useStore } from "@/src/store";
-import type { Channel } from "@/src/api";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { addTvQuickActionsListener, setRemoteContext, type TvQuickActionsContext } from "@/src/utils/tvRemote";
@@ -20,6 +19,7 @@ import { getGuideSelection } from "@/src/core/guideSelectionStore";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 import { useChannelCustomize } from "@/src/core/channelCustomize";
 import { useEpgSourcePreferences } from "@/src/core/epgSourcePreferences";
+import { useSourceRefreshPreferences } from "@/src/core/sourceRefreshPreferences";
 import {
   assignMultiEpgChannel,
   clearMultiEpgChannelAssignments,
@@ -64,6 +64,7 @@ export function TvQuickActionsOverlay() {
   } = useStore();
   const customize = useChannelCustomize();
   const primaryEpg = useEpgSourcePreferences();
+  const refreshPrefs = useSourceRefreshPreferences();
   const multiEpg = useMultiEpgSources();
   const [playerEngine, setPlayerEngine] = usePlayerEnginePreference();
   const [bufferProfile, setBufferProfile] = usePlaybackBufferProfile();
@@ -195,16 +196,21 @@ export function TvQuickActionsOverlay() {
         ? "Automatic / Charm EPG"
         : "No EPG source";
 
-  const ensureNativeSources = useCallback(async (extraOverride?: { id: string; enabled: boolean }) => {
+  const ensureNativeSources = useCallback(async (override?: { id: string; enabled: boolean }) => {
     const extras = multiEpg.sources.map((source) => ({
       ...source,
-      enabled: extraOverride?.id === source.id ? extraOverride.enabled : source.enabled,
+      enabled: override?.id === source.id ? override.enabled : source.enabled,
     }));
     await configureNativeUserGuideSources(primaryEpg.primaryEnabled, [
-      { id: "user", url: primaryEpg.userUrl, enabled: primaryEpg.userEnabled, refreshHours: 12 },
+      {
+        id: "user",
+        url: primaryEpg.userUrl,
+        enabled: override?.id === "user" ? override.enabled : primaryEpg.userEnabled,
+        refreshHours: refreshPrefs.epgHours,
+      },
       ...extras.map((source) => ({ id: source.id, url: source.url, enabled: source.enabled, refreshHours: source.refreshHours })),
     ]);
-  }, [multiEpg.sources, primaryEpg.primaryEnabled, primaryEpg.userEnabled, primaryEpg.userUrl]);
+  }, [multiEpg.sources, primaryEpg.primaryEnabled, primaryEpg.userEnabled, primaryEpg.userUrl, refreshPrefs.epgHours]);
 
   const assignEpg = useCallback(async (xmltvId: string) => {
     if (!channel || !sourceChoice || busy) return;
@@ -216,6 +222,7 @@ export function TvQuickActionsOverlay() {
         if (extraOwner) await setNativeSourceGuideBinding(extraOwner.id, channel.id, null);
         clearMultiEpgChannelAssignments(channel.id);
         primaryEpg.setUserEnabled(true);
+        await ensureNativeSources({ id: "user", enabled: true });
         await setNativeGuideChannelBinding(channel.id, xmltvId);
         primaryEpg.setUserOverride(channel.id, xmltvId);
       } else {
@@ -304,7 +311,7 @@ export function TvQuickActionsOverlay() {
 
         {mode === "main" ? (
           <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
-            <Action icon={context === "guide" ? "play" : "heart-outline"} label={context === "guide" ? "Play channel" : (favoriteSet.has(channel.id) ? "Remove Favorite" : "Add Favorite")} preferred onPress={context === "guide" ? play : favorite} />
+            <Action icon={context === "guide" ? "play" : "heart-outline"} label={context === "guide" ? "Play channel" : (favoriteSet.has(channel.id) ? "Remove Favorite" : "Add Favorite")} onPress={context === "guide" ? play : favorite} />
             {context === "guide" ? <Action icon={favoriteSet.has(channel.id) ? "heart" : "heart-outline"} label={favoriteSet.has(channel.id) ? "Remove Favorite" : "Add Favorite"} onPress={favorite} /> : null}
             <Action icon="git-compare-outline" label="Assign custom EPG" value={ownerLabel} onPress={() => { setStatus(null); setMode("epg-source"); }} />
             {(legacyOwnerId || extraOwner) ? <Action icon="refresh-outline" label="Use automatic EPG" onPress={() => void clearEpgAssignment()} disabled={busy} /> : null}
@@ -331,13 +338,12 @@ export function TvQuickActionsOverlay() {
         {mode === "epg-source" ? (
           <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
             <Text style={styles.sectionTitle}>Choose EPG source</Text>
-            {sourceChoices.length ? sourceChoices.map((source, index) => (
+            {sourceChoices.length ? sourceChoices.map((source) => (
               <Action
                 key={source.id}
                 icon="server-outline"
                 label={source.name}
                 value={source.enabled ? "Enabled" : "Will enable on assignment"}
-                preferred={index === 0}
                 onPress={() => { setSourceChoice(source); setEpgQuery(""); setEpgRows([]); setEpgTotal(0); setMode("epg-channel"); }}
               />
             )) : <Text style={styles.status}>Add and refresh a custom XMLTV source in EPG Settings first.</Text>}
@@ -359,8 +365,8 @@ export function TvQuickActionsOverlay() {
             />
             <Text style={styles.count}>{epgTotal} XMLTV channels · showing first {Math.min(80, epgRows.length)}</Text>
             <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
-              {epgRows.map((row, index) => (
-                <Action key={row.id} icon="calendar-outline" label={row.name || row.id} value={row.id} preferred={index === 0} disabled={busy} onPress={() => void assignEpg(row.id)} />
+              {epgRows.map((row) => (
+                <Action key={row.id} icon="calendar-outline" label={row.name || row.id} value={row.id} disabled={busy} onPress={() => void assignEpg(row.id)} />
               ))}
               {!epgRows.length ? <Text style={styles.status}>No matching XMLTV channels. Refresh this EPG source from EPG Settings if its directory has not been indexed yet.</Text> : null}
               <Action icon="arrow-back" label="Back to EPG sources" onPress={() => { setMode("epg-source"); setSourceChoice(null); }} />
@@ -378,19 +384,16 @@ function Action({
   value,
   onPress,
   disabled = false,
-  preferred = false,
 }: {
   icon: React.ComponentProps<typeof Ionicons>["name"];
   label: string;
   value?: string;
   onPress: () => void;
   disabled?: boolean;
-  preferred?: boolean;
 }) {
   return (
     <Pressable
       disabled={disabled}
-      hasTVPreferredFocus={preferred}
       onPress={onPress}
       style={({ focused }: any) => [styles.row, disabled && styles.disabled, focused && styles.focused]}
     >
