@@ -160,6 +160,8 @@ internal class EpgDatabase(context: Context, private val databaseName: String = 
     db.execSQL("CREATE VIRTUAL TABLE IF NOT EXISTS $FTS_TABLE USING fts4(programme_id INTEGER, channel_id TEXT, title TEXT, description TEXT, category TEXT)")
   }
 
+  // Additive only: upgrades preserve LIVE/playlist/user state and add columns,
+  // indexes, or derived search structures in place. Never drop last-good data.
   override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
     if (oldVersion < 3) {
       ensureColumn(db, LIVE_TABLE, "category", "TEXT")
@@ -348,7 +350,7 @@ internal class EpgDatabase(context: Context, private val databaseName: String = 
   fun activePlaylistChannels(): List<PlaylistChannelRow> {
     val rows = ArrayList<PlaylistChannelRow>()
     readableDatabase.rawQuery(
-      "SELECT c.playlist_id,c.raw_tvg_id,c.name,COALESCE(c.logo,''),COALESCE(c.group_title,''),c.stream_url,c.stream_type,c.provider_position,COALESCE((SELECT a.alias_value FROM $ALIAS_TABLE a WHERE a.channel_id=m.xmltv_id AND a.alias_kind='icon_url' LIMIT 1),''),COALESCE(m.xmltv_id,'') FROM $PLAYLIST_TABLE c LEFT JOIN $MATCH_TABLE m ON m.playlist_id=c.playlist_id WHERE c.deleted_at=0 AND c.stream_url!='' ORDER BY provider_position ASC,name COLLATE NOCASE ASC",
+      "SELECT c.playlist_id, c.raw_tvg_id, c.name, COALESCE(c.logo,''), COALESCE(c.group_title,''), c.stream_url, c.stream_type, c.provider_position, COALESCE((SELECT a.alias_value FROM $ALIAS_TABLE a WHERE a.channel_id=m.xmltv_id AND a.alias_kind='icon_url' LIMIT 1),''), COALESCE(m.xmltv_id,'') FROM $PLAYLIST_TABLE c LEFT JOIN $MATCH_TABLE m ON m.playlist_id=c.playlist_id WHERE c.deleted_at=0 AND c.stream_url!='' ORDER BY provider_position ASC, name COLLATE NOCASE ASC",
       null,
     ).use { cursor ->
       while (cursor.moveToNext()) rows.add(PlaylistChannelRow(cursor.getString(0), cursor.getString(1), cursor.getString(2), cursor.getString(3), cursor.getString(4), cursor.getString(5), cursor.getString(6), cursor.getInt(7), cursor.getString(8), cursor.getString(9)))
@@ -390,23 +392,41 @@ internal class EpgDatabase(context: Context, private val databaseName: String = 
     val now = System.currentTimeMillis()
     db.beginTransaction()
     try {
-      db.delete(MATCH_TABLE, null, null)
-      if (rows.isNotEmpty()) {
-        val statement = db.compileStatement("INSERT OR REPLACE INTO $MATCH_TABLE(playlist_id,xmltv_id,logo_xmltv_id,ambiguous,match_policy,manual,guide_epoch,updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-        try {
-          for (row in rows) {
-            if (row.playlistId.isBlank()) continue
-            statement.clearBindings(); statement.bindString(1, row.playlistId); statement.bindString(2, row.xmltvId); statement.bindString(3, row.logoXmltvId)
-            statement.bindLong(4, if (row.ambiguous) 1L else 0L); statement.bindString(5, row.matchPolicy.ifBlank { "full" }); statement.bindLong(6, if (row.manual) 1L else 0L)
-            statement.bindLong(7, guideEpoch); statement.bindLong(8, now); statement.executeInsert()
-          }
-        } finally { statement.close() }
+      val existingManual = HashMap<String, PlaylistEpgMatchRow>()
+      db.rawQuery("SELECT playlist_id,xmltv_id,logo_xmltv_id,ambiguous,match_policy,manual FROM $MATCH_TABLE WHERE manual=1", null).use { cursor ->
+        while (cursor.moveToNext()) existingManual[cursor.getString(0)] = PlaylistEpgMatchRow(cursor.getString(0), cursor.getString(1), cursor.getString(2), cursor.getInt(3) != 0, cursor.getString(4), true)
       }
-      setMeta("match_guide_epoch", guideEpoch.toString())
-      setMeta(MATCH_CONTENT_FINGERPRINT_KEY, fingerprint)
+      db.delete(MATCH_TABLE, "manual=0", null)
+      val statement = db.compileStatement("INSERT OR REPLACE INTO $MATCH_TABLE(playlist_id,xmltv_id,logo_xmltv_id,ambiguous,match_policy,manual,guide_epoch,updated_at) VALUES (?,?,?,?,?,?,?,?)")
+      try {
+        for (row in rows) {
+          val effective = existingManual[row.playlistId] ?: row
+          statement.clearBindings(); statement.bindString(1, effective.playlistId); statement.bindString(2, effective.xmltvId); statement.bindString(3, effective.logoXmltvId); statement.bindLong(4, if (effective.ambiguous) 1 else 0); statement.bindString(5, effective.matchPolicy); statement.bindLong(6, if (effective.manual) 1 else 0); statement.bindLong(7, guideEpoch); statement.bindLong(8, now); statement.executeInsert()
+        }
+      } finally { statement.close() }
       db.setTransactionSuccessful()
     } finally { db.endTransaction() }
+    setMeta(MATCH_CONTENT_FINGERPRINT_KEY, fingerprint)
     return true
+  }
+
+  fun manualMatchRows(): List<PlaylistEpgMatchRow> {
+    val result = ArrayList<PlaylistEpgMatchRow>()
+    readableDatabase.rawQuery("SELECT playlist_id,xmltv_id,logo_xmltv_id,ambiguous,match_policy,manual FROM $MATCH_TABLE WHERE manual=1", null).use { cursor ->
+      while (cursor.moveToNext()) result.add(PlaylistEpgMatchRow(cursor.getString(0), cursor.getString(1), cursor.getString(2), cursor.getInt(3) != 0, cursor.getString(4), true))
+    }
+    return result
+  }
+
+  fun setManualPlaylistMatch(playlistId: String, xmltvId: String, logoXmltvId: String = xmltvId) {
+    val cleanPlaylistId = playlistId.trim(); if (cleanPlaylistId.isEmpty()) return
+    val db = writableDatabase
+    if (xmltvId.isBlank()) { db.delete(MATCH_TABLE, "playlist_id=? AND manual=1", arrayOf(cleanPlaylistId)); return }
+    val now = System.currentTimeMillis()
+    val statement = db.compileStatement("INSERT OR REPLACE INTO $MATCH_TABLE(playlist_id,xmltv_id,logo_xmltv_id,ambiguous,match_policy,manual,guide_epoch,updated_at) VALUES (?,?,?,?,?,?,?,?)")
+    try {
+      statement.bindString(1, cleanPlaylistId); statement.bindString(2, xmltvId.trim()); statement.bindString(3, logoXmltvId.trim()); statement.bindLong(4, 0); statement.bindString(5, "manual"); statement.bindLong(6, 1); statement.bindLong(7, getMeta("guide_epoch")?.toLongOrNull() ?: 0L); statement.bindLong(8, now); statement.executeInsert()
+    } finally { statement.close() }
   }
 
   private fun fingerprintPlaylistEpgMatches(rows: List<PlaylistEpgMatchRow>): String {
@@ -416,130 +436,86 @@ internal class EpgDatabase(context: Context, private val databaseName: String = 
     return digest.digest().joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
   }
 
-  fun queryGuideWindow(startMs: Long, endMs: Long, playlistChannelIds: Collection<String>): List<NativeEpgProgram> {
-    if (playlistChannelIds.isEmpty()) return emptyList()
+  fun queryGuideWindow(channelIds: Collection<String>, startMs: Long, endMs: Long): List<NativeEpgProgram> {
+    if (channelIds.isEmpty()) return emptyList()
     val result = ArrayList<NativeEpgProgram>()
-    for (chunk in playlistChannelIds.chunked(IN_CLAUSE_CHUNK)) {
-      if (chunk.isEmpty()) continue
+    val startSec = toEpochSeconds(startMs)
+    val endSec = toEpochSeconds(endMs)
+    for (chunk in channelIds.chunked(IN_CLAUSE_CHUNK)) {
       val placeholders = chunk.joinToString(",") { "?" }
       val args = ArrayList<String>(chunk.size + 2)
-      args.addAll(chunk); args.add(toEpochSeconds(startMs).toString()); args.add(toEpochSeconds(endMs).toString())
-      readableDatabase.rawQuery("SELECT m.playlist_id AS channel_id,p.title,p.description,p.category,p.start_time,p.end_time FROM $MATCH_TABLE m INNER JOIN $LIVE_TABLE p ON p.channel_id=m.xmltv_id WHERE m.playlist_id IN ($placeholders) AND m.xmltv_id!='' AND p.end_time>? AND p.start_time<? ORDER BY m.playlist_id ASC,p.start_time ASC", args.toTypedArray()).use { cursor -> appendPrograms(cursor, result) }
+      args.addAll(chunk)
+      args.add(endSec.toString())
+      args.add(startSec.toString())
+      readableDatabase.rawQuery("SELECT channel_id,title,description,category,start_time,end_time FROM $LIVE_TABLE WHERE channel_id IN ($placeholders) AND start_time < ? AND end_time > ? ORDER BY channel_id ASC,start_time ASC", args.toTypedArray()).use { cursor ->
+        while (cursor.moveToNext()) result.add(NativeEpgProgram(cursor.getString(0), cursor.getString(1), cursor.getString(2), cursor.getString(3), fromEpochSeconds(cursor.getLong(4)), fromEpochSeconds(cursor.getLong(5))))
+      }
     }
     return result
   }
 
-  fun setMeta(key: String, value: String) { writableDatabase.execSQL("INSERT OR REPLACE INTO $META_TABLE(key,value) VALUES (?, ?)", arrayOf(key, value)) }
-  fun getMeta(key: String): String? = readableDatabase.rawQuery("SELECT value FROM $META_TABLE WHERE key = ? LIMIT 1", arrayOf(key)).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
-
-  private fun interactiveTvOwnsPriority(): Boolean {
-    val owner = TvRemoteModule.remoteContext
-    return owner == "guide" || owner == "player" || owner == "modal"
+  fun searchProgrammes(query: String, limit: Int): List<NativeEpgProgram> {
+    val clean = query.trim(); if (clean.isEmpty()) return emptyList()
+    val safeLimit = limit.coerceIn(1, 100)
+    val tokens = clean.split(Regex("\\s+")).map { it.replace("\"", "") }.filter { it.isNotBlank() }.take(6)
+    if (tokens.isEmpty()) return emptyList()
+    val ftsQuery = tokens.joinToString(" ") { "\"$it\"*" }
+    val rows = ArrayList<NativeEpgProgram>()
+    val sql = "SELECT p.channel_id,p.title,p.description,p.category,p.start_time,p.end_time FROM $FTS_TABLE f JOIN $LIVE_TABLE p ON p.id=f.programme_id WHERE $FTS_TABLE MATCH ? ORDER BY p.start_time ASC LIMIT ?"
+    readableDatabase.rawQuery(sql, arrayOf(ftsQuery, safeLimit.toString())).use { cursor ->
+      while (cursor.moveToNext()) rows.add(NativeEpgProgram(cursor.getString(0), cursor.getString(1), cursor.getString(2), cursor.getString(3), fromEpochSeconds(cursor.getLong(4)), fromEpochSeconds(cursor.getLong(5))))
+    }
+    return rows
   }
 
   fun replaceBatches(batches: Sequence<List<NativeEpgProgram>>) {
     val db = writableDatabase
-    db.beginTransaction()
-    try { db.delete(STAGING_TABLE, null, null); db.setTransactionSuccessful() } finally { db.endTransaction() }
+    db.delete(STAGING_TABLE, null, null)
+    var inserted = 0L
     try {
-      var batchNumber = 0
       for (batch in batches) {
-        if (interactiveTvOwnsPriority()) throw IllegalStateException("EPG refresh deferred for active Guide/player")
         insertBatch(db, STAGING_TABLE, batch)
-        batchNumber += 1
-        if (batchNumber % STORAGE_RECHECK_BATCHES == 0) assertRefreshStorageAvailable()
+        inserted += batch.size
       }
-      if (interactiveTvOwnsPriority()) throw IllegalStateException("EPG refresh deferred before final swap")
-      val stagingCount = countTable(STAGING_TABLE)
-      if (stagingCount <= 0L) throw IllegalStateException("Refusing to replace live EPG with an empty feed")
+      if (inserted <= 0L) throw IllegalStateException("Refusing to replace live EPG with an empty feed")
       inferMissingStopsFromNextProgram(DEFAULT_PROGRAMME_DURATION_MS, MAX_PROGRAMME_DURATION_MS)
-      if (interactiveTvOwnsPriority()) throw IllegalStateException("EPG refresh deferred before final swap")
       db.beginTransaction()
       try {
         db.delete(LIVE_TABLE, null, null)
         db.execSQL("INSERT INTO $LIVE_TABLE(channel_id,title,description,category,start_time,end_time) SELECT channel_id,title,description,category,start_time,end_time FROM $STAGING_TABLE")
-        rebuildProgrammeSearch(db)
         db.delete(STAGING_TABLE, null, null)
+        rebuildProgrammeSearch(db)
         db.setTransactionSuccessful()
       } finally { db.endTransaction() }
-    } catch (failure: Throwable) {
-      try {
-        db.beginTransaction()
-        try { db.delete(STAGING_TABLE, null, null); db.setTransactionSuccessful() } finally { db.endTransaction() }
-        runPragma(db, "PRAGMA wal_checkpoint(PASSIVE)")
-      } catch (_: Throwable) {}
-      throw failure
+    } catch (t: Throwable) {
+      try { db.delete(STAGING_TABLE, null, null) } catch (_: Throwable) {}
+      throw t
     }
   }
 
-  fun queryWindow(startMs: Long, endMs: Long, channelIds: Collection<String>? = null): List<NativeEpgProgram> {
-    if (channelIds != null && channelIds.isEmpty()) return emptyList()
-    val result = ArrayList<NativeEpgProgram>()
-    if (channelIds == null) {
-      readableDatabase.query(LIVE_TABLE, arrayOf("channel_id", "title", "description", "category", "start_time", "end_time"), "end_time > ? AND start_time < ?", arrayOf(toEpochSeconds(startMs).toString(), toEpochSeconds(endMs).toString()), null, null, "channel_id ASC, start_time ASC").use { cursor -> appendPrograms(cursor, result) }
-      return result
-    }
-    for (chunk in channelIds.chunked(IN_CLAUSE_CHUNK)) {
-      if (chunk.isEmpty()) continue
-      val placeholders = chunk.joinToString(",") { "?" }
-      val args = ArrayList<String>(chunk.size + 2); args.addAll(chunk); args.add(toEpochSeconds(startMs).toString()); args.add(toEpochSeconds(endMs).toString())
-      readableDatabase.rawQuery("SELECT channel_id,title,description,category,start_time,end_time FROM $LIVE_TABLE WHERE channel_id IN ($placeholders) AND end_time>? AND start_time<? ORDER BY channel_id ASC,start_time ASC", args.toTypedArray()).use { cursor -> appendPrograms(cursor, result) }
-    }
-    return result
-  }
+  fun discardStaging() { try { writableDatabase.delete(STAGING_TABLE, null, null) } catch (_: Throwable) {} }
 
-  private fun appendPrograms(cursor: android.database.Cursor, result: MutableList<NativeEpgProgram>) {
-    val channelColumn = cursor.getColumnIndexOrThrow("channel_id")
-    val titleColumn = cursor.getColumnIndexOrThrow("title")
-    val descriptionColumn = cursor.getColumnIndexOrThrow("description")
-    val categoryColumn = cursor.getColumnIndex("category")
-    val startColumn = cursor.getColumnIndexOrThrow("start_time")
-    val endColumn = cursor.getColumnIndexOrThrow("end_time")
-    while (cursor.moveToNext()) {
-      result.add(NativeEpgProgram(cursor.getString(channelColumn), cursor.getString(titleColumn), if (cursor.isNull(descriptionColumn)) null else cursor.getString(descriptionColumn), if (categoryColumn >= 0 && !cursor.isNull(categoryColumn)) cursor.getString(categoryColumn) else null, toEpochMillis(cursor.getLong(startColumn)), toEpochMillis(cursor.getLong(endColumn))))
-    }
-  }
-
-  fun deleteExpired(beforeMs: Long): Int {
-    val deleted = writableDatabase.delete(LIVE_TABLE, "end_time < ?", arrayOf(toEpochSeconds(beforeMs).toString()))
-    try { runPragma(writableDatabase, "PRAGMA wal_checkpoint(PASSIVE)") } catch (_: Throwable) {}
-    return deleted
-  }
-
-  fun maybeIncrementalVacuum(minDeletedRows: Int, deletedRows: Int) {
-    if (deletedRows < minDeletedRows) return
-    try { runPragma(writableDatabase, "PRAGMA incremental_vacuum(64)") } catch (_: Throwable) {}
-  }
-
+  fun count(): Long = countTable(LIVE_TABLE)
   fun clear() {
     val db = writableDatabase
     db.beginTransaction()
     try {
-      db.delete(LIVE_TABLE, null, null); db.delete(STAGING_TABLE, null, null); db.delete(ALIAS_TABLE, null, null); db.delete(PLAYLIST_TABLE, null, null); db.delete(MATCH_TABLE, null, null); db.delete(STOP_UPDATE_TABLE, null, null); db.delete(FTS_TABLE, null, null); db.delete(META_TABLE, null, null)
+      db.delete(LIVE_TABLE, null, null); db.delete(STAGING_TABLE, null, null); db.delete(ALIAS_TABLE, null, null); db.delete(FTS_TABLE, null, null)
       db.setTransactionSuccessful()
     } finally { db.endTransaction() }
   }
 
-  fun count(): Long = countTable(LIVE_TABLE)
-
-  fun matchedXmltvIdsForPlaylistIds(playlistIds: Collection<String>): Set<String> {
-    if (playlistIds.isEmpty()) return emptySet()
-    val result = LinkedHashSet<String>()
-    for (chunk in playlistIds.chunked(IN_CLAUSE_CHUNK)) {
-      if (chunk.isEmpty()) continue
-      val placeholders = chunk.joinToString(",") { "?" }
-      readableDatabase.rawQuery("SELECT xmltv_id FROM $MATCH_TABLE WHERE playlist_id IN ($placeholders) AND xmltv_id != ''", chunk.toTypedArray()).use { cursor -> while (cursor.moveToNext()) cursor.getString(0)?.takeIf { it.isNotBlank() }?.let(result::add) }
-    }
-    return result
+  fun setMeta(key: String, value: String) {
+    val statement = writableDatabase.compileStatement("INSERT OR REPLACE INTO $META_TABLE(key,value) VALUES (?,?)")
+    try { statement.bindString(1, key); statement.bindString(2, value); statement.executeInsert() } finally { statement.close() }
   }
 
-  fun searchProgrammes(query: String, limit: Int = 80, excludedChannelIds: Set<String> = emptySet()): List<NativeEpgProgram> {
-    val match = query.trim().replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
-    if (match.isEmpty()) return emptyList()
-    val result = ArrayList<NativeEpgProgram>()
-    readableDatabase.rawQuery("SELECT p.channel_id,p.title,p.description,p.category,p.start_time,p.end_time FROM $FTS_TABLE f INNER JOIN $LIVE_TABLE p ON p.id=f.programme_id WHERE $FTS_TABLE MATCH ? AND p.end_time>=? ORDER BY p.start_time ASC LIMIT ?", arrayOf("$match*", toEpochSeconds(System.currentTimeMillis()).toString(), (if (excludedChannelIds.isEmpty()) limit else (limit * 3)).coerceIn(1, 250).toString())).use { cursor -> appendPrograms(cursor, result) }
-    if (excludedChannelIds.isEmpty()) return result.take(limit.coerceIn(1, 250))
-    return result.asSequence().filterNot { it.channelId in excludedChannelIds }.take(limit.coerceIn(1, 250)).toList()
+  fun getMeta(key: String): String? = readableDatabase.rawQuery("SELECT value FROM $META_TABLE WHERE key=? LIMIT 1", arrayOf(key)).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+
+  fun maybeIncrementalVacuum(deletedRows: Long) {
+    if (deletedRows < MIN_VACUUM_DELETED_ROWS) return
+    try { runPragma(writableDatabase, "PRAGMA wal_checkpoint(PASSIVE)") } catch (_: Throwable) {}
+    try { runPragma(writableDatabase, "PRAGMA incremental_vacuum(64)") } catch (_: Throwable) {}
   }
 
   private fun rebuildProgrammeSearch(db: SQLiteDatabase) {
@@ -548,16 +524,13 @@ internal class EpgDatabase(context: Context, private val databaseName: String = 
     db.execSQL("INSERT INTO $FTS_TABLE(programme_id,channel_id,title,description,category) SELECT id,channel_id,title,COALESCE(description,''),COALESCE(category,'') FROM $LIVE_TABLE")
   }
 
-  private fun runPragma(db: SQLiteDatabase, sql: String) {
-    db.rawQuery(sql, null).use { cursor -> while (cursor.moveToNext()) {} }
-  }
-
-  private fun toEpochSeconds(milliseconds: Long): Long = Math.floorDiv(milliseconds, 1000L)
-  private fun toEpochMillis(seconds: Long): Long = seconds * 1000L
-  private fun toDurationSeconds(milliseconds: Long): Long = (milliseconds + 999L) / 1000L
+  private fun runPragma(db: SQLiteDatabase, sql: String) { db.rawQuery(sql, null).use { cursor -> while (cursor.moveToNext()) Unit } }
+  private fun normalizeKey(value: String): String = value.lowercase(Locale.US).replace(Regex("[^a-z0-9]+"), " ").trim().replace(Regex("\\s+"), " ")
+  private fun toEpochSeconds(valueMs: Long): Long = valueMs / 1000L
+  private fun fromEpochSeconds(valueSec: Long): Long = valueSec * 1000L
+  private fun toDurationSeconds(valueMs: Long): Long = valueMs / 1000L
 
   companion object {
-    private const val STORAGE_RECHECK_BATCHES = 32
     private const val DATABASE_VERSION = 10
     private const val LIVE_TABLE = "epg_programmes"
     private const val STAGING_TABLE = "epg_programmes_staging"
@@ -567,12 +540,11 @@ internal class EpgDatabase(context: Context, private val databaseName: String = 
     private const val MATCH_TABLE = "playlist_epg_matches"
     private const val STOP_UPDATE_TABLE = "epg_stop_updates"
     private const val FTS_TABLE = "epg_programmes_fts"
-    private const val PLAYLIST_CONTENT_FINGERPRINT_KEY = "playlist_content_fingerprint"
-    private const val MATCH_CONTENT_FINGERPRINT_KEY = "match_content_fingerprint"
-    private const val IN_CLAUSE_CHUNK = 400
+    private const val IN_CLAUSE_CHUNK = 700
     private const val DEFAULT_PROGRAMME_DURATION_MS = 30L * 60L * 1000L
-    private const val MAX_PROGRAMME_DURATION_MS = 24L * 60L * 60L * 1000L
-
-    fun normalizeKey(value: String): String = value.lowercase().replace(Regex("[^a-z0-9]+"), "")
+    private const val MAX_PROGRAMME_DURATION_MS = 8L * 60L * 60L * 1000L
+    private const val MIN_VACUUM_DELETED_ROWS = 50_000L
+    private const val PLAYLIST_CONTENT_FINGERPRINT_KEY = "playlist_content_fingerprint"
+    private const val MATCH_CONTENT_FINGERPRINT_KEY = "playlist_match_fingerprint"
   }
 }
