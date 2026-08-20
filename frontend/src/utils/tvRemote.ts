@@ -15,7 +15,7 @@ export type TvKey = "UP" | "DOWN" | "LEFT" | "RIGHT" | "SELECT" | "BACK";
 export type TvLongPressKey = "DOWN" | "SELECT" | "BACK";
 export type TvShortcutKey = "CHANNEL_UP" | "CHANNEL_DOWN" | "MEDIA_PLAY_PAUSE";
 export type TvQuickActionsContext = "guide" | "player";
-export type PlayerQuickCommand = "OPEN_TRACKS" | "CYCLE_ASPECT" | "PREVIOUS_CHANNEL";
+export type PlayerQuickCommand = "OPEN_TRACKS" | "CYCLE_ASPECT";
 export type DeviceMemoryProfile = {
   memoryClassMb: number;
   lowRamDevice: boolean;
@@ -57,7 +57,7 @@ export function addTvQuickActionsListener(cb: (context: TvQuickActionsContext) =
 /**
  * Local semantic bridge from the global Quick Actions drawer back into the
  * already-mounted fullscreen player. The player remains the single owner of
- * track/aspect/history state; the drawer never duplicates decoder settings.
+ * track/aspect state; the drawer never duplicates decoder settings.
  */
 export function emitPlayerQuickCommand(command: PlayerQuickCommand): void {
   DeviceEventEmitter.emit("CharmPlayerQuickCommand", command);
