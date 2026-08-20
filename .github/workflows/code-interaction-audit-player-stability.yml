@@ -31,6 +31,8 @@ jobs:
           fi
           git config user.name "Charm Interaction Audit Bot"
           git config user.email "actions@users.noreply.github.com"
-          git add frontend/patches/expo-video+3.0.16.patch frontend/app/player.tsx
-          git commit -m "fix(player): stabilize live reads and strip zaps"
+          git add frontend/patches/expo-video+3.0.16.patch \
+                  frontend/app/player.tsx \
+                  frontend/android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt
+          git commit -m "fix(player): stabilize playback and native guide state"
           git push origin HEAD:agent/code-interaction-audit
