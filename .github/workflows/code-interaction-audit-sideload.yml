@@ -1,0 +1,234 @@
+name: Code Interaction Audit Sideload APK
+
+on:
+  push:
+    branches:
+      - agent/code-interaction-audit
+    paths:
+      - ci/code-interaction-audit-sideload.trigger
+
+permissions:
+  contents: write
+
+env:
+  EXPO_PUBLIC_M3U_URL: ${{ secrets.M3U_URL || vars.EXPO_PUBLIC_M3U_URL }}
+  EXPO_PUBLIC_EPG_URL: ${{ secrets.EPG_URL || vars.EXPO_PUBLIC_EPG_URL }}
+  EXPO_PUBLIC_GUIDE_WINDOW_HOURS: ${{ vars.EXPO_PUBLIC_GUIDE_WINDOW_HOURS || '6' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: agent/code-interaction-audit
+          fetch-depth: 0
+
+      - id: node
+        continue-on-error: true
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Require playlist and EPG configuration
+        id: config
+        continue-on-error: true
+        shell: bash
+        run: |
+          test -n "${EXPO_PUBLIC_M3U_URL}" && test -n "${EXPO_PUBLIC_EPG_URL}"
+
+      - name: Install JavaScript dependencies
+        id: install
+        continue-on-error: true
+        working-directory: frontend
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: Unit and interaction tests
+        id: tests
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        working-directory: frontend
+        run: npm test
+
+      - name: Typecheck
+        id: typecheck
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Lint
+        id: lint
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Expo Doctor
+        id: doctor
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        working-directory: frontend
+        run: npm run doctor
+
+      - name: Verify checked-in native config
+        id: native_config
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        working-directory: frontend
+        run: npm run verify:native-config
+
+      - name: Verify native Guide architecture
+        id: native_guide
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        working-directory: frontend
+        run: npm run verify:native-guide
+
+      - id: java
+        continue-on-error: true
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - id: gradle_setup
+        continue-on-error: true
+        uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d
+
+      - id: android_setup
+        continue-on-error: true
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+
+      - name: Install pinned Android SDK, NDK and CMake
+        id: sdk
+        continue-on-error: true
+        run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006" "cmake;3.22.1"
+
+      - name: Build LGPL Media3 FFmpeg audio extension
+        id: ffmpeg
+        if: steps.install.outcome == 'success' && steps.sdk.outcome == 'success'
+        continue-on-error: true
+        working-directory: frontend
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.1.12297006
+        run: |
+          chmod +x scripts/build-media3-ffmpeg-audio.sh
+          ./scripts/build-media3-ffmpeg-audio.sh
+
+      - name: Build standalone sideload APK
+        id: assemble
+        if: >-
+          steps.config.outcome == 'success' &&
+          steps.install.outcome == 'success' &&
+          steps.tests.outcome == 'success' &&
+          steps.typecheck.outcome == 'success' &&
+          steps.lint.outcome == 'success' &&
+          steps.doctor.outcome == 'success' &&
+          steps.native_config.outcome == 'success' &&
+          steps.native_guide.outcome == 'success' &&
+          steps.java.outcome == 'success' &&
+          steps.gradle_setup.outcome == 'success' &&
+          steps.android_setup.outcome == 'success' &&
+          steps.sdk.outcome == 'success' &&
+          steps.ffmpeg.outcome == 'success'
+        continue-on-error: true
+        working-directory: frontend
+        env:
+          CI: '1'
+          GRADLE_OPTS: '-Dorg.gradle.jvmargs=-Xmx3g -Dorg.gradle.workers.max=2'
+        run: |
+          chmod +x android/gradlew
+          ./android/gradlew -p android assembleSideload --no-daemon --stacktrace
+
+      - name: Verify and stage tester APK
+        id: verify_apk
+        if: steps.assemble.outcome == 'success'
+        continue-on-error: true
+        working-directory: frontend
+        shell: bash
+        run: |
+          APP_VERSION="$(node -p 'require("./app.json").expo.version')"
+          NOTES="../docs/TESTER_RELEASE_NOTES_${APP_VERSION}.md"
+          APK="android/app/build/outputs/apk/sideload/app-sideload.apk"
+          test -f "$APK"
+          test -f "$NOTES"
+          unzip -l "$APK" | grep -E "(index\.android\.bundle|assets/.*\.bundle|resources\.arsc)" >/dev/null
+          unzip -l "$APK" | grep -E 'lib/arm64-v8a/libffmpegJNI\.so' >/dev/null
+          unzip -l "$APK" | grep -E 'lib/armeabi-v7a/libffmpegJNI\.so' >/dev/null
+          mkdir -p android/app/build/outputs/apk/tester
+          cp "$APK" "android/app/build/outputs/apk/tester/CharmIPTV-Code-Interaction-Audit-${APP_VERSION}.apk"
+          sha256sum "android/app/build/outputs/apk/tester/CharmIPTV-Code-Interaction-Audit-${APP_VERSION}.apk" > android/app/build/outputs/apk/tester/SHA256SUMS.txt
+          cp "$NOTES" android/app/build/outputs/apk/tester/TESTER_RELEASE_NOTES.md
+          echo "app_version=${APP_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload sideload artifact
+        id: upload
+        if: steps.verify_apk.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: CharmIPTV-Code-Interaction-Audit-${{ steps.verify_apk.outputs.app_version }}-${{ github.run_number }}
+          path: frontend/android/app/build/outputs/apk/tester/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish sideload status
+        if: always()
+        env:
+          NODE: ${{ steps.node.outcome }}
+          CONFIG: ${{ steps.config.outcome }}
+          INSTALL: ${{ steps.install.outcome }}
+          TESTS: ${{ steps.tests.outcome }}
+          TYPECHECK: ${{ steps.typecheck.outcome }}
+          LINT: ${{ steps.lint.outcome }}
+          DOCTOR: ${{ steps.doctor.outcome }}
+          NATIVE_CONFIG: ${{ steps.native_config.outcome }}
+          NATIVE_GUIDE: ${{ steps.native_guide.outcome }}
+          JAVA: ${{ steps.java.outcome }}
+          GRADLE_SETUP: ${{ steps.gradle_setup.outcome }}
+          ANDROID_SETUP: ${{ steps.android_setup.outcome }}
+          SDK: ${{ steps.sdk.outcome }}
+          FFMPEG: ${{ steps.ffmpeg.outcome }}
+          ASSEMBLE: ${{ steps.assemble.outcome }}
+          VERIFY_APK: ${{ steps.verify_apk.outcome }}
+          UPLOAD: ${{ steps.upload.outcome }}
+          APP_VERSION: ${{ steps.verify_apk.outputs.app_version }}
+        shell: bash
+        run: |
+          artifact_name="CharmIPTV-Code-Interaction-Audit-${APP_VERSION}-${GITHUB_RUN_NUMBER}"
+          cat > ci/code-interaction-audit-sideload.txt <<EOF
+          source_head=${GITHUB_SHA}
+          run_id=${GITHUB_RUN_ID}
+          run_number=${GITHUB_RUN_NUMBER}
+          artifact_name=${artifact_name}
+          app_version=${APP_VERSION}
+          node=${NODE}
+          config=${CONFIG}
+          install=${INSTALL}
+          tests=${TESTS}
+          typecheck=${TYPECHECK}
+          lint=${LINT}
+          doctor=${DOCTOR}
+          native_config=${NATIVE_CONFIG}
+          native_guide=${NATIVE_GUIDE}
+          java=${JAVA}
+          gradle_setup=${GRADLE_SETUP}
+          android_setup=${ANDROID_SETUP}
+          sdk=${SDK}
+          ffmpeg=${FFMPEG}
+          assemble_sideload=${ASSEMBLE}
+          verify_apk=${VERIFY_APK}
+          upload=${UPLOAD}
+          EOF
+          git config user.name "Charm Interaction Audit Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add ci/code-interaction-audit-sideload.txt
+          git commit -m "test(audit): record sideload APK status" || true
+          git push origin HEAD:agent/code-interaction-audit
+          if [ "${CONFIG}" != success ] || [ "${INSTALL}" != success ] || [ "${TESTS}" != success ] || [ "${TYPECHECK}" != success ] || [ "${LINT}" != success ] || [ "${DOCTOR}" != success ] || [ "${NATIVE_CONFIG}" != success ] || [ "${NATIVE_GUIDE}" != success ] || [ "${JAVA}" != success ] || [ "${GRADLE_SETUP}" != success ] || [ "${ANDROID_SETUP}" != success ] || [ "${SDK}" != success ] || [ "${FFMPEG}" != success ] || [ "${ASSEMBLE}" != success ] || [ "${VERIFY_APK}" != success ] || [ "${UPLOAD}" != success ]; then
+            exit 1
+          fi
