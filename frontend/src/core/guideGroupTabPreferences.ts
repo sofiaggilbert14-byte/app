@@ -1,11 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { storage } from "@/src/utils/storage";
 
-/**
- * User-owned tab metadata layered over immutable provider/system group identities.
- * Provider group names remain the lookup key used by Guide filtering; rename only
- * changes the display label so playlist refreshes cannot destroy user organization.
- */
 export type GuideGroupTabPreferences = {
   aliases: Record<string, string>;
   hidden: string[];
@@ -75,13 +70,20 @@ function commit(next: GuideGroupTabPreferences) {
     try { listener(cached); } catch {}
   }
   const snapshot = cached;
-  writeChain = writeChain
-    .then(() => storage.setItem(KEY, snapshot))
-    .catch(() => undefined);
+  writeChain = writeChain.then(() => storage.setItem(KEY, snapshot)).catch(() => undefined);
+}
+
+export function getGuideGroupTabPreferencesSnapshot(): GuideGroupTabPreferences {
+  return cached;
 }
 
 export function getGuideGroupDisplayName(groupId: string, aliases = cached.aliases): string {
   return aliases[groupId] || groupId;
+}
+
+export function resolveGuideGroupIdentity(displayName: string): string {
+  for (const [id, label] of Object.entries(cached.aliases)) if (label === displayName) return id;
+  return displayName;
 }
 
 export function applyGuideGroupOrder(ids: string[], order: string[]): string[] {
