@@ -71,6 +71,15 @@ test("fullscreen channel zaps pause one decoder, settle once, and preserve Previ
   assert.match(player, /if \(previous && previous !== pending\) previousChannelIdRef\.current = previous/);
 });
 
+test("retry and immediate channel remounts wait for native decoder release", async () => {
+  const player = await source("app/player.tsx");
+  assert.match(player, /const DECODER_RESTART_SETTLE_MS = 120/);
+  assert.match(player, /if \(opts\?\.immediate\) \{[\s\S]*?setDecoderArmed\(false\);[\s\S]*?armDecoderAfterSettle\(DECODER_RESTART_SETTLE_MS\)/);
+  assert.match(player, /zapTimer\.current = setTimeout\(\(\) => \{\s*if \(generation === generationRef\.current\) setDecoderArmed\(true\);\s*\}, DECODER_RESTART_SETTLE_MS\)/);
+  const restart = player.match(/const restartStream = useCallback\([\s\S]*?\n  \}, \[channel\?\.name/)?.[0] || "";
+  assert.doesNotMatch(restart, /requestAnimationFrame/);
+});
+
 test("fullscreen exit returns the currently tuned channel to Guide instead of the launch channel", async () => {
   const player = await source("app/player.tsx");
   assert.match(player, /const currentChannelId = pendingChannelIdRef\.current \|\| channelIdRef\.current/);
