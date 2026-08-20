@@ -46,3 +46,18 @@ test("Player Quick Actions dispatch into the mounted player instead of duplicati
   assert.match(player, /command === "OPEN_TRACKS"[\s\S]{0,240}setTracksOpen\(true\)/);
   assert.doesNotMatch(player, /if \(key === "SELECT"\)/);
 });
+
+test("Settings reserve Long OK Select for contextual Quick Actions", async () => {
+  const [settings, prefs] = await Promise.all([
+    source("app/(tabs)/settings.tsx"),
+    source("src/core/remoteShortcutPreferences.ts"),
+  ]);
+
+  assert.match(settings, /Long OK\/Select is reserved for contextual Quick Actions/);
+  assert.match(settings, /Long OK\/Select always opens contextual Quick Actions/);
+  assert.doesNotMatch(settings, /ChoiceRow<LongSelectAction>/);
+  assert.doesNotMatch(settings, /onChange=\{remoteShortcuts\.setLongSelect\}/);
+  // Old installs may still carry the field; keeping it migration-only avoids
+  // corrupting the rest of their remote mappings while it has no active UI path.
+  assert.match(prefs, /compatibility type/);
+});
