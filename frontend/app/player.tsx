@@ -50,6 +50,7 @@ import type { Channel } from "@/src/api";
 
 const CHANNEL_PREVIEW_DELAY_MS = 650;
 const CHANNEL_ZAP_SETTLE_MS = 850;
+const DECODER_RESTART_SETTLE_MS = 120;
 const STREAM_RETRY_DELAYS_MS = [1000, 2000, 4000] as const;
 const MAX_AUTO_STREAM_RETRIES = 4;
 const SWITCH_NOTICE_MS = 1800;
@@ -330,10 +331,11 @@ export default function PlayerScreen() {
     revealControls({ claimChannelsFocus: false });
 
     if (opts?.immediate) {
-      // Pause decoders only — do not bump session generation while StreamPlayer is still mounted.
+      // Native Media3 release is asynchronous. Disarm before the remount and
+      // give the old codec the same bounded handoff window used elsewhere.
       pauseSessionDecoders("fullscreen");
-      setDecoderArmed(true);
-      setRetryToken((value) => value + 1);
+      setDecoderArmed(false);
+      armDecoderAfterSettle(DECODER_RESTART_SETTLE_MS);
       return;
     }
 
@@ -445,9 +447,9 @@ export default function PlayerScreen() {
     setRetryAttempt((value) => value + 1);
     showNotice(`Reconnecting ${channel?.name || "stream"}`);
     setRetryToken((value) => value + 1);
-    requestAnimationFrame(() => {
+    zapTimer.current = setTimeout(() => {
       if (generation === generationRef.current) setDecoderArmed(true);
-    });
+    }, DECODER_RESTART_SETTLE_MS);
   }, [channel?.name, channel?.url, hasStream, showNotice]);
 
   const retryNow = useCallback(() => {
