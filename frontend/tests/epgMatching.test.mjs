@@ -100,7 +100,6 @@ test("empty idsWithPrograms never invents a programme sourceId", () => {
     { "espn.us": "https://logo/espn.png" },
   );
   assert.equal(byTvg.sourceId, "");
-  // Logo may still resolve from channel metadata / name.
   assert.equal(byTvg.logoId, "espn.us");
 });
 
@@ -149,7 +148,6 @@ test("inferMissingStopsFromNextProgram fills default stop from next start", () =
       { start: "2026-08-07T15:00:00.000Z", stop: "2026-08-07T16:00:00.000Z", title: "B" },
     ],
   };
-  // First row used default +30m while next starts at +60m → infer stop to next start.
   inferMissingStopsFromNextProgram(programs);
   assert.equal(programs.news[0].stop, "2026-08-07T15:00:00.000Z");
 });
@@ -160,6 +158,10 @@ test("formatNativeEpgError maps engine/network failures to readable copy", () =>
     /TV guide engine unavailable/,
   );
   assert.match(formatNativeEpgError(new Error("EPG HTTP 503")), /Could not download/);
+  assert.equal(
+    formatNativeEpgError(new Error("unknown error (code 0 SQLITE_OK): Queries can be performed using rawQuery methods only")),
+    "The saved TV guide could not be read. Your channels are unchanged; try Reload guide.",
+  );
 });
 
 test("legacy cleanup never targets live native v3 DB names", () => {
@@ -182,8 +184,8 @@ test("Android source path stays native-only (no JS XMLTV inflate/parse)", async 
   assert.match(native, /Array\.from\(\s*new Set\(/);
   assert.doesNotMatch(native, /parseXMLTV|inflateToTextChunks|from "fflate"|epgDb/);
   assert.match(native, /Native EPG engine is unavailable/);
-  assert.match(native, /Never mutate EMPTY_PROGRAMS/);
-  // Weak-stick memory: bounded programme cache + no full-playlist warm emit hitch.
+  assert.match(native, /const EMPTY_PROGRAMS: Program\[\] = \[\]/);
+  assert.doesNotMatch(native, /EMPTY_PROGRAMS\.(?:push|pop|shift|unshift|splice|sort|reverse)\(/);
   assert.match(native, /maxProgrammeWindowKeys = 1800/);
   assert.match(native, /setProgrammeWindowCacheLimit/);
   assert.match(native, /HUGE_PLAYLIST_MATCH_THRESHOLD = 400/);
@@ -205,8 +207,13 @@ test("native EPG engine strengthens migrate, next-stop, recovery, rare vacuum", 
     readFile(join(root, "android/app/src/main/java/com/charmiptv/app/EpgDatabase.kt"), "utf8"),
     readFile(join(root, "android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt"), "utf8"),
   ]);
-  assert.match(db, /DATABASE_VERSION = 6/);
-  assert.match(db, /Additive only/);
+  assert.match(db, /DATABASE_VERSION = 10/);
+  assert.match(db, /epg_programmes_fts/);
+  assert.match(db, /toEpochSeconds/);
+  const upgrade = db.match(/override fun onUpgrade\(db: SQLiteDatabase, oldVersion: Int, newVersion: Int\)[\s\S]*?private fun ensureColumn/)?.[0] || "";
+  assert.match(upgrade, /ensureColumn\(/);
+  assert.match(upgrade, /CREATE INDEX IF NOT EXISTS/);
+  assert.doesNotMatch(upgrade, /DROP TABLE|deleteDatabase\(/);
   assert.match(db, /inferMissingStopsFromNextProgram/);
   assert.match(db, /ensureHealthy/);
   assert.match(db, /maybeIncrementalVacuum/);

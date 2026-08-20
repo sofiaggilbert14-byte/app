@@ -67,10 +67,11 @@ test("Purple TV APK workflow injects playlist/EPG from secrets", async () => {
 });
 
 test("native EPG refuses empty live swaps and filters getWindow by channel ids", async () => {
-  const [db, mod, bridge] = await Promise.all([
+  const [db, mod, bridge, ram] = await Promise.all([
     source("android/app/src/main/java/com/charmiptv/app/EpgDatabase.kt"),
     source("android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt"),
     source("src/nativeEpg.ts"),
+    source("android/app/src/main/java/com/charmiptv/app/EpgRamEngine.kt"),
   ]);
   assert.match(db, /Refusing to replace live EPG with an empty feed/);
   assert.match(db, /channelIds\.chunked\(IN_CLAUSE_CHUNK\)/);
@@ -83,15 +84,23 @@ test("native EPG refuses empty live swaps and filters getWindow by channel ids",
   assert.match(bridge, /getWindow\(startMs, endMs, uniqueIds\)/);
   assert.match(db, /queryGuideWindow/);
   assert.match(mod, /queryGuideWindow/);
+  assert.match(mod, /activeXmltvIds: ReadableArray/);
+  assert.match(mod, /activeChannelNames: ReadableArray/);
+  assert.match(mod, /channelId!!\.lowercase\(\) in acceptedChannelIds/);
+  assert.match(mod, /CharmEpgImportProgress/);
+  assert.match(bridge, /DeviceEventEmitter\.addListener\("CharmEpgImportProgress"/);
+  assert.match(ram, /database\.queryWindow\(startMs, endMs, missing\)/);
+  assert.match(ram, /ENTRY_TTL_MS = 90L \* 60L \* 1000L/);
+  assert.match(ram, /LOW_RAM_CHANNEL_LIMIT = 128/);
+  assert.doesNotMatch(ram, /queryWindow\(startMs, endMs, null\)/);
 });
 
 test("favorites are never auto-pruned on playlist load", async () => {
   const store = await source("src/store.tsx");
-  assert.match(store, /do NOT prune favorite\/recent IDs/);
   assert.doesNotMatch(store, /Drop orphan favorite\/recent IDs/);
   assert.doesNotMatch(store, /prev\.filter\(\(id\) => channelByIdMap\.has\(id\)\)/);
-  assert.match(store, /Coalesce them so one refresh/);
-  assert.match(store, /\}, 500\)/);
+  assert.match(store, /remapStoredChannelIds\(prev, nextChannels\)/);
+  assert.match(store, /const next = ids\[0\] \|\| prev/);
 });
 
 test("favorites backup offers SAF portable export", async () => {
@@ -107,9 +116,7 @@ test("TvRemote suppresses duplicate Guide bridge events without consuming native
     source("android/app/src/main/java/com/charmiptv/app/TvRemoteModule.kt"),
     source("android/app/src/main/java/com/charmiptv/app/MainActivity.kt"),
   ]);
-  for (const needle of ["moveFocus", "focusView"]) {
-    assert.doesNotMatch(mod, new RegExp(needle));
-  }
+  for (const needle of ["moveFocus", "focusView"]) assert.doesNotMatch(mod, new RegExp(needle));
   assert.match(mod, /fun setGuideNavigationActive/);
   assert.match(plugin, /fun setGuideNavigationActive/);
   assert.match(plugin, /KOTLIN_NAMESPACE/);
@@ -118,18 +125,15 @@ test("TvRemote suppresses duplicate Guide bridge events without consuming native
   assert.match(activity, /MIN_DPAD_REPEAT_MS = 48L/);
   assert.match(activity, /Static remote flags must never survive/);
   assert.match(activity, /TvRemoteModule\.pointerActive = false/);
-  assert.match(activity, /!TvRemoteModule\.guideNavigationActive \|\| TvRemoteModule\.pointerActive/);
-  // Guide surfing must use Android focus — never consume Up/Down when "active".
+  assert.match(activity, /val mirrorToJs = TvRemoteModule\.pointerActive \|\| TvRemoteModule\.remoteContext == "player"/);
+  assert.match(activity, /if \(TvRemoteModule\.pointerActive\) return true/);
   assert.doesNotMatch(activity, /guideNavigationActive && \(key == "UP"/);
   assert.doesNotMatch(plugin, /guideNavigationActive && \(key == "UP"/);
 });
 
 test("Cloudflare worker does not default CORS to wildcard", async () => {
   const worker = await repoSource("cloudflare-backend/worker/src/index.js");
-  assert.doesNotMatch(
-    worker,
-    /const CORS = \{[\s\S]*access-control-allow-origin": "\*"/,
-  );
+  assert.doesNotMatch(worker, /const CORS = \{[\s\S]*access-control-allow-origin": "\*"/);
   assert.match(worker, /CORS_ALLOW_ORIGINS/);
   assert.match(worker, /function corsHeaders/);
 });
@@ -140,9 +144,9 @@ test("release packaging requires upload signing and keeps tester sideload separa
     source("android/app/build.gradle"),
     source("android/app/src/main/AndroidManifest.xml"),
   ]);
-  assert.match(appJson, /"versionCode": 6/);
-  assert.match(appJson, /2\.1\.0-rc\.3/);
-  assert.match(gradle, /versionCode 6/);
+  assert.match(appJson, /"versionCode": 8/);
+  assert.match(appJson, /2\.1\.0-rc\.5/);
+  assert.match(gradle, /versionCode 8/);
   assert.match(gradle, /CHARM_UPLOAD_STORE_FILE/);
   assert.match(gradle, /signingConfigs\.release/);
   assert.match(gradle, /releaseTaskRequested && !releaseSigningConfigured/);
@@ -197,21 +201,24 @@ test("release build verifies native drift and pins the JSC fallback", async () =
   assert.match(apkCi, /npm run verify:native-config/);
 });
 
-test("Cloudflare builder and worker bound provider data and hide internal failures", async () => {
-  const [builder, worker] = await Promise.all([
+test("Cloudflare builder and worker bound provider data and share the 12-hour guide default", async () => {
+  const [builder, worker, store] = await Promise.all([
     repoSource("cloudflare-backend/scripts/build-and-upload.mjs"),
     repoSource("cloudflare-backend/worker/src/index.js"),
+    source("src/store.tsx"),
   ]);
   assert.match(builder, /MAX_PLAYLIST_DOWNLOAD_BYTES/);
   assert.match(builder, /MAX_EPG_DECOMPRESSED_BYTES/);
-  assert.match(builder, /readGuideWindowHours\(process\.env\.GUIDE_WINDOW_HOURS, 6\)/);
+  assert.match(builder, /readGuideWindowHours\(process\.env\.GUIDE_WINDOW_HOURS, 12\)/);
+  assert.match(builder, /function readGuideWindowHours\(value, fallback = 12\)/);
+  assert.match(store, /readGuideWindowHours\(process\.env\.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 12\)/);
   assert.match(builder, /getReader\(\)/);
   assert.doesNotMatch(worker, /detail:\s*String\(e\)/);
   assert.match(worker, /Request could not be completed/);
   assert.doesNotMatch(worker, /allowed\.includes\("\*"\)/);
 });
 
-test("playlist ingest keeps last-good and enforces protocol/size guards", async () => {
+test("playlist ingest keeps last-good and streams Android M3U parsing natively", async () => {
   const [parsing, native, web] = await Promise.all([
     source("src/core/sourceParsing.ts"),
     source("src/source.native.ts"),
@@ -222,8 +229,8 @@ test("playlist ingest keeps last-good and enforces protocol/size guards", async 
   assert.match(parsing, /isAllowedPlaylistUrl/);
   assert.match(parsing, /allocateChannelId/);
   assert.match(parsing, /parseM3UWithStats/);
-  assert.match(native, /parseM3UWithStats/);
-  assert.match(native, /enforcePlaylistTextLimit/);
+  assert.match(native, /fetchNativePlaylist/);
+  assert.doesNotMatch(native, /parseM3UWithStats|enforcePlaylistTextLimit/);
   assert.match(native, /Playlist contained no playable channels/);
   assert.match(native, /EMPTY_PROGRAMS/);
   assert.match(native, /matchQuality/);

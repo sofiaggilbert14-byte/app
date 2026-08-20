@@ -1,0 +1,36 @@
+name: Phase 9 EPG Memory Bridge
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ci/phase9-epg-memory-bridge.trigger
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Apply guarded custom EPG memory repair
+        run: python ci/phase9-epg-memory-bridge.py
+      - name: Commit repair
+        run: |
+          if git diff --quiet; then
+            echo "No changes needed"
+            exit 0
+          fi
+          git config user.name "Charm Phase 9 Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add frontend/src/core/epgSourcePreferences.ts frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt
+          git commit -m "perf(phase9): reduce custom EPG mapping and bridge churn"
+          git push origin HEAD:phase9/purple-next

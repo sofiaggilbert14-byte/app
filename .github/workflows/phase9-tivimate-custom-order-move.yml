@@ -1,0 +1,53 @@
+name: Phase 9 TiviMate Custom Order Move
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-custom-order-move.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Swap only adjacent indexed custom-order rows
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('frontend/android/app/src/main/java/com/charmiptv/app/CharmCustomizationDatabase.kt')
+          s = p.read_text()
+          anchor = '''  @Query("SELECT * FROM user_channel_customization WHERE customPosition IS NOT NULL ORDER BY customPosition ASC")\n  fun orderedChannels(): List<UserChannelCustomizationEntity>\n\n'''
+          addition = '''  @Query("SELECT * FROM user_channel_customization WHERE customPosition IS NOT NULL ORDER BY customPosition ASC")\n  fun orderedChannels(): List<UserChannelCustomizationEntity>\n\n  @Query("SELECT * FROM user_channel_customization WHERE channelId = :channelId AND customPosition IS NOT NULL LIMIT 1")\n  fun positionedChannel(channelId: String): UserChannelCustomizationEntity?\n\n  @Query("SELECT * FROM user_channel_customization WHERE customPosition < :position ORDER BY customPosition DESC LIMIT 1")\n  fun previousPositionedChannel(position: Int): UserChannelCustomizationEntity?\n\n  @Query("SELECT * FROM user_channel_customization WHERE customPosition > :position ORDER BY customPosition ASC LIMIT 1")\n  fun nextPositionedChannel(position: Int): UserChannelCustomizationEntity?\n\n'''
+          if 'fun positionedChannel(channelId: String)' not in s:
+              if anchor not in s: raise SystemExit('custom order DAO anchor not found')
+              s = s.replace(anchor, addition, 1)
+          old = '''  @Transaction\n  fun moveChannel(channelId: String, direction: Int) {\n    val rows = orderedChannels()\n    val from = rows.indexOfFirst { it.channelId == channelId }\n    if (from < 0) return\n    val to = (from + direction).coerceIn(0, rows.lastIndex)\n    if (to == from) return\n    val a = rows[from]\n    val b = rows[to]\n    putChannelCustomization(a.copy(customPosition = b.customPosition))\n    putChannelCustomization(b.copy(customPosition = a.customPosition))\n  }\n'''
+          new = '''  @Transaction\n  fun moveChannel(channelId: String, direction: Int) {\n    val current = positionedChannel(channelId) ?: return\n    val position = current.customPosition ?: return\n    val neighbour = if (direction < 0)\n      previousPositionedChannel(position)\n    else\n      nextPositionedChannel(position)\n    val neighbourPosition = neighbour?.customPosition ?: return\n    putChannelCustomization(current.copy(customPosition = neighbourPosition))\n    putChannelCustomization(neighbour.copy(customPosition = position))\n  }\n'''
+          if 'val current = positionedChannel(channelId) ?: return' not in s:
+              if old not in s: raise SystemExit('custom order move marker not found')
+              s = s.replace(old, new, 1)
+          p.write_text(s)
+
+          test = Path('frontend/tests/memoryCrossAudit.test.mjs')
+          t = test.read_text()
+          case = '''\ntest("moving one custom channel swaps only indexed adjacent rows", async () => {\n  const db = await readFile(join(root, "android/app/src/main/java/com/charmiptv/app/CharmCustomizationDatabase.kt"), "utf8");\n  const move = db.match(/fun moveChannel\\(channelId: String, direction: Int\\)[\\s\\S]*?\\n  }/)?.[0] || "";\n  assert.match(db, /fun positionedChannel\\(channelId: String\\)/);\n  assert.match(db, /fun previousPositionedChannel\\(position: Int\\)/);\n  assert.match(db, /fun nextPositionedChannel\\(position: Int\\)/);\n  assert.match(move, /val current = positionedChannel\\(channelId\\) \\?: return/);\n  assert.match(move, /previousPositionedChannel\\(position\\)/);\n  assert.match(move, /nextPositionedChannel\\(position\\)/);\n  assert.doesNotMatch(move, /orderedChannels\\(\\)|indexOfFirst/);\n});\n'''
+          if 'moving one custom channel swaps only indexed adjacent rows' not in t:
+              t += case
+              test.write_text(t)
+          PY
+      - name: Commit indexed custom channel moves
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/android/app/src/main/java/com/charmiptv/app/CharmCustomizationDatabase.kt frontend/tests/memoryCrossAudit.test.mjs
+          git commit -m "phase9: make custom channel moves indexed"
+          git push origin HEAD:phase9/purple-next

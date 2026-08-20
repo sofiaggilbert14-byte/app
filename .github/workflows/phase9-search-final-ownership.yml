@@ -1,0 +1,37 @@
+name: Phase 9 Search Final Ownership
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - 'ci/phase9-search-final-ownership.py'
+      - '.github/workflows/phase9-search-final-ownership.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: phase9/purple-next
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Apply Search ownership repair
+        run: python ci/phase9-search-final-ownership.py
+      - name: Commit repair
+        run: |
+          if git diff --quiet; then
+            echo 'No source changes needed.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add 'frontend/app/(tabs)/search.tsx'
+          git commit -m 'Phase 9: finalize Search focus and Guide ownership'
+          git push

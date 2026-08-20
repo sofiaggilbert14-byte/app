@@ -1,0 +1,50 @@
+name: Phase 9 TiviMate Guide Active Transition Focus
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-guide-active-transition-focus.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Request native Guide focus only on inactive-to-active transition
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          native = Path('frontend/android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt')
+          s = native.read_text()
+          old = '''  fun setActive(value: Boolean) {\n    enabled = value\n    if (!value) {\n      removeCallbacks(settleSelectionRunnable)\n      navigationKeyDown = false\n      moveVelocity = 0\n    }\n    if (value) {\n      applyPendingRestoreChannel()\n      if (rows.isNotEmpty()) {\n        requestFocus()\n        emitSelection(true)\n      }\n    }\n  }'''
+          new = '''  fun setActive(value: Boolean) {\n    val wasEnabled = enabled\n    enabled = value\n    if (!value) {\n      removeCallbacks(settleSelectionRunnable)\n      navigationKeyDown = false\n      moveVelocity = 0\n      return\n    }\n    applyPendingRestoreChannel()\n    // React may re-apply an unchanged active=true prop while Preview owns focus.\n    // Only a real inactive -> active ownership transition may take Android focus\n    // back into the Guide; otherwise keep the user's current focused surface.\n    if (!wasEnabled && rows.isNotEmpty()) {\n      requestFocus()\n      emitSelection(true)\n    }\n  }'''
+          if 'Only a real inactive -> active ownership transition' not in s:
+              if old not in s:
+                  raise SystemExit('setActive transition marker not found')
+              s = s.replace(old, new, 1)
+          native.write_text(s)
+
+          test = Path('frontend/tests/guideShellPolish.test.mjs')
+          t = test.read_text()
+          case = '''\ntest("native Guide only takes focus on an inactive-to-active ownership transition", async () => {\n  const native = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");\n  const setActive = native.match(/fun setActive\\(value: Boolean\\) \\{[\\s\\S]*?\\n  \\}/)?.[0] || "";\n  assert.match(setActive, /val wasEnabled = enabled/);\n  assert.match(setActive, /if \\(!wasEnabled && rows\\.isNotEmpty\\(\\)\\) \\{/);\n  assert.ok(setActive.indexOf('if (!wasEnabled && rows.isNotEmpty())') < setActive.indexOf('requestFocus()'));\n});\n'''
+          if 'native Guide only takes focus on an inactive-to-active ownership transition' not in t:
+              t += case
+              test.write_text(t)
+          PY
+      - name: Commit transition-only Guide focus
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt frontend/tests/guideShellPolish.test.mjs
+          git commit -m "phase9: prevent active guide from stealing preview focus"
+          git push origin HEAD:phase9/purple-next

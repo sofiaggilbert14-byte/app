@@ -1,0 +1,116 @@
+name: Phase 9 - TiviMate player zap ownership
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - .github/workflows/phase9-tivimate-player-zap-ownership.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: phase9/purple-next
+          fetch-depth: 0
+
+      - name: Separate strip candidates from committed playback history
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('frontend/app/player.tsx')
+          s = path.read_text()
+
+          marker = '  const channelIdRef = useRef(params.channelId);\n'
+          committed_decl = '  const committedChannelIdRef = useRef(params.channelId);\n'
+          if committed_decl not in s:
+              if marker not in s:
+                  raise SystemExit('channelIdRef marker missing')
+              s = s.replace(marker, marker + '  // Candidate strip focus is not playback ownership. Guide return follows only\n  // the channel whose fullscreen decoder has actually been committed.\n' + committed_decl, 1)
+
+          # Requesting/focusing a channel must not rewrite Previous Channel.
+          stale_previous = '    if (channelIdRef.current && channelIdRef.current !== id) previousChannelIdRef.current = channelIdRef.current;\n'
+          s = s.replace(stale_previous, '')
+
+          # Delayed zap: promote candidate and previous channel only when decoder commit occurs.
+          arm_old_a = '      const pending = pendingChannelIdRef.current;\n      channelIdRef.current = pending;\n'
+          arm_old_b = '      const pending = pendingChannelIdRef.current;\n      committedChannelIdRef.current = pending;\n      channelIdRef.current = pending;\n'
+          arm_new = (
+              '      const pending = pendingChannelIdRef.current;\n'
+              '      const previousCommitted = committedChannelIdRef.current;\n'
+              '      if (previousCommitted && previousCommitted !== pending) previousChannelIdRef.current = previousCommitted;\n'
+              '      committedChannelIdRef.current = pending;\n'
+              '      channelIdRef.current = pending;\n'
+          )
+          if arm_new not in s:
+              if arm_old_b in s:
+                  s = s.replace(arm_old_b, arm_new, 1)
+              elif arm_old_a in s:
+                  s = s.replace(arm_old_a, arm_new, 1)
+              else:
+                  raise SystemExit('arm decoder promotion marker missing')
+
+          # Immediate explicit zap: it is committed now, so update previous atomically.
+          immediate_old_a = '      pauseSessionDecoders("fullscreen");\n      setDecoderArmed(true);\n      setRetryToken((value) => value + 1);\n'
+          immediate_old_b = '      pauseSessionDecoders("fullscreen");\n      committedChannelIdRef.current = id;\n      setDecoderArmed(true);\n      setRetryToken((value) => value + 1);\n'
+          immediate_new = (
+              '      pauseSessionDecoders("fullscreen");\n'
+              '      const previousCommitted = committedChannelIdRef.current;\n'
+              '      if (previousCommitted && previousCommitted !== id) previousChannelIdRef.current = previousCommitted;\n'
+              '      committedChannelIdRef.current = id;\n'
+              '      setDecoderArmed(true);\n'
+              '      setRetryToken((value) => value + 1);\n'
+          )
+          if immediate_new not in s:
+              if immediate_old_b in s:
+                  s = s.replace(immediate_old_b, immediate_new, 1)
+              elif immediate_old_a in s:
+                  s = s.replace(immediate_old_a, immediate_new, 1)
+              else:
+                  raise SystemExit('immediate zap marker missing')
+
+          old_anchor = 'const currentChannelId = pendingChannelIdRef.current || channelIdRef.current;'
+          new_anchor = 'const currentChannelId = committedChannelIdRef.current || channelIdRef.current;'
+          s = s.replace(old_anchor, new_anchor)
+          if s.count(new_anchor) < 2:
+              raise SystemExit('committed Guide return anchors missing')
+
+          path.write_text(s)
+
+          test_path = Path('frontend/tests/playerAndFocus.test.mjs')
+          t = test_path.read_text()
+          name = 'player previous-channel history ignores uncommitted zap candidates'
+          if name not in t:
+              t += r'''
+
+test("player previous-channel history ignores uncommitted zap candidates", async () => {
+  const player = await source("app/player.tsx");
+  const change = player.match(/const changeChannel = useCallback\([\s\S]*?\n  \}, \[armDecoderAfterSettle/)?.[0] || "";
+  assert.doesNotMatch(change, /previousChannelIdRef\.current = channelIdRef\.current/);
+  assert.match(player, /const previousCommitted = committedChannelIdRef\.current;[\s\S]{0,140}previousChannelIdRef\.current = previousCommitted;[\s\S]{0,100}committedChannelIdRef\.current = pending/);
+  assert.match(player, /if \(opts\?\.immediate\)[\s\S]{0,260}previousChannelIdRef\.current = previousCommitted;[\s\S]{0,100}committedChannelIdRef\.current = id/);
+  assert.match(player, /const currentChannelId = committedChannelIdRef\.current \|\| channelIdRef\.current;/);
+});
+'''
+              test_path.write_text(t)
+          PY
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/app/player.tsx frontend/tests/playerAndFocus.test.mjs
+          if git diff --cached --quiet; then
+            echo "No changes needed"
+            exit 0
+          fi
+          git commit -m "phase9: commit player zap ownership on decoder arm"
+          git push origin HEAD:phase9/purple-next

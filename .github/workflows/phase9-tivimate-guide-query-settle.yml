@@ -1,0 +1,80 @@
+name: Phase 9 TiviMate Guide Query Settlement
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-guide-query-settle.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Make key ownership authoritative for Guide settlement
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          native = Path('frontend/android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt')
+          s = native.read_text()
+
+          marker = '  private var moveVelocity = 0\n'
+          addition = marker + '  private var navigationKeyDown = false\n'
+          if 'navigationKeyDown' not in s:
+              if marker not in s:
+                  raise SystemExit('move velocity marker not found')
+              s = s.replace(marker, addition, 1)
+
+          old_query = '''            programs = merged\n            invalidate()\n            emitSelection(true)'''
+          new_query = '''            programs = merged\n            invalidate()\n            // Data arrival may update the selected programme payload, but only\n            // key-up/focus ownership may declare navigation settled.\n            emitSelection(false)'''
+          if 'only\n            // key-up/focus ownership may declare navigation settled.' not in s:
+              if old_query not in s:
+                  raise SystemExit('query completion selection marker not found')
+              s = s.replace(old_query, new_query, 1)
+
+          old_keydown = '''    if (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN ||\n      keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {\n      removeCallbacks(settleSelectionRunnable)\n    }'''
+          new_keydown = '''    if (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN ||\n      keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {\n      navigationKeyDown = true\n      removeCallbacks(settleSelectionRunnable)\n    }'''
+          if 'navigationKeyDown = true' not in s:
+              if old_keydown not in s:
+                  raise SystemExit('direction keydown ownership marker not found')
+              s = s.replace(old_keydown, new_keydown, 1)
+
+          old_keyup = '''      moveVelocity = 0\n      removeCallbacks(settleSelectionRunnable)\n      if (enabled) postDelayed(settleSelectionRunnable, 80L)'''
+          new_keyup = '''      navigationKeyDown = false\n      moveVelocity = 0\n      removeCallbacks(settleSelectionRunnable)\n      if (enabled) postDelayed(settleSelectionRunnable, 80L)'''
+          if 'navigationKeyDown = false\n      moveVelocity = 0' not in s:
+              if old_keyup not in s:
+                  raise SystemExit('direction keyup ownership marker not found')
+              s = s.replace(old_keyup, new_keyup, 1)
+
+          old_settled = '      putBoolean("settled", immediate || moveVelocity == 0)\n'
+          new_settled = '      putBoolean("settled", immediate || (!navigationKeyDown && moveVelocity == 0))\n'
+          if '!navigationKeyDown && moveVelocity == 0' not in s:
+              if old_settled not in s:
+                  raise SystemExit('settled payload marker not found')
+              s = s.replace(old_settled, new_settled, 1)
+
+          native.write_text(s)
+
+          test = Path('frontend/tests/guideShellPolish.test.mjs')
+          t = test.read_text()
+          case = '''\ntest("Guide query completion cannot falsely settle held D-pad navigation", async () => {\n  const native = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");\n  assert.match(native, /private var navigationKeyDown = false/);\n  assert.match(native, /navigationKeyDown = true[\\s\\S]{0,120}removeCallbacks\\(settleSelectionRunnable\\)/);\n  assert.match(native, /navigationKeyDown = false[\\s\\S]{0,80}moveVelocity = 0/);\n  assert.match(native, /emitSelection\\(false\\)[\\s\\S]{0,220}only[\\s\\S]{0,100}key-up\\/focus ownership/);\n  assert.match(native, /putBoolean\\("settled", immediate \\|\\| \\(!navigationKeyDown && moveVelocity == 0\\)\\)/);\n});\n'''
+          if 'Guide query completion cannot falsely settle held D-pad navigation' not in t:
+              t += case
+              test.write_text(t)
+          PY
+      - name: Commit Guide query settlement ownership
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt frontend/tests/guideShellPolish.test.mjs
+          git commit -m "phase9: keep guide reads from settling held focus"
+          git push origin HEAD:phase9/purple-next

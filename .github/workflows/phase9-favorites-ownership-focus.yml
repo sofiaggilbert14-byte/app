@@ -1,0 +1,35 @@
+name: Phase 9 Favorites Ownership Focus
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - "ci/phase9-favorites-ownership-focus.trigger"
+      - "ci/phase9-favorites-ownership-focus.py"
+      - ".github/workflows/phase9-favorites-ownership-focus.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: phase9-favorites-ownership-focus
+  cancel-in-progress: true
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Apply guarded Favorites repair
+        run: python ci/phase9-favorites-ownership-focus.py
+      - name: Commit repair
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add 'frontend/app/(tabs)/favorites.tsx'
+          git commit -m "Phase 9: align Favorites EPG ownership and focus" || exit 0
+          git pull --rebase origin phase9/purple-next
+          git push origin HEAD:phase9/purple-next

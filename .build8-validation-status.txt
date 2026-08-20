@@ -1,0 +1,8 @@
+source_sha=82e89c88ff9154bb23614b1da183e98511900e59
+install=success
+native_config=success
+doctor=success
+tests=success
+typecheck=success
+lint=success
+native_compile=success

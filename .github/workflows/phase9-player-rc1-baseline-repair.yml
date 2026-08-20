@@ -1,0 +1,85 @@
+name: Apply Phase 9 RC1 Player Baseline Repair
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/phase9-player-rc1-baseline-repair.yml"
+      - "ci/validation-trigger.txt"
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.event.pull_request.head.ref == 'agent/phase9-tivimate-scan-repair'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: agent/phase9-tivimate-scan-repair
+          fetch-depth: 0
+
+      - name: Apply RC1-informed player and Guide repairs
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          # RC.1 known-good default routing: Media3 only for HLS/DASH/progressive.
+          p = Path('frontend/src/core/streamPolicy.ts')
+          s = p.read_text()
+          start = s.index('export function preferredEngine(')
+          end = s.index('\n}\n\nexport function alternateEngine', start) + 2
+          s = s[:start] + '''export function preferredEngine(kind: StreamKind): Engine {\n  if (kind === "hls" || kind === "dash" || kind === "progressive") return "media3";\n  return "vlc";\n}''' + s[end:]
+          p.write_text(s)
+
+          # Native Media3 long-lived reads must not be killed after 5 seconds.
+          p = Path('frontend/patches/expo-video+3.0.16.patch')
+          s = p.read_text().replace('+    .readTimeout(5, TimeUnit.SECONDS)\n', '+    .readTimeout(0, TimeUnit.SECONDS)\n')
+          p.write_text(s)
+
+          # Guide live window: age expired programme time out in bounded buckets.
+          p = Path('frontend/app/(tabs)/guide.tsx')
+          s = p.read_text()
+          if 'const liveWindowStart = useMemo' not in s:
+              anchor = '  const [now, setNow] = useState(() => new Date().toISOString());\n'
+              add = '''  const [now, setNow] = useState(() => new Date().toISOString());\n  const liveWindowStart = useMemo(() => {\n    const baseStart = Date.parse(windowStart);\n    const baseEnd = Date.parse(windowEnd);\n    const current = Date.parse(now);\n    if (!Number.isFinite(baseStart) || !Number.isFinite(baseEnd) || !Number.isFinite(current) || baseEnd <= baseStart) return windowStart;\n    const bucketMs = 30 * 60_000;\n    const rollingStart = Math.floor(current / bucketMs) * bucketMs - bucketMs;\n    return new Date(Math.max(baseStart, Math.min(rollingStart, baseEnd - 1))).toISOString();\n  }, [now, windowEnd, windowStart]);\n'''
+              if anchor not in s:
+                  raise SystemExit('Guide now anchor not found')
+              s = s.replace(anchor, add, 1)
+          s = s.replace('windowStart={windowStart}', 'windowStart={liveWindowStart}', 1)
+          p.write_text(s)
+
+          # Align known-good engine policy regression with RC.1.
+          p = Path('frontend/tests/playerAndFocus.test.mjs')
+          s = p.read_text()
+          s = s.replace('assert.equal(preferredEngine("transport"), "media3");', 'assert.equal(preferredEngine("transport"), "vlc");')
+          s = s.replace('assert.equal(preferredEngine("rtsp"), "media3");', 'assert.equal(preferredEngine("rtsp"), "vlc");')
+          p.write_text(s)
+
+          p = Path('frontend/tests/playerRc1Baseline.test.mjs')
+          p.write_text('''import test from "node:test";\nimport assert from "node:assert/strict";\nimport { readFile } from "node:fs/promises";\n\nconst read = (p) => readFile(new URL(p, import.meta.url), "utf8");\n\ntest("Default engine routing keeps RC1 proven split while explicit Media3 remains available", async () => {\n  const body = await read("../src/core/streamPolicy.ts");\n  assert.match(body, /kind === "hls" \\|\\| kind === "dash" \\|\\| kind === "progressive"/);\n  assert.match(body, /return "vlc"/);\n  const player = await read("../src/components/StreamPlayer.tsx");\n  assert.match(player, /forceMedia3/);\n});\n\ntest("Media3 shared HTTP client does not impose five-second live read timeout", async () => {\n  const patch = await read("../patches/expo-video+3.0.16.patch");\n  assert.match(patch, /readTimeout\\(0, TimeUnit\\.SECONDS\\)/);\n  assert.doesNotMatch(patch, /readTimeout\\(5, TimeUnit\\.SECONDS\\)/);\n});\n\ntest("Guide native window slides with wall clock instead of retaining expired blocks", async () => {\n  const guide = await read("../app/(tabs)/guide.tsx");\n  assert.match(guide, /const liveWindowStart = useMemo/);\n  assert.match(guide, /windowStart=\\{liveWindowStart\\}/);\n});\n''')
+          PY
+
+      - name: Full frontend tests
+        working-directory: frontend
+        run: npm test
+
+      - name: Typecheck
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Native config verification
+        working-directory: frontend
+        run: npm run verify:native-config
+
+      - name: Commit RC1-informed repairs
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/core/streamPolicy.ts frontend/patches/expo-video+3.0.16.patch 'frontend/app/(tabs)/guide.tsx' frontend/tests/playerAndFocus.test.mjs frontend/tests/playerRc1Baseline.test.mjs
+          git diff --cached --quiet && exit 0
+          git commit -m "fix(player): restore RC1 default routing and live stream tolerance"
+          git push origin HEAD:agent/phase9-tivimate-scan-repair

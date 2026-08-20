@@ -1,6 +1,8 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { StyleProp, View, ViewStyle } from "react-native";
+import { usePathname } from "expo-router";
 import { storage } from "@/src/utils/storage";
+import { combineTvEdgeInsets } from "@/src/utils/tvLayout";
 
 export type TvCalibration = {
   left: number;
@@ -20,8 +22,6 @@ type TvCalibrationContextValue = {
 };
 
 const DEFAULT_CALIBRATION: TvCalibration = { left: 0, right: 0, top: 0, bottom: 0 };
-// New generation intentionally starts at zero so the larger automatic-safe-area
-// calibration from the previous test build cannot keep the app shrunken after update.
 const STORAGE_KEY = "charm_tv_calibration_v3";
 export const TV_CALIBRATION_MIN_OFFSET = -96;
 export const TV_CALIBRATION_MAX_OFFSET = 96;
@@ -58,9 +58,7 @@ export function TvCalibrationProvider({ children }: { children: React.ReactNode 
       setCalibration(next);
       setDraftCalibration(next);
     });
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, []);
 
   const setSide = useCallback((side: keyof TvCalibration, value: number) => {
@@ -68,8 +66,6 @@ export function TvCalibrationProvider({ children }: { children: React.ReactNode 
   }, []);
 
   const save = useCallback(async () => {
-    // Guard held/repeated OK events so screen-fit changes cannot be committed
-    // concurrently and destabilize the root layout.
     if (saveInFlightRef.current) return;
     saveInFlightRef.current = true;
     try {
@@ -82,19 +78,9 @@ export function TvCalibrationProvider({ children }: { children: React.ReactNode 
     }
   }, [draftCalibration]);
 
-  const reset = useCallback(() => {
-    setDraftCalibration(DEFAULT_CALIBRATION);
-  }, []);
-
-  const discard = useCallback(() => {
-    setDraftCalibration(calibration);
-  }, [calibration]);
-
-  const hasChanges = useMemo(
-    () => !sameCalibration(calibration, draftCalibration),
-    [calibration, draftCalibration],
-  );
-
+  const reset = useCallback(() => setDraftCalibration(DEFAULT_CALIBRATION), []);
+  const discard = useCallback(() => setDraftCalibration(calibration), [calibration]);
+  const hasChanges = useMemo(() => !sameCalibration(calibration, draftCalibration), [calibration, draftCalibration]);
   const value = useMemo(
     () => ({ calibration, draftCalibration, setSide, save, reset, discard, hasChanges }),
     [calibration, discard, draftCalibration, hasChanges, reset, save, setSide],
@@ -109,7 +95,24 @@ export function useTvCalibration(): TvCalibrationContextValue {
 }
 
 export function TvCalibrationFrame({ children, style }: { children: React.ReactNode; style?: StyleProp<ViewStyle> }) {
-  // Edge insets are applied once in PurpleTvShell via combineTvEdgeInsets(safe, calibration).
-  // Applying padding here too permanently double-letterboxed large TVs and made +/− feel identical.
-  return <View style={[{ flex: 1 }, style]}>{children}</View>;
+  const pathname = usePathname();
+  const { calibration } = useTvCalibration();
+  const playerEdges = useMemo(
+    () => combineTvEdgeInsets({ top: 0, right: 0, bottom: 0, left: 0 }, calibration),
+    [calibration],
+  );
+  const fullscreenPlayer = pathname === "/player" || pathname.startsWith("/player/");
+  const playerStyle = fullscreenPlayer
+    ? {
+        paddingTop: playerEdges.padding.top,
+        paddingRight: playerEdges.padding.right,
+        paddingBottom: playerEdges.padding.bottom,
+        paddingLeft: playerEdges.padding.left,
+        marginTop: playerEdges.margin.top,
+        marginRight: playerEdges.margin.right,
+        marginBottom: playerEdges.margin.bottom,
+        marginLeft: playerEdges.margin.left,
+      }
+    : null;
+  return <View style={[{ flex: 1, overflow: "hidden" }, playerStyle, style]}>{children}</View>;
 }

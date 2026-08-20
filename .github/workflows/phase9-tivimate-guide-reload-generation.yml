@@ -1,0 +1,95 @@
+name: Phase 9 TiviMate Guide Reload Generation
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-guide-reload-generation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Wire logical guide reset into native reload generation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          guide = Path('frontend/app/(tabs)/guide.tsx')
+          g = guide.read_text()
+          old = '''                restoreChannelId={guideSessionChannelId}\n                restoreTimeMs={restoreTimeMs}\n                channelNumberById={channelNumberById}\n'''
+          new = '''                restoreChannelId={guideSessionChannelId}\n                restoreTimeMs={restoreTimeMs}\n                reloadGeneration={resetToken}\n                channelNumberById={channelNumberById}\n'''
+          if 'reloadGeneration={resetToken}' not in g:
+              if old not in g: raise SystemExit('Guide native canvas marker not found')
+              g = g.replace(old, new, 1)
+          guide.write_text(g)
+
+          canvas = Path('frontend/src/components/NativeGuideCanvas.tsx')
+          c = canvas.read_text()
+          c = c.replace(
+              '  channels: Channel[]; windowStart: string; windowEnd: string; active: boolean; restoreChannelId?: string | null; restoreTimeMs?: number | null;\n',
+              '  channels: Channel[]; windowStart: string; windowEnd: string; active: boolean; restoreChannelId?: string | null; restoreTimeMs?: number | null; reloadGeneration?: number;\n',
+              1,
+          )
+          c = c.replace(
+              '  restoreTimeMs,\n  channelNumberById,\n',
+              '  restoreTimeMs,\n  reloadGeneration = 0,\n  channelNumberById,\n',
+              1,
+          )
+          c = c.replace(
+              '      restoreTimeMs={deferredRestoreTimeMs}\n      onSelectionChange={handleSelectionChange}\n',
+              '      restoreTimeMs={deferredRestoreTimeMs}\n      reloadGeneration={reloadGeneration}\n      onSelectionChange={handleSelectionChange}\n',
+              1,
+          )
+          if 'reloadGeneration={reloadGeneration}' not in c:
+              raise SystemExit('NativeGuideCanvas reload marker failed')
+          canvas.write_text(c)
+
+          manager = Path('frontend/android/app/src/main/java/com/charmiptv/app/NativeGuidePackage.kt')
+          m = manager.read_text()
+          marker = '  @ReactProp(name = "restoreTimeMs", defaultDouble = 0.0) fun restoreTime(view: NativeGuideView, value: Double) = view.restoreTime(value)\n'
+          addition = marker + '  @ReactProp(name = "reloadGeneration", defaultInt = 0) fun reload(view: NativeGuideView, value: Int) = view.setReloadGeneration(value)\n'
+          if '@ReactProp(name = "reloadGeneration"' not in m:
+              if marker not in m: raise SystemExit('Native guide manager restore marker not found')
+              m = m.replace(marker, addition, 1)
+          manager.write_text(m)
+
+          view = Path('frontend/android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt')
+          v = view.read_text()
+          v = v.replace(
+              '  private var pendingRestoreTimeMs: Long? = null\n',
+              '  private var pendingRestoreTimeMs: Long? = null\n  private var reloadGeneration = 0\n',
+              1,
+          )
+          marker2 = '''  fun restoreTime(value: Double) {\n    if (!value.isFinite() || value <= 0.0) return\n'''
+          method = '''  fun setReloadGeneration(value: Int) {\n    if (value == reloadGeneration) return\n    reloadGeneration = value\n    generation += 1\n    pendingQuery = null\n    // Logical Guide resets (group switch/Search/fullscreen return) keep the\n    // same native view and cursor, but must always request a fresh bounded\n    // visible runway even when the channel array itself is unchanged.\n    loadPrograms()\n    invalidate()\n    if (enabled && rows.isNotEmpty()) emitSelection(true)\n  }\n\n'''
+          if 'fun setReloadGeneration(value: Int)' not in v:
+              if marker2 not in v: raise SystemExit('Native guide reload insertion marker not found')
+              v = v.replace(marker2, method + marker2, 1)
+          view.write_text(v)
+
+          test = Path('frontend/tests/nativeGuideArchitecture.test.mjs')
+          t = test.read_text()
+          marker3 = '''test("native Guide timeline uses real program duration and queries the visible runway", async () => {\n'''
+          case = '''test("Guide logical resets force a bounded native reload without remounting", async () => {\n  const [guide, bridge, manager, view] = await Promise.all([\n    source("app/(tabs)/guide.tsx"),\n    source("src/components/NativeGuideCanvas.tsx"),\n    source("android/app/src/main/java/com/charmiptv/app/NativeGuidePackage.kt"),\n    source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt"),\n  ]);\n  assert.match(guide, /reloadGeneration=\\{resetToken\\}/);\n  assert.match(bridge, /reloadGeneration\\?: number/);\n  assert.match(bridge, /reloadGeneration=\\{reloadGeneration\\}/);\n  assert.match(manager, /@ReactProp\\(name = "reloadGeneration", defaultInt = 0\\)/);\n  assert.match(view, /fun setReloadGeneration\\(value: Int\\)/);\n  assert.match(view, /pendingQuery = null[\\s\\S]{0,260}loadPrograms\\(\\)/);\n  assert.doesNotMatch(guide, /key=\\{resetToken\\}/);\n});\n\n'''
+          if 'Guide logical resets force a bounded native reload without remounting' not in t:
+              if marker3 not in t: raise SystemExit('native guide test insertion marker not found')
+              t = t.replace(marker3, case + marker3, 1)
+          test.write_text(t)
+          PY
+      - name: Commit native guide reload generation
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/app/'(tabs)'/guide.tsx frontend/src/components/NativeGuideCanvas.tsx frontend/android/app/src/main/java/com/charmiptv/app/NativeGuidePackage.kt frontend/android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt frontend/tests/nativeGuideArchitecture.test.mjs
+          git commit -m "phase9: reload native guide on logical reset generations"
+          git push origin HEAD:phase9/purple-next

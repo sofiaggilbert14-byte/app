@@ -12,10 +12,100 @@ const TvRemote: any = Platform.OS === "android" ? NativeModules.TvRemote : null;
 export const tvRemoteAvailable = !!TvRemote;
 
 export type TvKey = "UP" | "DOWN" | "LEFT" | "RIGHT" | "SELECT" | "BACK";
+export type TvLongPressKey = "DOWN" | "SELECT" | "BACK";
+export type TvShortcutKey = "CHANNEL_UP" | "CHANNEL_DOWN" | "MEDIA_PLAY_PAUSE";
+export type TvQuickActionsContext = "guide" | "player";
+export type PlayerQuickCommand = "OPEN_TRACKS" | "CYCLE_ASPECT";
+export type DeviceMemoryProfile = {
+  memoryClassMb: number;
+  lowRamDevice: boolean;
+  epgBytes: number;
+  logoMemoryBytes: number;
+  playerCacheBytes: number;
+  vodCacheBytes: number;
+};
+export type CacheStorageReport = { logoDiskBytes: number; cacheDiskBytes: number; databaseBytes: number; totalDiskBytes: number };
 
 const emitter = TvRemote ? new NativeEventEmitter(TvRemote) : null;
 
 // Subscribe to D-pad key presses forwarded from the native Activity.
+export function addTvLongPressListener(cb: (key: TvLongPressKey) => void): () => void {
+  const eventName = "TvRemoteLongPress";
+  if (emitter) {
+    const sub = emitter.addListener(eventName, (key: TvLongPressKey) => cb(key));
+    return () => sub.remove();
+  }
+  const sub = DeviceEventEmitter.addListener(eventName, (key: TvLongPressKey) => cb(key));
+  return () => sub.remove();
+}
+
+/**
+ * Dedicated long-OK quick-actions route. Select no longer shares the generic
+ * long-press event, so old Favorite/controls handlers cannot fire underneath
+ * the overlay. Native supplies the semantic owner that held OK.
+ */
+export function addTvQuickActionsListener(cb: (context: TvQuickActionsContext) => void): () => void {
+  const eventName = "TvRemoteQuickActions";
+  if (emitter) {
+    const sub = emitter.addListener(eventName, (context: TvQuickActionsContext) => cb(context));
+    return () => sub.remove();
+  }
+  const sub = DeviceEventEmitter.addListener(eventName, (context: TvQuickActionsContext) => cb(context));
+  return () => sub.remove();
+}
+
+/**
+ * Local semantic bridge from the global Quick Actions drawer back into the
+ * already-mounted fullscreen player. The player remains the single owner of
+ * track/aspect state; the drawer never duplicates decoder settings.
+ */
+export function emitPlayerQuickCommand(command: PlayerQuickCommand): void {
+  DeviceEventEmitter.emit("CharmPlayerQuickCommand", command);
+}
+
+export function addPlayerQuickCommandListener(cb: (command: PlayerQuickCommand) => void): () => void {
+  const sub = DeviceEventEmitter.addListener("CharmPlayerQuickCommand", (command: PlayerQuickCommand) => cb(command));
+  return () => sub.remove();
+}
+
+export async function getDeviceMemoryProfile(): Promise<DeviceMemoryProfile | null> {
+  try {
+    if (!TvRemote?.getDeviceMemoryProfile) return null;
+    const raw = await TvRemote.getDeviceMemoryProfile();
+    return {
+      memoryClassMb: Number(raw?.memoryClassMb) || 0,
+      lowRamDevice: !!raw?.lowRamDevice,
+      epgBytes: Number(raw?.epgBytes) || 0,
+      logoMemoryBytes: Number(raw?.logoMemoryBytes) || 0,
+      playerCacheBytes: Number(raw?.playerCacheBytes) || 0,
+      vodCacheBytes: Number(raw?.vodCacheBytes) || 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function getCacheStorageReport(): Promise<CacheStorageReport | null> {
+  try {
+    if (!TvRemote?.getCacheStorageReport) return null;
+    const raw = await TvRemote.getCacheStorageReport();
+    return {
+      logoDiskBytes: Number(raw?.logoDiskBytes) || 0,
+      cacheDiskBytes: Number(raw?.cacheDiskBytes) || 0,
+      databaseBytes: Number(raw?.databaseBytes) || 0,
+      totalDiskBytes: Number(raw?.totalDiskBytes) || 0,
+    };
+  } catch { return null; }
+}
+
+export async function pruneDiskCaches(maxAgeDays = 14): Promise<{ removedFiles: number; removedBytes: number } | null> {
+  try {
+    if (!TvRemote?.pruneDiskCaches) return null;
+    const raw = await TvRemote.pruneDiskCaches(maxAgeDays);
+    return { removedFiles: Number(raw?.removedFiles) || 0, removedBytes: Number(raw?.removedBytes) || 0 };
+  } catch { return null; }
+}
+
 export function addTvKeyListener(cb: (key: TvKey) => void): () => void {
   if (emitter) {
     const sub = emitter.addListener("TvRemoteKey", (k: TvKey) => cb(k));
@@ -52,11 +142,53 @@ export function setGuideNavigationActive(active: boolean) {
   } catch {}
 }
 
+export type RemoteContext =
+  | "default"
+  | "guide"
+  | "guide_groups"
+  | "main_drawer"
+  | "drawer_edge"
+  | "player"
+  | "modal";
+
+// Mirror the last semantic owner in JS so a stale component cleanup cannot
+// overwrite a newer owner (for example drawer_edge blur after main_drawer opens).
+let remoteContextOwner: RemoteContext = "default";
+
+export function setRemoteContext(context: RemoteContext) {
+  remoteContextOwner = context;
+  try { TvRemote?.setRemoteContext?.(context); } catch {}
+}
+
+export function resetRemoteContextIfOwned(
+  expected: RemoteContext,
+  fallback: RemoteContext = "default",
+): boolean {
+  if (remoteContextOwner !== expected) return false;
+  setRemoteContext(fallback);
+  return true;
+}
+
+/** Hardware media/channel buttons routed by the Activity only while Player owns input. */
+export function addTvShortcutListener(cb: (key: TvShortcutKey) => void): () => void {
+  const eventName = "TvRemoteShortcut";
+  if (emitter) {
+    const sub = emitter.addListener(eventName, (key: TvShortcutKey) => cb(key));
+    return () => sub.remove();
+  }
+  const sub = DeviceEventEmitter.addListener(eventName, (key: TvShortcutKey) => cb(key));
+  return () => sub.remove();
+}
+
 /** Configure the bounded held-key cadence used while the Guide route is active. */
 export function setGuideRepeatInterval(milliseconds: number) {
   try {
     TvRemote?.setGuideRepeatInterval?.(Math.max(60, Math.min(120, milliseconds)));
   } catch {}
+}
+
+export function setNativePlaybackStarting(starting: boolean) {
+  try { TvRemote?.setPlaybackStarting?.(starting); } catch {}
 }
 
 // Inject a real tap at screen coordinates (dp) so the element under the virtual

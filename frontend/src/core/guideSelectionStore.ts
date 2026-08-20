@@ -4,9 +4,10 @@ import type { Program } from "@/src/api";
 export type GuideSelection = {
   channelId: string | null;
   program: Program | null;
+  surface: "channel" | "program";
 };
 
-const EMPTY_SELECTION: GuideSelection = { channelId: null, program: null };
+const EMPTY_SELECTION: GuideSelection = { channelId: null, program: null, surface: "program" };
 let snapshot: GuideSelection = EMPTY_SELECTION;
 const listeners = new Set<() => void>();
 let emitTimer: ReturnType<typeof setTimeout> | null = null;
@@ -36,22 +37,30 @@ export function getGuideSelection(): GuideSelection {
   return snapshot;
 }
 
-export function setGuideFocusedProgram(channelId: string, program: Program): void {
+export function setGuideFocusedProgram(channelId: string, program: Program, surface: "channel" | "program" = "program"): void {
   if (!channelId || !program?.start) return;
   if (
     snapshot.channelId === channelId &&
     snapshot.program?.start === program.start &&
     snapshot.program?.stop === program.stop &&
-    snapshot.program?.title === program.title
+    snapshot.program?.title === program.title &&
+    snapshot.surface === surface
   ) {
     return;
   }
-  snapshot = { channelId, program };
+  snapshot = { channelId, program, surface };
+  scheduleEmit();
+}
+
+export function setGuideFocusedChannel(channelId: string, surface: "channel" | "program"): void {
+  if (!channelId) return;
+  if (snapshot.channelId === channelId && snapshot.program === null && snapshot.surface === surface) return;
+  snapshot = { channelId, program: null, surface };
   scheduleEmit();
 }
 
 export function resetGuideSelection(channelId: string | null = null): void {
-  const next = channelId ? { channelId, program: null } : EMPTY_SELECTION;
+  const next: GuideSelection = channelId ? { channelId, program: null, surface: "program" } : EMPTY_SELECTION;
   if (snapshot.channelId === next.channelId && snapshot.program === next.program) return;
   snapshot = next;
   scheduleEmit();
@@ -65,3 +74,4 @@ export function subscribeGuideSelection(listener: () => void): () => void {
 export function useGuideSelection(): GuideSelection {
   return useSyncExternalStore(subscribeGuideSelection, getGuideSelection, getGuideSelection);
 }
+

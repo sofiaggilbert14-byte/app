@@ -1,0 +1,94 @@
+name: Phase 9 - TiviMate player committed return anchor
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - .github/workflows/phase9-tivimate-player-committed-return-anchor.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: phase9/purple-next
+          fetch-depth: 0
+
+      - name: Keep Guide return anchored to committed playback
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          player_path = Path('frontend/app/player.tsx')
+          player = player_path.read_text()
+
+          marker = '  const channelIdRef = useRef(params.channelId);\n'
+          addition = marker + '  // Candidate strip focus is not playback ownership. Guide return follows only\n  // the channel whose fullscreen decoder has actually been committed.\n  const committedChannelIdRef = useRef(params.channelId);\n'
+          if 'const committedChannelIdRef = useRef(params.channelId);' not in player:
+              if marker not in player:
+                  raise SystemExit('channelIdRef marker not found')
+              player = player.replace(marker, addition, 1)
+
+          arm_marker = '      const pending = pendingChannelIdRef.current;\n      channelIdRef.current = pending;\n'
+          arm_replacement = '      const pending = pendingChannelIdRef.current;\n      committedChannelIdRef.current = pending;\n      channelIdRef.current = pending;\n'
+          if arm_replacement not in player:
+              if arm_marker not in player:
+                  raise SystemExit('armDecoderAfterSettle marker not found')
+              player = player.replace(arm_marker, arm_replacement, 1)
+
+          immediate_marker = '      pauseSessionDecoders("fullscreen");\n      setDecoderArmed(true);\n      setRetryToken((value) => value + 1);\n'
+          immediate_replacement = '      pauseSessionDecoders("fullscreen");\n      committedChannelIdRef.current = id;\n      setDecoderArmed(true);\n      setRetryToken((value) => value + 1);\n'
+          if immediate_replacement not in player:
+              if immediate_marker not in player:
+                  raise SystemExit('immediate channel switch marker not found')
+              player = player.replace(immediate_marker, immediate_replacement, 1)
+
+          old_anchor = 'const currentChannelId = pendingChannelIdRef.current || channelIdRef.current;'
+          new_anchor = 'const currentChannelId = committedChannelIdRef.current || channelIdRef.current;'
+          if old_anchor in player:
+              player = player.replace(old_anchor, new_anchor)
+          if player.count(new_anchor) < 2:
+              raise SystemExit('expected committed return anchor in stopAndExit and goGuide')
+
+          player_path.write_text(player)
+
+          test_path = Path('frontend/tests/playerAndFocus.test.mjs')
+          test = test_path.read_text()
+          test_name = 'fullscreen Guide return ignores an uncommitted strip-focus candidate'
+          if test_name not in test:
+              test += r'''
+
+test("fullscreen Guide return ignores an uncommitted strip-focus candidate", async () => {
+  const player = await source("app/player.tsx");
+  assert.match(player, /const committedChannelIdRef = useRef\(params\.channelId\)/);
+  assert.match(player, /const pending = pendingChannelIdRef\.current;[\s\S]{0,100}committedChannelIdRef\.current = pending/);
+  assert.match(player, /if \(opts\?\.immediate\)[\s\S]{0,220}committedChannelIdRef\.current = id/);
+  const stopAndExit = player.match(/const stopAndExit = useCallback\([\s\S]*?\n  \}, \[params\.returnToGuide, router\]\);/)?.[0] || "";
+  const goGuide = player.match(/const goGuide = useCallback\([\s\S]*?\n  \}, \[router\]\);/)?.[0] || "";
+  assert.match(stopAndExit, /committedChannelIdRef\.current \|\| channelIdRef\.current/);
+  assert.match(goGuide, /committedChannelIdRef\.current \|\| channelIdRef\.current/);
+  assert.doesNotMatch(stopAndExit, /pendingChannelIdRef\.current \|\| channelIdRef\.current/);
+  assert.doesNotMatch(goGuide, /pendingChannelIdRef\.current \|\| channelIdRef\.current/);
+});
+'''
+              test_path.write_text(test)
+          PY
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/app/player.tsx frontend/tests/playerAndFocus.test.mjs
+          if git diff --cached --quiet; then
+            echo "No changes needed"
+            exit 0
+          fi
+          git commit -m "phase9: anchor Guide return to committed playback"
+          git push origin HEAD:phase9/purple-next

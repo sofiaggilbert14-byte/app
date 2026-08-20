@@ -1,0 +1,94 @@
+name: Phase 9 TiviMate Guide Settle Ownership
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-guide-settle-ownership.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Cancel stale settled selection after Guide focus handoff
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          native = Path('frontend/android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt')
+          s = native.read_text()
+
+          marker = '''  private var reloadGeneration = 0\n'''
+          addition = marker + '''  private val settleSelectionRunnable = Runnable {\n    if (enabled && !disposed && rows.isNotEmpty()) emitSelection(true)\n  }\n'''
+          if 'settleSelectionRunnable' not in s:
+              if marker not in s:
+                  raise SystemExit('reloadGeneration marker not found')
+              s = s.replace(marker, addition, 1)
+
+          old_active = '''  fun setActive(value: Boolean) {\n    enabled = value\n    if (value) {'''
+          new_active = '''  fun setActive(value: Boolean) {\n    enabled = value\n    if (!value) removeCallbacks(settleSelectionRunnable)\n    if (value) {'''
+          if 'if (!value) removeCallbacks(settleSelectionRunnable)' not in s:
+              if old_active not in s:
+                  raise SystemExit('setActive marker not found')
+              s = s.replace(old_active, new_active, 1)
+
+          old_reload = '''  fun setReloadGeneration(value: Int) {\n    if (value == reloadGeneration) return\n    reloadGeneration = value\n    generation += 1'''
+          new_reload = '''  fun setReloadGeneration(value: Int) {\n    if (value == reloadGeneration) return\n    removeCallbacks(settleSelectionRunnable)\n    reloadGeneration = value\n    generation += 1'''
+          if 'removeCallbacks(settleSelectionRunnable)\n    reloadGeneration = value' not in s:
+              if old_reload not in s:
+                  raise SystemExit('reload generation marker not found')
+              s = s.replace(old_reload, new_reload, 1)
+
+          old_detach = '''  override fun onDetachedFromWindow() {\n    generation += 1\n    pendingQuery = null\n    super.onDetachedFromWindow()\n  }'''
+          new_detach = '''  override fun onDetachedFromWindow() {\n    removeCallbacks(settleSelectionRunnable)\n    generation += 1\n    pendingQuery = null\n    super.onDetachedFromWindow()\n  }'''
+          if 'override fun onDetachedFromWindow() {\n    removeCallbacks(settleSelectionRunnable)' not in s:
+              if old_detach not in s:
+                  raise SystemExit('detach marker not found')
+              s = s.replace(old_detach, new_detach, 1)
+
+          old_dispose = '''  fun dispose() {\n    if (disposed) return\n    disposed = true'''
+          new_dispose = '''  fun dispose() {\n    if (disposed) return\n    removeCallbacks(settleSelectionRunnable)\n    disposed = true'''
+          if 'fun dispose() {\n    if (disposed) return\n    removeCallbacks(settleSelectionRunnable)' not in s:
+              if old_dispose not in s:
+                  raise SystemExit('dispose marker not found')
+              s = s.replace(old_dispose, new_dispose, 1)
+
+          old_keydown = '''  override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {\n    if (!enabled || rows.isEmpty()) return super.onKeyDown(keyCode, event)\n    when (keyCode) {'''
+          new_keydown = '''  override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {\n    if (!enabled || rows.isEmpty()) return super.onKeyDown(keyCode, event)\n    if (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN ||\n      keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {\n      removeCallbacks(settleSelectionRunnable)\n    }\n    when (keyCode) {'''
+          if 'removeCallbacks(settleSelectionRunnable)\n    }\n    when (keyCode)' not in s:
+              if old_keydown not in s:
+                  raise SystemExit('keydown marker not found')
+              s = s.replace(old_keydown, new_keydown, 1)
+
+          old_keyup = '''      moveVelocity = 0\n      postDelayed({ emitSelection(true) }, 80L)\n      return true'''
+          new_keyup = '''      moveVelocity = 0\n      removeCallbacks(settleSelectionRunnable)\n      if (enabled) postDelayed(settleSelectionRunnable, 80L)\n      return true'''
+          if 'if (enabled) postDelayed(settleSelectionRunnable, 80L)' not in s:
+              if old_keyup not in s:
+                  raise SystemExit('keyup settle marker not found')
+              s = s.replace(old_keyup, new_keyup, 1)
+
+          native.write_text(s)
+
+          test = Path('frontend/tests/guideShellPolish.test.mjs')
+          t = test.read_text()
+          case = '''\ntest("native Guide cancels delayed settled selection when focus ownership moves", async () => {\n  const native = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");\n  assert.match(native, /settleSelectionRunnable = Runnable/);\n  assert.match(native, /if \\(!value\\) removeCallbacks\\(settleSelectionRunnable\\)/);\n  assert.match(native, /removeCallbacks\\(settleSelectionRunnable\\)[\\s\\S]{0,120}reloadGeneration = value/);\n  assert.match(native, /if \\(enabled\\) postDelayed\\(settleSelectionRunnable, 80L\\)/);\n  assert.doesNotMatch(native, /postDelayed\\(\\{ emitSelection\\(true\\) \\}, 80L\\)/);\n});\n'''
+          if 'native Guide cancels delayed settled selection when focus ownership moves' not in t:
+              t += case
+              test.write_text(t)
+          PY
+      - name: Commit Guide settle ownership fix
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt frontend/tests/guideShellPolish.test.mjs
+          git commit -m "phase9: cancel stale guide settle events"
+          git push origin HEAD:phase9/purple-next

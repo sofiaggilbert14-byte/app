@@ -1,0 +1,165 @@
+name: Apply Phase 9 Live TV Regression Repair
+
+on:
+  push:
+    branches:
+      - agent/phase9-tivimate-scan-repair
+    paths:
+      - ".github/workflows/phase9-live-tv-regression-repair.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: agent/phase9-tivimate-scan-repair
+          fetch-depth: 0
+      - name: Apply consolidated clean-room TiViMate-style repairs
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          # 1) Player route ownership + More panel focus/scroll.
+          p = Path('frontend/app/player.tsx')
+          s = p.read_text()
+          if '  ScrollView,\n' not in s:
+              s = s.replace('  FlatList,\n  Platform,', '  FlatList,\n  Platform,\n  ScrollView,', 1)
+          anchor = '  const channelIdRef = useRef(params.channelId);\n'
+          if 'lastRouteChannelIdRef' not in s:
+              s = s.replace(anchor, anchor + '  // Route ownership is edge-triggered: in-player zaps own playback until the router actually changes.\n  const lastRouteChannelIdRef = useRef(params.channelId);\n', 1)
+          more_anchor = '  const moreButtonRef = useRef<any>(null);\n'
+          if 'moreFirstActionRef' not in s:
+              s = s.replace(more_anchor, more_anchor + '  const moreFirstActionRef = useRef<any>(null);\n', 1)
+          old_route = '''  useEffect(() => {\n    if (!params.channelId || params.channelId === channelIdRef.current) return;\n    changeChannel(params.channelId, false, { immediate: true });\n  }, [changeChannel, params.channelId]);\n'''
+          new_route = '''  useEffect(() => {\n    const routeChannelId = String(params.channelId || "").trim();\n    if (!routeChannelId || routeChannelId === lastRouteChannelIdRef.current) return;\n    lastRouteChannelIdRef.current = routeChannelId;\n    if (routeChannelId === channelIdRef.current) return;\n    changeChannel(routeChannelId, false, { immediate: true });\n  }, [changeChannel, params.channelId]);\n'''
+          if old_route in s:
+              s = s.replace(old_route, new_route, 1)
+          elif new_route not in s:
+              raise SystemExit('player route effect anchor missing')
+
+          close_anchor = '''  const closeOverlayAndRestoreFocus = useCallback(() => {\n    setPlayerOverlay(null);\n    const opener = overlayOpenerRef.current;\n    overlayOpenerRef.current = null;\n    if (opener) requestAnimationFrame(() => requestNativeFocus(opener));\n  }, []);\n'''
+          if 'requestNativeFocus(moreFirstActionRef.current)' not in s:
+              s = s.replace(close_anchor, close_anchor + '''\n  useEffect(() => {\n    if (!moreOpen || !isTV) return;\n    const frame = requestAnimationFrame(() => requestNativeFocus(moreFirstActionRef.current));\n    return () => cancelAnimationFrame(frame);\n  }, [isTV, moreOpen]);\n''', 1)
+          old_more = '''            {moreOpen ? (\n              <View style={styles.tracksPanel}>\n                <Pressable onPress={returnToPreviousChannel} style={({ focused }: any) => [styles.trackRow, focused && styles.focused]}>\n                  <Ionicons name="return-up-back-outline" size={15} color="#fff" />\n                  <Text style={styles.controlLabel}>Previous channel</Text>\n                </Pressable>\n'''
+          new_more = '''            {moreOpen ? (\n              <ScrollView\n                style={styles.morePanel}\n                contentContainerStyle={styles.morePanelContent}\n                showsVerticalScrollIndicator={false}\n                nestedScrollEnabled\n              >\n                <Pressable\n                  ref={moreFirstActionRef}\n                  hasTVPreferredFocus\n                  onPress={returnToPreviousChannel}\n                  style={({ focused }: any) => [styles.trackRow, focused && styles.focused]}\n                >\n                  <Ionicons name="return-up-back-outline" size={15} color="#fff" />\n                  <Text style={styles.controlLabel}>Previous channel</Text>\n                </Pressable>\n'''
+          if old_more in s:
+              s = s.replace(old_more, new_more, 1)
+          close_more = '''                <Pressable onPress={() => void saveAudioReport()} style={({ focused }: any) => [styles.trackRow, focused && styles.focused]} testID="player-report-audio">\n                  <Ionicons name="bug-outline" size={15} color="#fff" />\n                  <Text style={styles.controlLabel}>Diagnostics</Text>\n                </Pressable>\n              </View>\n            ) : null}\n\n            {tracksOpen ? (\n'''
+          close_more_new = close_more.replace('              </View>', '              </ScrollView>')
+          if close_more in s:
+              s = s.replace(close_more, close_more_new, 1)
+          style_anchor = '  tracksPanel: { maxHeight: 160, marginTop: 6, padding: 8, borderRadius: radius.sm, backgroundColor: "rgba(16,16,30,0.94)", gap: 4 },\n'
+          if '  morePanel:' not in s:
+              s = s.replace(style_anchor, style_anchor + '  morePanel: { maxHeight: 190, marginTop: 6, borderRadius: radius.sm, backgroundColor: "rgba(16,16,30,0.94)" },\n  morePanelContent: { padding: 8, gap: 4 },\n', 1)
+          p.write_text(s)
+
+          # 2) Media3 recovery: only a real post-playback loading state arms recovery.
+          sp = Path('frontend/src/components/StreamPlayer.tsx')
+          x = sp.read_text()
+          old_watch = '''      const now = Date.now();\n      const bufferingSince = bufferingSinceRef.current;\n      const stalledReady =\n        bufferingSince == null &&\n        hasAdvancedPlaybackRef.current &&\n        now - lastPlaybackAdvanceAtRef.current >= BUFFERING_RESYNC_MS;\n      if (bufferingSince == null && !stalledReady) return;\n      const bufferingFor = bufferingSince != null\n        ? now - bufferingSince\n        : now - lastPlaybackAdvanceAtRef.current;\n      if (bufferingFor < BUFFERING_RESYNC_MS) return;\n'''
+          new_watch = '''      const now = Date.now();\n      const bufferingSince = bufferingSinceRef.current;\n      // Live clocks can emit sparse time updates while healthy. Only an explicit\n      // post-playback Media3 loading/buffering state owns recovery.\n      if (bufferingSince == null) return;\n      const bufferingFor = now - bufferingSince;\n      if (bufferingFor < BUFFERING_RESYNC_MS) return;\n'''
+          if old_watch in x:
+              x = x.replace(old_watch, new_watch, 1)
+          elif 'const stalledReady =' in x:
+              raise SystemExit('unexpected Media3 watchdog shape')
+          sp.write_text(x)
+
+          # 3) Consume the release of a long OK/Select so it cannot click the Guide cell underneath.
+          ma = Path('frontend/android/app/src/main/java/com/charmiptv/app/MainActivity.kt')
+          m = ma.read_text()
+          old_release = '''    } else if (event.action == android.view.KeyEvent.ACTION_UP && event.keyCode == emittedLongPressKeyCode) {\n      emittedLongPressKeyCode = -1\n    }\n\n    // Once held OK/Select becomes Quick Actions, suppress every remaining repeat\n'''
+          new_release = '''    } else if (event.action == android.view.KeyEvent.ACTION_UP && event.keyCode == emittedLongPressKeyCode) {\n      val consumedLongSelect =\n        event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER ||\n          event.keyCode == android.view.KeyEvent.KEYCODE_ENTER ||\n          event.keyCode == android.view.KeyEvent.KEYCODE_NUMPAD_ENTER ||\n          event.keyCode == android.view.KeyEvent.KEYCODE_BUTTON_A\n      emittedLongPressKeyCode = -1\n      if (consumedLongSelect) return true\n    }\n\n    // Once held OK/Select becomes Quick Actions, suppress every remaining repeat\n'''
+          if old_release in m:
+              m = m.replace(old_release, new_release, 1)
+          elif 'if (consumedLongSelect) return true' not in m:
+              raise SystemExit('MainActivity long-select release anchor missing')
+          ma.write_text(m)
+
+          # 4) Program long OK opens contextual program actions instead of bypassing to ProgramModal.
+          qa = Path('frontend/src/components/TvQuickActionsOverlay.tsx')
+          q = qa.read_text()
+          if 'import type { Program } from "@/src/api";' not in q:
+              q = q.replace('import { usePlaybackBufferProfile, type PlaybackBufferProfile } from "@/src/core/playbackBufferProfile";\n', 'import { usePlaybackBufferProfile, type PlaybackBufferProfile } from "@/src/core/playbackBufferProfile";\nimport type { Program } from "@/src/api";\n', 1)
+          state_anchor = '  const [channelId, setChannelId] = useState<string | null>(null);\n'
+          if 'guideProgram' not in q:
+              q = q.replace(state_anchor, state_anchor + '  const [guideProgram, setGuideProgram] = useState<Program | null>(null);\n', 1)
+          q = q.replace('    setStatus(null);\n    setBusy(false);\n', '    setStatus(null);\n    setGuideProgram(null);\n    setBusy(false);\n', 1)
+          old_listener = '''    if (nextContext === "guide" && guideSelection?.surface === "program" && guideSelection.program) {\n      openProgram(guideSelection.program, selectedChannel);\n      return;\n    }\n\n    setContext(nextContext);\n    setChannelId(id);\n'''
+          new_listener = '''    setContext(nextContext);\n    setChannelId(id);\n    setGuideProgram(\n      nextContext === "guide" && guideSelection?.surface === "program" && guideSelection.program\n        ? guideSelection.program\n        : null,\n    );\n'''
+          if old_listener in q:
+              q = q.replace(old_listener, new_listener, 1)
+          elif 'setGuideProgram(' not in q:
+              raise SystemExit('quick actions listener anchor missing')
+          # Program helpers before play callback.
+          helper_anchor = '  const play = useCallback(() => {\n'
+          if 'const openProgramDetails' not in q:
+              helpers = '''  const watchSelectedProgram = useCallback(() => {\n    if (!channel) return;\n    close();\n    openFullscreenPlayer(router, channel.id, { returnToGuide: true });\n  }, [channel, close, router]);\n\n  const openProgramDetails = useCallback(() => {\n    if (!channel || !guideProgram) return;\n    const program = guideProgram;\n    close();\n    requestAnimationFrame(() => openProgram(program, channel));\n  }, [channel, close, guideProgram, openProgram]);\n\n'''
+              q = q.replace(helper_anchor, helpers + helper_anchor, 1)
+          # Kicker/title contextual text.
+          q = q.replace('<Text style={styles.kicker}>{context === "guide" ? "CHANNEL QUICK ACTIONS" : "PLAYER QUICK ACTIONS"}</Text>', '<Text style={styles.kicker}>{guideProgram ? "PROGRAM QUICK ACTIONS" : context === "guide" ? "CHANNEL QUICK ACTIONS" : "PLAYER QUICK ACTIONS"}</Text>')
+          # Main list first actions.
+          old_first = '            <Action preferredFocus={focusClaim} icon={context === "guide" ? "play" : "heart-outline"} label={context === "guide" ? "Play channel" : (favoriteSet.has(channel.id) ? "Remove Favorite" : "Add Favorite")} onPress={context === "guide" ? play : favorite} />\n            {context === "guide" ? <Action icon={favoriteSet.has(channel.id) ? "heart" : "heart-outline"} label={favoriteSet.has(channel.id) ? "Remove Favorite" : "Add Favorite"} onPress={favorite} /> : null}\n'
+          new_first = '''            {guideProgram ? (\n              <>\n                <Action preferredFocus={focusClaim} icon="play" label="Watch channel now" value={guideProgram.title} onPress={watchSelectedProgram} />\n                <Action icon="information-circle-outline" label="Program details / reminder" onPress={openProgramDetails} />\n                <Action icon={favoriteSet.has(channel.id) ? "heart" : "heart-outline"} label={favoriteSet.has(channel.id) ? "Remove Favorite" : "Add Favorite"} onPress={favorite} />\n              </>\n            ) : (\n              <>\n                <Action preferredFocus={focusClaim} icon={context === "guide" ? "play" : "heart-outline"} label={context === "guide" ? "Play channel" : (favoriteSet.has(channel.id) ? "Remove Favorite" : "Add Favorite")} onPress={context === "guide" ? play : favorite} />\n                {context === "guide" ? <Action icon={favoriteSet.has(channel.id) ? "heart" : "heart-outline"} label={favoriteSet.has(channel.id) ? "Remove Favorite" : "Add Favorite"} onPress={favorite} /> : null}\n              </>\n            )}\n'''
+          if old_first in q:
+              q = q.replace(old_first, new_first, 1)
+          elif 'PROGRAM QUICK ACTIONS' not in q:
+              raise SystemExit('quick actions first-row anchor missing')
+          qa.write_text(q)
+
+          # Regression coverage.
+          t = Path('frontend/tests/playerAndFocus.test.mjs')
+          z = t.read_text()
+          additions = r'''
+
+test("player route cannot reclaim a channel selected inside fullscreen", async () => {
+  const player = await source("app/player.tsx");
+  assert.match(player, /lastRouteChannelIdRef/);
+  assert.match(player, /routeChannelId === lastRouteChannelIdRef\.current/);
+});
+
+test("player More panel owns focus and scrolls all actions", async () => {
+  const player = await source("app/player.tsx");
+  assert.match(player, /moreFirstActionRef/);
+  assert.match(player, /requestNativeFocus\(moreFirstActionRef\.current\)/);
+  assert.match(player, /style=\{styles\.morePanel\}/);
+  assert.match(player, /nestedScrollEnabled/);
+});
+
+test("Media3 periodic recovery requires explicit buffering", async () => {
+  const stream = await source("src/components/StreamPlayer.tsx");
+  assert.match(stream, /if \(bufferingSince == null\) return/);
+  assert.doesNotMatch(stream, /const stalledReady =/);
+});
+
+test("long Select consumes release and program context stays in Quick Actions", async () => {
+  const [activity, overlay] = await Promise.all([
+    source("android/app/src/main/java/com/charmiptv/app/MainActivity.kt"),
+    source("src/components/TvQuickActionsOverlay.tsx"),
+  ]);
+  assert.match(activity, /if \(consumedLongSelect\) return true/);
+  assert.match(overlay, /PROGRAM QUICK ACTIONS/);
+  assert.match(overlay, /Program details \/ reminder/);
+  assert.doesNotMatch(overlay, /guideSelection\.program\) \{\s*openProgram/);
+});
+'''
+          if 'player route cannot reclaim a channel selected inside fullscreen' not in z:
+              t.write_text(z.rstrip() + additions + '\n')
+
+          PY
+      - name: Run focused regression tests
+        working-directory: frontend
+        run: npm test
+      - name: Commit production repairs
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/app/player.tsx frontend/src/components/StreamPlayer.tsx frontend/src/components/TvQuickActionsOverlay.tsx frontend/android/app/src/main/java/com/charmiptv/app/MainActivity.kt frontend/tests/playerAndFocus.test.mjs
+          git diff --cached --quiet && exit 0
+          git commit -m "fix(tv): repair player zaps Media3 and long-OK context"
+          git push origin HEAD:agent/phase9-tivimate-scan-repair

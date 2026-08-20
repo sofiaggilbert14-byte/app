@@ -10,6 +10,14 @@ type Snapshot = { defaultLanguage: string; byChannel: Record<string, TrackId> };
 let cached: Snapshot = { defaultLanguage: "", byChannel: {} };
 const listeners = new Set<(snapshot: Snapshot) => void>();
 
+function trimChannelTracks(raw: unknown): Record<string, TrackId> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const valid = Object.entries(raw as Record<string, unknown>)
+    .filter(([channelId, trackId]) => !!channelId && (typeof trackId === "string" || typeof trackId === "number"))
+    .slice(-MAX_CHANNELS) as [string, TrackId][];
+  return Object.fromEntries(valid);
+}
+
 function emit() {
   for (const listener of Array.from(listeners)) {
     if (!listeners.has(listener)) continue;
@@ -29,10 +37,15 @@ export function useAudioTrackPreferences() {
       storage.getItem<string>(LANG_KEY, ""),
       storage.getItem<Record<string, TrackId>>(CHANNEL_KEY, {}),
     ]).then(([defaultLanguage, byChannel]) => {
+      const trimmed = trimChannelTracks(byChannel);
       cached = {
         defaultLanguage: normalizePreferredAudioLanguage(defaultLanguage),
-        byChannel: byChannel && typeof byChannel === "object" ? byChannel : {},
+        byChannel: trimmed,
       };
+      // Persist pruning once so stale/unbounded historical maps do not return on next boot.
+      if (Object.keys(byChannel || {}).length !== Object.keys(trimmed).length) {
+        void storage.setItem(CHANNEL_KEY, trimmed);
+      }
       if (mounted) setSnapshot(cached);
       emit();
     });
@@ -70,7 +83,7 @@ export function getRememberedChannelAudioTrack(channelId: string | null | undefi
   return cached.byChannel[channelId];
 }
 
-export function pickPreferredAudioTrack<T extends { id: TrackId; name?: string }>(
+export function pickPreferredAudioTrack<T extends { id: TrackId; name?: string; language?: string | null }>(
   tracks: T[],
   rememberedId: TrackId | undefined,
   defaultLanguage: string,
@@ -81,5 +94,9 @@ export function pickPreferredAudioTrack<T extends { id: TrackId; name?: string }
   if (remembered) return remembered;
   const lang = defaultLanguage.trim().toLowerCase();
   if (!lang) return undefined;
-  return tracks.find((track) => String(track.name || "").toLowerCase().includes(lang));
+  return tracks.find((track) => {
+    const language = String(track.language || "").toLowerCase();
+    const name = String(track.name || "").toLowerCase();
+    return language === lang || language.startsWith(`${lang}-`) || name.includes(lang);
+  });
 }

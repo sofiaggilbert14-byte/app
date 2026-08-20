@@ -2,15 +2,18 @@ import React from "react";
 import { Platform, View, Text, StyleSheet } from "react-native";
 import { Image } from "expo-image";
 import { colors, fonts, radius } from "@/src/theme";
+import { useLocalLogo } from "@/src/core/localLogoFolder";
 
-const MAX_CONCURRENT_IMAGE_LOADS = Platform.isTV ? 4 : 4;
 const MAX_URI_HISTORY = 192;
-const MAX_LOAD_QUEUE = 48;
 const LOAD_SLOT_TIMEOUT_MS = 10000;
+const FAILURE_RETRY_MS = 15 * 60 * 1000;
+let maxConcurrentImageLoads = 4;
+let maxLoadQueue = 48;
 
 type QueueEntry = {
   cancelled: boolean;
   grant: () => void;
+  reject: () => void;
 };
 
 let activeLoads = 0;
@@ -19,19 +22,60 @@ const succeededUris = new Set<string>();
 const failedUris = new Set<string>();
 const successOrder: string[] = [];
 const failureOrder: string[] = [];
+const failedAt = new Map<string, number>();
+type InFlightResult = "success" | "failed" | "retry";
+const inFlightWaiters = new Map<string, Set<(result: InFlightResult) => void>>();
+
+function joinInFlight(uri: string, listener: (result: InFlightResult) => void): (() => void) | null {
+  const waiters = inFlightWaiters.get(uri);
+  if (!waiters) return null;
+  waiters.add(listener);
+  return () => {
+    waiters.delete(listener);
+  };
+}
+
+function beginInFlight(uri: string): void {
+  if (!inFlightWaiters.has(uri)) inFlightWaiters.set(uri, new Set());
+}
+
+function finishInFlight(uri: string, result: InFlightResult): void {
+  const waiters = inFlightWaiters.get(uri);
+  inFlightWaiters.delete(uri);
+  waiters?.forEach((listener) => { try { listener(result); } catch {} });
+}
+
+/** Align logo decode/network pressure with the app's device profile. */
+export function setChannelLogoMemoryProfile(lowMemory: boolean, logoMemoryBytes = 0): void {
+  const constrained = lowMemory || (logoMemoryBytes > 0 && logoMemoryBytes <= 16 * 1024 * 1024);
+  maxConcurrentImageLoads = constrained ? 2 : 4;
+  maxLoadQueue = constrained ? 24 : 48;
+  while (loadQueue.length > maxLoadQueue) {
+    const dropped = loadQueue.shift();
+    if (dropped) {
+      dropped.cancelled = true;
+      dropped.reject();
+    }
+  }
+  drainQueue();
+}
 
 /** Drop only decoded/nonvisible logo memory; disk cache and active views survive. */
 export function clearChannelLogoMemory(): void {
-  for (const entry of loadQueue) entry.cancelled = true;
-  loadQueue.splice(0, loadQueue.length);
-  // Keep accounting for requests already handed to expo-image. Their load,
-  // error, timeout, or unmount callbacks still release the held slots. Resetting
-  // this counter here would let a second wave exceed the concurrency cap.
+  // Do not cancel queued/active requests: doing so strands mounted rows at their
+  // fallback and can create a second request wave. Active work remains bounded
+  // by the queue and releases its own slot normally.
   succeededUris.clear();
   failedUris.clear();
   successOrder.splice(0, successOrder.length);
   failureOrder.splice(0, failureOrder.length);
+  failedAt.clear();
   void (Image as any).clearMemoryCache?.().catch?.(() => undefined);
+}
+
+export async function clearChannelLogoCache(includeDisk = true): Promise<void> {
+  clearChannelLogoMemory();
+  if (includeDisk) await (Image as any).clearDiskCache?.().catch?.(() => undefined);
 }
 
 function remember(set: Set<string>, order: string[], uri: string): void {
@@ -45,7 +89,7 @@ function remember(set: Set<string>, order: string[], uri: string): void {
 }
 
 function drainQueue(): void {
-  while (activeLoads < MAX_CONCURRENT_IMAGE_LOADS && loadQueue.length) {
+  while (activeLoads < maxConcurrentImageLoads && loadQueue.length) {
     const next = loadQueue.shift();
     if (!next || next.cancelled) continue;
     activeLoads += 1;
@@ -53,18 +97,30 @@ function drainQueue(): void {
   }
 }
 
-function requestLoadSlot(onGranted: () => void): () => void {
-  const entry: QueueEntry = { cancelled: false, grant: onGranted };
+function requestLoadSlot(onGranted: () => void, onRejected: () => void): () => void {
+  const entry: QueueEntry = { cancelled: false, grant: onGranted, reject: onRejected };
   // Bound the waiter list — rapid surf used to enqueue unbounded work on weak sticks.
-  while (loadQueue.length >= MAX_LOAD_QUEUE) {
+  while (loadQueue.length >= maxLoadQueue) {
     const dropped = loadQueue.shift();
-    if (dropped) dropped.cancelled = true;
+    if (dropped) {
+      dropped.cancelled = true;
+      dropped.reject();
+    }
   }
   loadQueue.push(entry);
   drainQueue();
   return () => {
     entry.cancelled = true;
   };
+}
+
+function isRecentFailure(uri: string): boolean {
+  if (!failedUris.has(uri)) return false;
+  const timestamp = failedAt.get(uri) || 0;
+  if (Date.now() - timestamp < FAILURE_RETRY_MS) return true;
+  failedUris.delete(uri);
+  failedAt.delete(uri);
+  return false;
 }
 
 function releaseLoadSlot(): void {
@@ -79,27 +135,28 @@ function initials(name: string): string {
   return (parts[0][0] + parts[1][0]).toUpperCase();
 }
 
-function logoCandidates(uri?: string): string[] {
+function logoCandidates(uri?: string, localUri?: string): string[] {
   const value = (uri || "").trim();
-  if (!value) return [];
+  const local = (localUri || "").trim();
+  if (!value) return local ? [local] : [];
 
   if (value.startsWith("//")) {
     return Platform.OS === "web"
-      ? [`https:${value}`]
-      : [`https:${value}`, `http:${value}`];
+      ? [local, `https:${value}`].filter(Boolean)
+      : [local, `https:${value}`, `http:${value}`].filter(Boolean);
   }
 
   if (value.startsWith("http://")) {
     const secure = `https://${value.slice(7)}`;
-    return Platform.OS === "web" ? [secure, value] : [value, secure];
+    return (Platform.OS === "web" ? [local, secure, value] : [local, value, secure]).filter(Boolean);
   }
 
   if (value.startsWith("https://")) {
-    if (Platform.OS === "web") return [value];
-    return [value, `http://${value.slice(8)}`];
+    if (Platform.OS === "web") return [local, value].filter(Boolean);
+    return [local, value, `http://${value.slice(8)}`].filter(Boolean);
   }
 
-  return [];
+  return local ? [local] : [];
 }
 
 function ChannelLogoComponent({
@@ -115,10 +172,13 @@ function ChannelLogoComponent({
   disabled?: boolean;
   visible?: boolean;
 }) {
-  const candidates = React.useMemo(() => logoCandidates(logo), [logo]);
+  const localLogo = useLocalLogo(!disabled && visible ? name : "");
+  const candidates = React.useMemo(() => logoCandidates(logo, localLogo), [localLogo, logo]);
   const [attemptIndex, setAttemptIndex] = React.useState(0);
+  const [retryGeneration, setRetryGeneration] = React.useState(0);
   const [allowedToLoad, setAllowedToLoad] = React.useState(false);
   const slotHeldRef = React.useRef(false);
+  const leaderUriRef = React.useRef<string | null>(null);
   const slotTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const currentUri = candidates[attemptIndex];
@@ -143,7 +203,7 @@ function ChannelLogoComponent({
   React.useEffect(() => {
     if (!hasCandidate || !currentUri) return;
 
-    if (failedUris.has(currentUri)) {
+    if (isRecentFailure(currentUri)) {
       if (attemptIndex + 1 < candidates.length) {
         setAttemptIndex((value) => value + 1);
       }
@@ -155,10 +215,25 @@ function ChannelLogoComponent({
       return;
     }
 
-    setAllowedToLoad(false);
+
     let mounted = true;
+    const joined = joinInFlight(currentUri, (result) => {
+      if (!mounted) return;
+      if (result === "success") setAllowedToLoad(true);
+      else if (result === "retry") setRetryGeneration((value) => value + 1);
+      else if (attemptIndex + 1 < candidates.length) setAttemptIndex((value) => value + 1);
+    });
+    if (joined) return joined;
+
+    setAllowedToLoad(false);
+    // Own the URI before queueing so duplicates join this request even while
+    // it is waiting for a decode/network slot.
+    leaderUriRef.current = currentUri;
+    beginInFlight(currentUri);
     const cancelQueuedRequest = requestLoadSlot(() => {
       if (!mounted) {
+        finishInFlight(currentUri, "retry");
+        leaderUriRef.current = null;
         releaseLoadSlot();
         return;
       }
@@ -168,19 +243,31 @@ function ChannelLogoComponent({
       slotTimerRef.current = setTimeout(() => {
         if (!mounted) return;
         releaseIfHeld();
+        finishInFlight(currentUri, "failed");
+        leaderUriRef.current = null;
         setAllowedToLoad(false);
         if (attemptIndex + 1 < candidates.length) {
           setAttemptIndex((value) => value + 1);
         }
       }, LOAD_SLOT_TIMEOUT_MS);
+    }, () => {
+      if (leaderUriRef.current === currentUri) {
+        finishInFlight(currentUri, "retry");
+        leaderUriRef.current = null;
+      }
+      if (mounted) setAllowedToLoad(false);
     });
 
     return () => {
       mounted = false;
       cancelQueuedRequest();
+      if (leaderUriRef.current === currentUri) {
+        finishInFlight(currentUri, "retry");
+        leaderUriRef.current = null;
+      }
       releaseIfHeld();
     };
-  }, [attemptIndex, candidates, currentUri, hasCandidate, releaseIfHeld]);
+  }, [attemptIndex, candidates, currentUri, hasCandidate, releaseIfHeld, retryGeneration]);
 
   if (hasCandidate && allowedToLoad && currentUri) {
     return (
@@ -188,7 +275,7 @@ function ChannelLogoComponent({
         source={{ uri: currentUri }}
         style={{ width: size, height: size, borderRadius: radius.sm }}
         contentFit="contain"
-        cachePolicy="disk"
+        cachePolicy="memory-disk"
         priority="low"
         allowDownscaling
         autoplay={false}
@@ -196,11 +283,21 @@ function ChannelLogoComponent({
         transition={0}
         onLoad={() => {
           remember(succeededUris, successOrder, currentUri);
+          finishInFlight(currentUri, "success");
+          leaderUriRef.current = null;
           releaseIfHeld();
         }}
         onLoadEnd={releaseIfHeld}
         onError={() => {
           remember(failedUris, failureOrder, currentUri);
+          finishInFlight(currentUri, "failed");
+          leaderUriRef.current = null;
+          failedAt.set(currentUri, Date.now());
+          if (failedAt.size > MAX_URI_HISTORY) {
+            for (const uri of Array.from(failedAt.keys())) {
+              if (!failedUris.has(uri)) failedAt.delete(uri);
+            }
+          }
           releaseIfHeld();
           setAllowedToLoad(false);
           if (attemptIndex + 1 < candidates.length) {

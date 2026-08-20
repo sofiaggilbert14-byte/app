@@ -1,0 +1,68 @@
+name: Phase 9 TiviMate Focus Bootstrap Final
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-focus-bootstrap-final.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Finish preferred-focus disarm coverage
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new, label):
+              p = Path(path)
+              s = p.read_text()
+              if new in s:
+                  return
+              if old not in s:
+                  raise SystemExit(f'{label} marker not found')
+              p.write_text(s.replace(old, new, 1))
+
+          replace_once(
+              'frontend/app/(tabs)/index.tsx',
+              '                hasTVPreferredFocus={preferInitialFocus}\n                nextFocusDown={firstRecentTag}\n                onPress={() => play(heroChannel)}\n',
+              '                hasTVPreferredFocus={preferInitialFocus}\n                nextFocusDown={firstRecentTag}\n                onFocus={() => setPreferInitialFocus(false)}\n                onPress={() => play(heroChannel)}\n',
+              'home hero button',
+          )
+          replace_once(
+              'frontend/app/(tabs)/index.tsx',
+              '                hasTVPreferredFocus={preferInitialFocus}\n                onPress={() => void hardRefresh()}\n',
+              '                hasTVPreferredFocus={preferInitialFocus}\n                onFocus={() => setPreferInitialFocus(false)}\n                onPress={() => void hardRefresh()}\n',
+              'home empty button',
+          )
+          replace_once(
+              'frontend/app/(tabs)/epg-sources.tsx',
+              '          <Pressable hasTVPreferredFocus={preferTopFocus} onPress={() => router.replace("/settings" as any)} style={({ focused }: any) => [styles.back, focused && styles.focused]}>\n',
+              '          <Pressable hasTVPreferredFocus={preferTopFocus} onFocus={() => setPreferTopFocus(false)} onPress={() => router.replace("/settings" as any)} style={({ focused }: any) => [styles.back, focused && styles.focused]}>\n',
+              'EPG top focus',
+          )
+
+          test = Path('frontend/tests/guideShellPolish.test.mjs')
+          t = test.read_text()
+          case = '''\ntest("Live TV and EPG entry focus bootstrap yields immediately to Android focus", async () => {\n  const [home, epg] = await Promise.all([\n    source("app/(tabs)/index.tsx"),\n    source("app/(tabs)/epg-sources.tsx"),\n  ]);\n  assert.match(home, /hasTVPreferredFocus=\\{preferInitialFocus\\}[\\s\\S]{0,140}onFocus=\\{\\(\\) => setPreferInitialFocus\\(false\\)\\}/);\n  assert.match(epg, /hasTVPreferredFocus=\\{preferTopFocus\\} onFocus=\\{\\(\\) => setPreferTopFocus\\(false\\)\\}/);\n});\n'''
+          if 'Live TV and EPG entry focus bootstrap yields immediately' not in t:
+              t += case
+              test.write_text(t)
+          PY
+      - name: Commit final focus bootstrap coverage
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/app/'(tabs)'/index.tsx frontend/app/'(tabs)'/epg-sources.tsx frontend/tests/guideShellPolish.test.mjs
+          git commit -m "phase9: finish preferred focus ownership"
+          git push origin HEAD:phase9/purple-next

@@ -1,0 +1,62 @@
+name: Phase 9 Validation
+# scan-gate: latest Phase 9 ownership/focus/player state
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - "frontend/**"
+      - "ci/phase9-*.py"
+      - ".github/workflows/phase9-validation.yml"
+
+concurrency:
+  group: phase9-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+      - name: Install Android compile SDK and pinned NDK
+        run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006"
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Verify native config
+        run: npm run verify:native-config
+      - name: Expo Doctor
+        run: npm run doctor
+      - name: Unit and wiring tests
+        run: npm test
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Compile native Kotlin and Java
+        env:
+          CI: "1"
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx3g -Dorg.gradle.workers.max=1"
+        run: |
+          set -o pipefail
+          chmod +x android/gradlew
+          ./android/gradlew -p android \
+            :ffmpeg-audio:compileDebugJavaWithJavac \
+            :app:compileDebugKotlin \
+            :app:compileDebugJavaWithJavac \
+            --no-daemon --max-workers=1 --stacktrace

@@ -1,0 +1,124 @@
+name: Phase 9 TiviMate Preview To Guide Focus Return
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-preview-to-guide-focus-return.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Wire deterministic Preview down-focus back to native Guide
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          canvas = Path('frontend/src/components/NativeGuideCanvas.tsx')
+          c = canvas.read_text()
+          c = c.replace(
+            'import { Platform, requireNativeComponent, type NativeSyntheticEvent, View } from "react-native";',
+            'import { findNodeHandle, Platform, requireNativeComponent, type NativeSyntheticEvent, View } from "react-native";',
+          )
+          c = c.replace(
+            '  onViewportChannelIds: (ids: string[], priorityIds: string[], pageSize: number, velocity: number) => void;\n  onLeftBoundary: () => void;',
+            '  onViewportChannelIds: (ids: string[], priorityIds: string[], pageSize: number, velocity: number) => void;\n  onNativeGuideTag?: (tag: number | null) => void;\n  onLeftBoundary: () => void;',
+          )
+          c = c.replace(
+            '  onViewportChannelIds,\n  onLeftBoundary,',
+            '  onViewportChannelIds,\n  onNativeGuideTag,\n  onLeftBoundary,',
+          )
+          marker = '''  const handleRunwayChange = useCallback((event: NativeSyntheticEvent<RunwayEvent>) => {\n    const value = event.nativeEvent;\n    onViewportChannelIds(value.ids || [], value.priorityIds || [], value.pageSize || 8, Math.max(0, value.velocity || 0));\n  }, [onViewportChannelIds]);\n'''
+          replacement = marker + '''\n  const bindNativeGuideRef = useCallback((node: unknown) => {\n    const tag = node ? findNodeHandle(node as any) : null;\n    onNativeGuideTag?.(typeof tag === "number" ? tag : null);\n  }, [onNativeGuideTag]);\n'''
+          if 'const bindNativeGuideRef = useCallback' not in c:
+              if marker not in c:
+                  raise SystemExit('native guide runway marker not found')
+              c = c.replace(marker, replacement, 1)
+          c = c.replace(
+            '    <Native\n      style={{ flex: 1 }}',
+            '    <Native\n      ref={bindNativeGuideRef}\n      style={{ flex: 1 }}',
+          )
+          canvas.write_text(c)
+
+          rail = Path('frontend/src/components/GuidePreviewRail.tsx')
+          r = rail.read_text()
+          r = r.replace(
+            '  focusRequestToken: number;\n};',
+            '  focusRequestToken: number;\n  guideFocusTag?: number | null;\n};',
+          )
+          r = r.replace(
+            '  focusRequestToken,\n}: Props) {',
+            '  focusRequestToken,\n  guideFocusTag,\n}: Props) {',
+          )
+          # Every focusable preview action gets an explicit Down target back to the grid.
+          for anchor in [
+            '            ref={showFocus.setRef}\n',
+            '            ref={playFocus.setRef}\n',
+            '            ref={favoriteFocus.setRef}\n',
+            '            ref={remindersFocus.setRef}\n',
+            '            ref={drawerFocus.setRef}\n',
+            '            ref={muteFocus.setRef}\n',
+            '            ref={hideFocus.setRef}\n',
+          ]:
+              if anchor in r and anchor + '            nextFocusDown={guideFocusTag || undefined}\n' not in r:
+                  r = r.replace(anchor, anchor + '            nextFocusDown={guideFocusTag || undefined}\n', 1)
+          rail.write_text(r)
+
+          guide = Path('frontend/app/(tabs)/guide.tsx')
+          g = guide.read_text()
+          g = g.replace(
+            '  focusRequestToken,\n}: {',
+            '  focusRequestToken,\n  guideFocusTag,\n}: {',
+            1,
+          )
+          g = g.replace(
+            '  focusRequestToken: number;\n}) {',
+            '  focusRequestToken: number;\n  guideFocusTag?: number | null;\n}) {',
+            1,
+          )
+          g = g.replace(
+            '      focusRequestToken={focusRequestToken}\n    />',
+            '      focusRequestToken={focusRequestToken}\n      guideFocusTag={guideFocusTag}\n    />',
+            1,
+          )
+          state_marker = '  const [previewFocusRequestToken, setPreviewFocusRequestToken] = useState(0);\n'
+          if 'nativeGuideFocusTag' not in g:
+              if state_marker not in g:
+                  raise SystemExit('guide preview focus state marker not found')
+              g = g.replace(state_marker, state_marker + '  const [nativeGuideFocusTag, setNativeGuideFocusTag] = useState<number | null>(null);\n', 1)
+          g = g.replace(
+            '              focusRequestToken={previewFocusRequestToken}\n            />',
+            '              focusRequestToken={previewFocusRequestToken}\n              guideFocusTag={nativeGuideFocusTag}\n            />',
+            1,
+          )
+          g = g.replace(
+            '                onViewportChannelIds={onViewportChannelIds}\n                onLeftBoundary={onGuideLeftBoundary}',
+            '                onViewportChannelIds={onViewportChannelIds}\n                onNativeGuideTag={setNativeGuideFocusTag}\n                onLeftBoundary={onGuideLeftBoundary}',
+            1,
+          )
+          guide.write_text(g)
+
+          test = Path('frontend/tests/guideShellPolish.test.mjs')
+          t = test.read_text()
+          case = '''\ntest("Guide preview actions have a deterministic D-pad Down return to the native Guide", async () => {\n  const [canvas, rail, guide] = await Promise.all([\n    source("src/components/NativeGuideCanvas.tsx"),\n    source("src/components/GuidePreviewRail.tsx"),\n    source("app/(tabs)/guide.tsx"),\n  ]);\n  assert.match(canvas, /findNodeHandle/);\n  assert.match(canvas, /onNativeGuideTag\\?\\./);\n  assert.match(canvas, /ref=\\{bindNativeGuideRef\\}/);\n  assert.match(rail, /nextFocusDown=\\{guideFocusTag \\|\\| undefined\\}/);\n  assert.match(guide, /nativeGuideFocusTag/);\n  assert.match(guide, /onNativeGuideTag=\\{setNativeGuideFocusTag\\}/);\n  assert.match(guide, /guideFocusTag=\\{nativeGuideFocusTag\\}/);\n});\n'''
+          if 'Guide preview actions have a deterministic D-pad Down return to the native Guide' not in t:
+              t += case
+              test.write_text(t)
+          PY
+      - name: Commit preview-to-guide focus return
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/components/NativeGuideCanvas.tsx frontend/src/components/GuidePreviewRail.tsx frontend/app/'(tabs)'/guide.tsx frontend/tests/guideShellPolish.test.mjs
+          git commit -m "phase9: wire preview actions back to native guide"
+          git push origin HEAD:phase9/purple-next

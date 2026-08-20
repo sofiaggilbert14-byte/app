@@ -1,0 +1,68 @@
+name: Apply Phase 9 Player Channel Route Fix
+
+on:
+  push:
+    branches:
+      - agent/phase9-tivimate-scan-repair
+    paths:
+      - ".github/workflows/phase9-player-channel-route-fix.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: agent/phase9-tivimate-scan-repair
+          fetch-depth: 0
+      - name: Apply clean-room TiViMate-style player channel ownership fix
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          player = Path('frontend/app/player.tsx')
+          text = player.read_text()
+          anchor = '  const channelIdRef = useRef(params.channelId);\n'
+          insert = anchor + '  // Route ownership is edge-triggered: once fullscreen is mounted, in-player channel\n  // selection owns playback until the router actually supplies a different channel id.\n  const lastRouteChannelIdRef = useRef(params.channelId);\n'
+          if 'lastRouteChannelIdRef' not in text:
+              if anchor not in text:
+                  raise SystemExit('player channel ref anchor not found')
+              text = text.replace(anchor, insert, 1)
+
+          old = '''  useEffect(() => {\n    if (!params.channelId || params.channelId === channelIdRef.current) return;\n    changeChannel(params.channelId, false, { immediate: true });\n  }, [changeChannel, params.channelId]);\n'''
+          new = '''  useEffect(() => {\n    const routeChannelId = String(params.channelId || "").trim();\n    // `changeChannel` can change identity as playback state changes. Do not let that\n    // re-run make the original route reclaim a channel selected from the live strip.\n    if (!routeChannelId || routeChannelId === lastRouteChannelIdRef.current) return;\n    lastRouteChannelIdRef.current = routeChannelId;\n    if (routeChannelId === channelIdRef.current) return;\n    changeChannel(routeChannelId, false, { immediate: true });\n  }, [changeChannel, params.channelId]);\n'''
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif new not in text:
+              raise SystemExit('route sync effect anchor not found')
+          player.write_text(text)
+
+          tests = Path('frontend/tests/playerAndFocus.test.mjs')
+          t = tests.read_text()
+          block = r'''
+
+test("player Channels strip owns playback until the route actually changes", async () => {
+  const player = await source("app/player.tsx");
+  assert.match(player, /const lastRouteChannelIdRef = useRef\(params\.channelId\)/);
+  assert.match(player, /routeChannelId === lastRouteChannelIdRef\.current/);
+  assert.match(player, /lastRouteChannelIdRef\.current = routeChannelId/);
+  assert.match(player, /changeChannel\(routeChannelId, false, \{ immediate: true \}\)/);
+  assert.match(player, /onPress=\{\(\) => changeChannel\(item\.id, true, \{ immediate: true \}\)\}/);
+});
+'''
+          if 'player Channels strip owns playback until the route actually changes' not in t:
+              tests.write_text(t.rstrip() + block + '\n')
+          PY
+      - name: Commit repair
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/app/player.tsx frontend/tests/playerAndFocus.test.mjs
+          git diff --cached --quiet && exit 0
+          git commit -m "fix(player): keep channel strip selection authoritative"
+          git push origin HEAD:agent/phase9-tivimate-scan-repair

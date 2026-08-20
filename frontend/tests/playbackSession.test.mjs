@@ -99,11 +99,11 @@ test("fullscreen stop does not tear down a later preview session", () => {
   assert.equal(isSessionCurrent("preview", previewGen), false);
 });
 
-test("capability-based engine selection still prefers Media3 for HLS and VLC for TS", () => {
+test("default engine selection prefers Media3 for HLS and TS with VLC fallback", () => {
   assert.equal(detectStreamKind("https://x/live.m3u8"), "hls");
   assert.equal(preferredEngine("hls"), "media3");
   assert.equal(detectStreamKind("https://x/live.ts"), "transport");
-  assert.equal(preferredEngine("transport"), "vlc");
+  assert.equal(preferredEngine("transport"), "media3");
   assert.equal(alternateEngine("media3", true), "vlc");
   assert.equal(alternateEngine("media3", false), null);
 });
@@ -115,7 +115,6 @@ test("play entry points hand off through openFullscreenPlayer", async () => {
     "app/(tabs)/favorites.tsx",
     "app/(tabs)/channels.tsx",
     "app/(tabs)/search.tsx",
-    "app/(tabs)/catchup.tsx",
     "src/components/ProgramModal.tsx",
     "src/components/PurpleChannelCollection.tsx",
     "app/_layout.tsx",
@@ -152,7 +151,7 @@ test("StreamPlayer and player route use role-scoped session teardown", async () 
   assert.match(playerComp, /mode === "preview"/);
   assert.match(playerComp, /mediaOptions/);
   assert.match(playerComp, /onStatusRef\.current/);
-  assert.match(playerComp, /surfaceType=\{Platform\.OS === "android" \? "textureView"/);
+  assert.match(playerComp, /mode === "preview" \? "textureView" : "surfaceView"/);
   assert.match(playerComp, /player\.muted = muted/);
   assert.match(playerRoute, /onStatus=\{handleStreamStatus\}/);
   assert.doesNotMatch(playerRoute, /onStatus=\{\(next, reason\) =>/);
@@ -176,4 +175,33 @@ test("StreamPlayer and player route use role-scoped session teardown", async () 
   assert.match(vlcPatch, /requestPlaybackAudioFocus/);
   assert.match(vlcPatch, /mMediaPlayer = null/);
   assert.match(packageJson, /"postinstall": "patch-package"/);
+});
+
+test("fullscreen launched from Guide returns the currently tuned channel to Guide", async () => {
+  const [guide, player, handoff] = await Promise.all([
+    readFile(join(root, "app/(tabs)/guide.tsx"), "utf8"),
+    readFile(join(root, "app/player.tsx"), "utf8"),
+    readFile(join(root, "src/utils/openFullscreenPlayer.ts"), "utf8"),
+  ]);
+  assert.match(guide, /openFullscreenPlayer\(router, channel\.id, \{ returnToGuide: true \}\)/);
+  assert.match(handoff, /returnToGuide: options\?\.returnToGuide \? "1" : undefined/);
+  const exit = player.match(/const stopAndExit = useCallback\([\s\S]*?\n  \}, \[params\.returnToGuide, router\]\);/)?.[0] || "";
+  assert.match(exit, /pendingChannelIdRef\.current \|\| channelIdRef\.current/);
+  assert.match(exit, /params\.returnToGuide === "1"/);
+  assert.match(exit, /requestGuideJump\(\{ channelId: currentChannelId, group: "All" \}\)/);
+  assert.match(exit, /router\.replace\("\/guide" as any\)/);
+  assert.match(exit, /router\.back\(\)/);
+});
+
+test("Media3 watchdog recovers real buffering and a genuinely frozen native clock", async () => {
+  const player = await source("src/components/StreamPlayer.tsx");
+  assert.match(player, /const MEDIA3_FROZEN_CLOCK_MS = 9000/);
+  assert.match(player, /const observedPlaybackTime = Number\(player\.currentTime\)/);
+  assert.match(player, /Boolean\(\(player as any\)\.playing\)/);
+  assert.match(player, /const frozenReadyClock =/);
+  assert.match(player, /if \(bufferingSince == null && !frozenReadyClock\) return/);
+  assert.match(player, /silentResyncCountRef\.current = 0;[\s\S]{0,100}bufferingSinceRef\.current = null/);
+  assert.doesNotMatch(player, /const stalledReady =/);
+  assert.match(player, /const BUFFERING_RESYNC_MS = 5000/);
+  assert.match(player, /const BUFFERING_FAIL_MS = 22000/);
 });

@@ -1,0 +1,90 @@
+name: Apply Phase 9 Player More Focus Fix
+
+on:
+  push:
+    branches:
+      - agent/phase9-tivimate-scan-repair
+    paths:
+      - ".github/workflows/phase9-player-more-focus-fix.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: agent/phase9-tivimate-scan-repair
+          fetch-depth: 0
+      - name: Apply clean-room player More focus ownership
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('frontend/app/player.tsx')
+          s = p.read_text()
+
+          s = s.replace('  FlatList,\n  Platform,', '  FlatList,\n  Platform,\n  ScrollView,', 1)
+
+          anchor = '  const moreButtonRef = useRef<any>(null);\n'
+          if 'moreFirstActionRef' not in s:
+              s = s.replace(anchor, anchor + '  const moreFirstActionRef = useRef<any>(null);\n', 1)
+
+          effect_anchor = '''  const closeOverlayAndRestoreFocus = useCallback(() => {\n    setPlayerOverlay(null);\n    const opener = overlayOpenerRef.current;\n    overlayOpenerRef.current = null;\n    if (opener) requestAnimationFrame(() => requestNativeFocus(opener));\n  }, []);\n'''
+          effect = effect_anchor + '''\n  useEffect(() => {\n    if (!moreOpen || !isTV) return;\n    // TiViMate-style overlay ownership: once More is visible, move native TV focus\n    // into its first action instead of leaving it on the controls row behind it.\n    const frame = requestAnimationFrame(() => requestNativeFocus(moreFirstActionRef.current));\n    return () => cancelAnimationFrame(frame);\n  }, [isTV, moreOpen]);\n'''
+          if 'requestNativeFocus(moreFirstActionRef.current)' not in s:
+              if effect_anchor not in s: raise SystemExit('close overlay anchor missing')
+              s = s.replace(effect_anchor, effect, 1)
+
+          old = '''            {moreOpen ? (\n              <View style={styles.tracksPanel}>\n                <Pressable onPress={returnToPreviousChannel} style={({ focused }: any) => [styles.trackRow, focused && styles.focused]}>\n                  <Ionicons name="return-up-back-outline" size={15} color="#fff" />\n                  <Text style={styles.controlLabel}>Previous channel</Text>\n                </Pressable>\n'''
+          new = '''            {moreOpen ? (\n              <ScrollView\n                style={styles.morePanel}\n                contentContainerStyle={styles.morePanelContent}\n                showsVerticalScrollIndicator={false}\n                nestedScrollEnabled\n              >\n                <Pressable\n                  ref={moreFirstActionRef}\n                  hasTVPreferredFocus\n                  onPress={returnToPreviousChannel}\n                  style={({ focused }: any) => [styles.trackRow, focused && styles.focused]}\n                >\n                  <Ionicons name="return-up-back-outline" size={15} color="#fff" />\n                  <Text style={styles.controlLabel}>Previous channel</Text>\n                </Pressable>\n'''
+          if old in s:
+              s = s.replace(old, new, 1)
+          elif '<ScrollView\n                style={styles.morePanel}' not in s:
+              raise SystemExit('More panel open anchor missing')
+
+          # Close the ScrollView instead of the old View only for the More section.
+          marker = '''                <Pressable onPress={() => void saveAudioReport()} style={({ focused }: any) => [styles.trackRow, focused && styles.focused]} testID="player-report-audio">\n                  <Ionicons name="bug-outline" size={15} color="#fff" />\n                  <Text style={styles.controlLabel}>Diagnostics</Text>\n                </Pressable>\n              </View>\n            ) : null}\n\n            {tracksOpen ? (\n'''
+          repl = '''                <Pressable onPress={() => void saveAudioReport()} style={({ focused }: any) => [styles.trackRow, focused && styles.focused]} testID="player-report-audio">\n                  <Ionicons name="bug-outline" size={15} color="#fff" />\n                  <Text style={styles.controlLabel}>Diagnostics</Text>\n                </Pressable>\n              </ScrollView>\n            ) : null}\n\n            {tracksOpen ? (\n'''
+          if marker in s:
+              s = s.replace(marker, repl, 1)
+          elif '</ScrollView>\n            ) : null}\n\n            {tracksOpen ? (' not in s:
+              raise SystemExit('More panel close anchor missing')
+
+          style_anchor = '  tracksPanel: { maxHeight: 160, marginTop: 6, padding: 8, borderRadius: radius.sm, backgroundColor: "rgba(16,16,30,0.94)", gap: 4 },\n'
+          if 'morePanel:' not in s:
+              replacement = style_anchor + '  morePanel: { maxHeight: 190, marginTop: 6, borderRadius: radius.sm, backgroundColor: "rgba(16,16,30,0.94)" },\n  morePanelContent: { padding: 8, gap: 4 },\n'
+              if style_anchor not in s: raise SystemExit('tracksPanel style anchor missing')
+              s = s.replace(style_anchor, replacement, 1)
+
+          p.write_text(s)
+
+          t = Path('frontend/tests/playerAndFocus.test.mjs')
+          x = t.read_text()
+          block = r'''
+
+test("player More overlay claims visible focus and keeps every action scroll-reachable", async () => {
+  const player = await source("app/player.tsx");
+  assert.match(player, /const moreFirstActionRef = useRef<any>\(null\)/);
+  assert.match(player, /requestNativeFocus\(moreFirstActionRef\.current\)/);
+  assert.match(player, /ref=\{moreFirstActionRef\}/);
+  assert.match(player, /hasTVPreferredFocus/);
+  assert.match(player, /style=\{styles\.morePanel\}/);
+  assert.match(player, /contentContainerStyle=\{styles\.morePanelContent\}/);
+  assert.match(player, /nestedScrollEnabled/);
+});
+'''
+          if 'player More overlay claims visible focus and keeps every action scroll-reachable' not in x:
+              t.write_text(x.rstrip() + block + '\n')
+          PY
+      - name: Commit repair
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/app/player.tsx frontend/tests/playerAndFocus.test.mjs
+          git diff --cached --quiet && exit 0
+          git commit -m "fix(player): focus and scroll More actions"
+          git push origin HEAD:agent/phase9-tivimate-scan-repair

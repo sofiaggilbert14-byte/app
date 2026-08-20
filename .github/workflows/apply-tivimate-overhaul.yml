@@ -1,0 +1,34 @@
+name: Apply TiViMate Overhaul Patches
+
+on:
+  push:
+    branches:
+      - agent/tivimate-architecture-overhaul
+    paths:
+      - ci/apply-tivimate-overhaul.txt
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: agent/tivimate-architecture-overhaul
+          fetch-depth: 0
+      - name: Fix async logo priority call
+        run: python ci/patch-await-logo-priority.py
+      - name: Commit patch results
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No patch changes needed"
+            exit 0
+          fi
+          git config user.name "Charm Architecture Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add frontend/src/source.native.ts
+          git commit -m "fix(epg): await logo priority during refresh"
+          git push origin HEAD:agent/tivimate-architecture-overhaul

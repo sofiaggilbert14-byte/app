@@ -70,14 +70,16 @@ export function parsePipeHeaders(rawUri: string): { uri: string; headers: Record
 }
 
 /**
- * Media3 (ExoPlayer) handles HLS, DASH, and CMAF-packaged live streams with
- * H.264/HEVC/VP9/AV1 + AAC/HE-AAC when the device decoder supports them.
- * VLC covers MPEG-TS, RTSP/RTMP, and SRT contribution feeds.
- * WebRTC needs a dedicated stack — route to VLC only as a soft attempt.
+ * Media3 remains the preferred engine for the stream families it can natively
+ * own well on Android TV. Contribution protocols that are not part of the
+ * installed Media3 stack go directly to VLC when it is available, matching the
+ * known-good RC.1 behavior and avoiding a guaranteed failed decoder/network
+ * attempt before fallback. If VLC is unavailable, StreamPlayer's normal
+ * alternate-engine handling can still try Media3 as a last resort.
  */
 export function preferredEngine(kind: StreamKind): Engine {
-  if (kind === "hls" || kind === "dash" || kind === "progressive") return "media3";
-  return "vlc";
+  if (kind === "rtmp" || kind === "srt" || kind === "webrtc") return "vlc";
+  return "media3";
 }
 
 export function alternateEngine(engine: Engine, vlcAvailable: boolean): Engine | null {

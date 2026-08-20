@@ -1,0 +1,47 @@
+name: Phase 9 TiviMate Guide Preview Logo
+
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-guide-preview-logo.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+      - name: Enlarge Guide preview placeholder logo
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('frontend/src/components/GuidePreviewRail.tsx')
+          s = p.read_text()
+          if 'size={132}' not in s:
+              count = s.count('size={104}')
+              if count != 2: raise SystemExit(f'expected two Guide preview logo markers, found {count}')
+              s = s.replace('size={104}', 'size={132}')
+              p.write_text(s)
+
+          test = Path('frontend/tests/guideShellPolish.test.mjs')
+          t = test.read_text()
+          case = '''\ntest("Guide preview uses a large channel-logo placeholder while tuning", async () => {\n  const rail = await source("src/components/GuidePreviewRail.tsx");\n  const matches = rail.match(/size=\\{132\\}/g) || [];\n  assert.equal(matches.length, 2);\n  assert.doesNotMatch(rail, /size=\\{104\\}/);\n});\n'''
+          if 'Guide preview uses a large channel-logo placeholder while tuning' not in t:
+              t += case
+              test.write_text(t)
+          PY
+      - name: Commit Guide preview logo sizing
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/components/GuidePreviewRail.tsx frontend/tests/guideShellPolish.test.mjs
+          git commit -m "phase9: enlarge Guide preview channel logo"
+          git push origin HEAD:phase9/purple-next

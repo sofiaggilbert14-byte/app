@@ -1,0 +1,204 @@
+name: Phase 9 TiviMate Player Guide Return
+
+# Phase 9 workflow retrigger 2026-08-19T05:37-04:00
+on:
+  push:
+    branches:
+      - phase9/purple-next
+    paths:
+      - ".github/workflows/phase9-tivimate-player-guide-return.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase9/purple-next
+          fetch-depth: 0
+
+      - name: Apply TiviMate-style fullscreen playback ownership
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          player_path = Path('frontend/app/player.tsx')
+          p = player_path.read_text()
+
+          old_remote_import = 'import { addTvKeyListener, addTvLongPressListener, setRemoteContext } from "@/src/utils/tvRemote";'
+          new_remote_import = 'import { addTvKeyListener, addTvLongPressListener, resetRemoteContextIfOwned, setRemoteContext } from "@/src/utils/tvRemote";'
+          if new_remote_import not in p:
+              if old_remote_import not in p:
+                  raise SystemExit('player remote import marker missing')
+              p = p.replace(old_remote_import, new_remote_import, 1)
+
+          p = p.replace(
+              '    return () => setRemoteContext("default");\n',
+              '    return () => resetRemoteContextIfOwned("player");\n',
+              1,
+          )
+
+          ref_marker = '  const channelsButtonRef = useRef<any>(null);\n'
+          if '  const firstChannelCardRef = useRef<any>(null);\n' not in p:
+              if ref_marker not in p: raise SystemExit('channelsButtonRef marker missing')
+              p = p.replace(ref_marker, ref_marker + '  const firstChannelCardRef = useRef<any>(null);\n', 1)
+
+          channel_ref_marker = '  const channelIdRef = useRef(params.channelId);\n'
+          if '  const committedChannelIdRef = useRef(params.channelId);\n' not in p:
+              if channel_ref_marker not in p: raise SystemExit('channelIdRef marker missing')
+              p = p.replace(
+                  channel_ref_marker,
+                  channel_ref_marker +
+                  '  // Strip focus is only a candidate. Playback ownership advances only when a decoder is committed.\n' +
+                  '  const committedChannelIdRef = useRef(params.channelId);\n',
+                  1,
+              )
+
+          history_old = '''  const historyChannels = useMemo(() => {\n    const seen = new Set<string>();\n    const out: Channel[] = [];\n    for (const item of recent) {\n'''
+          history_new = '''  const historyChannels = useMemo(() => {\n    const seen = new Set<string>();\n    const out: Channel[] = [];\n    // Keep the selected channel first so the fullscreen strip has a deterministic focus anchor.\n    const selected = channelById(channelId);\n    if (selected?.url) {\n      seen.add(selected.id);\n      out.push(selected);\n    }\n    for (const item of recent) {\n'''
+          if history_new not in p:
+              if history_old not in p: raise SystemExit('historyChannels marker missing')
+              p = p.replace(history_old, history_new, 1)
+          p = p.replace('  }, [recent, streamChannels]);\n', '  }, [channelById, channelId, recent, streamChannels]);\n', 1)
+
+          p = p.replace(
+              '    if (channelIdRef.current && channelIdRef.current !== id) previousChannelIdRef.current = channelIdRef.current;\n',
+              '',
+              1,
+          )
+
+          arm_old_a = '''      const pending = pendingChannelIdRef.current;\n      channelIdRef.current = pending;\n'''
+          arm_old_b = '''      const pending = pendingChannelIdRef.current;\n      committedChannelIdRef.current = pending;\n      channelIdRef.current = pending;\n'''
+          arm_new = '''      const pending = pendingChannelIdRef.current;\n      const previousCommitted = committedChannelIdRef.current;\n      if (previousCommitted && previousCommitted !== pending) previousChannelIdRef.current = previousCommitted;\n      committedChannelIdRef.current = pending;\n      channelIdRef.current = pending;\n'''
+          if arm_new not in p:
+              if arm_old_b in p:
+                  p = p.replace(arm_old_b, arm_new, 1)
+              elif arm_old_a in p:
+                  p = p.replace(arm_old_a, arm_new, 1)
+              else:
+                  raise SystemExit('armDecoderAfterSettle commit marker missing')
+
+          immediate_old_a = '''      pauseSessionDecoders("fullscreen");\n      setDecoderArmed(true);\n      setRetryToken((value) => value + 1);\n'''
+          immediate_old_b = '''      pauseSessionDecoders("fullscreen");\n      committedChannelIdRef.current = id;\n      setDecoderArmed(true);\n      setRetryToken((value) => value + 1);\n'''
+          immediate_new = '''      pauseSessionDecoders("fullscreen");\n      const previousCommitted = committedChannelIdRef.current;\n      if (previousCommitted && previousCommitted !== id) previousChannelIdRef.current = previousCommitted;\n      committedChannelIdRef.current = id;\n      setDecoderArmed(true);\n      setRetryToken((value) => value + 1);\n'''
+          if immediate_new not in p:
+              if immediate_old_b in p:
+                  p = p.replace(immediate_old_b, immediate_new, 1)
+              elif immediate_old_a in p:
+                  p = p.replace(immediate_old_a, immediate_new, 1)
+              else:
+                  raise SystemExit('immediate zap commit marker missing')
+
+          old_anchor = 'const currentChannelId = pendingChannelIdRef.current || channelIdRef.current;'
+          new_anchor = 'const currentChannelId = committedChannelIdRef.current || channelIdRef.current;'
+          p = p.replace(old_anchor, new_anchor)
+          if p.count(new_anchor) < 2:
+              raise SystemExit('expected committed return anchor in stopAndExit and goGuide')
+
+          old_status_sig = '''  const handleStreamStatus = useCallback(\n    (next: StreamStatus, reason?: SessionFailReason | null) => {\n      setStatus(next);\n'''
+          new_status_sig = '''  const handleStreamStatus = useCallback(\n    (sourceChannelId: string, next: StreamStatus, reason?: SessionFailReason | null) => {\n      // Decoder callbacks may arrive after a zap moved on. Ignore stale ownership.\n      if (!sourceChannelId || sourceChannelId !== channelIdRef.current) return;\n      setStatus(next);\n'''
+          if new_status_sig not in p:
+              if old_status_sig not in p: raise SystemExit('handleStreamStatus marker missing')
+              p = p.replace(old_status_sig, new_status_sig, 1)
+          p = p.replace('        noteStreamFailure(channelIdRef.current);', '        noteStreamFailure(sourceChannelId);', 1)
+          p = p.replace('        clearStreamFailure(channelIdRef.current);', '        clearStreamFailure(sourceChannelId);', 1)
+
+          tracks_old = '''            onTracksAvailable={(tracks) => {\n              const audio = tracks.audio.filter((track) => track.id !== "" && track.id != null);\n              const text = tracks.text.filter((track) => track.id !== "" && track.id != null);\n'''
+          tracks_new = '''            onTracksAvailable={(tracks) => {\n              const sourceChannelId = channelId;\n              if (!sourceChannelId || sourceChannelId !== channelIdRef.current) return;\n              const audio = tracks.audio.filter((track) => track.id !== "" && track.id != null);\n              const text = tracks.text.filter((track) => track.id !== "" && track.id != null);\n'''
+          if tracks_new not in p:
+              if tracks_old not in p: raise SystemExit('tracks callback marker missing')
+              p = p.replace(tracks_old, tracks_new, 1)
+          p = p.replace('              const appliedAudioFor = channelIdRef.current;', '              const appliedAudioFor = sourceChannelId;', 1)
+          p = p.replace('              const appliedFor = channelIdRef.current;', '              const appliedFor = sourceChannelId;', 1)
+          p = p.replace(
+              '            onStatus={handleStreamStatus}\n',
+              '            onStatus={(next, reason) => handleStreamStatus(channelId, next, reason)}\n',
+              1,
+          )
+
+          channels_effect = '''  useEffect(() => {\n    channelsOpenRef.current = channelsOpen;\n  }, [channelsOpen]);\n'''
+          channels_effect_new = channels_effect + '''\n  useEffect(() => {\n    if (!channelsOpen || !isTV) return;\n    // Opening Channels transfers focus into the strip instead of leaving it on the opener.\n    const timer = setTimeout(() => requestNativeFocus(firstChannelCardRef.current), 40);\n    return () => clearTimeout(timer);\n  }, [channelsOpen, isTV]);\n'''
+          if 'Opening Channels transfers focus into the strip' not in p:
+              if channels_effect not in p: raise SystemExit('channelsOpen effect marker missing')
+              p = p.replace(channels_effect, channels_effect_new, 1)
+
+          render_old = '''                renderItem={({ item }) => (\n                  <Pressable\n                    onPress={() => changeChannel(item.id, true, { immediate: true })}\n'''
+          render_new = '''                renderItem={({ item, index }) => (\n                  <Pressable\n                    ref={index === 0 ? firstChannelCardRef : undefined}\n                    onPress={() => changeChannel(item.id, true, { immediate: true })}\n'''
+          if render_new not in p:
+              if render_old not in p: raise SystemExit('channel strip render marker missing')
+              p = p.replace(render_old, render_new, 1)
+
+          player_path.write_text(p)
+
+          guide_path = Path('frontend/app/(tabs)/guide.tsx')
+          g = guide_path.read_text()
+          old_guide_import = 'import { addTvLongPressListener, setGuideNavigationActive, setGuideRepeatInterval, setRemoteContext } from "@/src/utils/tvRemote";'
+          new_guide_import = 'import { addTvLongPressListener, resetRemoteContextIfOwned, setGuideNavigationActive, setGuideRepeatInterval, setRemoteContext } from "@/src/utils/tvRemote";'
+          if new_guide_import not in g:
+              if old_guide_import not in g: raise SystemExit('guide remote import marker missing')
+              g = g.replace(old_guide_import, new_guide_import, 1)
+          g = g.replace(
+              '        setRemoteContext("default");\n',
+              '        resetRemoteContextIfOwned("guide");\n',
+              1,
+          )
+          guide_path.write_text(g)
+
+          test_path = Path('frontend/tests/playerAndFocus.test.mjs')
+          t = test_path.read_text()
+          if 'fullscreen playback ownership distinguishes strip candidates from committed channels' not in t:
+              t += r'''
+
+test("fullscreen playback ownership distinguishes strip candidates from committed channels", async () => {
+  const player = await source("app/player.tsx");
+  assert.match(player, /const committedChannelIdRef = useRef\(params\.channelId\)/);
+  assert.match(player, /const previousCommitted = committedChannelIdRef\.current;[\s\S]{0,160}committedChannelIdRef\.current = pending/);
+  assert.match(player, /if \(opts\?\.immediate\)[\s\S]{0,300}committedChannelIdRef\.current = id/);
+  assert.match(player, /const currentChannelId = committedChannelIdRef\.current \|\| channelIdRef\.current/);
+  assert.doesNotMatch(player, /previousChannelIdRef\.current = channelIdRef\.current/);
+});
+
+test("fullscreen decoder callbacks stay bound to their own channel", async () => {
+  const player = await source("app/player.tsx");
+  assert.match(player, /\(sourceChannelId: string, next: StreamStatus/);
+  assert.match(player, /sourceChannelId !== channelIdRef\.current\) return/);
+  assert.match(player, /noteStreamFailure\(sourceChannelId\)/);
+  assert.match(player, /clearStreamFailure\(sourceChannelId\)/);
+  assert.match(player, /onStatus=\{\(next, reason\) => handleStreamStatus\(channelId, next, reason\)\}/);
+  assert.match(player, /const sourceChannelId = channelId;[\s\S]{0,120}sourceChannelId !== channelIdRef\.current/);
+});
+
+test("fullscreen Channels opens on the selected row with explicit focus", async () => {
+  const player = await source("app/player.tsx");
+  assert.match(player, /const firstChannelCardRef = useRef<any>\(null\)/);
+  assert.match(player, /const selected = channelById\(channelId\);[\s\S]{0,140}out\.push\(selected\)/);
+  assert.match(player, /requestNativeFocus\(firstChannelCardRef\.current\)/);
+  assert.match(player, /renderItem=\{\(\{ item, index \}\) => \([\s\S]{0,100}ref=\{index === 0 \? firstChannelCardRef : undefined\}/);
+});
+
+test("player and Guide clean up only the remote context they own", async () => {
+  const [player, guide] = await Promise.all([
+    source("app/player.tsx"),
+    source("app/(tabs)/guide.tsx"),
+  ]);
+  assert.match(player, /return \(\) => resetRemoteContextIfOwned\("player"\)/);
+  assert.match(guide, /resetRemoteContextIfOwned\("guide"\)/);
+});
+'''
+          test_path.write_text(t)
+          PY
+
+      - name: Commit player ownership patch
+        shell: bash
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/app/player.tsx frontend/app/'(tabs)'/guide.tsx frontend/tests/playerAndFocus.test.mjs
+          git commit -m "phase9: harden fullscreen playback ownership"
+          git push origin HEAD:phase9/purple-next
