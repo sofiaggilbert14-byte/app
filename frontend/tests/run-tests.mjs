@@ -3,6 +3,7 @@ import "./favorites.test.mjs";
 import "./playerAndFocus.test.mjs";
 import "./playerLiveStability.test.mjs";
 import "./guideLiveClock.test.mjs";
+import "./guideActionHandoff.test.mjs";
 import "./guideRunwayPolicy.test.mjs";
 import "./epgMatching.test.mjs";
 import "./media3Audio.test.mjs";
