@@ -58,3 +58,9 @@ test("fullscreen exit returns the currently tuned channel to Guide instead of th
   assert.match(player, /requestGuideJump\(\{ channelId: currentChannelId, group: "All" \}\)/);
   assert.match(player, /router\.replace\("\/guide" as any\)/);
 });
+
+test("Program Details Watch now preserves the Guide return anchor", async () => {
+  const modal = await source("src/components/ProgramModal.tsx");
+  assert.match(modal, /openFullscreenPlayer\(router, channel\.id, \{ returnToGuide: pathname\?\.startsWith\("\/guide"\) \}\)/);
+  assert.doesNotMatch(modal, /openFullscreenPlayer\(router, channel\.id\);/);
+});
