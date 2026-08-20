@@ -1,0 +1,73 @@
+name: Code Interaction Audit Validation
+
+on:
+  push:
+    branches:
+      - agent/code-interaction-audit
+    paths:
+      - ci/code-interaction-audit-validation.trigger
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: agent/code-interaction-audit
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Validate interaction audit
+        id: audit
+        shell: bash
+        run: |
+          set +e
+          cd frontend
+          npm ci --legacy-peer-deps --no-audit --no-fund
+          install=$?
+          test=99
+          typecheck=99
+          native=99
+          doctor=99
+          if [ "$install" -eq 0 ]; then
+            npm test
+            test=$?
+            npm run typecheck
+            typecheck=$?
+            npm run verify:native-config
+            native=$?
+            npm run doctor
+            doctor=$?
+          fi
+          cd ..
+          cat > ci/code-interaction-audit-validation.txt <<EOF
+          install=$install
+          test=$test
+          typecheck=$typecheck
+          native_config=$native
+          doctor=$doctor
+          EOF
+          if [ "$install" -ne 0 ] || [ "$test" -ne 0 ] || [ "$typecheck" -ne 0 ] || [ "$native" -ne 0 ] || [ "$doctor" -ne 0 ]; then
+            echo "audit_failed=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "audit_failed=0" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Publish validation status
+        shell: bash
+        run: |
+          git config user.name "Charm Interaction Audit Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add ci/code-interaction-audit-validation.txt
+          if ! git diff --cached --quiet; then
+            git commit -m "test(audit): record interaction validation"
+            git push origin HEAD:agent/code-interaction-audit
+          fi
+      - name: Enforce validation
+        if: steps.audit.outputs.audit_failed == '1'
+        run: exit 1
