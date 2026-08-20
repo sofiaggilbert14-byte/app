@@ -35,12 +35,19 @@ test("Group settings expose provider and custom visibility rename and ordering",
   assert.match(screen, /if \(!name \|\| groupNameCollides\(name\)\) return/);
 });
 
-test("group tab persistence cannot let a stale initial read overwrite a newer edit", async () => {
-  const persistence = await text("src/core/guideGroupTabPersistence.ts");
-  assert.match(persistence, /let mutationEpoch = 0/);
-  assert.match(persistence, /const loadEpoch = mutationEpoch/);
-  assert.match(persistence, /if \(loaded \|\| loadEpoch !== mutationEpoch\) return getGuideGroupTabPreferencesSnapshot\(\)/);
-  assert.match(persistence, /function commit[\s\S]*?mutationEpoch \+= 1/);
+test("group customization persistence cannot let stale initial reads overwrite newer edits", async () => {
+  const [tabs, custom] = await Promise.all([
+    text("src/core/guideGroupTabPersistence.ts"),
+    text("src/core/customGuideGroups.ts"),
+  ]);
+  assert.match(tabs, /let mutationEpoch = 0/);
+  assert.match(tabs, /const loadEpoch = mutationEpoch/);
+  assert.match(tabs, /if \(loaded \|\| loadEpoch !== mutationEpoch\) return getGuideGroupTabPreferencesSnapshot\(\)/);
+  assert.match(tabs, /function commit[\s\S]*?mutationEpoch \+= 1/);
+  assert.match(custom, /let mutationEpoch = 0/);
+  assert.match(custom, /const loadEpoch = mutationEpoch/);
+  assert.match(custom, /if \(loaded \|\| loadEpoch !== mutationEpoch\) return cached/);
+  assert.match(custom, /function commit[\s\S]*?mutationEpoch \+= 1/);
 });
 
 test("automatic TV layout starts full viewport and calibration owns real overscan", async () => {
