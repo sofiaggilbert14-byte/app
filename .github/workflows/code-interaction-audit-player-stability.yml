@@ -27,7 +27,9 @@ jobs:
         with:
           python-version: '3.12'
       - name: Apply focused interaction repairs
-        run: python ci/code-interaction-audit-player-stability.py
+        run: |
+          python ci/code-interaction-audit-player-stability.py
+          python ci/code-interaction-audit-vlc-watchdog.py
       - name: Validate patch shape
         run: git diff --check
       - name: Commit repairs
