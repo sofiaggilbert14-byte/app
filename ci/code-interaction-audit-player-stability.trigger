@@ -1,2 +1,2 @@
 2026-08-20 code interaction audit player stability repair
-isolated audit branch run 9 - decoder release settle before retry/remount
+isolated audit branch run 10 - idempotent native cleanup and compile fix
