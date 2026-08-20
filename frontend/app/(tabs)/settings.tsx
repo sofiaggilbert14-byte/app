@@ -26,7 +26,6 @@ import {
 } from "@/src/playerEnginePreference";
 import {
   type LongDownAction,
-  type LongSelectAction,
   type PlayerRemoteAction,
   useRemoteShortcutPreferences,
 } from "@/src/core/remoteShortcutPreferences";
@@ -177,7 +176,6 @@ export default function SettingsScreen() {
   const [focusedCustomizeId, setFocusedCustomizeId] = useState<string | null>(null);
   const [channelEditPage, setChannelEditPage] = useState(0);
   const clearFavoritesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Mount-once preferred focus — sticky hasTVPreferredFocus steals focus on re-render.
   const [preferTileFocus, setPreferTileFocus] = useState(true);
   const [preferBackFocus, setPreferBackFocus] = useState(false);
 
@@ -219,17 +217,13 @@ export default function SettingsScreen() {
 
   useTvBackHandler(
     useCallback(() => {
-      // Close a settings section first — never open the drawer on a single Back.
       if (section) {
         setBackupStatus(null);
         setClearFavoritesArmed(false);
-        // Arm the destination before this detail focus tree unmounts. Android TV
-        // otherwise has one frame with no valid focus owner and may lose the cursor.
         setPreferTileFocus(true);
         setSection(null);
         return true;
       }
-      // Defer to PurpleTvShell double-Back policy (arm / open / close).
       return false;
     }, [section]),
   );
@@ -281,8 +275,6 @@ export default function SettingsScreen() {
       router.push("/epg-sources" as any);
       return;
     }
-    // TiviMate-style focus handoff: the tile about to disappear cannot remain
-    // Android's focus owner. Mark the section Back control preferred first.
     setPreferBackFocus(true);
     setSection(id);
   }, [router]);
@@ -551,18 +543,7 @@ export default function SettingsScreen() {
                   ]}
                   onChange={remoteShortcuts.setLongDown}
                 />
-                <ChoiceRow<LongSelectAction>
-                  label="Remote · Long OK/Select"
-                  value={remoteShortcuts.longSelect}
-                  options={[
-                    { label: "Add/remove Favorite", value: "favorite" },
-                    { label: "Show player controls", value: "controls" },
-                    { label: "Open TV Guide", value: "guide" },
-                    { label: "No shortcut", value: "none" },
-                  ]}
-                  onChange={remoteShortcuts.setLongSelect}
-                />
-                <Text style={styles.help}>Directional D-pad keys stay reserved for deterministic focus/navigation. Only safe long-press shortcuts are remappable.</Text>
+                <Text style={styles.help}>Long OK/Select is reserved for contextual Quick Actions. Directional D-pad keys remain deterministic; Long Down is the only remappable D-pad hold.</Text>
                 <ChoiceRow<PlaybackBufferProfile>
                   label="Playback buffer"
                   value={playbackBufferProfile}
@@ -938,14 +919,8 @@ export default function SettingsScreen() {
                   options={[{ label: "Open channel bar", value: "channels" }, { label: "Open TV Guide", value: "guide" }, { label: "No shortcut", value: "none" }]}
                   onChange={remoteShortcuts.setLongDown}
                 />
-                <ChoiceRow<LongSelectAction>
-                  label="Long OK/Select"
-                  value={remoteShortcuts.longSelect}
-                  options={[{ label: "Add/remove Favorite", value: "favorite" }, { label: "Previous channel", value: "previous" }, { label: "Show player controls", value: "controls" }, { label: "Open TV Guide", value: "guide" }, { label: "No shortcut", value: "none" }]}
-                  onChange={remoteShortcuts.setLongSelect}
-                />
+                <Text style={styles.help}>Long OK/Select always opens contextual Quick Actions. Other hardware mappings apply only while fullscreen playback owns the remote.</Text>
                 <Action label="Restore remote defaults" icon="refresh-outline" onPress={remoteShortcuts.reset} />
-                <Text style={styles.help}>Mappings apply only while fullscreen playback owns the remote. Guide and drawer D-pad focus paths remain protected.</Text>
                 <View style={styles.divider} />
                 <ToggleRow label="Pointer mode" value={pointerMode} onChange={setPointerMode} />
                 <Text style={styles.help}>D-pad remains the primary TV navigation method. Pointer mode is a fallback for devices with unreliable native focus.</Text>
@@ -1161,4 +1136,3 @@ const styles = StyleSheet.create({
   miniActionText: { color: "#fff", fontFamily: fonts.medium, fontSize: 8 },
   focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
 });
-
