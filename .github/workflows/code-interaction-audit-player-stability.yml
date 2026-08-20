@@ -31,6 +31,7 @@ jobs:
           python ci/code-interaction-audit-player-stability.py
           python ci/code-interaction-audit-vlc-watchdog.py
           python ci/code-interaction-audit-cleanup.py
+          python ci/code-interaction-audit-player-preferences.py
           python ci/code-interaction-audit-test-contracts.py
       - name: Validate patch shape
         run: git diff --check
@@ -46,6 +47,12 @@ jobs:
                   frontend/app/player.tsx \
                   frontend/src/components/StreamPlayer.tsx \
                   frontend/src/components/ProgramModal.tsx \
+                  frontend/src/playerEnginePreference.ts \
+                  frontend/src/core/playbackBufferProfile.ts \
+                  frontend/src/core/playerCompatibilityPreferences.ts \
+                  frontend/src/core/subtitlePreferences.ts \
+                  frontend/src/core/audioTrackPreferences.ts \
+                  frontend/src/core/remoteShortcutPreferences.ts \
                   frontend/android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt \
                   frontend/android/app/src/main/java/com/charmiptv/app/MainActivity.kt \
                   frontend/src/components/PurpleGuideGroupDrawer.tsx \
