@@ -101,11 +101,8 @@ export function TvCalibrationFrame({ children, style }: { children: React.ReactN
     () => combineTvEdgeInsets({ top: 0, right: 0, bottom: 0, left: 0 }, calibration),
     [calibration],
   );
-  // Normal app routes apply calibration once inside PurpleTvShell. Fullscreen
-  // Player intentionally bypasses that shell, so the root frame becomes its one
-  // calibration owner. This makes the same four-edge setting affect both UI and
-  // player overlays without double-insetting ordinary screens.
-  const playerStyle = pathname === "/player"
+  const fullscreenPlayer = pathname === "/player" || pathname.startsWith("/player/");
+  const playerStyle = fullscreenPlayer
     ? {
         paddingTop: playerEdges.padding.top,
         paddingRight: playerEdges.padding.right,
