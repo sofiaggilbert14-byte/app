@@ -15,6 +15,7 @@ import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import { PointerOverlay } from "@/src/components/PointerOverlay";
 import { PurpleTvDrawerProvider } from "@/src/components/PurpleTvShell";
 import { SourceRefreshScheduler } from "@/src/components/SourceRefreshScheduler";
+import { TvQuickActionsOverlay } from "@/src/components/TvQuickActionsOverlay";
 import { TvCalibrationFrame, TvCalibrationProvider } from "@/src/tvCalibration";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 import { StartupVersion4 } from "@/src/components/StartupVersion4";
@@ -123,6 +124,9 @@ export default function RootLayout() {
                 </ErrorBoundary>
                 <ErrorBoundary>
                   <ProgramModal />
+                </ErrorBoundary>
+                <ErrorBoundary>
+                  <TvQuickActionsOverlay />
                 </ErrorBoundary>
                 <PointerOverlay />
                 <StartupVersion4 />
