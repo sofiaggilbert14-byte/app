@@ -1,5 +1,6 @@
 package com.charmiptv.app
 
+import android.content.Context
 import android.util.Xml
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
@@ -33,8 +34,23 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
   private val userDatabase = CustomEpgStoreRegistry.database(reactContext, USER_SOURCE_ID)
   private val controlDao = EpgControlDatabase.get(reactContext).dao()
   private val executor = Executors.newSingleThreadExecutor()
+  private val policyPrefs = reactContext.getSharedPreferences(POLICY_PREFS, Context.MODE_PRIVATE)
 
   override fun getName(): String = "CharmCustomEpg"
+
+  @ReactMethod
+  fun setRetentionDays(pastDays: Double, promise: Promise) {
+    try {
+      val normalized = pastDays.toInt().let { if (it == 1 || it == 3 || it == 7 || it == 14) it else 7 }
+      policyPrefs.edit().putInt(POLICY_PAST_DAYS, normalized).apply()
+      promise.resolve(true)
+    } catch (t: Throwable) {
+      promise.reject("CUSTOM_EPG_POLICY_FAILED", t.message ?: "Could not save custom EPG retention", t)
+    }
+  }
+
+  private fun retentionDays(): Int = policyPrefs.getInt(POLICY_PAST_DAYS, 7)
+    .let { if (it == 1 || it == 3 || it == 7 || it == 14) it else 7 }
 
   @ReactMethod
   fun setGuideChannelBinding(channelId: String, xmltvId: String, promise: Promise) {
@@ -43,7 +59,9 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
         val channel = channelId.trim()
         val xmltv = xmltvId.trim()
         if (channel.isEmpty()) throw IllegalArgumentException("Channel id is empty")
-        controlDao.setChannelBinding(USER_SOURCE_ID, channel, xmltv)
+        // One playlist channel can have only one custom owner, including the
+        // legacy `user` source. This matches the newer multi-source binding path.
+        controlDao.setExclusiveUserChannelBinding(USER_SOURCE_ID, channel, xmltv)
         promise.resolve(controlDao.channelBindingCount(USER_SOURCE_ID))
       } catch (t: Throwable) {
         promise.reject("CUSTOM_EPG_BINDING_FAILED", t.message ?: "Could not update custom Guide assignment", t)
@@ -148,11 +166,11 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
   private fun refreshSourceGuideInternal(rawSourceId: String, url: String, promise: Promise) {
       try {
         val sourceId = CustomEpgStoreRegistry.normalizeSourceId(rawSourceId)
-        val userDatabase = CustomEpgStoreRegistry.database(reactContext, sourceId)
+        val targetDatabase = CustomEpgStoreRegistry.database(reactContext, sourceId)
         val sourceUrl = url.trim()
         if (sourceUrl.isEmpty()) throw IllegalArgumentException("Custom EPG URL is empty")
-        if (!userDatabase.ensureHealthy()) throw IllegalStateException("Custom Guide database integrity check failed")
-        userDatabase.assertRefreshStorageAvailable()
+        if (!targetDatabase.ensureHealthy()) throw IllegalStateException("Custom Guide database integrity check failed")
+        targetDatabase.assertRefreshStorageAvailable()
 
         val bindings = controlDao.allChannelBindings(sourceId)
         val activeXmltvIds = LinkedHashSet<String>()
@@ -161,7 +179,7 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
         }
 
         val now = System.currentTimeMillis()
-        val minStop = now - GUIDE_HISTORY_MS
+        val minStop = now - retentionDays().toLong() * DAY_MS
         val maxStart = now + GUIDE_WINDOW_MS
         val channelNames = LinkedHashMap<String, String>()
         val channelIcons = LinkedHashMap<String, String>()
@@ -175,6 +193,7 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
           maxStart = maxStart,
           channelNames = channelNames,
           channelIcons = channelIcons,
+          targetDatabase = targetDatabase,
           onAcceptedProgramme = { acceptedProgrammeCount += 1L },
         )
 
@@ -189,7 +208,7 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
           try {
             // EpgDatabase stages batches and atomically swaps LIVE only after a valid
             // non-empty ingest, preserving the prior last-good guide on network/parser failure.
-            userDatabase.replaceBatches(batches)
+            targetDatabase.replaceBatches(batches)
             programmeSwapSucceeded = true
           } catch (t: IllegalStateException) {
             val emptyFeed =
@@ -209,19 +228,19 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
         for ((channelId, logoUrl) in channelIcons) {
           if (logoUrl.isNotBlank()) aliases.add(Triple(channelId, "icon_url", logoUrl))
         }
-        userDatabase.replaceChannelAliases(aliases)
-        val previousGuideEpoch = userDatabase.getMeta("guide_epoch")?.toLongOrNull() ?: 0L
-        val previousGuideRefreshedAt = userDatabase.getMeta("guide_refreshed_at")?.toLongOrNull() ?: 0L
+        targetDatabase.replaceChannelAliases(aliases)
+        val previousGuideEpoch = targetDatabase.getMeta("guide_epoch")?.toLongOrNull() ?: 0L
+        val previousGuideRefreshedAt = targetDatabase.getMeta("guide_refreshed_at")?.toLongOrNull() ?: 0L
         val guideEpoch = if (programmeSwapSucceeded) previousGuideEpoch + 1L else previousGuideEpoch
         val guideRefreshedAt = if (programmeSwapSucceeded) now else previousGuideRefreshedAt
         if (programmeSwapSucceeded) {
-          userDatabase.setMeta("guide_epoch", guideEpoch.toString())
-          userDatabase.setMeta("guide_refreshed_at", guideRefreshedAt.toString())
+          targetDatabase.setMeta("guide_epoch", guideEpoch.toString())
+          targetDatabase.setMeta("guide_refreshed_at", guideRefreshedAt.toString())
         }
-        userDatabase.setMeta("custom_programme_scope", activeXmltvIds.size.toString())
+        targetDatabase.setMeta("custom_programme_scope", activeXmltvIds.size.toString())
 
         promise.resolve(Arguments.createMap().apply {
-          putDouble("count", userDatabase.count().toDouble())
+          putDouble("count", targetDatabase.count().toDouble())
           putDouble("directoryCount", channelNames.size.toDouble())
           putDouble("bindingCount", activeXmltvIds.size.toDouble())
           putDouble("guideEpoch", guideEpoch.toDouble())
@@ -240,9 +259,10 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
     maxStart: Long,
     channelNames: MutableMap<String, String>,
     channelIcons: MutableMap<String, String>,
+    targetDatabase: EpgDatabase,
     onAcceptedProgramme: () -> Unit,
   ): Sequence<List<NativeEpgProgram>> = sequence {
-    openPossiblyGzipped(sourceUrl).use { input ->
+    openPossiblyGzipped(sourceUrl, targetDatabase).use { input ->
       val parser = Xml.newPullParser()
       parser.setInput(input, "UTF-8")
       val batch = ArrayList<NativeEpgProgram>(BATCH_SIZE)
@@ -284,6 +304,12 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
               rawProgrammeCount += 1L
               if (rawProgrammeCount > MAX_PROGRAMME_COUNT) {
                 throw IllegalStateException("Custom EPG exceeds programme safety limit")
+              }
+              // Automatic refresh work must yield when Guide/player becomes the
+              // foreground owner. Check at a sparse cadence to avoid parser-hot-path cost.
+              if ((rawProgrammeCount and 0x1ffL) == 0L &&
+                (TvRemoteModule.remoteContext == "guide" || TvRemoteModule.remoteContext == "player")) {
+                throw IllegalStateException("Custom EPG refresh deferred for active Guide/player")
               }
               channelId = parser.getAttributeValue(null, "channel")?.trim()
               startMs = parseXmltvTime(parser.getAttributeValue(null, "start"))
@@ -338,7 +364,7 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
     }
   }
 
-  private fun openPossiblyGzipped(urlString: String): InputStream {
+  private fun openPossiblyGzipped(urlString: String, targetDatabase: EpgDatabase): InputStream {
     var currentUrl = URL(urlString)
     var redirects = 0
     while (true) {
@@ -379,9 +405,9 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
         throw IllegalStateException("Custom EPG exceeds compressed safety limit")
       }
       try {
-        // The connection is already open here. Keep the storage gate inside the
-        // disconnect guard so a low-space refusal cannot leak a provider socket.
-        userDatabase.assertRefreshStorageAvailable(declaredLength)
+        // Use the source-specific database for storage gating. The previous code
+        // always checked the legacy user DB even while refreshing another source.
+        targetDatabase.assertRefreshStorageAvailable(declaredLength)
         val connectionStream = object : FilterInputStream(connection.inputStream) {
           override fun close() {
             try { super.close() } finally { connection.disconnect() }
@@ -490,13 +516,15 @@ class CustomEpgNativeModule(private val reactContext: ReactApplicationContext) :
 
   companion object {
     private const val USER_SOURCE_ID = "user"
+    private const val POLICY_PREFS = "charm_epg_custom_policy"
+    private const val POLICY_PAST_DAYS = "past_days"
     private const val BATCH_SIZE = 1000
     private const val NETWORK_BUFFER_SIZE = 64 * 1024
     private const val MAX_HTTP_REDIRECTS = 6
     private const val MAX_COMPRESSED_EPG_BYTES = 256L * 1024L * 1024L
     private const val MAX_DECOMPRESSED_EPG_BYTES = 1024L * 1024L * 1024L
     private const val MAX_PROGRAMME_COUNT = 2_000_000L
-    private const val GUIDE_HISTORY_MS = 6L * 60L * 60L * 1000L
+    private const val DAY_MS = 24L * 60L * 60L * 1000L
     private const val GUIDE_WINDOW_MS = 72L * 60L * 60L * 1000L
     private const val DEFAULT_PROGRAMME_DURATION_MS = 30L * 60L * 1000L
     private const val MAX_PROGRAMME_DURATION_MS = 24L * 60L * 60L * 1000L
