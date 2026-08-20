@@ -35,6 +35,20 @@ export function fingerprintStreamUri(uri: string, kind?: string): string {
   return `${kind || "unknown"}:${clean.length}:${(hash >>> 0).toString(16)}:${leaf}`;
 }
 
+/**
+ * Match a live diagnostic key to a URI without needing to know which stream-kind
+ * classifier the player used. The kind is metadata; length/hash/leaf identify
+ * the same sanitized URI. This keeps Quick Actions on the channel actually
+ * playing after in-player zaps without retaining raw provider URLs.
+ */
+export function matchesStreamFingerprint(uri: string, streamKey: string): boolean {
+  const candidate = fingerprintStreamUri(uri);
+  const candidateBody = candidate.slice(candidate.indexOf(":") + 1);
+  const key = String(streamKey || "");
+  const keyBody = key.slice(key.indexOf(":") + 1);
+  return !!candidateBody && candidateBody === keyBody;
+}
+
 export function recordAudioDiagnostics(
   input: Omit<AudioDiagnosticsSnapshot, "at"> & { at?: string },
 ): AudioDiagnosticsSnapshot {
