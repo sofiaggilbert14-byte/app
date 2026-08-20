@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { storage } from "@/src/utils/storage";
+import { syncNativeCustomEpgPolicy } from "@/src/core/customEpgPolicy";
 
 export type SourceRefreshIntervalHours = 0 | 2 | 4 | 6 | 12 | 24;
 
@@ -64,6 +65,8 @@ async function load(): Promise<SourceRefreshPreferences> {
       updateEpgOnPlaylistChange: updateEpgOnPlaylistChange !== false,
     };
     loaded = true;
+    // Keep persisted UI policy and native source rows in lock-step at startup.
+    void syncNativeCustomEpgPolicy(cached.epgHours, cached.epgPastDays);
     return cached;
   })();
   try {
@@ -115,6 +118,7 @@ export async function setEpgRefreshInterval(value: SourceRefreshIntervalHours): 
   loaded = true;
   emit();
   await storage.setItem(EPG_KEY, next);
+  await syncNativeCustomEpgPolicy(cached.epgHours, cached.epgPastDays);
 }
 
 export async function setEpgPastDays(value: SourceRefreshPreferences["epgPastDays"]): Promise<void> {
@@ -123,6 +127,7 @@ export async function setEpgPastDays(value: SourceRefreshPreferences["epgPastDay
   loaded = true;
   emit();
   await storage.setItem(EPG_PAST_DAYS_KEY, next);
+  await syncNativeCustomEpgPolicy(cached.epgHours, cached.epgPastDays);
 }
 
 export async function setUpdateEpgOnAppStart(value: boolean): Promise<void> {
@@ -187,4 +192,3 @@ export function useSourceRefreshPreferences(): SourceRefreshPreferences & {
     }, []),
   };
 }
-
