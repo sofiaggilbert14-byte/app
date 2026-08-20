@@ -38,6 +38,12 @@ guide = replace_once(
 )
 guide = replace_once(
     guide,
+    '  assert.match(guide, /requestAnimationFrame\\(\\(\\) => focusGuidePreviewSurface\\(\\)\\)/);',
+    '  assert.match(guide, /requestAnimationFrame\\(\\(\\) => \\{[\\s\\S]{0,160}focusGuidePreviewSurface\\(\\)/);',
+    "Guide animation-frame focus request contract",
+)
+guide = replace_once(
+    guide,
     '  assert.match(nativeGuide, /postInvalidateDelayed\\(30_000L\\)/);',
     '  assert.match(nativeGuide, /LIVE_CLOCK_TICK_MS = 30_000L/);\n  assert.match(nativeGuide, /postDelayed\\(liveClockRunnable, LIVE_CLOCK_TICK_MS\\)/);\n  assert.doesNotMatch(nativeGuide, /postInvalidateDelayed\\(30_000L\\)/);',
     "Guide live clock contract",
