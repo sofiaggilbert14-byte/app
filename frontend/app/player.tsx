@@ -289,6 +289,12 @@ export default function PlayerScreen() {
     zapTimer.current = setTimeout(() => {
       // Commit pending channel and remount a single decoder only after surfing settles.
       const pending = pendingChannelIdRef.current;
+      // Strip focus updates the visible channel before its decoder is armed.
+      // Preserve the actually tuned channel at commit time so Previous channel
+      // remains correct after a debounced strip-based zap. Next/Prev already
+      // updates this history earlier, so the equality guard keeps that path intact.
+      const previous = channelIdRef.current;
+      if (previous && previous !== pending) previousChannelIdRef.current = previous;
       channelIdRef.current = pending;
       setChannelId(pending);
       setRetryAttempt(0);
