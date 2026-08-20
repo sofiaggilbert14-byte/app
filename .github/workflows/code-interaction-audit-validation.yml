@@ -68,8 +68,10 @@ jobs:
           lint=$lint
           EOF
           if [ "$test" -ne 0 ] && [ -f /tmp/code-interaction-audit-tests.log ]; then
-            printf '\n--- failing test tail ---\n' >> ci/code-interaction-audit-validation.txt
-            tail -n 120 /tmp/code-interaction-audit-tests.log >> ci/code-interaction-audit-validation.txt
+            printf '\n--- failing assertions ---\n' >> ci/code-interaction-audit-validation.txt
+            grep -n -B 2 -A 35 '^not ok ' /tmp/code-interaction-audit-tests.log >> ci/code-interaction-audit-validation.txt || true
+            printf '\n--- test summary ---\n' >> ci/code-interaction-audit-validation.txt
+            tail -n 12 /tmp/code-interaction-audit-tests.log >> ci/code-interaction-audit-validation.txt
           fi
           if [ "$install" -ne 0 ] || [ "$test" -ne 0 ] || [ "$typecheck" -ne 0 ] || [ "$native" -ne 0 ] || [ "$doctor" -ne 0 ] || [ "$lint" -ne 0 ]; then
             echo "audit_failed=1" >> "$GITHUB_OUTPUT"
