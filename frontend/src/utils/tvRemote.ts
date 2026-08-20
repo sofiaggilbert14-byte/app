@@ -14,6 +14,7 @@ export const tvRemoteAvailable = !!TvRemote;
 export type TvKey = "UP" | "DOWN" | "LEFT" | "RIGHT" | "SELECT" | "BACK";
 export type TvLongPressKey = "DOWN" | "SELECT" | "BACK";
 export type TvShortcutKey = "CHANNEL_UP" | "CHANNEL_DOWN" | "MEDIA_PLAY_PAUSE";
+export type TvQuickActionsContext = "guide" | "player";
 export type DeviceMemoryProfile = {
   memoryClassMb: number;
   lowRamDevice: boolean;
@@ -34,6 +35,21 @@ export function addTvLongPressListener(cb: (key: TvLongPressKey) => void): () =>
     return () => sub.remove();
   }
   const sub = DeviceEventEmitter.addListener(eventName, (key: TvLongPressKey) => cb(key));
+  return () => sub.remove();
+}
+
+/**
+ * Dedicated long-OK quick-actions route. Select no longer shares the generic
+ * long-press event, so old Favorite/controls handlers cannot fire underneath
+ * the overlay. Native supplies the semantic owner that held OK.
+ */
+export function addTvQuickActionsListener(cb: (context: TvQuickActionsContext) => void): () => void {
+  const eventName = "TvRemoteQuickActions";
+  if (emitter) {
+    const sub = emitter.addListener(eventName, (context: TvQuickActionsContext) => cb(context));
+    return () => sub.remove();
+  }
+  const sub = DeviceEventEmitter.addListener(eventName, (context: TvQuickActionsContext) => cb(context));
   return () => sub.remove();
 }
 
@@ -167,4 +183,3 @@ export function tap(x: number, y: number) {
     TvRemote?.tap?.(x, y);
   } catch {}
 }
-
