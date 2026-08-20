@@ -97,9 +97,10 @@ test("native EPG refuses empty live swaps and filters getWindow by channel ids",
 
 test("favorites are never auto-pruned on playlist load", async () => {
   const store = await source("src/store.tsx");
-  assert.match(store, /do NOT prune favorite\/recent IDs/);
   assert.doesNotMatch(store, /Drop orphan favorite\/recent IDs/);
   assert.doesNotMatch(store, /prev\.filter\(\(id\) => channelByIdMap\.has\(id\)\)/);
+  assert.match(store, /remapStoredChannelIds\(prev, nextChannels\)/);
+  assert.match(store, /const next = ids\[0\] \|\| prev/);
   assert.match(store, /Coalesce them so one refresh/);
   assert.match(store, /\}, 500\)/);
 });
