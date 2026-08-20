@@ -29,8 +29,16 @@ test("Media3 live reads tolerate provider jitter without disabling bounded decod
   assert.doesNotMatch(patch, /readTimeout\(5, TimeUnit\.SECONDS\)/);
   assert.match(player, /const MEDIA3_FROZEN_CLOCK_MS = 9000/);
   assert.match(player, /observedPlaybackTime = Number\(player\.currentTime\)/);
-  assert.match(player, /Boolean\(\(player as any\)\.playing\)/);
+  assert.match(player, /hasPlayedRef\.current &&\s*mediaReady &&\s*now - lastPlaybackAdvanceAtRef\.current >= MEDIA3_FROZEN_CLOCK_MS/);
+  assert.doesNotMatch(player, /Boolean\(\(player as any\)\.playing\)/);
   assert.match(player, /MAX_SILENT_BUFFERING_RESYNCS = 2/);
+});
+
+test("late stable-stream failure clears the stable gate and bounds fallback startup", async () => {
+  const player = await source("src/components/StreamPlayer.tsx");
+  assert.match(player, /if \(fallbackUsed\) \{\s*setSessionPhase\(role, sessionGeneration, "failed", "start-timeout"\);\s*setStatus\("error", "start-timeout"\);/);
+  assert.match(player, /if \(alternate\) \{[\s\S]*?stableRef\.current = false;[\s\S]*?setFallbackUsed\(true\);[\s\S]*?setEngine\(alternate\);/);
+  assert.doesNotMatch(player, /if \(stableRef\.current \|\| fallbackUsed\) return;/);
 });
 
 test("fullscreen channel zaps pause one decoder, settle once, and preserve Previous channel", async () => {
