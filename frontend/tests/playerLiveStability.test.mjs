@@ -34,6 +34,20 @@ test("Media3 live reads tolerate provider jitter without disabling bounded decod
   assert.match(player, /MAX_SILENT_BUFFERING_RESYNCS = 2/);
 });
 
+test("VLC post-playback stalls become bounded recovery events", async () => {
+  const player = await source("src/components/StreamPlayer.tsx");
+  assert.match(player, /const VLC_FROZEN_PROGRESS_MS = 15_000/);
+  assert.match(player, /const VLC_BUFFERING_FAIL_MS = 22_000/);
+  assert.match(player, /const vlcProgressSeenRef = useRef\(false\)/);
+  assert.match(player, /onProgress=\{\(\) => \{/);
+  assert.match(player, /vlcLastProgressAtRef\.current = Date\.now\(\)/);
+  assert.match(player, /vlcBufferingSinceRef\.current = Date\.now\(\)/);
+  assert.match(player, /const bufferingStalled = bufferingSince != null && now - bufferingSince >= VLC_BUFFERING_FAIL_MS/);
+  assert.match(player, /now - vlcLastProgressAtRef\.current >= VLC_FROZEN_PROGRESS_MS/);
+  assert.match(player, /if \(!bufferingStalled && !progressStalled\) return/);
+  assert.match(player, /vlcHasPlayedRef\.current = false;\s*fail\(\)/);
+});
+
 test("late stable-stream failure clears the stable gate and bounds fallback startup", async () => {
   const player = await source("src/components/StreamPlayer.tsx");
   assert.match(player, /if \(fallbackUsed\) \{\s*setSessionPhase\(role, sessionGeneration, "failed", "start-timeout"\);\s*setStatus\("error", "start-timeout"\);/);
