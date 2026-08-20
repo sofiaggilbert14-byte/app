@@ -39,8 +39,6 @@ if "const vlcHasPlayedRef = useRef(false);" not in text:
         "VLC watchdog refs",
     )
 
-# Older queued audit work may already have installed the first-generation VLC
-# watchdog. Reconcile that partial state instead of adding duplicate props/refs.
 if "const vlcLastProgressValueRef = useRef<number | null>(null);" not in text:
     insert_after_once(
         "  const vlcProgressSeenRef = useRef(false);",
@@ -80,4 +78,47 @@ playing_anchor = '''        if (!isSessionCurrent(sessionRole, sessionGeneration
 playing_new = '''        if (!isSessionCurrent(sessionRole, sessionGeneration)) return;\n        vlcHasPlayedRef.current = true;\n        vlcLastProgressAtRef.current = Date.now();\n        vlcBufferingSinceRef.current = null;\n        recordStablePlayback(sessionRole, engine, uri);'''
 replace_once(playing_anchor, playing_new, "VLC playing state")
 
+if "      onStopped={fail}" not in text:
+    replace_once(
+        "      onError={fail}\n",
+        "      onError={fail}\n      onStopped={fail}\n",
+        "VLC stopped callback",
+    )
+
 path.write_text(text, encoding="utf-8")
+
+
+# Rejoin wall-clock follow when horizontal navigation lands back on the
+# currently-airing programme. Manual future/past browsing still disables follow.
+guide_path = Path("frontend/android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt")
+guide = guide_path.read_text(encoding="utf-8")
+
+helper = '''  private fun updateLiveFollowFromSelection() {\n    val now = System.currentTimeMillis()\n    val current = selectedProgram()\n    liveFollowEnabled = current?.let { now >= it.startMs && now < it.endMs }\n      ?: (abs(selectedTimeMs - now) <= 60_000L)\n  }\n\n'''
+if "private fun updateLiveFollowFromSelection()" not in guide:
+    anchor = "  private fun clampViewportStart(value: Long): Long {"
+    if anchor not in guide:
+        raise SystemExit("Guide live-follow helper anchor not found")
+    guide = guide.replace(anchor, helper + anchor, 1)
+
+left_old = '''        selectedTimeMs = nextTime\n        ensureSelectedTimeVisible()\n        loadPrograms()'''
+left_new = '''        selectedTimeMs = nextTime\n        ensureSelectedTimeVisible()\n        updateLiveFollowFromSelection()\n        loadPrograms()'''
+if left_new not in guide:
+    if guide.count(left_old) < 1:
+        raise SystemExit("Guide left live-follow anchor not found")
+    guide = guide.replace(left_old, left_new, 1)
+
+right_old = '''        selectedTimeMs = nextTime\n        ensureSelectedTimeVisible()\n        // Horizontal cache misses must request the newest runway even when the'''
+right_new = '''        selectedTimeMs = nextTime\n        ensureSelectedTimeVisible()\n        updateLiveFollowFromSelection()\n        // Horizontal cache misses must request the newest runway even when the'''
+if right_new not in guide:
+    if right_old not in guide:
+        raise SystemExit("Guide right live-follow anchor not found")
+    guide = guide.replace(right_old, right_new, 1)
+
+rail_old = '''        if (channelRailSelected) {\n          channelRailSelected = false\n          invalidate(); emitSelection(true)\n          return true\n        }'''
+rail_new = '''        if (channelRailSelected) {\n          channelRailSelected = false\n          updateLiveFollowFromSelection()\n          invalidate(); emitSelection(true)\n          return true\n        }'''
+if rail_new not in guide:
+    if rail_old not in guide:
+        raise SystemExit("Guide rail live-follow anchor not found")
+    guide = guide.replace(rail_old, rail_new, 1)
+
+guide_path.write_text(guide, encoding="utf-8")
