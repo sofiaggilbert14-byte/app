@@ -65,6 +65,8 @@ export function useGuideGroupTabPreferences() {
       ([otherId, otherLabel]) => otherId !== id && otherLabel.toLowerCase() === label.toLowerCase(),
     );
     if (duplicate) return false;
+    const currentLabel = current.aliases[id] || id;
+    if (currentLabel === label) return true;
     const aliases = { ...current.aliases };
     if (label === id) delete aliases[id]; else aliases[id] = label;
     commit({ ...current, aliases });
@@ -76,7 +78,9 @@ export function useGuideGroupTabPreferences() {
     if (!id || id === GUIDE_GROUP_RESERVED_ID) return;
     const current = getGuideGroupTabPreferencesSnapshot();
     const hidden = new Set(current.hidden);
+    const wasHidden = hidden.has(id);
     if (visible) hidden.delete(id); else hidden.add(id);
+    if (wasHidden === hidden.has(id)) return;
     commit({ ...current, hidden: Array.from(hidden) });
   }, []);
 
@@ -96,7 +100,20 @@ export function useGuideGroupTabPreferences() {
     commit({ ...currentPrefs, order: next });
   }, []);
 
+  const remove = useCallback((groupId: string) => {
+    const id = cleanGuideGroupName(groupId);
+    if (!id || id === GUIDE_GROUP_RESERVED_ID) return;
+    const current = getGuideGroupTabPreferencesSnapshot();
+    const aliases = { ...current.aliases };
+    const hadAlias = Object.prototype.hasOwnProperty.call(aliases, id);
+    delete aliases[id];
+    const hidden = current.hidden.filter((item) => item !== id);
+    const order = current.order.filter((item) => item !== id);
+    if (!hadAlias && hidden.length === current.hidden.length && order.length === current.order.length) return;
+    commit({ aliases, hidden, order });
+  }, []);
+
   const reset = useCallback(() => commit({ aliases: {}, hidden: [], order: [] }), []);
   const hiddenSet = useMemo(() => new Set(value.hidden), [value.hidden]);
-  return { ...value, hiddenSet, rename, setVisible, move, reset };
+  return { ...value, hiddenSet, rename, setVisible, move, remove, reset };
 }
