@@ -2,6 +2,7 @@ import "./sourceParsing.test.mjs";
 import "./favorites.test.mjs";
 import "./playerAndFocus.test.mjs";
 import "./playerLiveStability.test.mjs";
+import "./playerPreferenceHydration.test.mjs";
 import "./guideLiveClock.test.mjs";
 import "./guideActionHandoff.test.mjs";
 import "./guideRunwayPolicy.test.mjs";
