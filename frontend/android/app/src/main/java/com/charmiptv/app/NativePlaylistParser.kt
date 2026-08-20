@@ -149,25 +149,15 @@ internal object NativePlaylistParser {
   }
 
   private fun openPlaylist(urlString: String): InputStream {
-    val requestedUrl = urlString.trim()
-    if (!isHttpUrl(requestedUrl)) {
+    val cleanUrl = urlString.trim()
+    if (!isHttpUrl(cleanUrl)) {
       throw IllegalStateException("M3U URL must use http or https")
     }
-    // Preserve the transport behavior of the last known-good Charm builds:
-    // legacy IPTV http:// playlist endpoints are attempted over HTTPS first.
-    // This keeps cold start on the same provider path that previously loaded
-    // successfully while the sideload manifest still permits cleartext stream
-    // playback URLs returned inside the playlist itself.
-    val cleanUrl = if (requestedUrl.startsWith("http://", ignoreCase = true)) {
-      "https://${requestedUrl.substring(7)}"
-    } else {
-      requestedUrl
-    }
 
-    // Clone the shared RN client instead of creating a second connection pool.
-    // OkHttp transparently negotiates/decompresses gzip when Accept-Encoding is
-    // not forced by the caller, matching the transport behavior of the older
-    // working React Native fetch path while keeping parsing entirely native.
+    // Preserve the provider protocol exactly. Many Xtream-style providers use
+    // cleartext HTTP for both playlist and XMLTV endpoints; sideload builds
+    // explicitly permit that transport. Stream URLs inside the M3U are also
+    // retained verbatim.
     val client = OkHttpClientProvider.getOkHttpClient().newBuilder()
       .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
       .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
@@ -205,9 +195,6 @@ internal object NativePlaylistParser {
       val b1 = buffered.read()
       val b2 = buffered.read()
       buffered.reset()
-      // OkHttp normally performs transparent Content-Encoding gzip decoding.
-      // Keep magic-byte support for providers that send gzip bytes without a
-      // correct Content-Encoding header.
       val decoded = if (b1 == 0x1f && b2 == 0x8b) {
         GZIPInputStream(buffered, NETWORK_BUFFER_SIZE)
       } else {
