@@ -18,3 +18,12 @@ test("native Guide advances its live runway even when the user is not pressing a
   assert.match(guide, /override fun onDetachedFromWindow\(\) \{\s*stopLiveClock\(\)/);
   assert.match(guide, /fun dispose\(\) \{\s*if \(disposed\) return\s*stopLiveClock\(\)/);
 });
+
+test("manual time browsing rejoins wall-clock follow when selection returns to the live programme", async () => {
+  const guide = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");
+  assert.match(guide, /private fun updateLiveFollowFromSelection\(\)/);
+  assert.match(guide, /now >= it\.startMs && now < it\.endMs/);
+  assert.match(guide, /abs\(selectedTimeMs - now\) <= 60_000L/);
+  assert.match(guide, /selectedTimeMs = nextTime\s*\n\s*ensureSelectedTimeVisible\(\)\s*\n\s*updateLiveFollowFromSelection\(\)/);
+  assert.match(guide, /channelRailSelected = false\s*\n\s*updateLiveFollowFromSelection\(\)/);
+});
