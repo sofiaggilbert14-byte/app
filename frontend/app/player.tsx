@@ -53,6 +53,7 @@ const STREAM_RETRY_DELAYS_MS = [1000, 2000, 4000] as const;
 const MAX_AUTO_STREAM_RETRIES = 4;
 const SWITCH_NOTICE_MS = 1800;
 const STABLE_HISTORY_DELAY_MS = 5000;
+type PlayerViewMode = "fit" | "fill" | "zoom" | "stretch";
 
 const FAIL_REASON_LABEL: Record<SessionFailReason, string> = {
   "start-timeout": "start timeout — trying alternate engine",
@@ -109,7 +110,7 @@ export default function PlayerScreen() {
   // Decoder is disarmed while rapid Next/Prev or strip surfing — prevents VLC pile-up / audio leaks.
   const [decoderArmed, setDecoderArmed] = useState(true);
   const [playbackPaused, setPlaybackPaused] = useState(false);
-  const [scaleMode, setScaleMode] = useState<PlayerScaleMode>("fit");
+  const [scaleMode, setScaleMode] = useState<PlayerViewMode>("fit");
   const [audioTracks, setAudioTracks] = useState<StreamTrack[]>([]);
   const [textTracks, setTextTracks] = useState<StreamTrack[]>([]);
   const [audioTrackId, setAudioTrackId] = useState<string | number | undefined>(undefined);
@@ -391,8 +392,8 @@ export default function PlayerScreen() {
 
   const cycleScaleMode = useCallback(() => {
     setScaleMode((current) => {
-      const next: PlayerScaleMode = current === "fit" ? "zoom" : current === "zoom" ? "stretch" : "fit";
-      showNotice(next === "fit" ? "Aspect: Fit" : next === "zoom" ? "Aspect: Zoom" : "Aspect: Stretch");
+      const next: PlayerViewMode = current === "fit" ? "fill" : current === "fill" ? "zoom" : current === "zoom" ? "stretch" : "fit";
+      showNotice(next === "fit" ? "Aspect: Fit" : next === "fill" ? "Aspect: Fill" : next === "zoom" ? "Aspect: Zoom" : "Aspect: Stretch");
       return next;
     });
     revealControls({ claimChannelsFocus: false });
@@ -723,6 +724,8 @@ export default function PlayerScreen() {
     return () => sub.remove();
   }, [channelsOpen, closeOverlayAndRestoreFocus, moreOpen, revealControls, scheduleHide, stopAndExit, tracksOpen]);
 
+  const engineScaleMode: PlayerScaleMode = scaleMode === "fill" ? "zoom" : scaleMode === "stretch" ? "stretch" : "fit";
+
   return (
     <View style={styles.root}>
       <RNStatusBar hidden />
@@ -757,7 +760,7 @@ export default function PlayerScreen() {
             audioTrack={audioTrackId}
             textTrack={textTrackId}
             paused={playbackPaused}
-            scaleMode={scaleMode}
+            scaleMode={engineScaleMode}
             onTracksAvailable={(tracks) => {
               const audio = tracks.audio.filter((track) => track.id !== "" && track.id != null);
               const text = tracks.text.filter((track) => track.id !== "" && track.id != null);
@@ -789,7 +792,7 @@ export default function PlayerScreen() {
               }
             }}
             onStatus={handleStreamStatus}
-            style={StyleSheet.absoluteFill}
+            style={scaleMode === "zoom" ? [StyleSheet.absoluteFill, styles.zoomedVideo] : StyleSheet.absoluteFill}
           />
         </ErrorBoundary>
       ) : null}
@@ -990,7 +993,7 @@ export default function PlayerScreen() {
                 </Pressable>
                 <Pressable onPress={cycleScaleMode} style={({ focused }: any) => [styles.trackRow, focused && styles.focused]}>
                   <Ionicons name="resize-outline" size={15} color="#fff" />
-                  <Text style={styles.controlLabel}>Aspect · {scaleMode === "fit" ? "Fit" : scaleMode === "zoom" ? "Zoom" : "Stretch"}</Text>
+                  <Text style={styles.controlLabel}>Aspect · {scaleMode === "fit" ? "Fit" : scaleMode === "fill" ? "Fill" : scaleMode === "zoom" ? "Zoom" : "Stretch"}</Text>
                 </Pressable>
                 <Pressable
                   onPress={() => {
@@ -1091,7 +1094,8 @@ export default function PlayerScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#000" },
+  root: { flex: 1, backgroundColor: "#000", overflow: "hidden" },
+  zoomedVideo: { transform: [{ scale: 1.2 }] },
   errorOverlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "rgba(0,0,0,0.54)" },
   errorTitle: { color: "#fff", fontFamily: fonts.semibold, fontSize: 13 },
   errorText: { color: tvColors.textMuted, fontFamily: fonts.regular, fontSize: 8.5 },
