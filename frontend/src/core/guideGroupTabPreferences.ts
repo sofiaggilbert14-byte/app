@@ -81,7 +81,9 @@ function commit(next: GuideGroupTabPreferences) {
     try { listener(cached); } catch {}
   }
   const snapshot = cached;
-  writeChain = writeChain.then(() => storage.setItem(KEY, snapshot)).catch(() => undefined);
+  writeChain = writeChain
+    .then(async () => { await storage.setItem(KEY, snapshot); })
+    .catch(() => undefined);
 }
 
 export function getGuideGroupTabPreferencesSnapshot(): GuideGroupTabPreferences {
