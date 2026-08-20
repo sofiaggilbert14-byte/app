@@ -139,3 +139,14 @@ old_back = '      if (key === "LEFT" || key === "BACK") {'
 new_back = '      if (key === "LEFT") {'
 groups = replace_once(groups, old_back, new_back, "Guide Groups BACK ownership")
 groups_path.write_text(groups, encoding="utf-8")
+
+
+# Program Details opened from the Guide must preserve the same return anchor as
+# direct Guide playback. Otherwise Watch now can return to a generic route even
+# though the user entered fullscreen from a specific Guide selection.
+program_modal_path = Path("frontend/src/components/ProgramModal.tsx")
+program_modal = program_modal_path.read_text(encoding="utf-8")
+old_watch = '    openFullscreenPlayer(router, channel.id);'
+new_watch = '    openFullscreenPlayer(router, channel.id, { returnToGuide: pathname?.startsWith("/guide") });'
+program_modal = replace_once(program_modal, old_watch, new_watch, "ProgramModal Guide return anchor")
+program_modal_path.write_text(program_modal, encoding="utf-8")
