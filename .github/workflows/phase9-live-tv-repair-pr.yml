@@ -1,9 +1,7 @@
 name: Apply Phase 9 Live TV Repair via PR
 
 on:
-  pull_request:
-    branches:
-      - main
+  workflow_dispatch:
 
 permissions:
   contents: write
