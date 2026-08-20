@@ -860,8 +860,13 @@ export default function PurpleGuideScreen() {
   }, [activeProgram, drawerOpen, groupDrawerOpen]);
 
   const onGuideUpBoundary = useCallback(() => {
-    setPreviewActionsFocused(true);
-    requestAnimationFrame(() => focusGuidePreviewSurface());
+    // Keep the native Guide active until Android confirms focus on a real
+    // preview action. GuidePreviewRail's onFocus owns the transition to
+    // previewActionsFocused=true; if this request misses during a route/decoder
+    // handoff, focus stays safely in the Guide instead of disappearing.
+    requestAnimationFrame(() => {
+      focusGuidePreviewSurface();
+    });
   }, []);
 
   useFocusEffect(
