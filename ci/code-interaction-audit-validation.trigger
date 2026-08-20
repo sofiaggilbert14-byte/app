@@ -1,1 +1,1 @@
-2026-08-20 interaction audit validation run 12 - extract four failing assertion sections
+2026-08-20 interaction audit validation run 13 - recheck after native duplicate fix and capture exact failures
