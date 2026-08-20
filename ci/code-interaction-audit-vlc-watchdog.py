@@ -122,3 +122,32 @@ if rail_new not in guide:
     guide = guide.replace(rail_old, rail_new, 1)
 
 guide_path.write_text(guide, encoding="utf-8")
+
+
+# Native decoder teardown is asynchronous for fullscreen Media3. Give the old
+# decoder a short release window before remounting a retry/instant channel swap
+# so Fire TV never allocates the replacement on top of the releasing codec.
+player_path = Path("frontend/app/player.tsx")
+player = player_path.read_text(encoding="utf-8")
+
+if "const DECODER_RESTART_SETTLE_MS = 120;" not in player:
+    anchor = "const CHANNEL_ZAP_SETTLE_MS = 850;"
+    if anchor not in player:
+        raise SystemExit("decoder restart constant anchor not found")
+    player = player.replace(anchor, anchor + "\nconst DECODER_RESTART_SETTLE_MS = 120;", 1)
+
+immediate_old = '''    if (opts?.immediate) {\n      // Pause decoders only — do not bump session generation while StreamPlayer is still mounted.\n      pauseSessionDecoders("fullscreen");\n      setDecoderArmed(true);\n      setRetryToken((value) => value + 1);\n      return;\n    }'''
+immediate_new = '''    if (opts?.immediate) {\n      // Native Media3 release is asynchronous. Disarm before the remount and\n      // give the old codec the same bounded handoff window used elsewhere.\n      pauseSessionDecoders("fullscreen");\n      setDecoderArmed(false);\n      armDecoderAfterSettle(DECODER_RESTART_SETTLE_MS);\n      return;\n    }'''
+if immediate_new not in player:
+    if immediate_old not in player:
+        raise SystemExit("immediate channel remount anchor not found")
+    player = player.replace(immediate_old, immediate_new, 1)
+
+retry_old = '''    setRetryToken((value) => value + 1);\n    requestAnimationFrame(() => {\n      if (generation === generationRef.current) setDecoderArmed(true);\n    });'''
+retry_new = '''    setRetryToken((value) => value + 1);\n    zapTimer.current = setTimeout(() => {\n      if (generation === generationRef.current) setDecoderArmed(true);\n    }, DECODER_RESTART_SETTLE_MS);'''
+if retry_new not in player:
+    if retry_old not in player:
+        raise SystemExit("retry decoder remount anchor not found")
+    player = player.replace(retry_old, retry_new, 1)
+
+player_path.write_text(player, encoding="utf-8")
