@@ -98,7 +98,9 @@ internal interface EpgControlDao {
   @Query("DELETE FROM epg_channel_bindings WHERE playlistId = :playlistId AND channelId = :channelId")
   fun clearChannelBinding(playlistId: String, channelId: String)
 
-  @Query("DELETE FROM epg_channel_bindings WHERE playlistId LIKE 'user:%' AND channelId = :channelId")
+  // Legacy custom EPG is exactly `user`; additional sources are normalized to
+  // `user:<id>`. Exclusive assignment must clear both families atomically.
+  @Query("DELETE FROM epg_channel_bindings WHERE (playlistId = 'user' OR playlistId LIKE 'user:%') AND channelId = :channelId")
   fun clearUserChannelBindings(channelId: String)
 
   @Query("SELECT COUNT(*) FROM epg_channel_bindings WHERE playlistId = :playlistId")
@@ -124,7 +126,7 @@ internal interface EpgControlDao {
       .associate { it.channelId to it.xmltvId }
     if (existingMap == incomingMap) return
     // Deliberately ignore a divergent legacy bulk snapshot. All live edits use
-    // setChannelBinding()/clearChannelBindings() through the native binding API.
+    // setChannelBinding()/setExclusiveUserChannelBinding() through native APIs.
   }
 
   @Transaction
