@@ -28,6 +28,7 @@ jobs:
         shell: bash
         run: |
           set +e
+          source_head=$(git rev-parse HEAD)
           cd frontend
           npm ci --legacy-peer-deps --no-audit --no-fund
           install=$?
@@ -47,6 +48,7 @@ jobs:
           fi
           cd ..
           cat > ci/code-interaction-audit-validation.txt <<EOF
+          source_head=$source_head
           install=$install
           test=$test
           typecheck=$typecheck
