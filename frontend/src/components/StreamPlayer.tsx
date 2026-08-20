@@ -896,7 +896,7 @@ function ExpoStream({
       const frozenReadyClock =
         bufferingSince == null &&
         hasPlayedRef.current &&
-        Boolean((player as any).playing) &&
+        mediaReady &&
         now - lastPlaybackAdvanceAtRef.current >= MEDIA3_FROZEN_CLOCK_MS;
       if (bufferingSince == null && !frozenReadyClock) return;
       const bufferingFor = bufferingSince != null
@@ -1106,8 +1106,16 @@ export function StreamPlayer({
   useEffect(() => {
     if (stableRef.current || !playbackFocused || !sessionGeneration) return;
     const timer = setTimeout(() => {
-      if (stableRef.current || fallbackUsed) return;
+      if (stableRef.current) return;
       if (!isSessionCurrent(role, sessionGeneration)) return;
+      // The one allowed alternate engine still needs a bounded startup. If it
+      // never reaches playing, surface an error so PlayerScreen can perform its
+      // full decoder remount/backoff instead of staying on a permanent spinner.
+      if (fallbackUsed) {
+        setSessionPhase(role, sessionGeneration, "failed", "start-timeout");
+        setStatus("error", "start-timeout");
+        return;
+      }
       const alternate = alternateEngine(engine, vlcAvailable);
       if (!alternate) {
         setSessionPhase(role, sessionGeneration, "failed", "start-timeout");
@@ -1144,6 +1152,11 @@ export function StreamPlayer({
         }
         const alternate = alternateEngine(engine, vlcAvailable);
         if (alternate) {
+          // A post-playback failure is a new recovery attempt. Clear the stable
+          // gate before mounting the alternate or its own start timeout is
+          // suppressed by the earlier successful engine.
+          stableRef.current = false;
+          if (role === "fullscreen") setNativePlaybackStarting(true);
           setFallbackUsed(true);
           setEngine(alternate);
           const swapReason: SessionFailReason =

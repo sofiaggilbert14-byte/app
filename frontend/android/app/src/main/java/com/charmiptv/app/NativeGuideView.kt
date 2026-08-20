@@ -63,6 +63,12 @@ class NativeGuideView(context: Context) : View(context) {
   // programme the viewer intentionally selected.
   private var liveFollowEnabled = true
   private var lastLiveFollowQueryStartMs = Long.MIN_VALUE
+  private val liveClockRunnable = Runnable {
+    if (!disposed && enabled && isAttachedToWindow) {
+      invalidate()
+      scheduleLiveClock()
+    }
+  }
   private val settleSelectionRunnable = Runnable {
     if (enabled && !disposed && rows.isNotEmpty()) emitSelection(true)
   }
@@ -107,6 +113,17 @@ class NativeGuideView(context: Context) : View(context) {
     isFocusable = true
     isFocusableInTouchMode = true
     setBackgroundColor(Color.BLACK)
+  }
+
+  private fun scheduleLiveClock() {
+    removeCallbacks(liveClockRunnable)
+    if (!disposed && enabled && isAttachedToWindow) {
+      postDelayed(liveClockRunnable, LIVE_CLOCK_TICK_MS)
+    }
+  }
+
+  private fun stopLiveClock() {
+    removeCallbacks(liveClockRunnable)
   }
 
   fun setChannels(value: ReadableArray?) {
@@ -177,6 +194,7 @@ class NativeGuideView(context: Context) : View(context) {
     val wasEnabled = enabled
     enabled = value
     if (!value) {
+      stopLiveClock()
       removeCallbacks(settleSelectionRunnable)
       navigationKeyDown = false
       selectKeyDown = false
@@ -184,6 +202,7 @@ class NativeGuideView(context: Context) : View(context) {
       moveVelocity = 0
       return
     }
+    scheduleLiveClock()
     applyPendingRestoreChannel()
     // React may re-apply an unchanged active=true prop while Preview owns focus.
     // Only a real inactive -> active ownership transition may take Android focus
@@ -337,6 +356,7 @@ class NativeGuideView(context: Context) : View(context) {
   }
 
   override fun onDetachedFromWindow() {
+    stopLiveClock()
     removeCallbacks(settleSelectionRunnable)
     navigationKeyDown = false
     selectKeyDown = false
@@ -349,12 +369,14 @@ class NativeGuideView(context: Context) : View(context) {
 
   override fun onAttachedToWindow() {
     super.onAttachedToWindow()
+    scheduleLiveClock()
     applyPendingRestoreChannel()
     loadPrograms()
   }
 
   fun dispose() {
     if (disposed) return
+    stopLiveClock()
     removeCallbacks(settleSelectionRunnable)
     navigationKeyDown = false
     moveVelocity = 0
@@ -631,6 +653,7 @@ class NativeGuideView(context: Context) : View(context) {
   }
 
   companion object {
+    private const val LIVE_CLOCK_TICK_MS = 30_000L
     private const val PAINT_CACHE_CHANNELS = 128
     private const val LOW_RAM_PAINT_CACHE_CHANNELS = 64
   }
