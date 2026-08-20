@@ -629,8 +629,6 @@ class NativeGuideView(context: Context) : View(context) {
       val x = timeToX(wallClockNow, visibleStartMs, visibleEndMs)
       canvas.drawLine(x, headerHeight, x, height.toFloat(), nowPaint)
     }
-    // Keep wall-clock movement alive even when React is otherwise idle.
-    postInvalidateDelayed(30_000L)
   }
 
   private fun drawHeader(canvas: Canvas, start: Long, end: Long) {

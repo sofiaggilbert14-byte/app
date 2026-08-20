@@ -469,6 +469,25 @@ function VlcStream({
         }
         emit("loading");
       }}
+      onProgress={(info: any) => {
+        if (!activeRef.current || tearingDownRef.current) return;
+        if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
+        const currentTime = Number(info?.currentTime);
+        const position = Number(info?.position);
+        const progressValue = Number.isFinite(currentTime)
+          ? currentTime
+          : Number.isFinite(position)
+            ? position
+            : Number.NaN;
+        if (!Number.isFinite(progressValue)) return;
+        const previous = vlcLastProgressValueRef.current;
+        vlcLastProgressValueRef.current = progressValue;
+        if (previous == null || Math.abs(progressValue - previous) > 0.0001) {
+          if (previous != null) vlcProgressSeenRef.current = true;
+          vlcLastProgressAtRef.current = Date.now();
+          vlcBufferingSinceRef.current = null;
+        }
+      }}
       onProgress={() => {
         if (!activeRef.current || tearingDownRef.current) return;
         if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
@@ -932,9 +951,9 @@ function ExpoStream({
       }
       const bufferingSince = bufferingSinceRef.current;
       // Media3 may wedge while still reporting readyToPlay. Poll its actual
-      // playback clock and require the native playing signal before declaring a
-      // frozen-ready decoder. This avoids the old false-positive path caused by
-      // sparse JS timeUpdate delivery while still recovering a truly stuck clock.
+      // playback clock directly; once this fullscreen decoder has genuinely played,
+      // a stale clock is authoritative even if Media3's playing flag also dropped.
+      // This keeps recovery independent of sparse JS timeUpdate delivery.
       const frozenReadyClock =
         bufferingSince == null &&
         hasPlayedRef.current &&
