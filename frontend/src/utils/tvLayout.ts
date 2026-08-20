@@ -3,11 +3,7 @@ import type { TvCalibration } from "@/src/tvCalibration";
 
 export type DeviceLayoutMode = "auto" | "tv" | "mobile";
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
-}
-
-/** Resolve whether TV safe insets / living-room layout should apply. */
+/** Resolve whether TV living-room layout should apply. */
 export function shouldUseTvLayout(mode: DeviceLayoutMode = "auto"): boolean {
   if (mode === "tv") return true;
   if (mode === "mobile") return false;
@@ -15,37 +11,26 @@ export function shouldUseTvLayout(mode: DeviceLayoutMode = "auto"): boolean {
 }
 
 /**
- * Light automatic overscan padding — large enough for typical Fire TV crop,
- * small enough that a 65" panel still feels full-bleed. Manual calibration
- * (TvCalibration) adds/subtracts from these values in one place.
+ * Modern Android TV/Fire TV reports the drawable application viewport already.
+ * TiViMate-style automatic fit therefore starts full-bleed instead of applying a
+ * second guessed safe-area percentage that permanently shrinks 1080p/4K TVs.
+ * Real overscan is handled by the user's four-edge calibration layer.
  */
 export function getTvSafeInsets(
-  width: number,
-  height: number,
+  _width: number,
+  _height: number,
   mode: DeviceLayoutMode = "auto",
 ) {
   if (!shouldUseTvLayout(mode)) {
     return { top: 0, right: 0, bottom: 0, left: 0 };
   }
-
-  const shortSide = Math.max(1, Math.min(width, height));
-  const longSide = Math.max(width, height);
-  // Previously up to 34/44 — that permanently letterboxed large TVs.
-  const vertical = clamp(Math.round(shortSide * 0.012), 4, 16);
-  const horizontal = clamp(Math.round(longSide * 0.008), 6, 20);
-
-  return {
-    top: vertical,
-    right: horizontal,
-    bottom: vertical,
-    left: horizontal,
-  };
+  return { top: 0, right: 0, bottom: 0, left: 0 };
 }
 
 /**
- * Combine automatic safe insets with user calibration.
- * Positive calibration = inset more (shrink). Negative = reduce inset toward 0,
- * then use negative margin to expand past the reported window when needed.
+ * Positive calibration = inset an edge. Negative calibration = expand that edge
+ * beyond the reported viewport. Applying these values at one layout owner avoids
+ * double-letterboxing and never touches player/decoder buffers.
  */
 export function combineTvEdgeInsets(
   safe: { top: number; right: number; bottom: number; left: number },
