@@ -6,6 +6,11 @@ on:
       - agent/code-interaction-audit
     paths:
       - ci/code-interaction-audit-player-stability.trigger
+  pull_request:
+    branches:
+      - agent/code-interaction-audit
+    paths:
+      - ci/code-interaction-audit-player-stability.trigger
 
 permissions:
   contents: write
@@ -23,6 +28,8 @@ jobs:
           python-version: '3.12'
       - name: Apply focused interaction repairs
         run: python ci/code-interaction-audit-player-stability.py
+      - name: Validate patch shape
+        run: git diff --check
       - name: Commit repairs
         run: |
           if git diff --quiet; then
@@ -33,6 +40,7 @@ jobs:
           git config user.email "actions@users.noreply.github.com"
           git add frontend/patches/expo-video+3.0.16.patch \
                   frontend/app/player.tsx \
+                  frontend/src/components/StreamPlayer.tsx \
                   frontend/android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt \
                   frontend/android/app/src/main/java/com/charmiptv/app/MainActivity.kt \
                   frontend/src/components/PurpleGuideGroupDrawer.tsx
