@@ -1,6 +1,6 @@
-source_head=1cb8e3f86903340ed2e4245c6d801b2979e09356
+source_head=41ce853d7c683d0186ce52f8a4e35b96faf7413a
 install=0
-test=0
+test=1
 typecheck=0
 native_config=0
 doctor=0
