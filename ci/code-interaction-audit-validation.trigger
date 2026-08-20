@@ -1,1 +1,1 @@
-2026-08-20 interaction audit validation run 13 - recheck after native duplicate fix and capture exact failures
+2026-08-20 interaction audit validation run 14 - full repaired player Guide preference ownership and first-progress pass
