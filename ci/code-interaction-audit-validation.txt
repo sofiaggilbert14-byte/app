@@ -1,18 +1,7 @@
-source_head=a553baa62dedb0f283ec4c7531dd008654086cde
+source_head=d9675680bf3578bb6a6ad1ae46e7fc676dc5fa5c
 install=0
 test=0
-typecheck=2
+typecheck=0
 native_config=0
 doctor=0
 lint=0
-
---- typecheck diagnostics ---
-
-> frontend@1.0.0 typecheck
-> tsc --noEmit
-
-app/player.tsx(166,13): error TS2345: Argument of type '() => (() => boolean) | undefined' is not assignable to parameter of type 'EffectCallback'.
-  Type '(() => boolean) | undefined' is not assignable to type 'void | Destructor'.
-    Type '() => boolean' is not assignable to type 'void | Destructor'.
-      Type '() => boolean' is not assignable to type 'Destructor'.
-        Type 'boolean' is not assignable to type 'void | { [UNDEFINED_VOID_ONLY]: never; }'.
