@@ -15,13 +15,18 @@ const KEY = "gs_guide_group_tab_preferences_v1";
 let loaded = false;
 let loading: Promise<GuideGroupTabPreferences> | null = null;
 let writeChain: Promise<void> = Promise.resolve();
+let mutationEpoch = 0;
 const listeners = new Set<(value: GuideGroupTabPreferences) => void>();
 
 async function load(): Promise<GuideGroupTabPreferences> {
   if (loaded) return getGuideGroupTabPreferencesSnapshot();
   if (loading) return loading;
   const fallback = getGuideGroupTabPreferencesSnapshot();
+  const loadEpoch = mutationEpoch;
   loading = storage.getItem<GuideGroupTabPreferences>(KEY, fallback).then((raw) => {
+    // A user edit made while the async disk read was in flight owns the newer
+    // state. Never let that stale read reinstall older rename/hide/order data.
+    if (loaded || loadEpoch !== mutationEpoch) return getGuideGroupTabPreferencesSnapshot();
     const next = installGuideGroupTabPreferences(normalizeGuideGroupTabPreferences(raw));
     loaded = true;
     return next;
@@ -30,6 +35,7 @@ async function load(): Promise<GuideGroupTabPreferences> {
 }
 
 function commit(next: GuideGroupTabPreferences) {
+  mutationEpoch += 1;
   const installed = installGuideGroupTabPreferences(next);
   loaded = true;
   for (const listener of Array.from(listeners)) {
