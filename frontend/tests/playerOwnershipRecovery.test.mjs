@@ -10,7 +10,8 @@ const source = (path) => readFile(join(root, path), "utf8");
 test("player cleanup cannot clobber a newer TV remote owner", async () => {
   const player = await source("app/player.tsx");
   assert.match(player, /resetRemoteContextIfOwned/);
-  assert.match(player, /return \(\) => resetRemoteContextIfOwned\("player", "default"\)/);
+  assert.match(player, /return \(\) => \{\s*resetRemoteContextIfOwned\("player", "default"\);\s*\}/);
+  assert.doesNotMatch(player, /return \(\) => resetRemoteContextIfOwned\("player", "default"\)/);
   assert.doesNotMatch(player, /return \(\) => setRemoteContext\("default"\)/);
 });
 
