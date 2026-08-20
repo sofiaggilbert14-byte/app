@@ -31,6 +31,7 @@ const DEFAULTS: SourceRefreshPreferences = {
 let cached: SourceRefreshPreferences = DEFAULTS;
 let loaded = false;
 let loadPromise: Promise<SourceRefreshPreferences> | null = null;
+let mutationEpoch = 0;
 const listeners = new Set<(value: SourceRefreshPreferences) => void>();
 
 function normalize(value: unknown, fallback: SourceRefreshIntervalHours): SourceRefreshIntervalHours {
@@ -48,9 +49,17 @@ function emit(): void {
   }
 }
 
+function commit(next: SourceRefreshPreferences): void {
+  mutationEpoch += 1;
+  cached = next;
+  loaded = true;
+  emit();
+}
+
 async function load(): Promise<SourceRefreshPreferences> {
   if (loaded) return cached;
   if (loadPromise) return loadPromise;
+  const loadEpoch = mutationEpoch;
   loadPromise = (async () => {
     const [playlistHours, epgHours, epgPastDays, updateEpgOnAppStart, updateEpgOnPlaylistChange] = await Promise.all([
       storage.getItem<SourceRefreshIntervalHours>(PLAYLIST_KEY, DEFAULTS.playlistHours),
@@ -59,7 +68,7 @@ async function load(): Promise<SourceRefreshPreferences> {
       storage.getItem<boolean>(EPG_ON_START_KEY, DEFAULTS.updateEpgOnAppStart),
       storage.getItem<boolean>(EPG_ON_PLAYLIST_CHANGE_KEY, DEFAULTS.updateEpgOnPlaylistChange),
     ]);
-    cached = {
+    const next: SourceRefreshPreferences = {
       playlistHours: normalize(playlistHours, DEFAULTS.playlistHours),
       epgHours: normalize(epgHours, DEFAULTS.epgHours),
       epgPastDays: epgPastDays === 1 || epgPastDays === 3 || epgPastDays === 14 ? epgPastDays : 7,
@@ -68,6 +77,10 @@ async function load(): Promise<SourceRefreshPreferences> {
       updateEpgOnAppStart: updateEpgOnAppStart === true,
       updateEpgOnPlaylistChange: updateEpgOnPlaylistChange !== false,
     };
+    // A user edit made while the initial multi-key storage read was in flight
+    // owns the newer scheduling policy. Never reinstall the stale snapshot.
+    if (loaded || loadEpoch !== mutationEpoch) return cached;
+    cached = next;
     loaded = true;
     // Keep persisted UI policy and native source rows in lock-step at startup.
     void syncNativeCustomEpgPolicy(cached.epgHours, cached.epgPastDays);
@@ -110,42 +123,34 @@ export function nextRefreshAt(
 
 export async function setPlaylistRefreshInterval(value: SourceRefreshIntervalHours): Promise<void> {
   const next = normalize(value, DEFAULTS.playlistHours);
-  cached = { ...cached, playlistHours: next };
-  loaded = true;
-  emit();
+  commit({ ...cached, playlistHours: next });
   await storage.setItem(PLAYLIST_KEY, next);
 }
 
 export async function setEpgRefreshInterval(value: SourceRefreshIntervalHours): Promise<void> {
   const next = normalize(value, DEFAULTS.epgHours);
-  cached = { ...cached, epgHours: next };
-  loaded = true;
-  emit();
+  commit({ ...cached, epgHours: next });
   await storage.setItem(EPG_KEY, next);
   await syncNativeCustomEpgPolicy(cached.epgHours, cached.epgPastDays);
 }
 
 export async function setEpgPastDays(value: SourceRefreshPreferences["epgPastDays"]): Promise<void> {
   const next = value === 1 || value === 3 || value === 14 ? value : 7;
-  cached = { ...cached, epgPastDays: next };
-  loaded = true;
-  emit();
+  commit({ ...cached, epgPastDays: next });
   await storage.setItem(EPG_PAST_DAYS_KEY, next);
   await syncNativeCustomEpgPolicy(cached.epgHours, cached.epgPastDays);
 }
 
 export async function setUpdateEpgOnAppStart(value: boolean): Promise<void> {
-  cached = { ...cached, updateEpgOnAppStart: value === true };
-  loaded = true;
-  emit();
-  await storage.setItem(EPG_ON_START_KEY, cached.updateEpgOnAppStart);
+  const next = value === true;
+  commit({ ...cached, updateEpgOnAppStart: next });
+  await storage.setItem(EPG_ON_START_KEY, next);
 }
 
 export async function setUpdateEpgOnPlaylistChange(value: boolean): Promise<void> {
-  cached = { ...cached, updateEpgOnPlaylistChange: value === true };
-  loaded = true;
-  emit();
-  await storage.setItem(EPG_ON_PLAYLIST_CHANGE_KEY, cached.updateEpgOnPlaylistChange);
+  const next = value === true;
+  commit({ ...cached, updateEpgOnPlaylistChange: next });
+  await storage.setItem(EPG_ON_PLAYLIST_CHANGE_KEY, next);
 }
 
 export function useSourceRefreshPreferences(): SourceRefreshPreferences & {
