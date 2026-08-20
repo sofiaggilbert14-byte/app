@@ -876,14 +876,10 @@ function ExpoStream({
       if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
       const now = Date.now();
       const bufferingSince = bufferingSinceRef.current;
-      const stalledReady =
-        bufferingSince == null &&
-        hasAdvancedPlaybackRef.current &&
-        now - lastPlaybackAdvanceAtRef.current >= BUFFERING_RESYNC_MS;
-      if (bufferingSince == null && !stalledReady) return;
-      const bufferingFor = bufferingSince != null
-        ? now - bufferingSince
-        : now - lastPlaybackAdvanceAtRef.current;
+      // Live clocks can emit sparse time updates while healthy. Only an explicit
+      // post-playback Media3 loading/buffering state owns recovery.
+      if (bufferingSince == null) return;
+      const bufferingFor = now - bufferingSince;
       if (bufferingFor < BUFFERING_RESYNC_MS) return;
 
       if (

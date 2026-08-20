@@ -37,6 +37,7 @@ import { invalidateGuideOwnershipCaches } from "@/src/source";
 import { fingerprintStreamUri, getLastAudioDiagnostics } from "@/src/core/audioDiagnostics";
 import { usePlayerEnginePreference, type PlayerEnginePreference } from "@/src/playerEnginePreference";
 import { usePlaybackBufferProfile, type PlaybackBufferProfile } from "@/src/core/playbackBufferProfile";
+import type { Program } from "@/src/api";
 
 type Mode = "main" | "epg-source" | "epg-channel";
 type SourceChoice = { id: string; name: string; url: string; enabled: boolean; legacy: boolean };
@@ -73,6 +74,7 @@ export function TvQuickActionsOverlay() {
   const [open, setOpen] = useState(false);
   const [context, setContext] = useState<TvQuickActionsContext>("guide");
   const [channelId, setChannelId] = useState<string | null>(null);
+  const [guideProgram, setGuideProgram] = useState<Program | null>(null);
   const [mode, setMode] = useState<Mode>("main");
   const [sourceChoice, setSourceChoice] = useState<SourceChoice | null>(null);
   const [epgQuery, setEpgQuery] = useState("");
@@ -107,6 +109,7 @@ export function TvQuickActionsOverlay() {
     setEpgTotal(0);
     setEpgQuery("");
     setStatus(null);
+    setGuideProgram(null);
     setBusy(false);
     setRemoteContext(pathname?.startsWith("/player") ? "player" : pathname?.startsWith("/guide") ? "guide" : "default");
   }, [pathname]);
@@ -124,13 +127,13 @@ export function TvQuickActionsOverlay() {
     if (!selectedChannel) return;
     void Haptics.selectionAsync().catch(() => undefined);
 
-    if (nextContext === "guide" && guideSelection?.surface === "program" && guideSelection.program) {
-      openProgram(guideSelection.program, selectedChannel);
-      return;
-    }
-
     setContext(nextContext);
     setChannelId(id);
+    setGuideProgram(
+      nextContext === "guide" && guideSelection?.surface === "program" && guideSelection.program
+        ? guideSelection.program
+        : null,
+    );
     setMode("main");
     setStatus(null);
     setSourceChoice(null);
@@ -289,6 +292,19 @@ export function TvQuickActionsOverlay() {
     setStatus(favoriteSet.has(channel.id) ? "Removed from Favorites." : "Added to Favorites.");
   }, [channel, favoriteSet, toggleFavorite]);
 
+  const watchSelectedProgram = useCallback(() => {
+    if (!channel) return;
+    close();
+    openFullscreenPlayer(router, channel.id, { returnToGuide: true });
+  }, [channel, close, router]);
+
+  const openProgramDetails = useCallback(() => {
+    if (!channel || !guideProgram) return;
+    const program = guideProgram;
+    close();
+    requestAnimationFrame(() => openProgram(program, channel));
+  }, [channel, close, guideProgram, openProgram]);
+
   const play = useCallback(() => {
     if (!channel) return;
     close();
@@ -313,7 +329,7 @@ export function TvQuickActionsOverlay() {
       <FocusGuide autoFocus trapFocusUp trapFocusDown trapFocusLeft trapFocusRight style={styles.drawer}>
         <View style={styles.header}>
           <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={styles.kicker}>{context === "guide" ? "CHANNEL QUICK ACTIONS" : "PLAYER QUICK ACTIONS"}</Text>
+            <Text style={styles.kicker}>{guideProgram ? "PROGRAM QUICK ACTIONS" : context === "guide" ? "CHANNEL QUICK ACTIONS" : "PLAYER QUICK ACTIONS"}</Text>
             <Text numberOfLines={1} style={styles.title}>{channel.name}</Text>
             <Text numberOfLines={1} style={styles.subtitle}>EPG · {ownerLabel}</Text>
           </View>
@@ -324,8 +340,18 @@ export function TvQuickActionsOverlay() {
 
         {mode === "main" ? (
           <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
-            <Action preferredFocus={focusClaim} icon={context === "guide" ? "play" : "heart-outline"} label={context === "guide" ? "Play channel" : (favoriteSet.has(channel.id) ? "Remove Favorite" : "Add Favorite")} onPress={context === "guide" ? play : favorite} />
-            {context === "guide" ? <Action icon={favoriteSet.has(channel.id) ? "heart" : "heart-outline"} label={favoriteSet.has(channel.id) ? "Remove Favorite" : "Add Favorite"} onPress={favorite} /> : null}
+            {guideProgram ? (
+              <>
+                <Action preferredFocus={focusClaim} icon="play" label="Watch channel now" value={guideProgram.title} onPress={watchSelectedProgram} />
+                <Action icon="information-circle-outline" label="Program details / reminder" onPress={openProgramDetails} />
+                <Action icon={favoriteSet.has(channel.id) ? "heart" : "heart-outline"} label={favoriteSet.has(channel.id) ? "Remove Favorite" : "Add Favorite"} onPress={favorite} />
+              </>
+            ) : (
+              <>
+                <Action preferredFocus={focusClaim} icon={context === "guide" ? "play" : "heart-outline"} label={context === "guide" ? "Play channel" : (favoriteSet.has(channel.id) ? "Remove Favorite" : "Add Favorite")} onPress={context === "guide" ? play : favorite} />
+                {context === "guide" ? <Action icon={favoriteSet.has(channel.id) ? "heart" : "heart-outline"} label={favoriteSet.has(channel.id) ? "Remove Favorite" : "Add Favorite"} onPress={favorite} /> : null}
+              </>
+            )}
             <Action icon="git-compare-outline" label="Assign custom EPG" value={ownerLabel} onPress={() => { setStatus(null); setMode("epg-source"); }} />
             {(legacyOwnerId || extraOwner) ? <Action icon="refresh-outline" label="Use automatic EPG" onPress={() => void clearEpgAssignment()} disabled={busy} /> : null}
 

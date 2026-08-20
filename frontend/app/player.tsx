@@ -4,6 +4,7 @@ import {
   BackHandler,
   FlatList,
   Platform,
+  ScrollView,
   Pressable,
   StatusBar as RNStatusBar,
   StyleSheet,
@@ -143,6 +144,7 @@ export default function PlayerScreen() {
   const generationRef = useRef(0);
   const channelsButtonRef = useRef<any>(null);
   const moreButtonRef = useRef<any>(null);
+  const moreFirstActionRef = useRef<any>(null);
   const overlayOpenerRef = useRef<any>(null);
   const nextButtonRef = useRef<any>(null);
   const prevButtonRef = useRef<any>(null);
@@ -151,6 +153,8 @@ export default function PlayerScreen() {
   const rapidStripUntilRef = useRef(0);
   const pendingChannelIdRef = useRef(params.channelId);
   const channelIdRef = useRef(params.channelId);
+  // Route ownership is edge-triggered: in-player zaps own playback until the router actually changes.
+  const lastRouteChannelIdRef = useRef(params.channelId);
   const previousChannelIdRef = useRef<string | null>(null);
   const textTrackIdRef = useRef<string | number | undefined>(undefined);
   const subtitleDefaultLanguageRef = useRef(subtitleDefaultLanguage);
@@ -460,6 +464,12 @@ export default function PlayerScreen() {
     if (opener) requestAnimationFrame(() => requestNativeFocus(opener));
   }, []);
 
+  useEffect(() => {
+    if (!moreOpen || !isTV) return;
+    const frame = requestAnimationFrame(() => requestNativeFocus(moreFirstActionRef.current));
+    return () => cancelAnimationFrame(frame);
+  }, [isTV, moreOpen]);
+
   // Cold mount / explicit retry only — channel zaps must not reclaim Channels focus.
   useEffect(() => {
     revealControls({ claimChannelsFocus: true });
@@ -693,8 +703,11 @@ export default function PlayerScreen() {
   }, [isTV, remoteShortcuts.longDown, runRemoteAction]);
 
   useEffect(() => {
-    if (!params.channelId || params.channelId === channelIdRef.current) return;
-    changeChannel(params.channelId, false, { immediate: true });
+    const routeChannelId = String(params.channelId || "").trim();
+    if (!routeChannelId || routeChannelId === lastRouteChannelIdRef.current) return;
+    lastRouteChannelIdRef.current = routeChannelId;
+    if (routeChannelId === channelIdRef.current) return;
+    changeChannel(routeChannelId, false, { immediate: true });
   }, [changeChannel, params.channelId]);
 
   useEffect(() => {
@@ -979,8 +992,18 @@ export default function PlayerScreen() {
             </View>
 
             {moreOpen ? (
-              <View style={styles.tracksPanel}>
-                <Pressable onPress={returnToPreviousChannel} style={({ focused }: any) => [styles.trackRow, focused && styles.focused]}>
+              <ScrollView
+                style={styles.morePanel}
+                contentContainerStyle={styles.morePanelContent}
+                showsVerticalScrollIndicator={false}
+                nestedScrollEnabled
+              >
+                <Pressable
+                  ref={moreFirstActionRef}
+                  hasTVPreferredFocus
+                  onPress={returnToPreviousChannel}
+                  style={({ focused }: any) => [styles.trackRow, focused && styles.focused]}
+                >
                   <Ionicons name="return-up-back-outline" size={15} color="#fff" />
                   <Text style={styles.controlLabel}>Previous channel</Text>
                 </Pressable>
@@ -1015,7 +1038,7 @@ export default function PlayerScreen() {
                   <Ionicons name="bug-outline" size={15} color="#fff" />
                   <Text style={styles.controlLabel}>Diagnostics</Text>
                 </Pressable>
-              </View>
+              </ScrollView>
             ) : null}
 
             {tracksOpen ? (
@@ -1132,6 +1155,8 @@ const styles = StyleSheet.create({
   pauseControl: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 19, borderWidth: 2, borderColor: "transparent", backgroundColor: tvColors.purple },
   channelStrip: { gap: 6, paddingTop: 5 },
   tracksPanel: { maxHeight: 160, marginTop: 6, padding: 8, borderRadius: radius.sm, backgroundColor: "rgba(16,16,30,0.94)", gap: 4 },
+  morePanel: { maxHeight: 190, marginTop: 6, borderRadius: radius.sm, backgroundColor: "rgba(16,16,30,0.94)" },
+  morePanelContent: { padding: 8, gap: 4 },
   trackRow: { minHeight: 28, justifyContent: "center", paddingHorizontal: 8, borderRadius: 5, borderWidth: 2, borderColor: "transparent" },
   trackUnsupported: { opacity: 0.45 },
   channelCard: { width: 96, minHeight: 54, alignItems: "center", justifyContent: "center", gap: 3, borderRadius: radius.sm, borderWidth: 2, borderColor: "transparent", backgroundColor: "rgba(16,16,30,0.94)", padding: 4 },

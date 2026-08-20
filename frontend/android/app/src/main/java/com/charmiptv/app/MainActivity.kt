@@ -65,7 +65,13 @@ class MainActivity : ReactActivity() {
         }
       }
     } else if (event.action == android.view.KeyEvent.ACTION_UP && event.keyCode == emittedLongPressKeyCode) {
+      val consumedLongSelect =
+        event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER ||
+          event.keyCode == android.view.KeyEvent.KEYCODE_ENTER ||
+          event.keyCode == android.view.KeyEvent.KEYCODE_NUMPAD_ENTER ||
+          event.keyCode == android.view.KeyEvent.KEYCODE_BUTTON_A
       emittedLongPressKeyCode = -1
+      if (consumedLongSelect) return true
     }
 
     // Once held OK/Select becomes Quick Actions, suppress every remaining repeat

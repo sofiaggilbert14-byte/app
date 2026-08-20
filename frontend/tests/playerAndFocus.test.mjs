@@ -121,7 +121,9 @@ test("Guide long Select is exclusively contextual Quick Actions, never the old F
   assert.doesNotMatch(guide, /addTvLongPressListener/);
   assert.match(activity, /emitRemoteEvent\("TvRemoteQuickActions", context\)/);
   assert.match(overlay, /guideSelection\?\.surface === "program" && guideSelection\.program/);
-  assert.match(overlay, /openProgram\(guideSelection\.program, selectedChannel\)/);
+  assert.match(overlay, /PROGRAM QUICK ACTIONS/);
+  assert.match(overlay, /Program details \/ reminder/);
+  assert.doesNotMatch(overlay, /guideSelection\.program\) \{\s*openProgram/);
   assert.match(modal, /trapFocusUp trapFocusDown trapFocusLeft trapFocusRight/);
 });
 
@@ -137,3 +139,35 @@ test("custom EPG clear is explicit and preserves source configuration and bindin
   assert.match(bridge, /export async function clearNativeUserGuide/);
   assert.match(screen, /Clear EPG data/);
 });
+
+test("player route cannot reclaim a channel selected inside fullscreen", async () => {
+  const player = await source("app/player.tsx");
+  assert.match(player, /lastRouteChannelIdRef/);
+  assert.match(player, /routeChannelId === lastRouteChannelIdRef\.current/);
+});
+
+test("player More panel owns focus and scrolls all actions", async () => {
+  const player = await source("app/player.tsx");
+  assert.match(player, /moreFirstActionRef/);
+  assert.match(player, /requestNativeFocus\(moreFirstActionRef\.current\)/);
+  assert.match(player, /style=\{styles\.morePanel\}/);
+  assert.match(player, /nestedScrollEnabled/);
+});
+
+test("Media3 periodic recovery requires explicit buffering", async () => {
+  const stream = await source("src/components/StreamPlayer.tsx");
+  assert.match(stream, /if \(bufferingSince == null\) return/);
+  assert.doesNotMatch(stream, /const stalledReady =/);
+});
+
+test("long Select consumes release and program context stays in Quick Actions", async () => {
+  const [activity, overlay] = await Promise.all([
+    source("android/app/src/main/java/com/charmiptv/app/MainActivity.kt"),
+    source("src/components/TvQuickActionsOverlay.tsx"),
+  ]);
+  assert.match(activity, /if \(consumedLongSelect\) return true/);
+  assert.match(overlay, /PROGRAM QUICK ACTIONS/);
+  assert.match(overlay, /Program details \/ reminder/);
+  assert.doesNotMatch(overlay, /guideSelection\.program\) \{\s*openProgram/);
+});
+
