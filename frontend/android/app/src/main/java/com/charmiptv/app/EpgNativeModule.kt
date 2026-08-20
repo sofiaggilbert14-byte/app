@@ -1254,7 +1254,11 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
     private const val PROGRESS_BYTE_INTERVAL = 512L * 1024L
     private const val UNKNOWN_LENGTH_PROGRESS_SCALE_BYTES = 16.0 * 1024.0 * 1024.0
     private const val DEFAULT_GUIDE_HISTORY_MS = 7L * 24L * 60L * 60L * 1000L
-    private const val GUIDE_WINDOW_MS = 72L * 60L * 60L * 1000L
+    // TiViMate-style bounded active-window retention: keep at most the largest
+    // user-selectable Guide horizon in the native XMLTV index. The UI defaults
+    // to 12h and can opt into 24h; retaining 72h here only increases parse/disk
+    // work and does not improve the visible Guide.
+    private const val GUIDE_WINDOW_MS = 24L * 60L * 60L * 1000L
     private const val MAX_QUERY_WINDOW_MS = 24L * 60L * 60L * 1000L
     private const val DEFAULT_PROGRAMME_DURATION_MS = 30L * 60L * 1000L
     private const val MAX_PROGRAMME_DURATION_MS = 24L * 60L * 60L * 1000L
