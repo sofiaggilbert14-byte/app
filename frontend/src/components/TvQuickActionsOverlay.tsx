@@ -61,6 +61,7 @@ export function TvQuickActionsOverlay() {
     toggleFavorite,
     sleepTimerMinutes,
     setSleepTimerMinutes,
+    openProgram,
   } = useStore();
   const customize = useChannelCustomize();
   const primaryEpg = useEpgSourcePreferences();
@@ -113,11 +114,22 @@ export function TvQuickActionsOverlay() {
   }, [pathname]);
 
   useEffect(() => addTvQuickActionsListener((nextContext) => {
-    const id = nextContext === "guide"
-      ? getGuideSelection().channelId
-      : resolvePlayerChannelId();
-    if (!id || !channelById(id)) return;
+    const guideSelection = nextContext === "guide" ? getGuideSelection() : null;
+    const id = guideSelection?.channelId || resolvePlayerChannelId();
+    if (!id) return;
+    const selectedChannel = channelById(id);
+    if (!selectedChannel) return;
     void Haptics.selectionAsync().catch(() => undefined);
+
+    // TiViMate-style contextual action routing: the same physical long-Select
+    // means channel actions on the rail, but programme options on a programme
+    // cell. MainActivity owns hold detection; the focused Guide surface owns the
+    // semantic action so the two overlays can never race each other.
+    if (nextContext === "guide" && guideSelection?.surface === "program" && guideSelection.program) {
+      openProgram(guideSelection.program, selectedChannel);
+      return;
+    }
+
     setContext(nextContext);
     setChannelId(id);
     setMode("main");
@@ -126,7 +138,7 @@ export function TvQuickActionsOverlay() {
     setOpen(true);
     // One overlay owner: underlying Guide/player no longer consumes D-pad while open.
     setRemoteContext("modal");
-  }), [channelById, resolvePlayerChannelId]);
+  }), [channelById, openProgram, resolvePlayerChannelId]);
 
   useEffect(() => {
     if (!open) return;
