@@ -33,13 +33,15 @@ test("Media3 live reads tolerate provider jitter without disabling bounded decod
   assert.match(player, /MAX_SILENT_BUFFERING_RESYNCS = 2/);
 });
 
-test("fullscreen channel zaps pause the active decoder and defer remount during rapid surfing", async () => {
+test("fullscreen channel zaps pause one decoder, settle once, and preserve Previous channel", async () => {
   const player = await source("app/player.tsx");
   assert.match(player, /pauseSessionDecoders\("fullscreen"\)/);
   assert.match(player, /setDecoderArmed\(false\)/);
   assert.match(player, /armDecoderAfterSettle\(CHANNEL_ZAP_SETTLE_MS\)/);
   assert.match(player, /if \(pendingChannelIdRef\.current !== id\) return/);
   assert.match(player, /rapidStripUntilRef/);
+  assert.match(player, /const previous = channelIdRef\.current/);
+  assert.match(player, /if \(previous && previous !== pending\) previousChannelIdRef\.current = previous/);
 });
 
 test("fullscreen exit returns the currently tuned channel to Guide instead of the launch channel", async () => {
