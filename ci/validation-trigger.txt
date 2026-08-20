@@ -1,1 +1,1 @@
-validate=overlay-focus-fix-2026-08-20-1337
+validate=player-batch-repair-2026-08-20-1353
