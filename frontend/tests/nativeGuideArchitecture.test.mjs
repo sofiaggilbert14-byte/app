@@ -155,7 +155,8 @@ test("native Guide resolves short versus held Select before opening a programme"
   assert.match(keys, /val shortPress = selectKeyDown && !selectLongPressSeen/);
   assert.match(keys, /if \(shortPress\) emitSelection\(true, pressed = !channelRailSelected\)/);
   assert.doesNotMatch(keys, /KEYCODE_DPAD_CENTER[^\n]*emitSelection\(true, pressed = true\)/);
-  assert.match(activity, /selectKey && event\.repeatCount > 0 && \(remoteContext == "guide" \|\| remoteContext == "player"\)/);
-  assert.match(activity, /emit\("TvRemoteQuickActions"/);
-  assert.match(activity, /if \(selectKey && emittedLongPressKeyCode == keyCode\) return true/);
+  assert.match(activity, /event\.action == android\.view\.KeyEvent\.ACTION_DOWN && event\.repeatCount > 0 && emittedLongPressKeyCode != event\.keyCode/);
+  assert.match(activity, /if \(selectKey && \(context == "guide" \|\| context == "player"\)\)/);
+  assert.match(activity, /emitRemoteEvent\("TvRemoteQuickActions", context\)/);
+  assert.match(activity, /event\.repeatCount > 0 &&\s*selectKey &&\s*emittedLongPressKeyCode == event\.keyCode[\s\S]{0,80}return true/);
 });
