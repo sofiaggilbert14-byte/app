@@ -30,7 +30,7 @@ import {
 } from "@/src/components/StreamPlayer";
 import { useStore } from "@/src/store";
 import { fonts, radius, tvColors } from "@/src/theme";
-import { addPlayerQuickCommandListener, addTvKeyListener, addTvLongPressListener, addTvShortcutListener, setRemoteContext } from "@/src/utils/tvRemote";
+import { addPlayerQuickCommandListener, addTvKeyListener, addTvLongPressListener, addTvShortcutListener, resetRemoteContextIfOwned, setRemoteContext } from "@/src/utils/tvRemote";
 import { useRemoteShortcutPreferences, type PlayerRemoteAction } from "@/src/core/remoteShortcutPreferences";
 import { getTvSafeInsets } from "@/src/utils/tvLayout";
 import { requestNativeFocus } from "@/src/utils/tvFocus";
@@ -166,7 +166,9 @@ export default function PlayerScreen() {
   useEffect(() => {
     if (!isTV) return;
     setRemoteContext("player");
-    return () => setRemoteContext("default");
+    // Route transitions can install the next owner before this screen's cleanup
+    // runs. Never let stale player cleanup clobber that newer focus context.
+    return () => resetRemoteContextIfOwned("player", "default");
   }, [isTV]);
   const overlayHideMs = playerControlsTimeoutMs;
   const safe = useMemo(
@@ -753,9 +755,19 @@ export default function PlayerScreen() {
       {hasStream && decoderArmed ? (
         <ErrorBoundary
           onReset={() => {
+            // A render/native crash follows the same codec-release contract as
+            // normal retries. Media3 replaceAsync(null) and LibVLC stop are not
+            // instantaneous, so disarm before remounting the replacement view.
             stopAllPlaybackSessions("crashed");
-            setDecoderArmed(true);
+            if (zapTimer.current) clearTimeout(zapTimer.current);
+            const generation = generationRef.current;
+            setDecoderArmed(false);
+            setStatus("loading");
+            setFailReason(null);
             setRetryToken((value) => value + 1);
+            zapTimer.current = setTimeout(() => {
+              if (generation === generationRef.current) setDecoderArmed(true);
+            }, DECODER_RESTART_SETTLE_MS);
           }}
           fallback={(reset) => (
             <View style={styles.errorOverlay}>
