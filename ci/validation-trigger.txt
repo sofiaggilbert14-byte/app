@@ -1,1 +1,1 @@
-validate=media3-live-guide-repair-2026-08-20-1816
+validate=full-player-stack-audit-2026-08-20-1820
