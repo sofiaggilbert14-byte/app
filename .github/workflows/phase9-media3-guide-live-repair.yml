@@ -1,0 +1,142 @@
+name: Apply Phase 9 Media3 and Live Guide Repair
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/phase9-media3-guide-live-repair.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: agent/phase9-tivimate-scan-repair
+          fetch-depth: 0
+
+      - name: Apply Media3 frozen-clock and Guide live-follow repair
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          stream_path = Path('frontend/src/components/StreamPlayer.tsx')
+          stream = stream_path.read_text()
+
+          old_constants = '''const BUFFERING_RESYNC_MS = 5000;\nconst BUFFERING_FAIL_MS = 22000;\nconst MAX_SILENT_BUFFERING_RESYNCS = 2;'''
+          new_constants = '''const BUFFERING_RESYNC_MS = 5000;\nconst MEDIA3_FROZEN_CLOCK_MS = 9000;\nconst BUFFERING_FAIL_MS = 22000;\nconst MAX_SILENT_BUFFERING_RESYNCS = 2;'''
+          if old_constants not in stream and 'MEDIA3_FROZEN_CLOCK_MS' not in stream:
+              raise SystemExit('StreamPlayer constants anchor missing')
+          stream = stream.replace(old_constants, new_constants)
+
+          old_ready = '''        bufferingSinceRef.current = null;\n        silentResyncCountRef.current = 0;\n        silentResyncInFlightRef.current = false;'''
+          new_ready = '''        bufferingSinceRef.current = null;\n        // Do not clear the bounded resync count merely because Media3 reports\n        // readyToPlay. A wedged decoder can report ready without advancing its\n        // clock. The count resets only after real playback progress.\n        silentResyncInFlightRef.current = false;'''
+          if old_ready not in stream and 'Do not clear the bounded resync count' not in stream:
+              raise SystemExit('readyToPlay watchdog anchor missing')
+          stream = stream.replace(old_ready, new_ready, 1)
+
+          old_progress = '''        hasAdvancedPlaybackRef.current = true;\n        // Frames/time are advancing again, so any buffering watchdog is stale.\n        bufferingSinceRef.current = null;'''
+          new_progress = '''        hasAdvancedPlaybackRef.current = true;\n        // Real clock progress proves the decoder recovered. Only now reset the\n        // bounded recovery budget and clear any buffering watchdog.\n        silentResyncCountRef.current = 0;\n        bufferingSinceRef.current = null;'''
+          if old_progress not in stream and 'Real clock progress proves the decoder recovered' not in stream:
+              raise SystemExit('timeUpdate watchdog anchor missing')
+          stream = stream.replace(old_progress, new_progress, 1)
+
+          old_watchdog = '''      const now = Date.now();\n      const bufferingSince = bufferingSinceRef.current;\n      // Live clocks can emit sparse time updates while healthy. Only an explicit\n      // post-playback Media3 loading/buffering state owns recovery.\n      if (bufferingSince == null) return;\n      const bufferingFor = now - bufferingSince;\n      if (bufferingFor < BUFFERING_RESYNC_MS) return;'''
+          new_watchdog = '''      const now = Date.now();\n      const observedPlaybackTime = Number(player.currentTime);\n      if (Number.isFinite(observedPlaybackTime) && observedPlaybackTime > lastPlaybackTimeRef.current + 0.05) {\n        lastPlaybackTimeRef.current = observedPlaybackTime;\n        lastPlaybackAdvanceAtRef.current = now;\n        hasAdvancedPlaybackRef.current = true;\n        silentResyncCountRef.current = 0;\n        bufferingSinceRef.current = null;\n      }\n      const bufferingSince = bufferingSinceRef.current;\n      // Media3 may wedge while still reporting readyToPlay. Poll its actual\n      // playback clock and require the native playing signal before declaring a\n      // frozen-ready decoder. This avoids the old false-positive path caused by\n      // sparse JS timeUpdate delivery while still recovering a truly stuck clock.\n      const frozenReadyClock =\n        bufferingSince == null &&\n        hasPlayedRef.current &&\n        Boolean((player as any).playing) &&\n        now - lastPlaybackAdvanceAtRef.current >= MEDIA3_FROZEN_CLOCK_MS;\n      if (bufferingSince == null && !frozenReadyClock) return;\n      const bufferingFor = bufferingSince != null\n        ? now - bufferingSince\n        : now - lastPlaybackAdvanceAtRef.current;\n      if (bufferingFor < (bufferingSince != null ? BUFFERING_RESYNC_MS : MEDIA3_FROZEN_CLOCK_MS)) return;'''
+          if old_watchdog not in stream and 'const frozenReadyClock =' not in stream:
+              raise SystemExit('Media3 watchdog body anchor missing')
+          stream = stream.replace(old_watchdog, new_watchdog, 1)
+          stream_path.write_text(stream)
+
+          guide_path = Path('frontend/android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt')
+          guide = guide_path.read_text()
+          guide = guide.replace('import kotlin.math.ceil\nimport kotlin.math.max', 'import kotlin.math.abs\nimport kotlin.math.ceil\nimport kotlin.math.max')
+
+          anchor = '''  private var reloadGeneration = 0\n  private val settleSelectionRunnable = Runnable {'''
+          replacement = '''  private var reloadGeneration = 0\n  // Keep the live Guide runway moving with wall-clock time. Manual horizontal\n  // browsing disables follow so the cursor is never dragged away from a future\n  // programme the viewer intentionally selected.\n  private var liveFollowEnabled = true\n  private var lastLiveFollowQueryStartMs = Long.MIN_VALUE\n  private val settleSelectionRunnable = Runnable {'''
+          if anchor not in guide and 'private var liveFollowEnabled = true' not in guide:
+              raise SystemExit('NativeGuide live-follow field anchor missing')
+          guide = guide.replace(anchor, replacement, 1)
+
+          restore_old = '''    pendingRestoreTimeMs = null\n    if (wanted == selectedTimeMs) return\n    selectedTimeMs = wanted'''
+          restore_new = '''    pendingRestoreTimeMs = null\n    liveFollowEnabled = abs(wanted - System.currentTimeMillis()) <= 30L * 60_000L\n    if (wanted == selectedTimeMs) return\n    selectedTimeMs = wanted'''
+          if restore_old not in guide and 'liveFollowEnabled = abs(wanted - System.currentTimeMillis())' not in guide:
+              raise SystemExit('NativeGuide restore anchor missing')
+          guide = guide.replace(restore_old, restore_new, 1)
+
+          left_old = '''      KeyEvent.KEYCODE_DPAD_LEFT -> {\n        if (event.repeatCount > 0'''
+          left_new = '''      KeyEvent.KEYCODE_DPAD_LEFT -> {\n        liveFollowEnabled = false\n        if (event.repeatCount > 0'''
+          if left_old not in guide and 'KEYCODE_DPAD_LEFT -> {\n        liveFollowEnabled = false' not in guide:
+              raise SystemExit('NativeGuide left anchor missing')
+          guide = guide.replace(left_old, left_new, 1)
+
+          right_old = '''      KeyEvent.KEYCODE_DPAD_RIGHT -> {\n        if (event.repeatCount > 0'''
+          right_new = '''      KeyEvent.KEYCODE_DPAD_RIGHT -> {\n        liveFollowEnabled = false\n        if (event.repeatCount > 0'''
+          if right_old not in guide and 'KEYCODE_DPAD_RIGHT -> {\n        liveFollowEnabled = false' not in guide:
+              raise SystemExit('NativeGuide right anchor missing')
+          guide = guide.replace(right_old, right_new, 1)
+
+          draw_anchor = '''  override fun onDraw(canvas: Canvas) {\n    super.onDraw(canvas)\n    canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), background)'''
+          draw_replacement = '''  private fun advanceLiveViewport(now: Long) {\n    if (!enabled || !liveFollowEnabled || windowEndMs <= windowStartMs) return\n    val liveTime = now.coerceIn(windowStartMs, windowEndMs - 1)\n    val desiredStart = clampViewportStart(liveTime - 15L * 60_000L)\n    if (abs(desiredStart - viewportStartMs) < 60_000L) return\n    viewportStartMs = desiredStart\n    selectedTimeMs = liveTime\n    // Query only when the live runway has materially advanced. Repaint movement\n    // is cheap; SQLite reads remain bounded and coalesced.\n    if (abs(viewportStartMs - lastLiveFollowQueryStartMs) >= 2L * 60_000L) {\n      lastLiveFollowQueryStartMs = viewportStartMs\n      loadPrograms()\n    }\n    if (enabled && rows.isNotEmpty()) emitSelection(false)\n  }\n\n  override fun onDraw(canvas: Canvas) {\n    super.onDraw(canvas)\n    val wallClockNow = System.currentTimeMillis()\n    advanceLiveViewport(wallClockNow)\n    canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), background)'''
+          if draw_anchor not in guide and 'private fun advanceLiveViewport(now: Long)' not in guide:
+              raise SystemExit('NativeGuide draw anchor missing')
+          guide = guide.replace(draw_anchor, draw_replacement, 1)
+
+          now_old = '''    val now = System.currentTimeMillis()\n    if (now in visibleStartMs..visibleEndMs) {\n      val x = timeToX(now, visibleStartMs, visibleEndMs)'''
+          now_new = '''    if (wallClockNow in visibleStartMs..visibleEndMs) {\n      val x = timeToX(wallClockNow, visibleStartMs, visibleEndMs)'''
+          if now_old not in guide and 'if (wallClockNow in visibleStartMs..visibleEndMs)' not in guide:
+              raise SystemExit('NativeGuide now-line anchor missing')
+          guide = guide.replace(now_old, now_new, 1)
+
+          tail_old = '''      canvas.drawLine(x, headerHeight, x, height.toFloat(), nowPaint)\n    }\n  }'''
+          tail_new = '''      canvas.drawLine(x, headerHeight, x, height.toFloat(), nowPaint)\n    }\n    // Keep wall-clock movement alive even when React is otherwise idle.\n    postInvalidateDelayed(30_000L)\n  }'''
+          if tail_old not in guide and 'postInvalidateDelayed(30_000L)' not in guide:
+              raise SystemExit('NativeGuide redraw anchor missing')
+          guide = guide.replace(tail_old, tail_new, 1)
+          guide_path.write_text(guide)
+
+          playback_test = Path('frontend/tests/playbackSession.test.mjs')
+          body = playback_test.read_text()
+          old_test = '''test("Media3 watchdog only recovers after an explicit buffering state", async () => {\n  const player = await source("src/components/StreamPlayer.tsx");\n  assert.match(player, /if \\(bufferingSince == null\\) return/);\n  assert.match(player, /const bufferingFor = now - bufferingSince/);\n  assert.doesNotMatch(player, /const stalledReady =/);\n  assert.match(player, /const BUFFERING_RESYNC_MS = 5000/);\n  assert.match(player, /const BUFFERING_FAIL_MS = 22000/);\n});'''
+          new_test = '''test("Media3 watchdog recovers real buffering and a genuinely frozen native clock", async () => {\n  const player = await source("src/components/StreamPlayer.tsx");\n  assert.match(player, /const MEDIA3_FROZEN_CLOCK_MS = 9000/);\n  assert.match(player, /const observedPlaybackTime = Number\\(player\\.currentTime\\)/);\n  assert.match(player, /Boolean\\(\\(player as any\\)\\.playing\\)/);\n  assert.match(player, /const frozenReadyClock =/);\n  assert.match(player, /if \\(bufferingSince == null && !frozenReadyClock\\) return/);\n  assert.match(player, /silentResyncCountRef\\.current = 0;[\\s\\S]{0,100}bufferingSinceRef\\.current = null/);\n  assert.doesNotMatch(player, /const stalledReady =/);\n  assert.match(player, /const BUFFERING_RESYNC_MS = 5000/);\n  assert.match(player, /const BUFFERING_FAIL_MS = 22000/);\n});'''
+          if old_test in body:
+              body = body.replace(old_test, new_test, 1)
+          elif 'Media3 watchdog recovers real buffering and a genuinely frozen native clock' not in body:
+              raise SystemExit('playback watchdog regression anchor missing')
+          playback_test.write_text(body)
+
+          guide_test = Path('frontend/tests/guideShellPolish.test.mjs')
+          guide_body = guide_test.read_text()
+          marker = 'native guide live-follow advances programme cells with wall clock without stealing manual horizontal browsing'
+          if marker not in guide_body:
+              guide_body += '''\n\ntest("native guide live-follow advances programme cells with wall clock without stealing manual horizontal browsing", async () => {\n  const nativeGuide = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");\n  assert.match(nativeGuide, /private var liveFollowEnabled = true/);\n  assert.match(nativeGuide, /private fun advanceLiveViewport\\(now: Long\\)/);\n  assert.match(nativeGuide, /desiredStart = clampViewportStart\\(liveTime - 15L \\* 60_000L\\)/);\n  assert.match(nativeGuide, /postInvalidateDelayed\\(30_000L\\)/);\n  assert.match(nativeGuide, /KEYCODE_DPAD_LEFT -> \\{\\s*liveFollowEnabled = false/);\n  assert.match(nativeGuide, /KEYCODE_DPAD_RIGHT -> \\{\\s*liveFollowEnabled = false/);\n});\n'''
+          guide_test.write_text(guide_body)
+          PY
+
+      - name: Run focused regressions
+        working-directory: frontend
+        run: |
+          node --experimental-strip-types tests/playbackSession.test.mjs
+          node --experimental-strip-types tests/guideShellPolish.test.mjs
+
+      - name: Run full frontend suite
+        working-directory: frontend
+        run: npm test -- --runInBand
+
+      - name: Commit repaired production source
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/components/StreamPlayer.tsx frontend/android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt frontend/tests/playbackSession.test.mjs frontend/tests/guideShellPolish.test.mjs
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "fix(tv): recover frozen Media3 clock and advance live guide"
+          git push origin HEAD:agent/phase9-tivimate-scan-repair
