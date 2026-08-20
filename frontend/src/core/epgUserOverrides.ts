@@ -1,6 +1,6 @@
 /** User EPG overrides — manual remaps + browse filters. */
 
-import { additionalEpgOwnsChannel } from "@/src/core/additionalEpgOwnership";
+import { additionalEpgOwnsChannel } from "./additionalEpgOwnership.ts";
 
 export type EpgGuideFilter = "all" | "matched" | "unmatched";
 
