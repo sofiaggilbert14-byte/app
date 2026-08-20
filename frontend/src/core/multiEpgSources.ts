@@ -13,7 +13,9 @@ export type CustomEpgSourceRecord = {
 };
 
 const KEY = "gs_custom_epg_sources_v2";
-const MAX_SOURCES = 8;
+// Native supports eight user/custom sources total. The legacy `user` source
+// occupies one slot, so the additional-source registry must stop at seven.
+const MAX_SOURCES = 7;
 let cached: CustomEpgSourceRecord[] = [];
 let loaded = false;
 let loading: Promise<CustomEpgSourceRecord[]> | null = null;
@@ -83,6 +85,19 @@ export function saveMultiEpgSource(source: CustomEpgSourceRecord) {
   commit(index >= 0 ? cached.map((item, at) => at === index ? clean : item) : [...cached, clean]);
 }
 export function removeMultiEpgSource(id: string) { commit(cached.filter((item) => item.id !== cleanId(id))); }
+export function clearMultiEpgChannelAssignments(channelId: string) {
+  const channel = String(channelId || "").trim();
+  if (!channel) return;
+  let changed = false;
+  const next = cached.map((source) => {
+    if (!Object.prototype.hasOwnProperty.call(source.overrides, channel)) return source;
+    const overrides = { ...source.overrides };
+    delete overrides[channel];
+    changed = true;
+    return { ...source, overrides };
+  });
+  if (changed) commit(next);
+}
 export function assignMultiEpgChannel(sourceId: string, channelId: string, xmltvId: string) {
   const owner = cleanId(sourceId), channel = String(channelId || "").trim(), xmltv = String(xmltvId || "").trim();
   if (!owner || !channel || !xmltv) return;
