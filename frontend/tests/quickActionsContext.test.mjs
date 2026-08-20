@@ -61,3 +61,18 @@ test("Settings reserve Long OK Select for contextual Quick Actions", async () =>
   // corrupting the rest of their remote mappings while it has no active UI path.
   assert.match(prefs, /compatibility type/);
 });
+
+
+test("Guide quick-action overlays explicitly take TV focus from the native Guide", async () => {
+  const [overlay, modal] = await Promise.all([
+    source("src/components/TvQuickActionsOverlay.tsx"),
+    source("src/components/ProgramModal.tsx"),
+  ]);
+  assert.match(overlay, /const \[focusClaim, setFocusClaim\] = useState\(false\)/);
+  assert.match(overlay, /requestAnimationFrame\(\(\) => setFocusClaim\(true\)\)/);
+  assert.match(overlay, /preferredFocus=\{focusClaim\}/);
+  assert.match(overlay, /hasTVPreferredFocus=\{preferredFocus\}/);
+  assert.match(modal, /const \[focusClaim, setFocusClaim\] = React\.useState\(false\)/);
+  assert.match(modal, /requestAnimationFrame\(\(\) => setFocusClaim\(true\)\)/);
+  assert.match(modal, /hasTVPreferredFocus=\{focusClaim\}/);
+});

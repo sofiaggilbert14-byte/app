@@ -80,6 +80,7 @@ export function TvQuickActionsOverlay() {
   const [epgTotal, setEpgTotal] = useState(0);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [focusClaim, setFocusClaim] = useState(false);
   const queryGeneration = useRef(0);
 
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
@@ -136,6 +137,13 @@ export function TvQuickActionsOverlay() {
     setOpen(true);
     setRemoteContext("modal");
   }), [channelById, openProgram, resolvePlayerChannelId]);
+
+  useEffect(() => {
+    if (!open) return;
+    setFocusClaim(false);
+    const frame = requestAnimationFrame(() => setFocusClaim(true));
+    return () => cancelAnimationFrame(frame);
+  }, [open, mode, sourceChoice?.id]);
 
   useEffect(() => {
     if (!open) return;
@@ -316,7 +324,7 @@ export function TvQuickActionsOverlay() {
 
         {mode === "main" ? (
           <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
-            <Action icon={context === "guide" ? "play" : "heart-outline"} label={context === "guide" ? "Play channel" : (favoriteSet.has(channel.id) ? "Remove Favorite" : "Add Favorite")} onPress={context === "guide" ? play : favorite} />
+            <Action preferredFocus={focusClaim} icon={context === "guide" ? "play" : "heart-outline"} label={context === "guide" ? "Play channel" : (favoriteSet.has(channel.id) ? "Remove Favorite" : "Add Favorite")} onPress={context === "guide" ? play : favorite} />
             {context === "guide" ? <Action icon={favoriteSet.has(channel.id) ? "heart" : "heart-outline"} label={favoriteSet.has(channel.id) ? "Remove Favorite" : "Add Favorite"} onPress={favorite} /> : null}
             <Action icon="git-compare-outline" label="Assign custom EPG" value={ownerLabel} onPress={() => { setStatus(null); setMode("epg-source"); }} />
             {(legacyOwnerId || extraOwner) ? <Action icon="refresh-outline" label="Use automatic EPG" onPress={() => void clearEpgAssignment()} disabled={busy} /> : null}
@@ -348,6 +356,7 @@ export function TvQuickActionsOverlay() {
             {sourceChoices.length ? sourceChoices.map((source) => (
               <Action
                 key={source.id}
+                preferredFocus={focusClaim && source.id === sourceChoices[0]?.id}
                 icon="server-outline"
                 label={source.name}
                 value={source.enabled ? "Enabled" : "Will enable on assignment"}
@@ -391,16 +400,19 @@ function Action({
   value,
   onPress,
   disabled = false,
+  preferredFocus = false,
 }: {
   icon: React.ComponentProps<typeof Ionicons>["name"];
   label: string;
   value?: string;
   onPress: () => void;
   disabled?: boolean;
+  preferredFocus?: boolean;
 }) {
   return (
     <Pressable
       disabled={disabled}
+      hasTVPreferredFocus={preferredFocus}
       onPress={onPress}
       style={({ focused }: any) => [styles.row, disabled && styles.disabled, focused && styles.focused]}
     >

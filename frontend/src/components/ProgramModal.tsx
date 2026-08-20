@@ -18,6 +18,7 @@ export function ProgramModal() {
   const [msg, setMsg] = React.useState<string | null>(null);
   // Optimistic override so the label flips the instant the user presses Remind/Cancel.
   const [optimisticReminded, setOptimisticReminded] = React.useState<boolean | null>(null);
+  const [focusClaim, setFocusClaim] = React.useState(false);
   // Ref-only busy guard — never disable the focused TV button (that crashes Fire TV).
   const mountedRef = React.useRef(true);
 
@@ -31,6 +32,13 @@ export function ProgramModal() {
   React.useEffect(() => {
     setMsg(null);
     setOptimisticReminded(null);
+    if (!activeProgram) {
+      setFocusClaim(false);
+      return;
+    }
+    setFocusClaim(false);
+    const frame = requestAnimationFrame(() => setFocusClaim(true));
+    return () => cancelAnimationFrame(frame);
   }, [activeProgram]);
 
   React.useEffect(() => {
@@ -137,7 +145,7 @@ export function ProgramModal() {
             <View style={styles.actions}>
               <Pressable
                 style={({ focused }: any) => [styles.btn, styles.watchBtn, focused && styles.btnFocused]}
-                hasTVPreferredFocus
+                hasTVPreferredFocus={focusClaim}
                 onPress={watch}
                 testID="program-watch-btn"
               >
