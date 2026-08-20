@@ -1,4 +1,10 @@
 import type { Channel } from "@/src/api";
+import {
+  applyGuideGroupOrder,
+  getGuideGroupDisplayName,
+  getGuideGroupTabPreferencesSnapshot,
+  resolveGuideGroupIdentity,
+} from "@/src/core/guideGroupTabPreferences";
 
 /** Built-in buckets that are not raw playlist group names. */
 export const SYSTEM_GROUPS = ["All", "Favorites"] as const;
@@ -10,11 +16,6 @@ export const SMART_GROUPS = [
   "Failed Streams",
 ] as const;
 
-/**
- * Charm-owned folders. Provider group names are classification hints only when
- * raw provider tabs are disabled. Classification is exclusive so one provider
- * category does not create several duplicate-looking tabs with the same rows.
- */
 export const CURATED_GROUPS = [
   "Sports",
   "News",
@@ -49,12 +50,16 @@ const CURATED_MATCH: [Exclude<CuratedGroup, "Miscellaneous">, RegExp][] = [
 const HD_RE = /\b(uhd|fhd|hd|4k|1080|720)\b/i;
 const ALLDAY_RE = /24\s*\/\s*7|24x7|247|all\s*day|pluto|samsung\s*tv\s*plus|xumo|tubi|free\s*tv/i;
 
+function displayGroup(groupId: string): string {
+  return getGuideGroupDisplayName(groupId);
+}
+
 export function isSmartGroup(group: string): group is SmartGroup {
-  return (SMART_GROUPS as readonly string[]).includes(group);
+  return (SMART_GROUPS as readonly string[]).includes(resolveGuideGroupIdentity(group));
 }
 
 export function isSystemGroup(group: string): boolean {
-  return (SYSTEM_GROUPS as readonly string[]).includes(group);
+  return (SYSTEM_GROUPS as readonly string[]).includes(resolveGuideGroupIdentity(group));
 }
 
 export function classifyCuratedGroup(channel: Channel): CuratedGroup {
@@ -64,22 +69,23 @@ export function classifyCuratedGroup(channel: Channel): CuratedGroup {
 }
 
 export function channelMatchesCurated(channel: Channel, group: string): boolean {
-  return classifyCuratedGroup(channel) === group;
+  return classifyCuratedGroup(channel) === resolveGuideGroupIdentity(group);
 }
 
 export function channelMatchesSmart(
   channel: Channel,
-  group: SmartGroup,
+  group: SmartGroup | string,
   opts: {
     favoriteSet?: Set<string>;
     hasEpgMatch: (channel: Channel) => boolean;
     isFailed: (channelId: string) => boolean;
   },
 ): boolean {
-  if (group === "HD Only") return HD_RE.test(`${channel.name || ""} ${channel.group || ""}`);
-  if (group === "24/7") return ALLDAY_RE.test(`${channel.name || ""} ${channel.group || ""}`);
-  if (group === "Unmatched EPG") return !opts.hasEpgMatch(channel);
-  if (group === "Failed Streams") return opts.isFailed(channel.id);
+  const sourceGroup = resolveGuideGroupIdentity(group);
+  if (sourceGroup === "HD Only") return HD_RE.test(`${channel.name || ""} ${channel.group || ""}`);
+  if (sourceGroup === "24/7") return ALLDAY_RE.test(`${channel.name || ""} ${channel.group || ""}`);
+  if (sourceGroup === "Unmatched EPG") return !opts.hasEpgMatch(channel);
+  if (sourceGroup === "Failed Streams") return opts.isFailed(channel.id);
   return false;
 }
 
@@ -94,14 +100,15 @@ export function channelInGroup(
     customGroups?: ReadonlyMap<string, ReadonlySet<string>>;
   },
 ): boolean {
-  if (group === "All") return true;
-  if (group === "Favorites") return opts.favoriteSet.has(channel.id);
-  if (group === "Recently Watched") return opts.recentIds.has(channel.id);
-  const custom = opts.customGroups?.get(group);
+  const sourceGroup = resolveGuideGroupIdentity(group);
+  if (sourceGroup === "All") return true;
+  if (sourceGroup === "Favorites") return opts.favoriteSet.has(channel.id);
+  if (sourceGroup === "Recently Watched") return opts.recentIds.has(channel.id);
+  const custom = opts.customGroups?.get(sourceGroup);
   if (custom) return custom.has(channel.id);
-  if (isSmartGroup(group)) return channelMatchesSmart(channel, group, opts);
-  if ((CURATED_GROUPS as readonly string[]).includes(group)) return channelMatchesCurated(channel, group);
-  return channel.group === group;
+  if ((SMART_GROUPS as readonly string[]).includes(sourceGroup)) return channelMatchesSmart(channel, sourceGroup, opts);
+  if ((CURATED_GROUPS as readonly string[]).includes(sourceGroup)) return channelMatchesCurated(channel, sourceGroup);
+  return channel.group === sourceGroup;
 }
 
 export type GroupCountMap = Record<string, number>;
@@ -119,26 +126,39 @@ export function buildGroupCounts(
     includeProviderGroups?: boolean;
   },
 ): GroupCountMap {
-  const counts: GroupCountMap = { All: 0, Favorites: 0, "Recently Watched": 0 };
-  for (const smart of SMART_GROUPS) counts[smart] = 0;
-  for (const curated of CURATED_GROUPS) counts[curated] = 0;
-  for (const name of opts.customGroups?.keys() || []) counts[name] = 0;
+  const counts: GroupCountMap = {
+    [displayGroup("All")]: 0,
+    [displayGroup("Favorites")]: 0,
+    [displayGroup("Recently Watched")]: 0,
+  };
+  for (const smart of SMART_GROUPS) counts[displayGroup(smart)] = 0;
+  for (const curated of CURATED_GROUPS) counts[displayGroup(curated)] = 0;
+  for (const name of opts.customGroups?.keys() || []) counts[displayGroup(name)] = 0;
 
   for (const channel of channels) {
     if (opts.hiddenIds.has(channel.id)) continue;
-    counts.All += 1;
-    if (opts.favoriteSet.has(channel.id)) counts.Favorites += 1;
-    if (opts.recentIds.has(channel.id)) counts["Recently Watched"] += 1;
+    counts[displayGroup("All")] += 1;
+    if (opts.favoriteSet.has(channel.id)) counts[displayGroup("Favorites")] += 1;
+    if (opts.recentIds.has(channel.id)) counts[displayGroup("Recently Watched")] += 1;
     const combined = `${channel.name || ""} ${channel.group || ""}`;
-    if (HD_RE.test(combined)) counts["HD Only"] += 1;
-    if (ALLDAY_RE.test(combined)) counts["24/7"] += 1;
-    if (!opts.hasEpgMatch(channel)) counts["Unmatched EPG"] += 1;
-    if (opts.isFailed(channel.id)) counts["Failed Streams"] += 1;
-    counts[classifyCuratedGroup(channel)] += 1;
-    for (const [name, ids] of opts.customGroups || []) if (ids.has(channel.id)) counts[name] += 1;
+    if (HD_RE.test(combined)) counts[displayGroup("HD Only")] += 1;
+    if (ALLDAY_RE.test(combined)) counts[displayGroup("24/7")] += 1;
+    if (!opts.hasEpgMatch(channel)) counts[displayGroup("Unmatched EPG")] += 1;
+    if (opts.isFailed(channel.id)) counts[displayGroup("Failed Streams")] += 1;
+    const curated = displayGroup(classifyCuratedGroup(channel));
+    counts[curated] = (counts[curated] || 0) + 1;
+    for (const [name, ids] of opts.customGroups || []) {
+      if (ids.has(channel.id)) {
+        const label = displayGroup(name);
+        counts[label] = (counts[label] || 0) + 1;
+      }
+    }
     if (opts.includeProviderGroups) {
       const raw = String(channel.group || "").trim();
-      if (raw) counts[raw] = (counts[raw] || 0) + 1;
+      if (raw) {
+        const label = displayGroup(raw);
+        counts[label] = (counts[label] || 0) + 1;
+      }
     }
   }
   return counts;
@@ -150,9 +170,9 @@ export function listPlaylistGroupNames(channels: Channel[], hiddenIds: Set<strin
     if (hiddenIds.has(channel.id)) continue;
     const raw = String(channel.group || "").trim();
     if (!raw) continue;
-    if (isSystemGroup(raw) || isSmartGroup(raw)) continue;
+    if ((SYSTEM_GROUPS as readonly string[]).includes(raw) || (SMART_GROUPS as readonly string[]).includes(raw)) continue;
     if ((CURATED_GROUPS as readonly string[]).includes(raw)) continue;
-    names.add(raw);
+    names.add(displayGroup(raw));
   }
   return Array.from(names).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
 }
@@ -166,21 +186,23 @@ export function buildVisibleGroups(input: {
   showProviderGroups?: boolean;
   maxPlaylistTabs?: number;
 }): { tabs: string[]; overflow: string[] } {
+  const tabPrefs = getGuideGroupTabPreferencesSnapshot();
   const maxPlaylistTabs = input.maxPlaylistTabs ?? 10;
   const seen = new Set<string>();
   const tabs: string[] = [];
-  const hidden = input.hiddenGroups || new Set<string>();
+  const hidden = new Set(input.hiddenGroups || []);
+  for (const id of tabPrefs.hidden) hidden.add(displayGroup(id));
 
-  const push = (name: string) => {
+  const push = (rawName: string) => {
+    const name = displayGroup(rawName);
     if (!name || seen.has(name) || hidden.has(name)) return;
-    if (name !== "All" && !(input.counts[name] > 0)) return;
+    if (resolveGuideGroupIdentity(name) !== "All" && !(input.counts[name] > 0)) return;
     seen.add(name);
     tabs.push(name);
   };
 
-  // All is the safety fallback and cannot be removed.
   push("All");
-  for (const name of input.pinned) push(name);
+  for (const name of input.pinned) push(resolveGuideGroupIdentity(name));
   for (const name of SYSTEM_GROUPS) push(name);
   for (const name of SMART_GROUPS) push(name);
   for (const name of CURATED_GROUPS) push(name);
@@ -189,17 +211,24 @@ export function buildVisibleGroups(input: {
   const overflow: string[] = [];
   if (input.showProviderGroups) {
     let playlistAdded = 0;
-    for (const name of input.playlistGroups) {
+    for (const displayName of input.playlistGroups) {
+      const name = displayGroup(resolveGuideGroupIdentity(displayName));
       if (seen.has(name) || hidden.has(name) || !(input.counts[name] > 0)) continue;
       if (playlistAdded < maxPlaylistTabs) {
-        push(name);
+        seen.add(name);
+        tabs.push(name);
         playlistAdded += 1;
       } else {
         overflow.push(name);
       }
     }
   }
-  return { tabs, overflow };
+
+  const displayOrder = tabPrefs.order.map(displayGroup);
+  return {
+    tabs: applyGuideGroupOrder(tabs, displayOrder),
+    overflow: applyGuideGroupOrder(overflow, displayOrder),
+  };
 }
 
 export function reorderPinned(pinned: string[], from: number, to: number): string[] {
@@ -233,9 +262,10 @@ export function filterChannelsByGroup(
     customGroups?: ReadonlyMap<string, ReadonlySet<string>>;
   },
 ): Channel[] {
-  if (group === "All" && opts.hiddenIds.size === 0 && opts.customOrder.length === 0) return channels;
+  const sourceGroup = resolveGuideGroupIdentity(group);
+  if (sourceGroup === "All" && opts.hiddenIds.size === 0 && opts.customOrder.length === 0) return channels;
 
-  if (group === "Recently Watched") {
+  if (sourceGroup === "Recently Watched") {
     const list: Channel[] = [];
     for (const channel of opts.recent) if (!opts.hiddenIds.has(channel.id)) list.push(channel);
     return list;
@@ -245,8 +275,8 @@ export function filterChannelsByGroup(
   for (const channel of channels) {
     if (opts.hiddenIds.has(channel.id)) continue;
     if (
-      group === "All" ||
-      channelInGroup(channel, group, {
+      sourceGroup === "All" ||
+      channelInGroup(channel, sourceGroup, {
         favoriteSet: opts.favoriteSet,
         recentIds: opts.recentIds,
         hasEpgMatch: opts.hasEpgMatch,
@@ -268,7 +298,7 @@ export function filterChannelsByGroup(
     return list;
   }
 
-  if (group !== "All") {
+  if (sourceGroup !== "All") {
     list.sort((a, b) => (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" }));
   }
   return list;
