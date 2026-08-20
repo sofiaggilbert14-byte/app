@@ -1,6 +1,6 @@
 import React from "react";
 import { View, Text, StyleSheet, Pressable, BackHandler, ScrollView } from "react-native";
-import { useRouter } from "expo-router";
+import { usePathname, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import dayjs from "dayjs";
@@ -9,10 +9,12 @@ import { useStore } from "@/src/store";
 import { reminderKey } from "@/src/utils/time";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
+import { resetRemoteContextIfOwned, setRemoteContext } from "@/src/utils/tvRemote";
 
 export function ProgramModal() {
   const { activeProgram, closeProgram, toggleReminder, reminders } = useStore();
   const router = useRouter();
+  const pathname = usePathname();
   const [msg, setMsg] = React.useState<string | null>(null);
   // Optimistic override so the label flips the instant the user presses Remind/Cancel.
   const [optimisticReminded, setOptimisticReminded] = React.useState<boolean | null>(null);
@@ -30,6 +32,19 @@ export function ProgramModal() {
     setMsg(null);
     setOptimisticReminded(null);
   }, [activeProgram]);
+
+  React.useEffect(() => {
+    if (!activeProgram) return;
+    setRemoteContext("modal");
+    return () => {
+      const restore = pathname?.startsWith("/player")
+        ? "player"
+        : pathname?.startsWith("/guide")
+          ? "guide"
+          : "default";
+      resetRemoteContextIfOwned("modal", restore);
+    };
+  }, [activeProgram, pathname]);
 
   // Close on the hardware / remote BACK button while the sheet is open.
   React.useEffect(() => {
