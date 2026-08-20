@@ -122,12 +122,14 @@ export function nextRefreshAt(
 }
 
 export async function setPlaylistRefreshInterval(value: SourceRefreshIntervalHours): Promise<void> {
+  await load();
   const next = normalize(value, DEFAULTS.playlistHours);
   commit({ ...cached, playlistHours: next });
   await storage.setItem(PLAYLIST_KEY, next);
 }
 
 export async function setEpgRefreshInterval(value: SourceRefreshIntervalHours): Promise<void> {
+  await load();
   const next = normalize(value, DEFAULTS.epgHours);
   commit({ ...cached, epgHours: next });
   await storage.setItem(EPG_KEY, next);
@@ -135,6 +137,7 @@ export async function setEpgRefreshInterval(value: SourceRefreshIntervalHours): 
 }
 
 export async function setEpgPastDays(value: SourceRefreshPreferences["epgPastDays"]): Promise<void> {
+  await load();
   const next = value === 1 || value === 3 || value === 14 ? value : 7;
   commit({ ...cached, epgPastDays: next });
   await storage.setItem(EPG_PAST_DAYS_KEY, next);
@@ -142,12 +145,14 @@ export async function setEpgPastDays(value: SourceRefreshPreferences["epgPastDay
 }
 
 export async function setUpdateEpgOnAppStart(value: boolean): Promise<void> {
+  await load();
   const next = value === true;
   commit({ ...cached, updateEpgOnAppStart: next });
   await storage.setItem(EPG_ON_START_KEY, next);
 }
 
 export async function setUpdateEpgOnPlaylistChange(value: boolean): Promise<void> {
+  await load();
   const next = value === true;
   commit({ ...cached, updateEpgOnPlaylistChange: next });
   await storage.setItem(EPG_ON_PLAYLIST_CHANGE_KEY, next);
