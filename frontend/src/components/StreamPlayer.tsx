@@ -304,6 +304,7 @@ function VlcStream({
   const playerRef = useRef<any>(null);
   const vlcHasPlayedRef = useRef(false);
   const vlcProgressSeenRef = useRef(false);
+  const vlcLastProgressValueRef = useRef<number | null>(null);
   const vlcLastProgressAtRef = useRef(Date.now());
   const vlcBufferingSinceRef = useRef<number | null>(null);
   const { uri, headers } = useMemo(() => parsePipeHeaders(rawUri), [rawUri]);
@@ -487,13 +488,6 @@ function VlcStream({
           vlcLastProgressAtRef.current = Date.now();
           vlcBufferingSinceRef.current = null;
         }
-      }}
-      onProgress={() => {
-        if (!activeRef.current || tearingDownRef.current) return;
-        if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
-        vlcProgressSeenRef.current = true;
-        vlcLastProgressAtRef.current = Date.now();
-        vlcBufferingSinceRef.current = null;
       }}
       onPlaying={() => {
         if (!activeRef.current || tearingDownRef.current) return;
