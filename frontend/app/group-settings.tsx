@@ -7,7 +7,8 @@ import { useStore } from "@/src/store";
 import { useCustomGuideGroups } from "@/src/core/customGuideGroups";
 import { CURATED_GROUPS, SMART_GROUPS } from "@/src/core/guideGroups";
 import { GUIDE_START_LAST_USED, useGuideUiPreferences } from "@/src/core/guideUiPreferences";
-import { getGuideGroupDisplayName, useGuideGroupTabPreferences } from "@/src/core/guideGroupTabPreferences";
+import { applyGuideGroupOrder, getGuideGroupDisplayName } from "@/src/core/guideGroupTabPreferences";
+import { useGuideGroupTabPreferences } from "@/src/core/guideGroupTabPersistence";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
 
@@ -63,6 +64,11 @@ export default function GroupSettingsScreen() {
     }
     return out.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
   }, [channels]);
+
+  const orderedProviderGroups = useMemo(
+    () => applyGuideGroupOrder(providerGroups, tabPrefs.order),
+    [providerGroups, tabPrefs.order],
+  );
 
   const memberSet = useMemo(() => new Set(selected?.channelIds || []), [selected?.channelIds]);
   const filtered = useMemo(() => {
@@ -125,9 +131,19 @@ export default function GroupSettingsScreen() {
     if (!selectedProvider) return;
     const next = providerRenameDraft.replace(/[\r\n\t]/g, " ").replace(/\s+/g, " ").trim().slice(0, 48);
     if (!next) return;
-    tabPrefs.rename(selectedProvider, next);
-    setProviderRenameDraft(next);
-  }, [providerRenameDraft, selectedProvider, tabPrefs]);
+    const key = next.toLocaleLowerCase();
+    const collision = [
+      "All",
+      ...BUILT_INS,
+      ...providerGroups.filter((id) => id !== selectedProvider),
+      ...custom.groups.map((group) => group.name),
+      ...Object.entries(tabPrefs.aliases)
+        .filter(([id]) => id !== selectedProvider)
+        .map(([, label]) => label),
+    ].some((name) => String(name || "").trim().toLocaleLowerCase() === key);
+    if (collision) return;
+    if (tabPrefs.rename(selectedProvider, next)) setProviderRenameDraft(next);
+  }, [custom.groups, providerGroups, providerRenameDraft, selectedProvider, tabPrefs]);
 
   return (
     <PurpleTvShell active="/settings">
@@ -151,7 +167,7 @@ export default function GroupSettingsScreen() {
               <Text style={styles.rowText}>Show provider groups in Guide</Text>
               <Text style={styles.value}>{guideUi.showProviderGroups ? "On" : "Off"}</Text>
             </Pressable>
-            {providerGroups.map((groupId) => {
+            {orderedProviderGroups.map((groupId) => {
               const visible = !tabPrefs.hiddenSet.has(groupId);
               const display = getGuideGroupDisplayName(groupId, tabPrefs.aliases);
               const selectedProviderRow = selectedProvider === groupId;
