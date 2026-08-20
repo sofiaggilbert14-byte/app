@@ -8,31 +8,40 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const text = (path) => readFile(join(root, path), "utf8");
 
 test("Guide tab customization keeps provider identity separate from display metadata", async () => {
-  const prefs = await text("src/core/guideGroupTabPreferences.ts");
-  const groups = await text("src/core/guideGroups.ts");
-  assert.match(prefs, /aliases: Record<string, string>/);
-  assert.match(prefs, /hidden: string\[\]/);
-  assert.match(prefs, /order: string\[\]/);
-  assert.match(prefs, /reverseAliases\[displayName\] \|\| displayName/);
-  assert.match(prefs, /id === RESERVED_ID/);
+  const [model, groups] = await Promise.all([
+    text("src/core/guideGroupTabModel.ts"),
+    text("src/core/guideGroups.ts"),
+  ]);
+  assert.match(model, /aliases: Record<string, string>/);
+  assert.match(model, /hidden: string\[\]/);
+  assert.match(model, /order: string\[\]/);
+  assert.match(model, /reverseAliases\[displayName\] \|\| displayName/);
+  assert.match(model, /GUIDE_GROUP_RESERVED_ID/);
   assert.match(groups, /resolveGuideGroupIdentity\(group\)/);
   assert.match(groups, /channel\.group === sourceGroup/);
+  assert.match(groups, /opts\.customGroups\?\.get\(sourceGroup\) \|\| opts\.customGroups\?\.get\(displayGroup\(sourceGroup\)\)/);
 });
 
-test("Group settings expose provider and custom visibility rename and ordering", async () => {
-  const screen = await text("app/group-settings.tsx");
+test("Group settings keep custom visibility on stable ids and provider order on raw ids", async () => {
+  const [screen, persistence] = await Promise.all([
+    text("app/group-settings.tsx"),
+    text("src/core/guideGroupTabPersistence.ts"),
+  ]);
   assert.match(screen, /Provider group tabs/);
+  assert.match(screen, /orderedProviderGroups/);
   assert.match(screen, /tabPrefs\.move\(groupId, -1, providerGroups\)/);
   assert.match(screen, /tabPrefs\.setVisible\(groupId, !visible\)/);
-  assert.match(screen, /commitProviderRename/);
-  assert.match(screen, /toggleCustomVisible/);
+  assert.match(screen, /tabPrefs\.rename\(group\.id, group\.name\)/);
+  assert.match(screen, /toggleCustomVisible\(group\.id\)/);
+  assert.match(screen, /tabPrefs\.remove\(groupId\)/);
   assert.match(screen, /custom\.moveGroup\(group\.id, -1\)/);
-  assert.match(screen, /guideUi\.hiddenGroups\.map\(\(name\) => name === oldName \? nextName : name\)/);
   assert.match(screen, /groupNameCollides/);
   assert.match(screen, /providerGroups\.some\(\(id\) => id !== options\?\.providerId/);
   assert.match(screen, /custom\.groups\.some\(\(group\) => group\.id !== options\?\.customId/);
   assert.match(screen, /Object\.entries\(tabPrefs\.aliases\)\.some/);
-  assert.match(screen, /if \(!name \|\| groupNameCollides\(name\)\) return/);
+  assert.match(persistence, /const setVisible = useCallback/);
+  assert.match(persistence, /const remove = useCallback/);
+  assert.match(persistence, /if \(wasHidden === hidden\.has\(id\)\) return/);
 });
 
 test("customization persistence cannot let stale initial reads overwrite newer edits", async () => {
@@ -62,9 +71,17 @@ test("automatic TV layout starts full viewport and calibration owns real oversca
   assert.match(calibration, /combineTvEdgeInsets/);
 });
 
-test("player aspect fit remains view-layer and decoder independent", async () => {
-  const player = await text("src/components/StreamPlayer.tsx");
-  assert.match(player, /scaleMode = "fit"/);
-  assert.match(player, /contentFit=\{scaleMode === "zoom" \? "cover" : scaleMode === "stretch" \? "fill" : "contain"\}/);
-  assert.match(player, /resizeMode=\{scaleMode === "zoom" \? "cover" : scaleMode === "stretch" \? "stretch" : "contain"\}/);
+test("player exposes distinct Fit Fill Zoom Stretch without decoder restart", async () => {
+  const [engine, screen] = await Promise.all([
+    text("src/components/StreamPlayer.tsx"),
+    text("app/player.tsx"),
+  ]);
+  assert.match(engine, /scaleMode = "fit"/);
+  assert.match(engine, /contentFit=\{scaleMode === "zoom" \? "cover" : scaleMode === "stretch" \? "fill" : "contain"\}/);
+  assert.match(engine, /resizeMode=\{scaleMode === "zoom" \? "cover" : scaleMode === "stretch" \? "stretch" : "contain"\}/);
+  assert.match(screen, /type PlayerViewMode = "fit" \| "fill" \| "zoom" \| "stretch"/);
+  assert.match(screen, /current === "fit" \? "fill" : current === "fill" \? "zoom" : current === "zoom" \? "stretch" : "fit"/);
+  assert.match(screen, /scaleMode === "fill" \? "zoom" : scaleMode === "stretch" \? "stretch" : "fit"/);
+  assert.match(screen, /zoomedVideo: \{ transform: \[\{ scale: 1\.2 \}\] \}/);
+  assert.match(screen, /root: \{ flex: 1, backgroundColor: "#000", overflow: "hidden" \}/);
 });
