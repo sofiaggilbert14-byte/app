@@ -12,6 +12,7 @@ const MAX_GROUPS = 256;
 const MAX_NAME = 48;
 const RESERVED_ID = "All";
 let cached: GuideGroupTabPreferences = { aliases: {}, hidden: [], order: [] };
+let reverseAliases: Record<string, string> = {};
 let loaded = false;
 let loading: Promise<GuideGroupTabPreferences> | null = null;
 let writeChain: Promise<void> = Promise.resolve();
@@ -38,13 +39,16 @@ function cleanList(raw: unknown): string[] {
 function normalize(raw: unknown): GuideGroupTabPreferences {
   const value = raw && typeof raw === "object" ? raw as Partial<GuideGroupTabPreferences> : {};
   const aliases: Record<string, string> = {};
+  const usedLabels = new Set<string>();
   if (value.aliases && typeof value.aliases === "object") {
     let count = 0;
     for (const [rawId, rawLabel] of Object.entries(value.aliases)) {
       const id = cleanName(rawId);
       const label = cleanName(rawLabel, MAX_NAME);
-      if (!id || id === RESERVED_ID || !label || label === id) continue;
+      const labelKey = label.toLowerCase();
+      if (!id || id === RESERVED_ID || !label || label === id || label === RESERVED_ID || usedLabels.has(labelKey)) continue;
       aliases[id] = label;
+      usedLabels.add(labelKey);
       count += 1;
       if (count >= MAX_GROUPS) break;
     }
@@ -52,11 +56,18 @@ function normalize(raw: unknown): GuideGroupTabPreferences {
   return { aliases, hidden: cleanList(value.hidden), order: cleanList(value.order) };
 }
 
+function install(next: GuideGroupTabPreferences) {
+  cached = next;
+  const reverse: Record<string, string> = {};
+  for (const [id, label] of Object.entries(next.aliases)) reverse[label] = id;
+  reverseAliases = reverse;
+}
+
 async function load(): Promise<GuideGroupTabPreferences> {
   if (loaded) return cached;
   if (loading) return loading;
   loading = storage.getItem<GuideGroupTabPreferences>(KEY, cached).then((raw) => {
-    cached = normalize(raw);
+    install(normalize(raw));
     loaded = true;
     return cached;
   });
@@ -64,7 +75,7 @@ async function load(): Promise<GuideGroupTabPreferences> {
 }
 
 function commit(next: GuideGroupTabPreferences) {
-  cached = normalize(next);
+  install(normalize(next));
   loaded = true;
   for (const listener of Array.from(listeners)) {
     try { listener(cached); } catch {}
@@ -81,9 +92,9 @@ export function getGuideGroupDisplayName(groupId: string, aliases = cached.alias
   return aliases[groupId] || groupId;
 }
 
+/** O(1) hot-path lookup; Guide calls this while filtering thousands of channels. */
 export function resolveGuideGroupIdentity(displayName: string): string {
-  for (const [id, label] of Object.entries(cached.aliases)) if (label === displayName) return id;
-  return displayName;
+  return reverseAliases[displayName] || displayName;
 }
 
 export function applyGuideGroupOrder(ids: string[], order: string[]): string[] {
@@ -97,8 +108,6 @@ export function applyGuideGroupOrder(ids: string[], order: string[]): string[] {
     const ar = rank.get(a);
     const br = rank.get(b);
     if (ar != null && br != null) return ar - br;
-    // A user ordering for provider/custom siblings must not pull that entire
-    // block in front of system groups. Unranked boundaries retain source order.
     return (original.get(a) ?? 0) - (original.get(b) ?? 0);
   });
 }
@@ -116,7 +125,11 @@ export function useGuideGroupTabPreferences() {
   const rename = useCallback((groupId: string, rawLabel: string) => {
     const id = cleanName(groupId);
     const label = cleanName(rawLabel, MAX_NAME);
-    if (!id || id === RESERVED_ID || !label) return false;
+    if (!id || id === RESERVED_ID || !label || label === RESERVED_ID) return false;
+    const duplicate = Object.entries(cached.aliases).some(
+      ([otherId, otherLabel]) => otherId !== id && otherLabel.toLowerCase() === label.toLowerCase(),
+    );
+    if (duplicate) return false;
     const aliases = { ...cached.aliases };
     if (label === id) delete aliases[id]; else aliases[id] = label;
     commit({ ...cached, aliases });
