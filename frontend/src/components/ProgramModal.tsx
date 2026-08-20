@@ -77,7 +77,7 @@ export function ProgramModal() {
   const watch = () => {
     void Haptics.selectionAsync().catch(() => {});
     closeProgram();
-    openFullscreenPlayer(router, channel.id);
+    openFullscreenPlayer(router, channel.id, { returnToGuide: pathname?.startsWith("/guide") });
   };
 
   const onReminder = () => {
