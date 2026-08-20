@@ -28,6 +28,11 @@ test("Group settings expose provider and custom visibility rename and ordering",
   assert.match(screen, /toggleCustomVisible/);
   assert.match(screen, /custom\.moveGroup\(group\.id, -1\)/);
   assert.match(screen, /guideUi\.hiddenGroups\.map\(\(name\) => name === oldName \? nextName : name\)/);
+  assert.match(screen, /groupNameCollides/);
+  assert.match(screen, /providerGroups\.some\(\(id\) => id !== options\?\.providerId/);
+  assert.match(screen, /custom\.groups\.some\(\(group\) => group\.id !== options\?\.customId/);
+  assert.match(screen, /Object\.entries\(tabPrefs\.aliases\)\.some/);
+  assert.match(screen, /if \(!name \|\| groupNameCollides\(name\)\) return/);
 });
 
 test("automatic TV layout starts full viewport and calibration owns real overscan", async () => {
