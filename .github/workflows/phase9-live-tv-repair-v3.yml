@@ -1,0 +1,100 @@
+name: Apply Phase 9 Live TV Repair v3
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/phase9-live-tv-repair-v3.yml"
+      - "ci/validation-trigger.txt"
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.event.pull_request.head.ref == 'agent/phase9-tivimate-scan-repair'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: agent/phase9-tivimate-scan-repair
+          fetch-depth: 0
+
+      - name: Align stale regressions with repaired behavior
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path('frontend/tests/playerAndFocus.test.mjs')
+          s = p.read_text()
+          s = s.replace(
+              '  assert.match(overlay, /openProgram\\(guideSelection\\.program, selectedChannel\\)/);\n',
+              '  assert.match(overlay, /PROGRAM QUICK ACTIONS/);\n'
+              '  assert.match(overlay, /Program details \\/ reminder/);\n'
+              '  assert.doesNotMatch(overlay, /guideSelection\\.program\\) \\{\\s*openProgram/);\n',
+          )
+          p.write_text(s)
+
+          p = Path('frontend/tests/quickActionsContext.test.mjs')
+          s = p.read_text()
+          s = s.replace(
+              '  assert.match(overlay, /openProgram\\(guideSelection\\.program, selectedChannel\\)/);\n',
+              '  assert.match(overlay, /PROGRAM QUICK ACTIONS/);\n'
+              '  assert.match(overlay, /Program details \\/ reminder/);\n'
+              '  assert.match(overlay, /setGuideProgram\\(/);\n'
+              '  assert.doesNotMatch(overlay, /guideSelection\\.program\\) \\{\\s*openProgram/);\n',
+          )
+          p.write_text(s)
+
+          p = Path('frontend/tests/playbackSession.test.mjs')
+          s = p.read_text()
+          old = re.compile(
+              r'test\("Media3 watchdog recovers readyToPlay streams whose playback clock stops", async \(\) => \{[\s\S]*?\n\}\);\n?'
+          )
+          replacement = '''test("Media3 watchdog only recovers after an explicit buffering state", async () => {\n  const player = await source("src/components/StreamPlayer.tsx");\n  assert.match(player, /if \\(bufferingSince == null\\) return/);\n  assert.match(player, /const bufferingFor = now - bufferingSince/);\n  assert.doesNotMatch(player, /const stalledReady =/);\n  assert.match(player, /const BUFFERING_RESYNC_MS = 5000/);\n  assert.match(player, /const BUFFERING_FAIL_MS = 22000/);\n});\n'''
+          s, count = old.subn(replacement, s, count=1)
+          if count != 1 and 'Media3 watchdog only recovers after an explicit buffering state' not in s:
+              raise SystemExit('playbackSession stale watchdog test not found')
+          p.write_text(s)
+          PY
+
+      - name: Apply consolidated production repair
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          workflow = Path('.github/workflows/phase9-live-tv-regression-repair.yml').read_text().splitlines()
+          start = next(i for i, line in enumerate(workflow) if "python3 - <<'PY'" in line) + 1
+          end = next(i for i in range(start, len(workflow)) if workflow[i].strip() == 'PY')
+          lines = workflow[start:end]
+          script = '\n'.join(
+              line[10:] if line.startswith('          ') else line
+              for line in lines
+          ) + '\n'
+          Path('/tmp/phase9_live_tv_repair.py').write_text(script)
+          PY
+          python3 /tmp/phase9_live_tv_repair.py
+
+      - name: Run full frontend regression suite
+        working-directory: frontend
+        run: npm test
+
+      - name: Commit production repair and regression alignment
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            frontend/app/player.tsx \
+            frontend/src/components/StreamPlayer.tsx \
+            frontend/src/components/TvQuickActionsOverlay.tsx \
+            frontend/android/app/src/main/java/com/charmiptv/app/MainActivity.kt \
+            frontend/tests/playerAndFocus.test.mjs \
+            frontend/tests/playbackSession.test.mjs \
+            frontend/tests/quickActionsContext.test.mjs
+          git diff --cached --quiet && exit 0
+          git commit -m "fix(tv): repair player zaps Media3 and long-OK context"
+          git push origin HEAD:agent/phase9-tivimate-scan-repair
