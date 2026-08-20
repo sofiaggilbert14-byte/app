@@ -57,6 +57,24 @@ export default function GroupSettingsScreen() {
     }
   }, [custom.groups, selectedId]);
 
+  // TiViMate-style migration: custom group identity owns tab metadata. Old Charm
+  // builds stored hidden custom groups by mutable display name, so promote those
+  // records once to stable group ids while retaining name-based built-in settings.
+  useEffect(() => {
+    if (!custom.groups.length) return;
+    const legacyHidden = new Set(guideUi.hiddenGroups);
+    let legacyChanged = false;
+    for (const group of custom.groups) {
+      if (tabPrefs.aliases[group.id] !== group.name) tabPrefs.rename(group.id, group.name);
+      if (legacyHidden.has(group.name)) {
+        tabPrefs.setVisible(group.id, false);
+        legacyHidden.delete(group.name);
+        legacyChanged = true;
+      }
+    }
+    if (legacyChanged) guideUi.setHiddenGroups(Array.from(legacyHidden));
+  }, [custom.groups, guideUi, tabPrefs]);
+
   const providerGroups = useMemo(() => {
     const seen = new Set<string>();
     const out: string[] = [];
@@ -82,7 +100,7 @@ export default function GroupSettingsScreen() {
     if (providerGroups.some((id) => id !== options?.providerId && id.toLocaleLowerCase() === key)) return true;
     if (custom.groups.some((group) => group.id !== options?.customId && group.name.toLocaleLowerCase() === key)) return true;
     return Object.entries(tabPrefs.aliases).some(
-      ([id, label]) => id !== options?.providerId && label.toLocaleLowerCase() === key,
+      ([id, label]) => id !== options?.providerId && id !== options?.customId && label.toLocaleLowerCase() === key,
     );
   }, [custom.groups, providerGroups, tabPrefs.aliases]);
 
@@ -109,10 +127,8 @@ export default function GroupSettingsScreen() {
     guideUi.setHiddenGroups(Array.from(hidden));
   };
 
-  const toggleCustomVisible = (name: string) => {
-    const hidden = new Set(guideUi.hiddenGroups);
-    if (hidden.has(name)) hidden.delete(name); else hidden.add(name);
-    guideUi.setHiddenGroups(Array.from(hidden));
+  const toggleCustomVisible = (groupId: string) => {
+    tabPrefs.setVisible(groupId, tabPrefs.hiddenSet.has(groupId));
   };
 
   const createCustomGroup = useCallback(() => {
@@ -126,18 +142,22 @@ export default function GroupSettingsScreen() {
     const oldName = selected.name;
     const nextName = cleanGroupName(renameDraft);
     if (!nextName || groupNameCollides(nextName, { customId: selected.id }) || !custom.renameGroup(selected.id, nextName)) return;
+    tabPrefs.rename(selected.id, nextName);
     if (guideUi.startGroup === oldName) guideUi.setStartGroup(nextName);
     if (guideUi.pinnedGroups.includes(oldName)) {
       guideUi.setPinnedGroups(guideUi.pinnedGroups.map((name) => name === oldName ? nextName : name));
     }
+    // Remove only a legacy pre-migration hidden-name record. Visibility itself
+    // remains attached to selected.id and therefore survives this rename.
     if (guideUi.hiddenGroups.includes(oldName)) {
-      guideUi.setHiddenGroups(guideUi.hiddenGroups.map((name) => name === oldName ? nextName : name));
+      guideUi.setHiddenGroups(guideUi.hiddenGroups.filter((name) => name !== oldName));
     }
     setRenameDraft(nextName);
-  }, [custom, groupNameCollides, guideUi, renameDraft, selected]);
+  }, [custom, groupNameCollides, guideUi, renameDraft, selected, tabPrefs]);
 
   const deleteSelectedGroup = useCallback((groupId: string, groupName: string) => {
     custom.deleteGroup(groupId);
+    tabPrefs.remove(groupId);
     if (guideUi.startGroup === groupName) guideUi.setStartGroup(GUIDE_START_LAST_USED);
     if (guideUi.pinnedGroups.includes(groupName)) {
       guideUi.setPinnedGroups(guideUi.pinnedGroups.filter((name) => name !== groupName));
@@ -147,7 +167,7 @@ export default function GroupSettingsScreen() {
     }
     setSelectedId(null);
     setPage(0);
-  }, [custom, guideUi]);
+  }, [custom, guideUi, tabPrefs]);
 
   const commitProviderRename = useCallback(() => {
     if (!selectedProvider) return;
@@ -226,7 +246,7 @@ export default function GroupSettingsScreen() {
 
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Custom tabs</Text>
-            <Text style={styles.help}>Custom groups store channel IDs only. Rename, visibility, and position are user-owned; stream URLs, logos, and EPG rows stay in the provider/native stores.</Text>
+            <Text style={styles.help}>Custom groups keep stable IDs for visibility and channel membership. Rename and provider rescans change display metadata only, so hidden/order choices remain intact.</Text>
             <View style={styles.inputRow}>
               <TextInput value={draft} onChangeText={setDraft} placeholder="New group name" placeholderTextColor={tvColors.textMuted} style={styles.input} maxLength={48} />
               <Pressable onPress={createCustomGroup} style={({ focused }: any) => [styles.action, focused && styles.focused]}>
@@ -234,7 +254,7 @@ export default function GroupSettingsScreen() {
               </Pressable>
             </View>
             {custom.groups.map((group) => {
-              const visible = !guideUi.hiddenGroups.includes(group.name);
+              const visible = !tabPrefs.hiddenSet.has(group.id);
               return (
                 <View key={group.id} style={styles.groupBlock}>
                   <Pressable onPress={() => { setSelectedId(group.id); setRenameDraft(group.name); setPage(0); }} style={({ focused }: any) => [styles.row, selectedId === group.id && styles.selected, focused && styles.focused]}>
@@ -245,7 +265,7 @@ export default function GroupSettingsScreen() {
                     <View style={styles.groupActions}>
                       <Pressable onPress={() => custom.moveGroup(group.id, -1)} style={({ focused }: any) => [styles.mini, focused && styles.focused]}><Text style={styles.actionText}>Up</Text></Pressable>
                       <Pressable onPress={() => custom.moveGroup(group.id, 1)} style={({ focused }: any) => [styles.mini, focused && styles.focused]}><Text style={styles.actionText}>Down</Text></Pressable>
-                      <Pressable onPress={() => toggleCustomVisible(group.name)} style={({ focused }: any) => [styles.mini, focused && styles.focused]}><Text style={styles.actionText}>{visible ? "Hide" : "Show"}</Text></Pressable>
+                      <Pressable onPress={() => toggleCustomVisible(group.id)} style={({ focused }: any) => [styles.mini, focused && styles.focused]}><Text style={styles.actionText}>{visible ? "Hide" : "Show"}</Text></Pressable>
                       <Pressable onPress={() => deleteSelectedGroup(group.id, group.name)} style={({ focused }: any) => [styles.mini, focused && styles.focused]}><Text style={styles.actionText}>Delete</Text></Pressable>
                     </View>
                   ) : null}
