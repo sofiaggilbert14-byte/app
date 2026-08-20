@@ -90,14 +90,18 @@ test("native cold-start snapshot queries each EPG programme count once", async (
 });
 
 test("source scheduler cannot bypass the 30-second cold-start refresh deferral", async () => {
-  const [scheduler, nativeSource] = await Promise.all([
+  const [scheduler, nativeSource, store] = await Promise.all([
     source("src/components/SourceRefreshScheduler.tsx"),
     source("src/source.native.ts"),
+    source("src/store.tsx"),
   ]);
   assert.match(scheduler, /const initialTimer = setTimeout\(\(\) => void check\(\), 30_000\)/);
   assert.match(scheduler, /clearTimeout\(initialTimer\)/);
   assert.doesNotMatch(scheduler, /\n    void check\(\);\n    const timer/);
   assert.doesNotMatch(nativeSource, /scheduleStartupSourceRefresh|STARTUP_SOURCE_REFRESH_DELAY_MS/);
+  assert.doesNotMatch(store, /refreshSource\(false\)/);
+  assert.doesNotMatch(store, /healthTimer/);
+  assert.match(store, /const hardRefresh[\s\S]*?await refreshSource\(true\)/);
 });
 
 test("AppState resume cannot bypass the automatic cold-start source gate", async () => {
@@ -126,6 +130,7 @@ test("Guide defaults to 12 hours while saved user choices remain supported", asy
     source("src/store.tsx"),
   ]);
   assert.match(env, /^EXPO_PUBLIC_GUIDE_WINDOW_HOURS=12$/m);
+  assert.match(store, /readGuideWindowHours\(process\.env\.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 12\)/);
   assert.match(store, /type GuideWindowHours = 6 \| 8 \| 12 \| 24/);
   assert.match(store, /storage\.getItem<number>\(GUIDE_WINDOW_HOURS_KEY, DEFAULT_GUIDE_WINDOW_HOURS\)/);
   assert.match(store, /if \(n === 6 \|\| n === 8 \|\| n === 12 \|\| n === 24\) return n/);
