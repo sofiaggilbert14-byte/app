@@ -80,6 +80,8 @@ const BUFFERING_RESYNC_MS = 5000;
 const MEDIA3_FROZEN_CLOCK_MS = 9000;
 const BUFFERING_FAIL_MS = 22000;
 const MAX_SILENT_BUFFERING_RESYNCS = 2;
+const VLC_FROZEN_PROGRESS_MS = 15_000;
+const VLC_BUFFERING_FAIL_MS = 22_000;
 
 function pruneFailureMap(now = Date.now()) {
   for (const [key, state] of failureStateByKey) {
@@ -300,6 +302,10 @@ function VlcStream({
   const activeRef = useRef(true);
   const tearingDownRef = useRef(false);
   const playerRef = useRef<any>(null);
+  const vlcHasPlayedRef = useRef(false);
+  const vlcProgressSeenRef = useRef(false);
+  const vlcLastProgressAtRef = useRef(Date.now());
+  const vlcBufferingSinceRef = useRef<number | null>(null);
   const { uri, headers } = useMemo(() => parsePipeHeaders(rawUri), [rawUri]);
   const { blocked, setBlocked } = useCircuitCooldown(sessionRole, engine, uri, setStatus);
   const referer = headers.Referer || headers.referer;
@@ -410,6 +416,26 @@ function VlcStream({
     hardStop();
   }, [blocked, hardStop]);
 
+  useEffect(() => {
+    if (mode === "preview" || paused || blocked) return;
+    const watchdog = setInterval(() => {
+      if (!activeRef.current || tearingDownRef.current || paused || blocked) return;
+      if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
+      if (!vlcHasPlayedRef.current) return;
+      const now = Date.now();
+      const bufferingSince = vlcBufferingSinceRef.current;
+      const bufferingStalled = bufferingSince != null && now - bufferingSince >= VLC_BUFFERING_FAIL_MS;
+      const progressStalled =
+        vlcProgressSeenRef.current &&
+        now - vlcLastProgressAtRef.current >= VLC_FROZEN_PROGRESS_MS;
+      if (!bufferingStalled && !progressStalled) return;
+      vlcBufferingSinceRef.current = null;
+      vlcHasPlayedRef.current = false;
+      fail();
+    }, 1000);
+    return () => clearInterval(watchdog);
+  }, [blocked, fail, mode, paused, sessionGeneration, sessionRole]);
+
   if (blocked || !VLCPlayer) return null;
 
   return (
@@ -436,10 +462,26 @@ function VlcStream({
         onTracksAvailable?.({ audio, text });
       }}
       onOpen={() => activeRef.current && !tearingDownRef.current && emit("loading")}
-      onBuffering={() => activeRef.current && !tearingDownRef.current && emit("loading")}
+      onBuffering={() => {
+        if (!activeRef.current || tearingDownRef.current) return;
+        if (vlcHasPlayedRef.current && vlcBufferingSinceRef.current == null) {
+          vlcBufferingSinceRef.current = Date.now();
+        }
+        emit("loading");
+      }}
+      onProgress={() => {
+        if (!activeRef.current || tearingDownRef.current) return;
+        if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
+        vlcProgressSeenRef.current = true;
+        vlcLastProgressAtRef.current = Date.now();
+        vlcBufferingSinceRef.current = null;
+      }}
       onPlaying={() => {
         if (!activeRef.current || tearingDownRef.current) return;
         if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
+        vlcHasPlayedRef.current = true;
+        vlcLastProgressAtRef.current = Date.now();
+        vlcBufferingSinceRef.current = null;
         recordStablePlayback(sessionRole, engine, uri);
         emit("playing");
       }}
