@@ -108,6 +108,36 @@ test("AppState resume cannot bypass the automatic cold-start source gate", async
   assert.match(scheduler, /if \(active\) void check\(\)/);
 });
 
+test("legacy cleanup preserves the channel cache until native migration can promote it", async () => {
+  const [cleanup, nativeSource] = await Promise.all([
+    source("src/utils/legacyEpgCleanup.ts"),
+    source("src/source.native.ts"),
+  ]);
+  assert.match(cleanup, /LEGACY_CHANNEL_CACHE = "charm_native_channels_v1\.json"/);
+  assert.match(cleanup, /if \(name === LEGACY_CHANNEL_CACHE\) continue/);
+  const coldStart = nativeSource.match(/async function ensureLoaded\(\)[\s\S]*?\n}\n\nasync function refreshInternal/)?.[0] || "";
+  assert.match(coldStart, /const legacy = await readMetaFile\(LEGACY_CHANNEL_CACHE\)/);
+  assert.match(coldStart, /await persistMeta\(MEM\)/);
+});
+
+test("Guide defaults to 12 hours while saved user choices remain supported", async () => {
+  const [env, store] = await Promise.all([
+    source(".env"),
+    source("src/store.tsx"),
+  ]);
+  assert.match(env, /^EXPO_PUBLIC_GUIDE_WINDOW_HOURS=12$/m);
+  assert.match(store, /type GuideWindowHours = 6 \| 8 \| 12 \| 24/);
+  assert.match(store, /storage\.getItem<number>\(GUIDE_WINDOW_HOURS_KEY, DEFAULT_GUIDE_WINDOW_HOURS\)/);
+  assert.match(store, /if \(n === 6 \|\| n === 8 \|\| n === 12 \|\| n === 24\) return n/);
+});
+
+test("group-tab customization is not part of Android source startup", async () => {
+  const nativeSource = await source("src/source.native.ts");
+  assert.doesNotMatch(nativeSource, /guideGroupTab|customGuideGroups|guideGroups|group-settings/);
+  assert.match(nativeSource, /const nativeCached = await readNativeChannelCache\(\)/);
+  assert.match(nativeSource, /const cached = nativeCached \|\| \(await readChannelCache\(\)\)/);
+});
+
 test("EPG cold-start logo lookup has an additive alias-kind/channel index", async () => {
   const db = await source("android/app/src/main/java/com/charmiptv/app/EpgDatabase.kt");
   assert.match(db, /DATABASE_VERSION = 10/);
