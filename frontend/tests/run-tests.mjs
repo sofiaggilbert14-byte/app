@@ -15,3 +15,4 @@ import "./nativePlatformHardening.test.mjs";
 import "./ramEpgEngine.test.mjs";
 import "./memoryCrossAudit.test.mjs";
 import "./tivimateColdStartPolicy.test.mjs";
+import "./quickActionsContext.test.mjs";
