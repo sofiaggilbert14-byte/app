@@ -1,12 +1,7 @@
 name: Apply Phase 9 Live TV Repair v2
 
 on:
-  pull_request:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/phase9-live-tv-repair-v2.yml"
-      - "ci/validation-trigger.txt"
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -28,8 +23,6 @@ jobs:
           from pathlib import Path
           import re
 
-          # Program long-OK now stays in contextual Quick Actions instead of
-          # bypassing directly into ProgramModal.
           p = Path('frontend/tests/playerAndFocus.test.mjs')
           s = p.read_text()
           s = s.replace(
@@ -51,8 +44,6 @@ jobs:
           )
           p.write_text(s)
 
-          # Media3 should recover only from an explicit post-playback buffering
-          # state. Sparse live-stream time updates are not a stall signal.
           p = Path('frontend/tests/playbackSession.test.mjs')
           s = p.read_text()
           old = re.compile(
