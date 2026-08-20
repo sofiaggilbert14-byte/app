@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { storage } from "@/src/utils/storage";
+import { replaceAdditionalEpgOwners } from "@/src/core/additionalEpgOwnership";
 
 export type CustomEpgSourceRecord = {
   id: string;
@@ -64,17 +65,37 @@ function normalize(raw: unknown): CustomEpgSourceRecord[] {
   }
   return out;
 }
+function publishOwnership() {
+  const ids = new Set<string>();
+  for (const source of cached) {
+    if (!source.enabled) continue;
+    for (const channelId of Object.keys(source.overrides)) ids.add(channelId);
+  }
+  replaceAdditionalEpgOwners(ids);
+}
+function invalidateGuideOwnershipView() {
+  // Dynamic import avoids a source -> preferences -> multi-source initialization cycle.
+  void import("@/src/source")
+    .then((module) => module.invalidateGuideOwnershipCaches())
+    .catch(() => undefined);
+}
 async function load() {
   if (loaded) return cached;
   if (loading) return loading;
   loading = storage.getItem<CustomEpgSourceRecord[]>(KEY, []).then((raw) => {
-    cached = normalize(raw); loaded = true; return cached;
+    cached = normalize(raw);
+    loaded = true;
+    publishOwnership();
+    invalidateGuideOwnershipView();
+    return cached;
   });
   try { return await loading; } finally { loading = null; }
 }
 function commit(next: CustomEpgSourceRecord[]) {
   cached = normalize(next); loaded = true;
+  publishOwnership();
   listeners.forEach((listener) => { try { listener(cached); } catch {} });
+  invalidateGuideOwnershipView();
   const snapshot = cached;
   writeChain = writeChain.then(async () => { await storage.setItem(KEY, snapshot); }).catch(() => {});
 }
