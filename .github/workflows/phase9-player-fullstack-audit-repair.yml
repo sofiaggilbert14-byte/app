@@ -1,0 +1,119 @@
+name: Apply Phase 9 Full Player Stack Audit Repair
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/phase9-player-fullstack-audit-repair.yml"
+      - "ci/validation-trigger.txt"
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.event.pull_request.head.ref == 'agent/phase9-tivimate-scan-repair'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: agent/phase9-tivimate-scan-repair
+          fetch-depth: 0
+
+      - name: Apply audited player-stack repairs
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          # 1) Media3: retain frozen-ready direct-clock recovery and prevent
+          # readyToPlay from resetting the bounded retry budget.
+          p = Path('frontend/src/components/StreamPlayer.tsx')
+          s = p.read_text()
+          if 'MEDIA3_FROZEN_CLOCK_MS' not in s and 'MEDIA3_READY_STALL_MS' not in s:
+              s = s.replace(
+                  'const BUFFERING_RESYNC_MS = 5000;\nconst BUFFERING_FAIL_MS = 22000;',
+                  'const BUFFERING_RESYNC_MS = 5000;\nconst MEDIA3_FROZEN_CLOCK_MS = 9000;\nconst BUFFERING_FAIL_MS = 22000;',
+              )
+          s = s.replace(
+              '        bufferingSinceRef.current = null;\n        silentResyncCountRef.current = 0;\n        silentResyncInFlightRef.current = false;\n        setMediaReady(true);',
+              '        bufferingSinceRef.current = null;\n        // A wedged Media3 decoder can report readyToPlay without advancing.\n        // Reset recovery budget only after real clock progress.\n        silentResyncInFlightRef.current = false;\n        setMediaReady(true);',
+          )
+          if 'const observedPlaybackTime = Number(player.currentTime);' not in s and 'const directPlaybackTime = Number(player.currentTime);' not in s:
+              old = '''      const now = Date.now();\n      const bufferingSince = bufferingSinceRef.current;\n      // Live clocks can emit sparse time updates while healthy. Only an explicit\n      // post-playback Media3 loading/buffering state owns recovery.\n      if (bufferingSince == null) return;\n      const bufferingFor = now - bufferingSince;\n      if (bufferingFor < BUFFERING_RESYNC_MS) return;'''
+              new = '''      const now = Date.now();\n      const observedPlaybackTime = Number(player.currentTime);\n      if (Number.isFinite(observedPlaybackTime) && observedPlaybackTime > lastPlaybackTimeRef.current + 0.05) {\n        lastPlaybackTimeRef.current = observedPlaybackTime;\n        lastPlaybackAdvanceAtRef.current = now;\n        hasAdvancedPlaybackRef.current = true;\n        silentResyncCountRef.current = 0;\n        bufferingSinceRef.current = null;\n      }\n      const bufferingSince = bufferingSinceRef.current;\n      const frozenReadyClock =\n        bufferingSince == null &&\n        hasPlayedRef.current &&\n        Boolean((player as any).playing) &&\n        now - lastPlaybackAdvanceAtRef.current >= MEDIA3_FROZEN_CLOCK_MS;\n      if (bufferingSince == null && !frozenReadyClock) return;\n      const bufferingFor = bufferingSince != null\n        ? now - bufferingSince\n        : now - lastPlaybackAdvanceAtRef.current;\n      if (bufferingFor < (bufferingSince != null ? BUFFERING_RESYNC_MS : MEDIA3_FROZEN_CLOCK_MS)) return;'''
+              if old not in s:
+                  raise SystemExit('Media3 watchdog anchor not found')
+              s = s.replace(old, new, 1)
+          s = s.replace(
+              '        hasAdvancedPlaybackRef.current = true;\n        // Frames/time are advancing again, so any buffering watchdog is stale.\n        bufferingSinceRef.current = null;',
+              '        hasAdvancedPlaybackRef.current = true;\n        silentResyncCountRef.current = 0;\n        // Frames/time are advancing again, so any buffering watchdog is stale.\n        bufferingSinceRef.current = null;',
+          )
+          p.write_text(s)
+
+          # 2) Native Media3 network: a five-second socket read timeout is too
+          # aggressive for long-lived IPTV transport/progressive streams.
+          p = Path('frontend/patches/expo-video+3.0.16.patch')
+          s = p.read_text()
+          s = s.replace(
+              '+    .readTimeout(5, TimeUnit.SECONDS)\n',
+              '+    .readTimeout(0, TimeUnit.SECONDS)\n',
+          )
+          p.write_text(s)
+
+          # 3) Protocol-aware engine preference. Contribution protocols that the
+          # installed Media3 stack does not reliably support should start on VLC.
+          p = Path('frontend/src/core/streamPolicy.ts')
+          s = p.read_text()
+          s = s.replace(
+              'export function preferredEngine(_kind: StreamKind): Engine {\n  return "media3";\n}',
+              'export function preferredEngine(kind: StreamKind): Engine {\n  if (kind === "rtmp" || kind === "srt" || kind === "webrtc") return "vlc";\n  return "media3";\n}',
+          )
+          p.write_text(s)
+
+          # 4) Guide: expire old time in half-hour buckets while preserving the
+          # selected channel and any intentional future browsing position.
+          p = Path('frontend/app/(tabs)/guide.tsx')
+          s = p.read_text()
+          if 'const liveWindowStart = useMemo' not in s:
+              anchor = '  const [now, setNow] = useState(() => new Date().toISOString());\n'
+              addition = '''  const [now, setNow] = useState(() => new Date().toISOString());\n  const liveWindowStart = useMemo(() => {\n    const baseStart = Date.parse(windowStart);\n    const baseEnd = Date.parse(windowEnd);\n    const current = Date.parse(now);\n    if (!Number.isFinite(baseStart) || !Number.isFinite(baseEnd) || !Number.isFinite(current) || baseEnd <= baseStart) return windowStart;\n    const bucketMs = 30 * 60_000;\n    const rollingStart = Math.floor(current / bucketMs) * bucketMs - bucketMs;\n    return new Date(Math.max(baseStart, Math.min(rollingStart, baseEnd - 1))).toISOString();\n  }, [now, windowEnd, windowStart]);\n'''
+              if anchor not in s:
+                  raise SystemExit('Guide now anchor not found')
+              s = s.replace(anchor, addition, 1)
+          s = s.replace('windowStart={windowStart}', 'windowStart={liveWindowStart}', 1)
+          p.write_text(s)
+
+          # Regression coverage for audited fixes.
+          p = Path('frontend/tests/playerFullStackAudit.test.mjs')
+          p.write_text('''import test from "node:test";\nimport assert from "node:assert/strict";\nimport { readFile } from "node:fs/promises";\n\nconst read = (p) => readFile(new URL(p, import.meta.url), "utf8");\n\ntest("Media3 frozen-ready recovery polls native clock and preserves bounded retries", async () => {\n  const body = await read("../src/components/StreamPlayer.tsx");\n  assert.match(body, /Number\\(player\\.currentTime\\)/);\n  assert.match(body, /frozenReadyClock|stalledReady/);\n  assert.match(body, /silentResyncCountRef\\.current = 0/);\n  assert.doesNotMatch(body, /readyToPlay[\\s\\S]{0,220}silentResyncCountRef\\.current = 0/);\n});\n\ntest("Media3 shared HTTP client does not abort live reads after five seconds", async () => {\n  const patch = await read("../patches/expo-video+3.0.16.patch");\n  assert.match(patch, /readTimeout\\(0, TimeUnit\\.SECONDS\\)/);\n  assert.doesNotMatch(patch, /readTimeout\\(5, TimeUnit\\.SECONDS\\)/);\n});\n\ntest("unsupported contribution protocols prefer VLC while normal IPTV remains Media3-first", async () => {\n  const body = await read("../src/core/streamPolicy.ts");\n  assert.match(body, /kind === "rtmp" \\|\\| kind === "srt" \\|\\| kind === "webrtc"/);\n  assert.match(body, /return "media3"/);\n});\n\ntest("Guide native window advances with wall clock in bounded buckets", async () => {\n  const body = await read("../app/(tabs)/guide.tsx");\n  assert.match(body, /const liveWindowStart = useMemo/);\n  assert.match(body, /windowStart=\\{liveWindowStart\\}/);\n});\n''')
+          PY
+
+      - name: Full frontend tests
+        working-directory: frontend
+        run: npm test
+
+      - name: Typecheck
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Native config verification
+        working-directory: frontend
+        run: npm run verify:native-config
+
+      - name: Commit audited repairs
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            frontend/src/components/StreamPlayer.tsx \
+            frontend/src/core/streamPolicy.ts \
+            frontend/patches/expo-video+3.0.16.patch \
+            'frontend/app/(tabs)/guide.tsx' \
+            frontend/tests/playerFullStackAudit.test.mjs
+          git diff --cached --quiet && exit 0
+          git commit -m "fix(player): harden Media3 network codec recovery and live Guide window"
+          git push origin HEAD:agent/phase9-tivimate-scan-repair
