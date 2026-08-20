@@ -104,7 +104,10 @@ export function channelInGroup(
   if (sourceGroup === "All") return true;
   if (sourceGroup === "Favorites") return opts.favoriteSet.has(channel.id);
   if (sourceGroup === "Recently Watched") return opts.recentIds.has(channel.id);
-  const custom = opts.customGroups?.get(sourceGroup);
+  // Custom tabs are displayed by mutable names but tab metadata is keyed by the
+  // immutable custom-group id. Resolve the stable id first, then fall back to its
+  // display label so legacy membership maps continue working during migration.
+  const custom = opts.customGroups?.get(sourceGroup) || opts.customGroups?.get(displayGroup(sourceGroup));
   if (custom) return custom.has(channel.id);
   if ((SMART_GROUPS as readonly string[]).includes(sourceGroup)) return channelMatchesSmart(channel, sourceGroup, opts);
   if ((CURATED_GROUPS as readonly string[]).includes(sourceGroup)) return channelMatchesCurated(channel, sourceGroup);
