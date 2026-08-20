@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { storage } from "@/src/utils/storage";
+import { useGuideGroupTabPreferences } from "@/src/core/guideGroupTabPreferences";
 
 const PINNED_KEY = "gs_guide_pinned_groups";
 const HIDE_PREVIEW_KEY = "gs_guide_hide_preview";
@@ -59,8 +60,6 @@ function sanitizeGroupList(raw: unknown, max = 48): string[] {
 }
 
 function sanitizeHiddenGroups(raw: unknown): string[] {
-  // All is the Guide's invariant safety fallback. Never allow an old/corrupt
-  // preference payload to hide it even though the UI does not expose that action.
   return sanitizeGroupList(raw).filter((name) => name !== "All");
 }
 
@@ -141,6 +140,9 @@ export function useGuideUiPreferences(): Snapshot & {
   setShowProviderGroups: (next: boolean) => void;
   setHiddenGroups: (next: string[]) => void;
 } {
+  // Keep Guide subscribed to tab alias/visibility/order metadata even though the
+  // legacy guide UI preference shape remains source compatible.
+  useGuideGroupTabPreferences();
   const [value, setValue] = useState(cached);
   useEffect(() => {
     let mounted = true;
@@ -153,9 +155,9 @@ export function useGuideUiPreferences(): Snapshot & {
   return {
     ...value,
     setPinnedGroups: useCallback((next: string[]) => {
-      const value = sanitizeGroupList(next, 24);
-      setValue((prev) => ({ ...prev, pinnedGroups: value }));
-      void setPinnedGroups(value);
+      const nextValue = sanitizeGroupList(next, 24);
+      setValue((prev) => ({ ...prev, pinnedGroups: nextValue }));
+      void setPinnedGroups(nextValue);
     }, []),
     setHidePreview: useCallback((next: boolean) => {
       setValue((prev) => ({ ...prev, hidePreview: next }));
@@ -174,9 +176,9 @@ export function useGuideUiPreferences(): Snapshot & {
       void setShowProviderGuideGroups(next);
     }, []),
     setHiddenGroups: useCallback((next: string[]) => {
-      const value = sanitizeHiddenGroups(next);
-      setValue((prev) => ({ ...prev, hiddenGroups: value }));
-      void setHiddenGuideGroups(value);
+      const nextValue = sanitizeHiddenGroups(next);
+      setValue((prev) => ({ ...prev, hiddenGroups: nextValue }));
+      void setHiddenGuideGroups(nextValue);
     }, []),
   };
 }
