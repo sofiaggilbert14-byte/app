@@ -35,6 +35,14 @@ test("Group settings expose provider and custom visibility rename and ordering",
   assert.match(screen, /if \(!name \|\| groupNameCollides\(name\)\) return/);
 });
 
+test("group tab persistence cannot let a stale initial read overwrite a newer edit", async () => {
+  const persistence = await text("src/core/guideGroupTabPersistence.ts");
+  assert.match(persistence, /let mutationEpoch = 0/);
+  assert.match(persistence, /const loadEpoch = mutationEpoch/);
+  assert.match(persistence, /if \(loaded \|\| loadEpoch !== mutationEpoch\) return getGuideGroupTabPreferencesSnapshot\(\)/);
+  assert.match(persistence, /function commit[\s\S]*?mutationEpoch \+= 1/);
+});
+
 test("automatic TV layout starts full viewport and calibration owns real overscan", async () => {
   const layout = await text("src/utils/tvLayout.ts");
   const calibration = await text("src/tvCalibration.tsx");
