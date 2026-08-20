@@ -31,6 +31,7 @@ jobs:
           python ci/code-interaction-audit-player-stability.py
           python ci/code-interaction-audit-vlc-watchdog.py
           python ci/code-interaction-audit-cleanup.py
+          python ci/code-interaction-audit-test-contracts.py
       - name: Validate patch shape
         run: git diff --check
       - name: Commit repairs
@@ -47,6 +48,8 @@ jobs:
                   frontend/src/components/ProgramModal.tsx \
                   frontend/android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt \
                   frontend/android/app/src/main/java/com/charmiptv/app/MainActivity.kt \
-                  frontend/src/components/PurpleGuideGroupDrawer.tsx
+                  frontend/src/components/PurpleGuideGroupDrawer.tsx \
+                  frontend/tests/playbackSession.test.mjs \
+                  frontend/tests/guideShellPolish.test.mjs
           git commit -m "fix(audit): stabilize playback and Guide ownership"
           git push origin HEAD:agent/code-interaction-audit
