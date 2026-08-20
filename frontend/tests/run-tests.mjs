@@ -18,3 +18,4 @@ import "./tivimateColdStartPolicy.test.mjs";
 import "./quickActionsContext.test.mjs";
 import "./groupTabsScreenFit.test.mjs";
 import "./sourceRefreshPersistence.test.mjs";
+import "./startupPlaylistAcquisition.test.mjs";
