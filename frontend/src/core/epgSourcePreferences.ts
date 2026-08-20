@@ -172,6 +172,19 @@ async function load(): Promise<EpgSourcePreferences> {
   finally { loadPromise = null; }
 }
 
+function afterHydration(action: () => void): void {
+  if (loaded) {
+    action();
+    return;
+  }
+  void load().then(action).catch(() => {
+    // Storage/native hydration failure must not make the setting unusable.
+    // With no authoritative snapshot available, apply the user's action to the
+    // current bounded fallback and let the normal persistence path recover.
+    action();
+  });
+}
+
 async function reloadNativeOverridesAfterFailure() {
   if (!nativeEpgBindingsAvailable) return;
   try {
@@ -196,42 +209,49 @@ export function useEpgSourcePreferences() {
   }, []);
 
   const update = useCallback((patch: Partial<EpgSourcePreferences>) => {
-    const next: EpgSourcePreferences = {
-      primaryEnabled: patch.primaryEnabled === undefined ? cached.primaryEnabled : patch.primaryEnabled !== false,
-      userEnabled: patch.userEnabled === undefined ? cached.userEnabled : patch.userEnabled === true,
-      userName: patch.userName === undefined ? cached.userName : cleanName(patch.userName),
-      userUrl: patch.userUrl === undefined ? cached.userUrl : cleanUrl(patch.userUrl),
-      userLastRefreshAt: patch.userLastRefreshAt === undefined ? cached.userLastRefreshAt : Math.max(0, Number(patch.userLastRefreshAt) || 0),
-      userLastStatus: patch.userLastStatus === undefined ? cached.userLastStatus : String(patch.userLastStatus || "Never updated").trim().slice(0, 180),
-      userOverrides: patch.userOverrides === undefined ? cached.userOverrides : cleanOverrides(patch.userOverrides),
-    };
-    setValue(next);
-    commitPrepared(next);
+    afterHydration(() => {
+      const next: EpgSourcePreferences = {
+        primaryEnabled: patch.primaryEnabled === undefined ? cached.primaryEnabled : patch.primaryEnabled !== false,
+        userEnabled: patch.userEnabled === undefined ? cached.userEnabled : patch.userEnabled === true,
+        userName: patch.userName === undefined ? cached.userName : cleanName(patch.userName),
+        userUrl: patch.userUrl === undefined ? cached.userUrl : cleanUrl(patch.userUrl),
+        userLastRefreshAt: patch.userLastRefreshAt === undefined ? cached.userLastRefreshAt : Math.max(0, Number(patch.userLastRefreshAt) || 0),
+        userLastStatus: patch.userLastStatus === undefined ? cached.userLastStatus : String(patch.userLastStatus || "Never updated").trim().slice(0, 180),
+        userOverrides: patch.userOverrides === undefined ? cached.userOverrides : cleanOverrides(patch.userOverrides),
+      };
+      setValue(next);
+      commitPrepared(next);
+    });
   }, []);
 
   const setUserOverride = useCallback((channelId: string, xmltvId: string | null) => {
     const id = String(channelId || "").trim().slice(0, 180);
     const sourceId = String(xmltvId || "").trim().slice(0, 180);
     if (!id || id.includes("://") || sourceId.includes("://")) return;
-    const existing = cached.userOverrides[id] || "";
-    if (existing === sourceId || (!sourceId && !existing)) return;
-    const overrides = { ...cached.userOverrides };
-    if (sourceId) overrides[id] = sourceId; else delete overrides[id];
-    const next = { ...cached, userOverrides: overrides };
-    setValue(next);
-    commitPrepared(next);
-    if (nativeEpgBindingsAvailable) {
-      void setNativeEpgBinding(id, sourceId || null).catch(() => void reloadNativeOverridesAfterFailure());
-    }
+    afterHydration(() => {
+      const existing = cached.userOverrides[id] || "";
+      if (existing === sourceId || (!sourceId && !existing)) return;
+      const overrides = { ...cached.userOverrides };
+      if (sourceId) overrides[id] = sourceId; else delete overrides[id];
+      const next = { ...cached, userOverrides: overrides };
+      setValue(next);
+      commitPrepared(next);
+      if (nativeEpgBindingsAvailable) {
+        void setNativeEpgBinding(id, sourceId || null).catch(() => void reloadNativeOverridesAfterFailure());
+      }
+    });
   }, []);
 
   const clearUserOverrides = useCallback(() => {
-    const next = { ...cached, userOverrides: {} };
-    setValue(next);
-    commitPrepared(next);
-    if (nativeEpgBindingsAvailable) {
-      void clearNativeEpgBindings().catch(() => void reloadNativeOverridesAfterFailure());
-    }
+    afterHydration(() => {
+      if (!Object.keys(cached.userOverrides).length) return;
+      const next = { ...cached, userOverrides: {} };
+      setValue(next);
+      commitPrepared(next);
+      if (nativeEpgBindingsAvailable) {
+        void clearNativeEpgBindings().catch(() => void reloadNativeOverridesAfterFailure());
+      }
+    });
   }, []);
 
   return {
