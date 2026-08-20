@@ -1,6 +1,7 @@
 import { DeviceEventEmitter, NativeModules, Platform } from "react-native";
 import type { Channel, Program } from "@/src/api";
 import { getMultiEpgSources } from "@/src/core/multiEpgSources";
+import { enforcePlaylistByteLimit, enforcePlaylistTextLimit, parseM3UWithStats } from "@/src/core/sourceParsing";
 
 type NativeProgramme = { channelId: string; title: string; description?: string | null; category?: string | null; startMs: number; endMs: number };
 type NativeWindow = Record<string, NativeProgramme[]>;
@@ -9,6 +10,8 @@ type NativePlaylistResult = { channels: Channel[]; rejected: number; truncated: 
 type NativeRefreshResult = { count: number; windowStartMs: number; windowEndMs: number; guideEpoch?: number; notModified?: boolean; channelLogos?: Record<string, string>; channelNames?: Record<string, string>; channelIdsWithPrograms?: string[] };
 export type NativePlaylistChannelRow = { playlistId: string; rawTvgId?: string; name?: string; logo?: string; group?: string; url?: string; streamType?: string; position?: number };
 export type NativePlaylistEpgMatchRow = { playlistId: string; xmltvId?: string; logoXmltvId?: string; ambiguous?: boolean; matchPolicy?: string; manual?: boolean };
+
+const PLAYLIST_FETCH_TIMEOUT_MS = 45_000;
 
 type CharmEpgModule = {
   fetchPlaylist?(url: string): Promise<NativePlaylistResult>;
@@ -78,7 +81,29 @@ function convertSearchRows(rows: NativeProgramme[]): { channelId: string; progra
   });
 }
 
-export async function fetchNativePlaylist(url: string): Promise<NativePlaylistResult> { if (!nativeModule?.fetchPlaylist) throw new Error("Native playlist engine is unavailable"); return nativeModule.fetchPlaylist(url); }
+export async function fetchNativePlaylist(url: string): Promise<NativePlaylistResult> {
+  const cleanUrl = (url || "").trim();
+  if (!cleanUrl) throw new Error("Playlist URL is empty");
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), PLAYLIST_FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(cleanUrl, {
+      headers: { "User-Agent": "CharmIPTV/Experimental-v3" },
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`M3U HTTP ${response.status}`);
+    const contentLength = Number(response.headers.get("content-length") || "");
+    if (Number.isFinite(contentLength) && contentLength > 0) enforcePlaylistByteLimit(contentLength);
+    const text = await response.text();
+    enforcePlaylistTextLimit(text);
+    return parseM3UWithStats(text, (value) => value);
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error("Playlist request timed out before channels could be loaded");
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 export async function readNativeStoredPlaylist(): Promise<{ channels: Channel[]; playlistEpoch: number; playlistRefreshedAt: number; guideEpoch: number; guideRefreshedAt: number; epgProgramCount: number } | null> {
   if (!nativeModule?.getStoredPlaylist) return null; const value = await nativeModule.getStoredPlaylist(); const channels = Array.isArray(value?.channels) ? value.channels : []; if (!channels.length) return null;
   return { channels, playlistEpoch: Number(value.playlistEpoch || 0), playlistRefreshedAt: Number(value.playlistRefreshedAt || 0), guideEpoch: Number(value.guideEpoch || 0), guideRefreshedAt: Number(value.guideRefreshedAt || 0), epgProgramCount: Number(value.epgProgramCount || 0) };
