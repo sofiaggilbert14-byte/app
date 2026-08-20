@@ -499,6 +499,7 @@ function VlcStream({
         emit("playing");
       }}
       onError={fail}
+      onStopped={fail}
     />
   );
 }

@@ -261,6 +261,13 @@ class NativeGuideView(context: Context) : View(context) {
     if (enabled) emitSelection(true)
   }
 
+  private fun updateLiveFollowFromSelection() {
+    val now = System.currentTimeMillis()
+    val current = selectedProgram()
+    liveFollowEnabled = current?.let { now >= it.startMs && now < it.endMs }
+      ?: (abs(selectedTimeMs - now) <= 60_000L)
+  }
+
   private fun clampViewportStart(value: Long): Long {
     val latest = max(windowStartMs, windowEndMs - visibleWindowMs)
     return value.coerceIn(windowStartMs, latest)
@@ -422,6 +429,7 @@ class NativeGuideView(context: Context) : View(context) {
         if (nextTime == selectedTimeMs) return true
         selectedTimeMs = nextTime
         ensureSelectedTimeVisible()
+        updateLiveFollowFromSelection()
         loadPrograms()
         invalidate(); emitSelection(false)
       }
@@ -431,6 +439,7 @@ class NativeGuideView(context: Context) : View(context) {
         lastHorizontalMoveAt = event.eventTime
         if (channelRailSelected) {
           channelRailSelected = false
+          updateLiveFollowFromSelection()
           invalidate(); emitSelection(true)
           return true
         }
@@ -439,6 +448,7 @@ class NativeGuideView(context: Context) : View(context) {
         if (nextTime == selectedTimeMs) return true
         selectedTimeMs = nextTime
         ensureSelectedTimeVisible()
+        updateLiveFollowFromSelection()
         // Horizontal cache misses must request the newest runway even when the
         // viewport guard did not move. scheduleQueryDrain coalesces old requests.
         loadPrograms()
