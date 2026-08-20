@@ -7,20 +7,25 @@ import { useStore } from "@/src/store";
 import { useCustomGuideGroups } from "@/src/core/customGuideGroups";
 import { CURATED_GROUPS, SMART_GROUPS } from "@/src/core/guideGroups";
 import { GUIDE_START_LAST_USED, useGuideUiPreferences } from "@/src/core/guideUiPreferences";
+import { getGuideGroupDisplayName, useGuideGroupTabPreferences } from "@/src/core/guideGroupTabPreferences";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
 
 const PAGE_SIZE = 100;
 const BUILT_INS = ["Favorites", ...SMART_GROUPS, ...CURATED_GROUPS] as string[];
+const BUILT_IN_SET = new Set(["All", ...BUILT_INS]);
 
 export default function GroupSettingsScreen() {
   const router = useRouter();
   const { channels } = useStore();
   const guideUi = useGuideUiPreferences();
+  const tabPrefs = useGuideGroupTabPreferences();
   const custom = useCustomGuideGroups();
   const [draft, setDraft] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(custom.groups[0]?.id || null);
   const [renameDraft, setRenameDraft] = useState("");
+  const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
+  const [providerRenameDraft, setProviderRenameDraft] = useState("");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
   const [preferBackFocus, setPreferBackFocus] = useState(true);
@@ -38,6 +43,7 @@ export default function GroupSettingsScreen() {
     returnToSettings();
     return true;
   }, [returnToSettings]));
+
   const selected = custom.groups.find((group) => group.id === selectedId) || null;
   useEffect(() => {
     if (selectedId && !custom.groups.some((group) => group.id === selectedId)) {
@@ -45,6 +51,19 @@ export default function GroupSettingsScreen() {
       setPage(0);
     }
   }, [custom.groups, selectedId]);
+
+  const providerGroups = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const channel of channels) {
+      const raw = String(channel.group || "").trim();
+      if (!raw || BUILT_IN_SET.has(raw) || seen.has(raw)) continue;
+      seen.add(raw);
+      out.push(raw);
+    }
+    return out.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+  }, [channels]);
+
   const memberSet = useMemo(() => new Set(selected?.channelIds || []), [selected?.channelIds]);
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -58,8 +77,6 @@ export default function GroupSettingsScreen() {
   }, [channels, query]);
   const maxPage = Math.max(0, Math.ceil(filtered.length / PAGE_SIZE) - 1);
   useEffect(() => {
-    // A playlist refresh can shrink the result set while this screen stays mounted.
-    // Keep paging inside the new valid range instead of leaving an empty dead page.
     setPage((current) => Math.max(0, Math.min(maxPage, current)));
   }, [maxPage]);
   const pageRows = filtered.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
@@ -70,13 +87,23 @@ export default function GroupSettingsScreen() {
     guideUi.setHiddenGroups(Array.from(hidden));
   };
 
+  const toggleCustomVisible = (name: string) => {
+    const hidden = new Set(guideUi.hiddenGroups);
+    if (hidden.has(name)) hidden.delete(name); else hidden.add(name);
+    guideUi.setHiddenGroups(Array.from(hidden));
+  };
+
   const renameSelectedGroup = useCallback(() => {
     if (!selected) return;
+    const oldName = selected.name;
     const nextName = renameDraft.replace(/[\r\n\t]/g, " ").replace(/\s+/g, " ").trim().slice(0, 48);
     if (!nextName || !custom.renameGroup(selected.id, nextName)) return;
-    if (guideUi.startGroup === selected.name) guideUi.setStartGroup(nextName);
-    if (guideUi.pinnedGroups.includes(selected.name)) {
-      guideUi.setPinnedGroups(guideUi.pinnedGroups.map((name) => name === selected.name ? nextName : name));
+    if (guideUi.startGroup === oldName) guideUi.setStartGroup(nextName);
+    if (guideUi.pinnedGroups.includes(oldName)) {
+      guideUi.setPinnedGroups(guideUi.pinnedGroups.map((name) => name === oldName ? nextName : name));
+    }
+    if (guideUi.hiddenGroups.includes(oldName)) {
+      guideUi.setHiddenGroups(guideUi.hiddenGroups.map((name) => name === oldName ? nextName : name));
     }
     setRenameDraft(nextName);
   }, [custom, guideUi, renameDraft, selected]);
@@ -87,9 +114,20 @@ export default function GroupSettingsScreen() {
     if (guideUi.pinnedGroups.includes(groupName)) {
       guideUi.setPinnedGroups(guideUi.pinnedGroups.filter((name) => name !== groupName));
     }
+    if (guideUi.hiddenGroups.includes(groupName)) {
+      guideUi.setHiddenGroups(guideUi.hiddenGroups.filter((name) => name !== groupName));
+    }
     setSelectedId(null);
     setPage(0);
   }, [custom, guideUi]);
+
+  const commitProviderRename = useCallback(() => {
+    if (!selectedProvider) return;
+    const next = providerRenameDraft.replace(/[\r\n\t]/g, " ").replace(/\s+/g, " ").trim().slice(0, 48);
+    if (!next) return;
+    tabPrefs.rename(selectedProvider, next);
+    setProviderRenameDraft(next);
+  }, [providerRenameDraft, selectedProvider, tabPrefs]);
 
   return (
     <PurpleTvShell active="/settings">
@@ -107,17 +145,47 @@ export default function GroupSettingsScreen() {
 
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Provider group visibility</Text>
-            <Text style={styles.help}>Provider/M3U group names can stay hidden while Charm still uses their text internally to classify channels into the cleaner folders below.</Text>
+            <Text style={styles.cardTitle}>Provider group tabs</Text>
+            <Text style={styles.help}>TiViMate-style metadata: provider names stay untouched for playlist matching while your display name, visibility, and order are saved separately.</Text>
             <Pressable onPress={() => guideUi.setShowProviderGroups(!guideUi.showProviderGroups)} style={({ focused }: any) => [styles.row, focused && styles.focused]}>
-              <Text style={styles.rowText}>Show raw M3U/provider groups</Text>
+              <Text style={styles.rowText}>Show provider groups in Guide</Text>
               <Text style={styles.value}>{guideUi.showProviderGroups ? "On" : "Off"}</Text>
             </Pressable>
+            {providerGroups.map((groupId) => {
+              const visible = !tabPrefs.hiddenSet.has(groupId);
+              const display = getGuideGroupDisplayName(groupId, tabPrefs.aliases);
+              const selectedProviderRow = selectedProvider === groupId;
+              return (
+                <View key={groupId} style={styles.groupBlock}>
+                  <Pressable onPress={() => { setSelectedProvider(groupId); setProviderRenameDraft(display); }} style={({ focused }: any) => [styles.row, selectedProviderRow && styles.selected, focused && styles.focused]}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.rowText}>{display}</Text>
+                      {display !== groupId ? <Text style={styles.sub}>Provider: {groupId}</Text> : null}
+                    </View>
+                    <Text style={styles.value}>{visible ? "Visible" : "Hidden"}</Text>
+                  </Pressable>
+                  {selectedProviderRow ? (
+                    <View style={styles.providerEdit}>
+                      <View style={styles.inputRow}>
+                        <TextInput value={providerRenameDraft} onChangeText={setProviderRenameDraft} placeholder={groupId} placeholderTextColor={tvColors.textMuted} style={styles.input} maxLength={48} />
+                        <Pressable onPress={commitProviderRename} style={({ focused }: any) => [styles.action, focused && styles.focused]}><Text style={styles.actionText}>Rename</Text></Pressable>
+                      </View>
+                      <View style={styles.groupActions}>
+                        <Pressable onPress={() => tabPrefs.move(groupId, -1, providerGroups)} style={({ focused }: any) => [styles.mini, focused && styles.focused]}><Text style={styles.actionText}>Up</Text></Pressable>
+                        <Pressable onPress={() => tabPrefs.move(groupId, 1, providerGroups)} style={({ focused }: any) => [styles.mini, focused && styles.focused]}><Text style={styles.actionText}>Down</Text></Pressable>
+                        <Pressable onPress={() => tabPrefs.setVisible(groupId, !visible)} style={({ focused }: any) => [styles.mini, focused && styles.focused]}><Text style={styles.actionText}>{visible ? "Hide" : "Show"}</Text></Pressable>
+                        <Pressable onPress={() => tabPrefs.rename(groupId, groupId)} style={({ focused }: any) => [styles.mini, focused && styles.focused]}><Text style={styles.actionText}>Reset name</Text></Pressable>
+                      </View>
+                    </View>
+                  ) : null}
+                </View>
+              );
+            })}
           </View>
 
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Built-in tabs</Text>
-            <Text style={styles.help}>Hide any built-in tab you do not want. All remains available as the safety fallback.</Text>
+            <Text style={styles.help}>Hide any built-in tab you do not want. All remains the permanent safety fallback.</Text>
             {BUILT_INS.map((name) => {
               const visible = !guideUi.hiddenGroups.includes(name);
               return (
@@ -131,28 +199,32 @@ export default function GroupSettingsScreen() {
 
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Custom tabs</Text>
-            <Text style={styles.help}>Custom groups store only channel IDs. Stream URLs, logos, and EPG rows are never duplicated.</Text>
+            <Text style={styles.help}>Custom groups store channel IDs only. Rename, visibility, and position are user-owned; stream URLs, logos, and EPG rows stay in the provider/native stores.</Text>
             <View style={styles.inputRow}>
               <TextInput value={draft} onChangeText={setDraft} placeholder="New group name" placeholderTextColor={tvColors.textMuted} style={styles.input} maxLength={48} />
-              <Pressable onPress={() => { if (custom.createGroup(draft)) { setDraft(""); } }} style={({ focused }: any) => [styles.action, focused && styles.focused]}>
+              <Pressable onPress={() => { if (custom.createGroup(draft)) setDraft(""); }} style={({ focused }: any) => [styles.action, focused && styles.focused]}>
                 <Text style={styles.actionText}>Add</Text>
               </Pressable>
             </View>
-            {custom.groups.map((group) => (
-              <View key={group.id} style={styles.groupBlock}>
-                <Pressable onPress={() => { setSelectedId(group.id); setRenameDraft(group.name); setPage(0); }} style={({ focused }: any) => [styles.row, selectedId === group.id && styles.selected, focused && styles.focused]}>
-                  <Text style={styles.rowText}>{group.name}</Text>
-                  <Text style={styles.value}>{group.channelIds.length}</Text>
-                </Pressable>
-                {selectedId === group.id ? (
-                  <View style={styles.groupActions}>
-                    <Pressable onPress={() => custom.moveGroup(group.id, -1)} style={({ focused }: any) => [styles.mini, focused && styles.focused]}><Text style={styles.actionText}>Up</Text></Pressable>
-                    <Pressable onPress={() => custom.moveGroup(group.id, 1)} style={({ focused }: any) => [styles.mini, focused && styles.focused]}><Text style={styles.actionText}>Down</Text></Pressable>
-                    <Pressable onPress={() => deleteSelectedGroup(group.id, group.name)} style={({ focused }: any) => [styles.mini, focused && styles.focused]}><Text style={styles.actionText}>Delete</Text></Pressable>
-                  </View>
-                ) : null}
-              </View>
-            ))}
+            {custom.groups.map((group) => {
+              const visible = !guideUi.hiddenGroups.includes(group.name);
+              return (
+                <View key={group.id} style={styles.groupBlock}>
+                  <Pressable onPress={() => { setSelectedId(group.id); setRenameDraft(group.name); setPage(0); }} style={({ focused }: any) => [styles.row, selectedId === group.id && styles.selected, focused && styles.focused]}>
+                    <Text style={styles.rowText}>{group.name}</Text>
+                    <Text style={styles.value}>{visible ? `${group.channelIds.length} · Visible` : `${group.channelIds.length} · Hidden`}</Text>
+                  </Pressable>
+                  {selectedId === group.id ? (
+                    <View style={styles.groupActions}>
+                      <Pressable onPress={() => custom.moveGroup(group.id, -1)} style={({ focused }: any) => [styles.mini, focused && styles.focused]}><Text style={styles.actionText}>Up</Text></Pressable>
+                      <Pressable onPress={() => custom.moveGroup(group.id, 1)} style={({ focused }: any) => [styles.mini, focused && styles.focused]}><Text style={styles.actionText}>Down</Text></Pressable>
+                      <Pressable onPress={() => toggleCustomVisible(group.name)} style={({ focused }: any) => [styles.mini, focused && styles.focused]}><Text style={styles.actionText}>{visible ? "Hide" : "Show"}</Text></Pressable>
+                      <Pressable onPress={() => deleteSelectedGroup(group.id, group.name)} style={({ focused }: any) => [styles.mini, focused && styles.focused]}><Text style={styles.actionText}>Delete</Text></Pressable>
+                    </View>
+                  ) : null}
+                </View>
+              );
+            })}
           </View>
 
           {selected ? (
@@ -210,7 +282,8 @@ const styles = StyleSheet.create({
   action: { minHeight: 38, paddingHorizontal: 14, alignItems: "center", justifyContent: "center", borderRadius: radius.sm, borderWidth: 1, borderColor: tvColors.line },
   actionText: { color: "#fff", fontFamily: fonts.medium, fontSize: 10 },
   groupBlock: { gap: 4 },
-  groupActions: { flexDirection: "row", gap: 6, paddingLeft: 10 },
+  providerEdit: { gap: 6, paddingHorizontal: 10, paddingBottom: 4 },
+  groupActions: { flexDirection: "row", flexWrap: "wrap", gap: 6, paddingLeft: 10 },
   mini: { minHeight: 32, paddingHorizontal: 10, alignItems: "center", justifyContent: "center", borderRadius: radius.sm, borderWidth: 1, borderColor: tvColors.line },
   pager: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, marginVertical: 4 },
   disabled: { opacity: 0.35 },
