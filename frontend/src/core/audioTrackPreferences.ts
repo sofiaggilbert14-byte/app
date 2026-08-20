@@ -8,6 +8,9 @@ const MAX_CHANNELS = 128;
 type TrackId = string | number;
 type Snapshot = { defaultLanguage: string; byChannel: Record<string, TrackId> };
 let cached: Snapshot = { defaultLanguage: "", byChannel: {} };
+let loaded = false;
+let loadPromise: Promise<Snapshot> | null = null;
+let mutationEpoch = 0;
 const listeners = new Set<(snapshot: Snapshot) => void>();
 
 function trimChannelTracks(raw: unknown): Record<string, TrackId> {
@@ -29,26 +32,41 @@ function emit() {
   }
 }
 
+async function load(): Promise<Snapshot> {
+  if (loaded) return cached;
+  if (loadPromise) return loadPromise;
+  const loadEpoch = mutationEpoch;
+  loadPromise = (async () => {
+    const [defaultLanguage, byChannel] = await Promise.all([
+      storage.getItem<string>(LANG_KEY, ""),
+      storage.getItem<Record<string, TrackId>>(CHANNEL_KEY, {}),
+    ]);
+    const trimmed = trimChannelTracks(byChannel);
+    const next: Snapshot = {
+      defaultLanguage: normalizePreferredAudioLanguage(defaultLanguage),
+      byChannel: trimmed,
+    };
+    if (loaded || loadEpoch !== mutationEpoch) return cached;
+    cached = next;
+    loaded = true;
+    // Persist pruning only for the snapshot that actually won hydration.
+    if (Object.keys(byChannel || {}).length !== Object.keys(trimmed).length) {
+      void storage.setItem(CHANNEL_KEY, trimmed);
+    }
+    return cached;
+  })();
+  try {
+    return await loadPromise;
+  } finally {
+    loadPromise = null;
+  }
+}
+
 export function useAudioTrackPreferences() {
   const [snapshot, setSnapshot] = useState(cached);
   useEffect(() => {
     let mounted = true;
-    void Promise.all([
-      storage.getItem<string>(LANG_KEY, ""),
-      storage.getItem<Record<string, TrackId>>(CHANNEL_KEY, {}),
-    ]).then(([defaultLanguage, byChannel]) => {
-      const trimmed = trimChannelTracks(byChannel);
-      cached = {
-        defaultLanguage: normalizePreferredAudioLanguage(defaultLanguage),
-        byChannel: trimmed,
-      };
-      // Persist pruning once so stale/unbounded historical maps do not return on next boot.
-      if (Object.keys(byChannel || {}).length !== Object.keys(trimmed).length) {
-        void storage.setItem(CHANNEL_KEY, trimmed);
-      }
-      if (mounted) setSnapshot(cached);
-      emit();
-    });
+    void load().then((next) => { if (mounted) setSnapshot(next); });
     const listener = (next: Snapshot) => mounted && setSnapshot(next);
     listeners.add(listener);
     return () => {
@@ -59,11 +77,15 @@ export function useAudioTrackPreferences() {
   return {
     ...snapshot,
     setDefaultLanguage: useCallback((raw: string) => {
+      mutationEpoch += 1;
+      loaded = true;
       cached = { ...cached, defaultLanguage: normalizePreferredAudioLanguage(raw) };
       emit();
       void storage.setItem(LANG_KEY, cached.defaultLanguage);
     }, []),
     rememberChannelTrack: useCallback((channelId: string, trackId: TrackId) => {
+      mutationEpoch += 1;
+      loaded = true;
       if (!channelId || trackId == null) return;
       const entries = Object.entries(cached.byChannel).filter(([id]) => id !== channelId);
       entries.push([channelId, trackId]);

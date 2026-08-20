@@ -6,6 +6,7 @@ const KEY = "gs_playback_buffer_profile";
 let value: PlaybackBufferProfile = "balanced";
 let loaded = false;
 let loadPromise: Promise<PlaybackBufferProfile> | null = null;
+let mutationEpoch = 0;
 const listeners = new Set<(next: PlaybackBufferProfile) => void>();
 
 function normalize(raw: unknown): PlaybackBufferProfile {
@@ -15,9 +16,12 @@ function normalize(raw: unknown): PlaybackBufferProfile {
 async function loadProfile(): Promise<PlaybackBufferProfile> {
   if (loaded) return value;
   if (loadPromise) return loadPromise;
+  const loadEpoch = mutationEpoch;
   loadPromise = storage.getItem<PlaybackBufferProfile>(KEY, "balanced")
     .then((stored) => {
-      value = normalize(stored);
+      const next = normalize(stored);
+      if (loaded || loadEpoch !== mutationEpoch) return value;
+      value = next;
       loaded = true;
       return value;
     });
@@ -43,6 +47,7 @@ export function usePlaybackBufferProfile(): [PlaybackBufferProfile, (next: Playb
     };
   }, []);
   return [current, useCallback((next: PlaybackBufferProfile) => {
+    mutationEpoch += 1;
     value = normalize(next);
     loaded = true;
     setCurrent(value);

@@ -26,6 +26,8 @@ const DEFAULTS: RemoteShortcutPreferences = {
 
 let cached = DEFAULTS;
 let loaded = false;
+let loadPromise: Promise<RemoteShortcutPreferences> | null = null;
+let mutationEpoch = 0;
 const listeners = new Set<(value: RemoteShortcutPreferences) => void>();
 
 function normalize(value: Partial<RemoteShortcutPreferences> | null | undefined): RemoteShortcutPreferences {
@@ -47,9 +49,16 @@ function normalize(value: Partial<RemoteShortcutPreferences> | null | undefined)
 
 async function load(): Promise<RemoteShortcutPreferences> {
   if (loaded) return cached;
-  cached = normalize(await storage.getItem<RemoteShortcutPreferences>(KEY, DEFAULTS));
-  loaded = true;
-  return cached;
+  if (loadPromise) return loadPromise;
+  const loadEpoch = mutationEpoch;
+  loadPromise = (async () => {
+    const next = normalize(await storage.getItem<RemoteShortcutPreferences>(KEY, DEFAULTS));
+    if (loaded || loadEpoch !== mutationEpoch) return cached;
+    cached = next;
+    loaded = true;
+    return cached;
+  })();
+  try { return await loadPromise; } finally { loadPromise = null; }
 }
 
 export async function getRemoteShortcutPreferences(): Promise<RemoteShortcutPreferences> {
@@ -57,6 +66,7 @@ export async function getRemoteShortcutPreferences(): Promise<RemoteShortcutPref
 }
 
 export async function setRemoteShortcutPreferences(value: RemoteShortcutPreferences): Promise<void> {
+  mutationEpoch += 1;
   cached = normalize(value);
   loaded = true;
   for (const listener of Array.from(listeners)) {
@@ -76,10 +86,10 @@ export function useRemoteShortcutPreferences() {
   }, []);
 
   const update = useCallback((patch: Partial<RemoteShortcutPreferences>) => {
-    const next = normalize({ ...value, ...patch });
+    const next = normalize({ ...cached, ...patch });
     setValue(next);
     void setRemoteShortcutPreferences(next);
-  }, [value]);
+  }, []);
 
   return {
     ...value,

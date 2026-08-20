@@ -27,6 +27,7 @@ let cached: Snapshot = {
 };
 let loaded = false;
 let loadPromise: Promise<Snapshot> | null = null;
+let mutationEpoch = 0;
 const listeners = new Set<(next: Snapshot) => void>();
 
 function emit() {
@@ -50,6 +51,7 @@ function normalizeMedia3Audio(raw: unknown): Media3AudioMode {
 async function load(): Promise<Snapshot> {
   if (loaded) return cached;
   if (loadPromise) return loadPromise;
+  const loadEpoch = mutationEpoch;
   loadPromise = (async () => {
     const [silent, vlcAudio, vlcHw, media3Audio, media3Tunnel] = await Promise.all([
       storage.getItem<boolean>(SILENT_KEY, true),
@@ -58,13 +60,15 @@ async function load(): Promise<Snapshot> {
       storage.getItem<Media3AudioMode>(MEDIA3_AUDIO_KEY, "auto"),
       storage.getItem<boolean>(MEDIA3_TUNNEL_KEY, false),
     ]);
-    cached = {
+    const next: Snapshot = {
       silentAudioFallback: silent !== false,
       vlcAudioOutput: normalizeVlcAudio(vlcAudio),
       vlcHardwareDecode: vlcHw !== false,
       media3AudioMode: normalizeMedia3Audio(media3Audio),
       media3Tunneling: !!media3Tunnel,
     };
+    if (loaded || loadEpoch !== mutationEpoch) return cached;
+    cached = next;
     loaded = true;
     return cached;
   })();
@@ -121,6 +125,7 @@ export function usePlayerCompatibilityPreferences(): Snapshot & {
   return {
     ...value,
     setSilentAudioFallback: useCallback((next: boolean) => {
+      mutationEpoch += 1;
       cached = { ...cached, silentAudioFallback: next };
       loaded = true;
       setValue(cached);
@@ -128,6 +133,7 @@ export function usePlayerCompatibilityPreferences(): Snapshot & {
       void storage.setItem(SILENT_KEY, next);
     }, []),
     setVlcAudioOutput: useCallback((next: VlcAudioOutput) => {
+      mutationEpoch += 1;
       cached = { ...cached, vlcAudioOutput: normalizeVlcAudio(next) };
       loaded = true;
       setValue(cached);
@@ -135,6 +141,7 @@ export function usePlayerCompatibilityPreferences(): Snapshot & {
       void storage.setItem(VLC_AUDIO_KEY, cached.vlcAudioOutput);
     }, []),
     setVlcHardwareDecode: useCallback((next: boolean) => {
+      mutationEpoch += 1;
       cached = { ...cached, vlcHardwareDecode: next };
       loaded = true;
       setValue(cached);
@@ -142,6 +149,7 @@ export function usePlayerCompatibilityPreferences(): Snapshot & {
       void storage.setItem(VLC_HW_KEY, next);
     }, []),
     setMedia3AudioMode: useCallback((next: Media3AudioMode) => {
+      mutationEpoch += 1;
       cached = { ...cached, media3AudioMode: normalizeMedia3Audio(next) };
       loaded = true;
       setValue(cached);
@@ -149,6 +157,7 @@ export function usePlayerCompatibilityPreferences(): Snapshot & {
       void storage.setItem(MEDIA3_AUDIO_KEY, cached.media3AudioMode);
     }, []),
     setMedia3Tunneling: useCallback((next: boolean) => {
+      mutationEpoch += 1;
       cached = { ...cached, media3Tunneling: next };
       loaded = true;
       setValue(cached);

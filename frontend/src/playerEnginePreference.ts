@@ -7,15 +7,19 @@ const PLAYER_ENGINE_KEY = "gs_player_engine_preference";
 let cachedPreference: PlayerEnginePreference = "default";
 let loaded = false;
 let loadPromise: Promise<PlayerEnginePreference> | null = null;
+let mutationEpoch = 0;
 const listeners = new Set<(value: PlayerEnginePreference) => void>();
 
 async function loadPreference(): Promise<PlayerEnginePreference> {
   if (loaded) return cachedPreference;
   if (loadPromise) return loadPromise;
+  const loadEpoch = mutationEpoch;
 
   loadPromise = (async () => {
     const stored = await storage.getItem<PlayerEnginePreference>(PLAYER_ENGINE_KEY, "default");
-    cachedPreference = stored === "vlc" || stored === "media3" ? stored : "default";
+    const next = stored === "vlc" || stored === "media3" ? stored : "default";
+    if (loaded || loadEpoch !== mutationEpoch) return cachedPreference;
+    cachedPreference = next;
     loaded = true;
     return cachedPreference;
   })();
@@ -28,6 +32,7 @@ async function loadPreference(): Promise<PlayerEnginePreference> {
 }
 
 export async function setPlayerEnginePreference(value: PlayerEnginePreference): Promise<void> {
+  mutationEpoch += 1;
   cachedPreference = value;
   loaded = true;
   await storage.setItem(PLAYER_ENGINE_KEY, value);
