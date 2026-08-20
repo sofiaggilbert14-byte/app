@@ -31,6 +31,7 @@ const RESERVED = new Set([
 let cached: CustomGuideGroup[] = [];
 let loaded = false;
 let loadPromise: Promise<CustomGuideGroup[]> | null = null;
+let mutationEpoch = 0;
 let webWriteActive = false;
 let webPendingWrite: CustomGuideGroup[] | null = null;
 const listeners = new Set<(value: CustomGuideGroup[]) => void>();
@@ -76,6 +77,7 @@ function emit() {
 }
 
 function commit(next: CustomGuideGroup[]) {
+  mutationEpoch += 1;
   cached = sanitize(next);
   loaded = true;
   emit();
@@ -103,13 +105,15 @@ async function flushWebWrites() {
 async function load(): Promise<CustomGuideGroup[]> {
   if (loaded) return cached;
   if (loadPromise) return loadPromise;
+  const loadEpoch = mutationEpoch;
   loadPromise = (async () => {
-    if (nativeCustomizationAvailable) {
-      const native = await loadNativeCustomizationWithMigration();
-      cached = sanitize(native.groups);
-    } else {
-      cached = sanitize(await storage.getItem<CustomGuideGroup[]>(LEGACY_GROUPS_KEY, []));
-    }
+    const next = nativeCustomizationAvailable
+      ? sanitize((await loadNativeCustomizationWithMigration()).groups)
+      : sanitize(await storage.getItem<CustomGuideGroup[]>(LEGACY_GROUPS_KEY, []));
+    // A newer user mutation owns the live snapshot. An initial native/storage
+    // read that began before that mutation must never reinstall stale groups.
+    if (loaded || loadEpoch !== mutationEpoch) return cached;
+    cached = next;
     loaded = true;
     return cached;
   })();
