@@ -30,6 +30,7 @@ jobs:
         run: |
           python ci/code-interaction-audit-player-stability.py
           python ci/code-interaction-audit-vlc-watchdog.py
+          python ci/code-interaction-audit-cleanup.py
       - name: Validate patch shape
         run: git diff --check
       - name: Commit repairs
