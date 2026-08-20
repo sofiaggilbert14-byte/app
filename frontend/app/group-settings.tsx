@@ -16,6 +16,10 @@ const PAGE_SIZE = 100;
 const BUILT_INS = ["Favorites", ...SMART_GROUPS, ...CURATED_GROUPS] as string[];
 const BUILT_IN_SET = new Set(["All", ...BUILT_INS]);
 
+function cleanGroupName(raw: string): string {
+  return String(raw || "").replace(/[\r\n\t]/g, " ").replace(/\s+/g, " ").trim().slice(0, 48);
+}
+
 export default function GroupSettingsScreen() {
   const router = useRouter();
   const { channels } = useStore();
@@ -70,6 +74,18 @@ export default function GroupSettingsScreen() {
     [providerGroups, tabPrefs.order],
   );
 
+  const groupNameCollides = useCallback((rawName: string, options?: { customId?: string; providerId?: string }) => {
+    const name = cleanGroupName(rawName);
+    if (!name) return true;
+    const key = name.toLocaleLowerCase();
+    if (["All", ...BUILT_INS].some((item) => item.toLocaleLowerCase() === key)) return true;
+    if (providerGroups.some((id) => id !== options?.providerId && id.toLocaleLowerCase() === key)) return true;
+    if (custom.groups.some((group) => group.id !== options?.customId && group.name.toLocaleLowerCase() === key)) return true;
+    return Object.entries(tabPrefs.aliases).some(
+      ([id, label]) => id !== options?.providerId && label.toLocaleLowerCase() === key,
+    );
+  }, [custom.groups, providerGroups, tabPrefs.aliases]);
+
   const memberSet = useMemo(() => new Set(selected?.channelIds || []), [selected?.channelIds]);
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -99,11 +115,17 @@ export default function GroupSettingsScreen() {
     guideUi.setHiddenGroups(Array.from(hidden));
   };
 
+  const createCustomGroup = useCallback(() => {
+    const name = cleanGroupName(draft);
+    if (!name || groupNameCollides(name)) return;
+    if (custom.createGroup(name)) setDraft("");
+  }, [custom, draft, groupNameCollides]);
+
   const renameSelectedGroup = useCallback(() => {
     if (!selected) return;
     const oldName = selected.name;
-    const nextName = renameDraft.replace(/[\r\n\t]/g, " ").replace(/\s+/g, " ").trim().slice(0, 48);
-    if (!nextName || !custom.renameGroup(selected.id, nextName)) return;
+    const nextName = cleanGroupName(renameDraft);
+    if (!nextName || groupNameCollides(nextName, { customId: selected.id }) || !custom.renameGroup(selected.id, nextName)) return;
     if (guideUi.startGroup === oldName) guideUi.setStartGroup(nextName);
     if (guideUi.pinnedGroups.includes(oldName)) {
       guideUi.setPinnedGroups(guideUi.pinnedGroups.map((name) => name === oldName ? nextName : name));
@@ -112,7 +134,7 @@ export default function GroupSettingsScreen() {
       guideUi.setHiddenGroups(guideUi.hiddenGroups.map((name) => name === oldName ? nextName : name));
     }
     setRenameDraft(nextName);
-  }, [custom, guideUi, renameDraft, selected]);
+  }, [custom, groupNameCollides, guideUi, renameDraft, selected]);
 
   const deleteSelectedGroup = useCallback((groupId: string, groupName: string) => {
     custom.deleteGroup(groupId);
@@ -129,21 +151,10 @@ export default function GroupSettingsScreen() {
 
   const commitProviderRename = useCallback(() => {
     if (!selectedProvider) return;
-    const next = providerRenameDraft.replace(/[\r\n\t]/g, " ").replace(/\s+/g, " ").trim().slice(0, 48);
-    if (!next) return;
-    const key = next.toLocaleLowerCase();
-    const collision = [
-      "All",
-      ...BUILT_INS,
-      ...providerGroups.filter((id) => id !== selectedProvider),
-      ...custom.groups.map((group) => group.name),
-      ...Object.entries(tabPrefs.aliases)
-        .filter(([id]) => id !== selectedProvider)
-        .map(([, label]) => label),
-    ].some((name) => String(name || "").trim().toLocaleLowerCase() === key);
-    if (collision) return;
+    const next = cleanGroupName(providerRenameDraft);
+    if (!next || groupNameCollides(next, { providerId: selectedProvider })) return;
     if (tabPrefs.rename(selectedProvider, next)) setProviderRenameDraft(next);
-  }, [custom.groups, providerGroups, providerRenameDraft, selectedProvider, tabPrefs]);
+  }, [groupNameCollides, providerRenameDraft, selectedProvider, tabPrefs]);
 
   return (
     <PurpleTvShell active="/settings">
@@ -218,7 +229,7 @@ export default function GroupSettingsScreen() {
             <Text style={styles.help}>Custom groups store channel IDs only. Rename, visibility, and position are user-owned; stream URLs, logos, and EPG rows stay in the provider/native stores.</Text>
             <View style={styles.inputRow}>
               <TextInput value={draft} onChangeText={setDraft} placeholder="New group name" placeholderTextColor={tvColors.textMuted} style={styles.input} maxLength={48} />
-              <Pressable onPress={() => { if (custom.createGroup(draft)) setDraft(""); }} style={({ focused }: any) => [styles.action, focused && styles.focused]}>
+              <Pressable onPress={createCustomGroup} style={({ focused }: any) => [styles.action, focused && styles.focused]}>
                 <Text style={styles.actionText}>Add</Text>
               </Pressable>
             </View>
