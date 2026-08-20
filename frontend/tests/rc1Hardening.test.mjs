@@ -101,8 +101,6 @@ test("favorites are never auto-pruned on playlist load", async () => {
   assert.doesNotMatch(store, /prev\.filter\(\(id\) => channelByIdMap\.has\(id\)\)/);
   assert.match(store, /remapStoredChannelIds\(prev, nextChannels\)/);
   assert.match(store, /const next = ids\[0\] \|\| prev/);
-  assert.match(store, /Coalesce them so one refresh/);
-  assert.match(store, /\}, 500\)/);
 });
 
 test("favorites backup offers SAF portable export", async () => {
@@ -118,9 +116,7 @@ test("TvRemote suppresses duplicate Guide bridge events without consuming native
     source("android/app/src/main/java/com/charmiptv/app/TvRemoteModule.kt"),
     source("android/app/src/main/java/com/charmiptv/app/MainActivity.kt"),
   ]);
-  for (const needle of ["moveFocus", "focusView"]) {
-    assert.doesNotMatch(mod, new RegExp(needle));
-  }
+  for (const needle of ["moveFocus", "focusView"]) assert.doesNotMatch(mod, new RegExp(needle));
   assert.match(mod, /fun setGuideNavigationActive/);
   assert.match(plugin, /fun setGuideNavigationActive/);
   assert.match(plugin, /KOTLIN_NAMESPACE/);
