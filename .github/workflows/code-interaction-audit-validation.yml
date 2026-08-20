@@ -44,8 +44,10 @@ jobs:
           doctor=99
           lint=99
           if [ "$install" -eq 0 ]; then
-            npm test
+            set -o pipefail
+            npm test 2>&1 | tee /tmp/code-interaction-audit-tests.log
             test=$?
+            set +o pipefail
             npm run typecheck
             typecheck=$?
             npm run verify:native-config
@@ -65,6 +67,10 @@ jobs:
           doctor=$doctor
           lint=$lint
           EOF
+          if [ "$test" -ne 0 ] && [ -f /tmp/code-interaction-audit-tests.log ]; then
+            printf '\n--- failing test tail ---\n' >> ci/code-interaction-audit-validation.txt
+            tail -n 120 /tmp/code-interaction-audit-tests.log >> ci/code-interaction-audit-validation.txt
+          fi
           if [ "$install" -ne 0 ] || [ "$test" -ne 0 ] || [ "$typecheck" -ne 0 ] || [ "$native" -ne 0 ] || [ "$doctor" -ne 0 ] || [ "$lint" -ne 0 ]; then
             echo "audit_failed=1" >> "$GITHUB_OUTPUT"
           else
