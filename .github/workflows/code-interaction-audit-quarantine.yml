@@ -1,0 +1,43 @@
+name: Code Interaction Audit Quarantine Legacy Repairs
+
+on:
+  push:
+    branches:
+      - agent/code-interaction-audit
+    paths:
+      - ci/code-interaction-audit-quarantine.trigger
+
+permissions:
+  contents: write
+
+jobs:
+  quarantine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: agent/code-interaction-audit
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Quarantine obsolete self-applying workflows
+        run: python ci/code-interaction-audit-quarantine-repair-workflows.py
+      - name: Commit quarantine
+        run: |
+          if git diff --quiet; then
+            echo "No changes needed"
+            exit 0
+          fi
+          git config user.name "Charm Interaction Audit Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github/workflows/phase9-live-tv-repair-pr.yml \
+                  .github/workflows/phase9-live-tv-repair-v2.yml \
+                  .github/workflows/phase9-live-tv-repair-v3.yml \
+                  .github/workflows/phase9-live-tv-repair-v4.yml \
+                  .github/workflows/phase9-media3-guide-live-repair.yml \
+                  .github/workflows/phase9-media3-guide-liveclock-repair.yml \
+                  .github/workflows/phase9-player-fullstack-audit-repair.yml \
+                  .github/workflows/phase9-player-rc1-baseline-repair.yml
+          git commit -m "ci: quarantine obsolete self-applying repairs"
+          git push origin HEAD:agent/code-interaction-audit
