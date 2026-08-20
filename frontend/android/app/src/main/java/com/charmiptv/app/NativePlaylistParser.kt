@@ -1,14 +1,16 @@
 package com.charmiptv.app
 
+import com.facebook.react.modules.network.OkHttpClientProvider
 import java.io.BufferedInputStream
 import java.io.BufferedReader
 import java.io.FilterInputStream
 import java.io.InputStream
 import java.io.InputStreamReader
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 import java.util.zip.GZIPInputStream
+import okhttp3.Request
+import okhttp3.Response
 
 internal data class NativePlaylistChannel(
   val id: String,
@@ -30,6 +32,12 @@ internal data class NativePlaylistResult(
  * Streaming M3U downloader/parser for TV devices. The playlist is never materialized
  * as one JS/Java String. We retain only the first MAX_CHANNELS lightweight raw rows
  * while scanning the complete input so duplicate tvg-id counts remain deterministic.
+ *
+ * Transport intentionally uses React Native's shared OkHttp stack. This mirrors the
+ * provider-stream architecture documented by the TiViMate clean-room analysis and
+ * keeps compatibility with IPTV servers that behave poorly with HttpURLConnection.
+ * A whole-call deadline prevents a trickling/broken response from pinning startup at
+ * the channel-import boundary indefinitely; callers preserve the last-good catalog.
  */
 internal object NativePlaylistParser {
   private data class RawEntry(
@@ -141,85 +149,75 @@ internal object NativePlaylistParser {
   }
 
   private fun openPlaylist(urlString: String): InputStream {
-    var currentUrl = URL(urlString)
-    var redirects = 0
+    val cleanUrl = urlString.trim()
+    if (!isHttpUrl(cleanUrl)) {
+      throw IllegalStateException("M3U URL must use http or https")
+    }
 
-    while (true) {
-      val scheme = currentUrl.protocol.lowercase(Locale.US)
-      if (scheme != "http" && scheme != "https") {
-        throw IllegalStateException("M3U redirect used unsupported scheme: $scheme")
-      }
+    // Clone the shared RN client instead of creating a second connection pool.
+    // OkHttp transparently negotiates/decompresses gzip when Accept-Encoding is
+    // not forced by the caller, matching the transport behavior of the older
+    // working React Native fetch path while keeping parsing entirely native.
+    val client = OkHttpClientProvider.getOkHttpClient().newBuilder()
+      .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+      .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+      .callTimeout(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+      .followRedirects(true)
+      .followSslRedirects(true)
+      .build()
+    val request = Request.Builder()
+      .url(cleanUrl)
+      .header("User-Agent", "CharmIPTV/Experimental-v3")
+      .header("Accept", "*/*")
+      .build()
+    val response = client.newCall(request).execute()
+    if (!response.isSuccessful) {
+      val code = response.code
+      response.close()
+      throw IllegalStateException("M3U HTTP $code")
+    }
+    val body = response.body
+    if (body == null) {
+      response.close()
+      throw IllegalStateException("M3U response had no body")
+    }
+    val declared = body.contentLength()
+    if (declared > MAX_PLAYLIST_BYTES) {
+      response.close()
+      throw IllegalStateException("Playlist exceeds size limit ($MAX_PLAYLIST_BYTES bytes)")
+    }
 
-      val connection = currentUrl.openConnection() as HttpURLConnection
-      connection.connectTimeout = 15_000
-      connection.readTimeout = 45_000
-      // Android/Java automatic redirect handling is inconsistent for some IPTV
-      // endpoints (especially cross-protocol/port and relative Location values).
-      // Follow redirects explicitly so a valid Xtream get.php 302 does not fail.
-      connection.instanceFollowRedirects = false
-      connection.setRequestProperty("User-Agent", "CharmIPTV/Experimental-v3")
-      connection.setRequestProperty("Accept", "*/*")
-      connection.setRequestProperty("Accept-Encoding", "gzip")
-      val status = try {
-        connection.connect()
-        connection.responseCode
-      } catch (t: Throwable) {
-        connection.disconnect()
-        throw t
+    try {
+      val responseStream = ResponseClosingInputStream(body.byteStream(), response)
+      val bounded = BoundedInputStream(responseStream, MAX_PLAYLIST_BYTES)
+      val buffered = BufferedInputStream(bounded, NETWORK_BUFFER_SIZE)
+      buffered.mark(2)
+      val b1 = buffered.read()
+      val b2 = buffered.read()
+      buffered.reset()
+      // OkHttp normally performs transparent Content-Encoding gzip decoding.
+      // Keep magic-byte support for providers that send gzip bytes without a
+      // correct Content-Encoding header.
+      val decoded = if (b1 == 0x1f && b2 == 0x8b) {
+        GZIPInputStream(buffered, NETWORK_BUFFER_SIZE)
+      } else {
+        buffered
       }
-      if (isRedirectStatus(status)) {
-        val location = connection.getHeaderField("Location")?.trim().orEmpty()
-        connection.disconnect()
-        if (location.isEmpty()) throw IllegalStateException("M3U HTTP $status redirect missing Location")
-        redirects += 1
-        if (redirects > MAX_HTTP_REDIRECTS) {
-          throw IllegalStateException("M3U redirect limit exceeded ($MAX_HTTP_REDIRECTS)")
-        }
-        currentUrl = URL(currentUrl, location)
-        continue
-      }
-
-      if (status !in 200..299) {
-        connection.disconnect()
-        throw IllegalStateException("M3U HTTP $status")
-      }
-      val declared = connection.contentLengthLong
-      if (declared > MAX_PLAYLIST_BYTES) {
-        connection.disconnect()
-        throw IllegalStateException("Playlist exceeds size limit ($MAX_PLAYLIST_BYTES bytes)")
-      }
-
-      try {
-        val connectionStream = object : FilterInputStream(connection.inputStream) {
-          override fun close() {
-            try {
-              super.close()
-            } finally {
-              connection.disconnect()
-            }
-          }
-        }
-        val compressed = BoundedInputStream(connectionStream, MAX_PLAYLIST_BYTES)
-        val buffered = BufferedInputStream(compressed, NETWORK_BUFFER_SIZE)
-        buffered.mark(2)
-        val b1 = buffered.read()
-        val b2 = buffered.read()
-        buffered.reset()
-        val decoded = if (b1 == 0x1f && b2 == 0x8b) GZIPInputStream(buffered, NETWORK_BUFFER_SIZE) else buffered
-        return BoundedInputStream(decoded, MAX_PLAYLIST_BYTES)
-      } catch (t: Throwable) {
-        connection.disconnect()
-        throw t
-      }
+      return BoundedInputStream(decoded, MAX_PLAYLIST_BYTES)
+    } catch (t: Throwable) {
+      response.close()
+      throw t
     }
   }
 
-  private fun isRedirectStatus(status: Int): Boolean =
-    status == HttpURLConnection.HTTP_MOVED_PERM ||
-      status == HttpURLConnection.HTTP_MOVED_TEMP ||
-      status == HttpURLConnection.HTTP_SEE_OTHER ||
-      status == 307 ||
-      status == 308
+  private fun isHttpUrl(raw: String): Boolean {
+    val schemeEnd = raw.indexOf(':')
+    if (schemeEnd <= 0) return false
+    return when (raw.substring(0, schemeEnd).lowercase(Locale.US)) {
+      "http", "https" -> true
+      else -> false
+    }
+  }
 
   /** Small direct attribute scanner; avoids regex allocation in the #EXTINF hot loop. */
   private fun attribute(line: String, key: String): String {
@@ -310,6 +308,19 @@ internal object NativePlaylistParser {
     }
   }
 
+  private class ResponseClosingInputStream(
+    input: InputStream,
+    private val response: Response,
+  ) : FilterInputStream(input) {
+    override fun close() {
+      try {
+        super.close()
+      } finally {
+        response.close()
+      }
+    }
+  }
+
   private class BoundedInputStream(input: InputStream, private val maxBytes: Long) : FilterInputStream(input) {
     private var bytesRead = 0L
 
@@ -330,7 +341,9 @@ internal object NativePlaylistParser {
   }
 
   private const val NETWORK_BUFFER_SIZE = 64 * 1024
-  private const val MAX_HTTP_REDIRECTS = 6
+  private const val CONNECT_TIMEOUT_SECONDS = 15L
+  private const val READ_TIMEOUT_SECONDS = 45L
+  private const val CALL_TIMEOUT_SECONDS = 90L
   private const val MAX_PLAYLIST_BYTES = 32L * 1024L * 1024L
   private const val MAX_CHANNELS = 25_000
   private const val MAX_CHANNEL_ID_LEN = 160
