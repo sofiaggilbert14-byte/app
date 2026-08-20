@@ -14,7 +14,7 @@ import * as Haptics from "expo-haptics";
 import { useStore } from "@/src/store";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { fonts, radius, tvColors } from "@/src/theme";
-import { addTvQuickActionsListener, setRemoteContext, type TvQuickActionsContext } from "@/src/utils/tvRemote";
+import { addTvQuickActionsListener, emitPlayerQuickCommand, setRemoteContext, type PlayerQuickCommand, type TvQuickActionsContext } from "@/src/utils/tvRemote";
 import { getGuideSelection } from "@/src/core/guideSelectionStore";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 import { useChannelCustomize } from "@/src/core/channelCustomize";
@@ -87,9 +87,6 @@ export function TvQuickActionsOverlay() {
   const channel = channelId ? channelById(channelId) : null;
 
   const resolvePlayerChannelId = useCallback((): string | null => {
-    // Audio diagnostics carry a non-sensitive fingerprint for the decoder that
-    // is actually running, so this remains correct after in-player channel zaps
-    // even though the route parameter still contains the entry channel.
     const diagnostics = getLastAudioDiagnostics();
     if (diagnostics?.role === "fullscreen" && diagnostics.streamKey) {
       for (const item of channels) {
@@ -113,6 +110,11 @@ export function TvQuickActionsOverlay() {
     setRemoteContext(pathname?.startsWith("/player") ? "player" : pathname?.startsWith("/guide") ? "guide" : "default");
   }, [pathname]);
 
+  const runPlayerCommand = useCallback((command: PlayerQuickCommand) => {
+    close();
+    requestAnimationFrame(() => emitPlayerQuickCommand(command));
+  }, [close]);
+
   useEffect(() => addTvQuickActionsListener((nextContext) => {
     const guideSelection = nextContext === "guide" ? getGuideSelection() : null;
     const id = guideSelection?.channelId || resolvePlayerChannelId();
@@ -121,10 +123,6 @@ export function TvQuickActionsOverlay() {
     if (!selectedChannel) return;
     void Haptics.selectionAsync().catch(() => undefined);
 
-    // TiViMate-style contextual action routing: the same physical long-Select
-    // means channel actions on the rail, but programme options on a programme
-    // cell. MainActivity owns hold detection; the focused Guide surface owns the
-    // semantic action so the two overlays can never race each other.
     if (nextContext === "guide" && guideSelection?.surface === "program" && guideSelection.program) {
       openProgram(guideSelection.program, selectedChannel);
       return;
@@ -136,7 +134,6 @@ export function TvQuickActionsOverlay() {
     setStatus(null);
     setSourceChoice(null);
     setOpen(true);
-    // One overlay owner: underlying Guide/player no longer consumes D-pad while open.
     setRemoteContext("modal");
   }), [channelById, openProgram, resolvePlayerChannelId]);
 
@@ -230,7 +227,6 @@ export function TvQuickActionsOverlay() {
     setStatus("Assigning EPG…");
     try {
       if (sourceChoice.legacy) {
-        // Clear any additional custom-source owner before writing the legacy user binding.
         if (extraOwner) await setNativeSourceGuideBinding(extraOwner.id, channel.id, null);
         clearMultiEpgChannelAssignments(channel.id);
         primaryEpg.setUserEnabled(true);
@@ -238,7 +234,6 @@ export function TvQuickActionsOverlay() {
         await setNativeGuideChannelBinding(channel.id, xmltvId);
         primaryEpg.setUserOverride(channel.id, xmltvId);
       } else {
-        // Clear the legacy owner first, then use the native exclusive multi-source binding.
         if (legacyOwnerId) await setNativeGuideChannelBinding(channel.id, null);
         primaryEpg.setUserOverride(channel.id, null);
         const saved = multiEpg.sources.find((source) => source.id === sourceChoice.id);
@@ -246,8 +241,6 @@ export function TvQuickActionsOverlay() {
         await ensureNativeSources({ id: sourceChoice.id, enabled: true });
         await setNativeSourceGuideBinding(sourceChoice.id, channel.id, xmltvId);
         assignMultiEpgChannel(sourceChoice.id, channel.id, xmltvId);
-        // Newly bound ids were intentionally skipped by partial XMLTV parsing.
-        // Hydrate this source asynchronously; last-good rows remain visible meanwhile.
         void refreshNativeSourceGuide(sourceChoice.id, sourceChoice.url).catch(() => undefined);
       }
       invalidateGuideOwnershipCaches();
@@ -336,10 +329,12 @@ export function TvQuickActionsOverlay() {
             ) : (
               <>
                 <Action icon="calendar-outline" label="Open TV Guide" onPress={goGuide} />
+                <Action icon="resize-outline" label="Aspect ratio" value="Fit / Zoom / Stretch" onPress={() => runPlayerCommand("CYCLE_ASPECT")} />
+                <Action icon="musical-notes-outline" label="Audio / subtitles" value="Live tracks" onPress={() => runPlayerCommand("OPEN_TRACKS")} />
                 <Action icon="speedometer-outline" label="Playback buffer" value={bufferProfile.replace("_", " ")} onPress={() => setBufferProfile(nextValue(BUFFER_ORDER, bufferProfile))} />
                 <Action icon="play-circle-outline" label="Player engine" value={playerEngine === "default" ? "Auto" : playerEngine.toUpperCase()} onPress={() => setPlayerEngine(nextValue(ENGINE_ORDER, playerEngine))} />
                 <Action icon="moon-outline" label="Sleep timer" value={sleepTimerMinutes ? `${sleepTimerMinutes}m` : "Off"} onPress={() => setSleepTimerMinutes(sleepTimerMinutes === 0 ? 15 : sleepTimerMinutes === 15 ? 30 : sleepTimerMinutes === 30 ? 60 : sleepTimerMinutes === 60 ? 90 : 0)} />
-                <Action icon="musical-notes-outline" label="Audio / subtitles & compatibility" value="Player settings" onPress={openSettings} />
+                <Action icon="options-outline" label="Playback compatibility" value="Advanced settings" onPress={openSettings} />
                 <Action icon="settings-outline" label="All Settings" onPress={openSettings} />
               </>
             )}
