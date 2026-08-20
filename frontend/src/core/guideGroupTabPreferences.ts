@@ -90,17 +90,17 @@ export function applyGuideGroupOrder(ids: string[], order: string[]): string[] {
   if (ids.length <= 1 || !order.length) return ids;
   const rank = new Map<string, number>();
   order.forEach((id, index) => rank.set(id, index));
-  return ids
-    .map((id, index) => ({ id, index, rank: rank.get(id) }))
-    .sort((a, b) => {
-      if (a.id === RESERVED_ID) return -1;
-      if (b.id === RESERVED_ID) return 1;
-      if (a.rank != null && b.rank != null) return a.rank - b.rank;
-      if (a.rank != null) return -1;
-      if (b.rank != null) return 1;
-      return a.index - b.index;
-    })
-    .map((row) => row.id);
+  const original = new Map(ids.map((id, index) => [id, index]));
+  return ids.slice().sort((a, b) => {
+    if (a === RESERVED_ID) return -1;
+    if (b === RESERVED_ID) return 1;
+    const ar = rank.get(a);
+    const br = rank.get(b);
+    if (ar != null && br != null) return ar - br;
+    // A user ordering for provider/custom siblings must not pull that entire
+    // block in front of system groups. Unranked boundaries retain source order.
+    return (original.get(a) ?? 0) - (original.get(b) ?? 0);
+  });
 }
 
 export function useGuideGroupTabPreferences() {
