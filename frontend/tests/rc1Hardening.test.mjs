@@ -131,17 +131,13 @@ test("TvRemote suppresses duplicate Guide bridge events without consuming native
   assert.match(activity, /TvRemoteModule\.pointerActive = false/);
   assert.match(activity, /val mirrorToJs = TvRemoteModule\.pointerActive \|\| TvRemoteModule\.remoteContext == "player"/);
   assert.match(activity, /if \(TvRemoteModule\.pointerActive\) return true/);
-  // Guide surfing must use Android focus — never consume Up/Down when "active".
   assert.doesNotMatch(activity, /guideNavigationActive && \(key == "UP"/);
   assert.doesNotMatch(plugin, /guideNavigationActive && \(key == "UP"/);
 });
 
 test("Cloudflare worker does not default CORS to wildcard", async () => {
   const worker = await repoSource("cloudflare-backend/worker/src/index.js");
-  assert.doesNotMatch(
-    worker,
-    /const CORS = \{[\s\S]*access-control-allow-origin": "\*"/,
-  );
+  assert.doesNotMatch(worker, /const CORS = \{[\s\S]*access-control-allow-origin": "\*"/);
   assert.match(worker, /CORS_ALLOW_ORIGINS/);
   assert.match(worker, /function corsHeaders/);
 });
@@ -209,14 +205,17 @@ test("release build verifies native drift and pins the JSC fallback", async () =
   assert.match(apkCi, /npm run verify:native-config/);
 });
 
-test("Cloudflare builder and worker bound provider data and hide internal failures", async () => {
-  const [builder, worker] = await Promise.all([
+test("Cloudflare builder and worker bound provider data and share the 12-hour guide default", async () => {
+  const [builder, worker, store] = await Promise.all([
     repoSource("cloudflare-backend/scripts/build-and-upload.mjs"),
     repoSource("cloudflare-backend/worker/src/index.js"),
+    source("src/store.tsx"),
   ]);
   assert.match(builder, /MAX_PLAYLIST_DOWNLOAD_BYTES/);
   assert.match(builder, /MAX_EPG_DECOMPRESSED_BYTES/);
-  assert.match(builder, /readGuideWindowHours\(process\.env\.GUIDE_WINDOW_HOURS, 6\)/);
+  assert.match(builder, /readGuideWindowHours\(process\.env\.GUIDE_WINDOW_HOURS, 12\)/);
+  assert.match(builder, /function readGuideWindowHours\(value, fallback = 12\)/);
+  assert.match(store, /readGuideWindowHours\(process\.env\.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 12\)/);
   assert.match(builder, /getReader\(\)/);
   assert.doesNotMatch(worker, /detail:\s*String\(e\)/);
   assert.match(worker, /Request could not be completed/);
@@ -229,13 +228,11 @@ test("playlist ingest keeps last-good and streams Android M3U parsing natively",
     source("src/source.native.ts"),
     source("src/source.ts"),
   ]);
-  // Shared/web parser remains bounded for non-Android use.
   assert.match(parsing, /MAX_PLAYLIST_BYTES/);
   assert.match(parsing, /MAX_PLAYLIST_CHANNELS/);
   assert.match(parsing, /isAllowedPlaylistUrl/);
   assert.match(parsing, /allocateChannelId/);
   assert.match(parsing, /parseM3UWithStats/);
-  // Android must not materialize the full M3U in JS; Kotlin streams it line by line.
   assert.match(native, /fetchNativePlaylist/);
   assert.doesNotMatch(native, /parseM3UWithStats|enforcePlaylistTextLimit/);
   assert.match(native, /Playlist contained no playable channels/);
