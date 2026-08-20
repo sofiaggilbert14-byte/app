@@ -168,7 +168,9 @@ export default function PlayerScreen() {
     setRemoteContext("player");
     // Route transitions can install the next owner before this screen's cleanup
     // runs. Never let stale player cleanup clobber that newer focus context.
-    return () => resetRemoteContextIfOwned("player", "default");
+    return () => {
+      resetRemoteContextIfOwned("player", "default");
+    };
   }, [isTV]);
   const overlayHideMs = playerControlsTimeoutMs;
   const safe = useMemo(
