@@ -1,2 +1,2 @@
 2026-08-20 code interaction audit player stability repair
-isolated audit branch run 2 - strip zap history
+isolated audit branch run 3 - native guide import cleanup
