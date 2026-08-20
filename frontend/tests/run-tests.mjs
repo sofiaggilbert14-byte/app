@@ -20,3 +20,4 @@ import "./groupTabsScreenFit.test.mjs";
 import "./sourceRefreshPersistence.test.mjs";
 import "./startupPlaylistAcquisition.test.mjs";
 import "./guideWindowPolicy.test.mjs";
+import "./guideBackHierarchy.test.mjs";
