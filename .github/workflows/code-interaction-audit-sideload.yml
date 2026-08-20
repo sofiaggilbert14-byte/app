@@ -113,11 +113,9 @@ jobs:
         if: steps.install.outcome == 'success' && steps.sdk.outcome == 'success'
         continue-on-error: true
         working-directory: frontend
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.1.12297006
         run: |
           chmod +x scripts/build-media3-ffmpeg-audio.sh
-          ./scripts/build-media3-ffmpeg-audio.sh
+          ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/27.1.12297006" ./scripts/build-media3-ffmpeg-audio.sh
 
       - name: Build standalone sideload APK
         id: assemble
@@ -229,6 +227,6 @@ jobs:
           git add ci/code-interaction-audit-sideload.txt
           git commit -m "test(audit): record sideload APK status" || true
           git push origin HEAD:agent/code-interaction-audit
-          if [ "${CONFIG}" != success ] || [ "${INSTALL}" != success ] || [ "${TESTS}" != success ] || [ "${TYPECHECK}" != success ] || [ "${LINT}" != success ] || [ "${DOCTOR}" != success ] || [ "${NATIVE_CONFIG}" != success ] || [ "${NATIVE_GUIDE}" != success ] || [ "${JAVA}" != success ] || [ "${GRADLE_SETUP}" != success ] || [ "${ANDROID_SETUP}" != success ] || [ "${SDK}" != success ] || [ "${FFMPEG}" != success ] || [ "${ASSEMBLE}" != success ] || [ "${VERIFY_APK}" != success ] || [ "${UPLOAD}" != success ]; then
+          if [ "${NODE}" != success ] || [ "${CONFIG}" != success ] || [ "${INSTALL}" != success ] || [ "${TESTS}" != success ] || [ "${TYPECHECK}" != success ] || [ "${LINT}" != success ] || [ "${DOCTOR}" != success ] || [ "${NATIVE_CONFIG}" != success ] || [ "${NATIVE_GUIDE}" != success ] || [ "${JAVA}" != success ] || [ "${GRADLE_SETUP}" != success ] || [ "${ANDROID_SETUP}" != success ] || [ "${SDK}" != success ] || [ "${FFMPEG}" != success ] || [ "${ASSEMBLE}" != success ] || [ "${VERIFY_APK}" != success ] || [ "${UPLOAD}" != success ]; then
             exit 1
           fi
