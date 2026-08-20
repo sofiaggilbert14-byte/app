@@ -6,6 +6,11 @@ on:
       - agent/code-interaction-audit
     paths:
       - ci/code-interaction-audit-native.trigger
+  pull_request:
+    branches:
+      - agent/code-interaction-audit
+    paths:
+      - ci/code-interaction-audit-native.trigger
 
 permissions:
   contents: write
