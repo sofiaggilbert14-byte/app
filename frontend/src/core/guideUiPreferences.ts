@@ -31,6 +31,7 @@ let cached: Snapshot = {
 };
 let loaded = false;
 let loadPromise: Promise<Snapshot> | null = null;
+let mutationEpoch = 0;
 const listeners = new Set<(value: Snapshot) => void>();
 
 function emit() {
@@ -66,6 +67,7 @@ function sanitizeHiddenGroups(raw: unknown): string[] {
 async function load(): Promise<Snapshot> {
   if (loaded) return cached;
   if (loadPromise) return loadPromise;
+  const loadEpoch = mutationEpoch;
   loadPromise = (async () => {
     const [pinned, hidePreview, mutePreview, startGroup, showProviderGroups, hiddenGroups] = await Promise.all([
       storage.getItem<string[]>(PINNED_KEY, DEFAULT_PINNED),
@@ -75,7 +77,7 @@ async function load(): Promise<Snapshot> {
       storage.getItem<boolean>(PROVIDER_GROUPS_KEY, false),
       storage.getItem<string[]>(HIDDEN_GROUPS_KEY, []),
     ]);
-    cached = {
+    const next: Snapshot = {
       pinnedGroups: sanitizeGroupList(pinned, 24).length ? sanitizeGroupList(pinned, 24) : DEFAULT_PINNED,
       hidePreview: !!hidePreview,
       mutePreview: mutePreview !== false,
@@ -83,53 +85,54 @@ async function load(): Promise<Snapshot> {
       showProviderGroups: showProviderGroups === true,
       hiddenGroups: sanitizeHiddenGroups(hiddenGroups),
     };
+    // A user setting changed while hydration was running owns the newer state.
+    // Never let an older multi-key disk snapshot overwrite that action.
+    if (loaded || loadEpoch !== mutationEpoch) return cached;
+    cached = next;
     loaded = true;
     return cached;
   })();
   try { return await loadPromise; } finally { loadPromise = null; }
 }
 
-export async function setPinnedGroups(next: string[]): Promise<void> {
-  cached = { ...cached, pinnedGroups: sanitizeGroupList(next, 24) };
+function commit(next: Snapshot) {
+  mutationEpoch += 1;
+  cached = next;
   loaded = true;
   emit();
-  await storage.setItem(PINNED_KEY, cached.pinnedGroups);
+}
+
+export async function setPinnedGroups(next: string[]): Promise<void> {
+  const pinnedGroups = sanitizeGroupList(next, 24);
+  commit({ ...cached, pinnedGroups });
+  await storage.setItem(PINNED_KEY, pinnedGroups);
 }
 
 export async function setHideGuidePreview(next: boolean): Promise<void> {
-  cached = { ...cached, hidePreview: next };
-  loaded = true;
-  emit();
+  commit({ ...cached, hidePreview: next });
   await storage.setItem(HIDE_PREVIEW_KEY, next);
 }
 
 export async function setMuteGuidePreview(next: boolean): Promise<void> {
-  cached = { ...cached, mutePreview: next };
-  loaded = true;
-  emit();
+  commit({ ...cached, mutePreview: next });
   await storage.setItem(MUTE_PREVIEW_KEY, next);
 }
 
 export async function setGuideStartGroup(next: string): Promise<void> {
   const startGroup = sanitizeStartGroup(next);
-  cached = { ...cached, startGroup };
-  loaded = true;
-  emit();
+  commit({ ...cached, startGroup });
   await storage.setItem(START_GROUP_KEY, startGroup);
 }
 
 export async function setShowProviderGuideGroups(next: boolean): Promise<void> {
-  cached = { ...cached, showProviderGroups: next };
-  loaded = true;
-  emit();
+  commit({ ...cached, showProviderGroups: next });
   await storage.setItem(PROVIDER_GROUPS_KEY, next);
 }
 
 export async function setHiddenGuideGroups(next: string[]): Promise<void> {
-  cached = { ...cached, hiddenGroups: sanitizeHiddenGroups(next) };
-  loaded = true;
-  emit();
-  await storage.setItem(HIDDEN_GROUPS_KEY, cached.hiddenGroups);
+  const hiddenGroups = sanitizeHiddenGroups(next);
+  commit({ ...cached, hiddenGroups });
+  await storage.setItem(HIDDEN_GROUPS_KEY, hiddenGroups);
 }
 
 export function useGuideUiPreferences(): Snapshot & {
