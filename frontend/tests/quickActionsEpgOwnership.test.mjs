@@ -55,17 +55,35 @@ test("custom EPG retention and refresh policy are wired to native source records
   assert.match(prefs, /syncNativeCustomEpgPolicy/);
 });
 
-test("automatic scheduler and custom parser yield to interactive TV ownership", async () => {
+test("automatic scheduler and both EPG parsers yield to interactive TV ownership", async () => {
   const scheduler = await text("src/components/SourceRefreshScheduler.tsx");
   const customNative = await text("android/app/src/main/java/com/charmiptv/app/CustomEpgNativeModule.kt");
+  const database = await text("android/app/src/main/java/com/charmiptv/app/EpgDatabase.kt");
   assert.match(scheduler, /schedulerGeneration/);
   assert.match(scheduler, /screenIsSafe/);
   assert.match(scheduler, /cancelled = true/);
   assert.match(customNative, /owner == "guide" \|\| owner == "player" \|\| owner == "modal"/);
+  assert.match(database, /interactiveTvOwnsPriority/);
+  assert.match(database, /EPG refresh deferred before final swap/);
+  assert.match(database, /db\.delete\(STAGING_TABLE, null, null\)/);
 });
 
 test("additional custom source storage checks use the source-specific database", async () => {
   const customNative = await text("android/app/src/main/java/com/charmiptv/app/CustomEpgNativeModule.kt");
   assert.match(customNative, /openPossiblyGzipped\(sourceUrl, targetDatabase\)/);
   assert.match(customNative, /targetDatabase\.assertRefreshStorageAvailable\(declaredLength\)/);
+});
+
+test("additional custom EPG ownership participates in Guide filters and Search", async () => {
+  const registry = await text("src/core/multiEpgSources.ts");
+  const ownership = await text("src/core/additionalEpgOwnership.ts");
+  const overrides = await text("src/core/epgUserOverrides.ts");
+  const nativeBridge = await text("src/nativeEpg.ts");
+  const customNative = await text("android/app/src/main/java/com/charmiptv/app/CustomEpgNativeModule.kt");
+  assert.match(registry, /replaceAdditionalEpgOwners/);
+  assert.match(ownership, /additionalEpgOwnsChannel/);
+  assert.match(overrides, /if \(additionalEpgOwnsChannel\(channel\.id\)\) return true/);
+  assert.match(nativeBridge, /getMultiEpgSources/);
+  assert.match(nativeBridge, /searchSourceProgrammes/);
+  assert.match(customNative, /fun searchSourceProgrammes/);
 });
