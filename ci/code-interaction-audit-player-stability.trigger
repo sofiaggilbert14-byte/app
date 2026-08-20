@@ -1,2 +1,2 @@
 2026-08-20 code interaction audit player stability repair
-isolated audit branch run 7 - VLC stopped recovery and Guide live-follow rejoin
+isolated audit branch run 8 - cleaned workflow, VLC stop, Guide live-follow rejoin
