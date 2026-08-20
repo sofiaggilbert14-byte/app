@@ -156,12 +156,13 @@ test("player More panel owns focus and scrolls all actions", async () => {
   assert.match(player, /nestedScrollEnabled/);
 });
 
-test("Media3 recovery requires explicit buffering or a genuinely frozen native playing clock", async () => {
+test("Media3 recovery follows the real playback clock after a stream has played", async () => {
   const stream = await source("src/components/StreamPlayer.tsx");
   assert.match(stream, /const MEDIA3_FROZEN_CLOCK_MS = 9000/);
   assert.match(stream, /const observedPlaybackTime = Number\(player\.currentTime\)/);
-  assert.match(stream, /Boolean\(\(player as any\)\.playing\)/);
   assert.match(stream, /const frozenReadyClock =/);
+  assert.match(stream, /hasPlayedRef\.current &&\s*mediaReady &&\s*now - lastPlaybackAdvanceAtRef\.current >= MEDIA3_FROZEN_CLOCK_MS/);
+  assert.doesNotMatch(stream, /Boolean\(\(player as any\)\.playing\)/);
   assert.match(stream, /if \(bufferingSince == null && !frozenReadyClock\) return/);
   assert.doesNotMatch(stream, /const stalledReady =/);
   assert.match(stream, /const BUFFERING_RESYNC_MS = 5000/);
@@ -178,4 +179,3 @@ test("long Select consumes release and program context stays in Quick Actions", 
   assert.match(overlay, /Program details \/ reminder/);
   assert.doesNotMatch(overlay, /guideSelection\.program\) \{\s*openProgram/);
 });
-
