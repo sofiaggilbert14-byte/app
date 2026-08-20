@@ -70,17 +70,15 @@ export function parsePipeHeaders(rawUri: string): { uri: string; headers: Record
 }
 
 /**
- * Media3/ExoPlayer is the primary playback engine for every stream type. This
- * mirrors the native-TV architecture used by mature IPTV players: keep one
- * preferred engine for predictable startup/track handling, then fail over to
- * VLC when Media3 cannot open or decode a particular feed.
- *
- * Some contribution protocols (RTMP/SRT/WebRTC) are not guaranteed to be
- * supported by the installed Media3 stack. We still try Media3 first so the
- * app has one deterministic default; StreamPlayer will immediately fall back
- * to VLC on a real load/codec failure when VLC is installed.
+ * Media3 remains the preferred engine for the stream families it can natively
+ * own well on Android TV. Contribution protocols that are not part of the
+ * installed Media3 stack go directly to VLC when it is available, matching the
+ * known-good RC.1 behavior and avoiding a guaranteed failed decoder/network
+ * attempt before fallback. If VLC is unavailable, StreamPlayer's normal
+ * alternate-engine handling can still try Media3 as a last resort.
  */
-export function preferredEngine(_kind: StreamKind): Engine {
+export function preferredEngine(kind: StreamKind): Engine {
+  if (kind === "rtmp" || kind === "srt" || kind === "webrtc") return "vlc";
   return "media3";
 }
 
