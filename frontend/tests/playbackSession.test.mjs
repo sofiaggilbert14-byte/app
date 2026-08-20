@@ -197,7 +197,8 @@ test("Media3 watchdog recovers real buffering and a genuinely frozen native cloc
   const player = await source("src/components/StreamPlayer.tsx");
   assert.match(player, /const MEDIA3_FROZEN_CLOCK_MS = 9000/);
   assert.match(player, /const observedPlaybackTime = Number\(player\.currentTime\)/);
-  assert.match(player, /Boolean\(\(player as any\)\.playing\)/);
+  assert.match(player, /hasPlayedRef\.current &&\s*mediaReady &&\s*now - lastPlaybackAdvanceAtRef\.current >= MEDIA3_FROZEN_CLOCK_MS/);
+  assert.doesNotMatch(player, /Boolean\(\(player as any\)\.playing\)/);
   assert.match(player, /const frozenReadyClock =/);
   assert.match(player, /if \(bufferingSince == null && !frozenReadyClock\) return/);
   assert.match(player, /silentResyncCountRef\.current = 0;[\s\S]{0,100}bufferingSinceRef\.current = null/);

@@ -279,7 +279,7 @@ test("guide top strip is focusable while Left remains drawer-owned with conveyor
   assert.match(preview, /onOpenDrawer/);
   assert.match(guide, /openDrawer\(\)/);
   assert.match(guide, /focusGuidePreviewSurface\(\)/);
-  assert.match(guide, /setPreviewActionsFocused\(true\)/);
+  assert.doesNotMatch(guide, /const onGuideUpBoundary = useCallback\([\s\S]{0,520}setPreviewActionsFocused\(true\)/);
   assert.match(guide, /!previewActionsFocused/);
   assert.match(preview, /onActionsFocusChange\(true\)/);
   assert.match(preview, /onFocusLost=\{\(\) => onActionsFocusChange\(false\)\}/);
@@ -483,7 +483,9 @@ test("native guide live-follow advances programme cells with wall clock without 
   assert.match(nativeGuide, /private var liveFollowEnabled = true/);
   assert.match(nativeGuide, /private fun advanceLiveViewport\(now: Long\)/);
   assert.match(nativeGuide, /desiredStart = clampViewportStart\(liveTime - 15L \* 60_000L\)/);
-  assert.match(nativeGuide, /postInvalidateDelayed\(30_000L\)/);
+  assert.match(nativeGuide, /LIVE_CLOCK_TICK_MS = 30_000L/);
+  assert.match(nativeGuide, /postDelayed\(liveClockRunnable, LIVE_CLOCK_TICK_MS\)/);
+  assert.doesNotMatch(nativeGuide, /postInvalidateDelayed\(30_000L\)/);
   assert.match(nativeGuide, /KEYCODE_DPAD_LEFT -> \{\s*liveFollowEnabled = false/);
   assert.match(nativeGuide, /KEYCODE_DPAD_RIGHT -> \{\s*liveFollowEnabled = false/);
 });
