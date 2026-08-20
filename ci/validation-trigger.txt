@@ -1,1 +1,1 @@
-validate=await-logo-priority-fixed-2026-08-15-0653
+validate=final-apk-readiness-2026-08-20-1204
