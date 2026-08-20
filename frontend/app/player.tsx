@@ -29,7 +29,7 @@ import {
 } from "@/src/components/StreamPlayer";
 import { useStore } from "@/src/store";
 import { fonts, radius, tvColors } from "@/src/theme";
-import { addTvKeyListener, addTvLongPressListener, addTvShortcutListener, setRemoteContext } from "@/src/utils/tvRemote";
+import { addPlayerQuickCommandListener, addTvKeyListener, addTvLongPressListener, addTvShortcutListener, setRemoteContext } from "@/src/utils/tvRemote";
 import { useRemoteShortcutPreferences, type PlayerRemoteAction } from "@/src/core/remoteShortcutPreferences";
 import { getTvSafeInsets } from "@/src/utils/tvLayout";
 import { requestNativeFocus } from "@/src/utils/tvFocus";
@@ -398,6 +398,25 @@ export default function PlayerScreen() {
     revealControls({ claimChannelsFocus: false });
   }, [revealControls, showNotice]);
 
+  useEffect(() => {
+    if (!isTV) return;
+    return addPlayerQuickCommandListener((command) => {
+      if (command === "CYCLE_ASPECT") {
+        cycleScaleMode();
+        return;
+      }
+      if (command === "OPEN_TRACKS") {
+        controlsRef.current = true;
+        setControls(true);
+        setChannelsOpen(false);
+        setMoreOpen(false);
+        setTracksOpen(true);
+        overlayOpenerRef.current = null;
+        scheduleHide();
+      }
+    });
+  }, [cycleScaleMode, isTV, scheduleHide, setChannelsOpen, setMoreOpen, setTracksOpen]);
+
   const restartStream = useCallback((clearCircuit: boolean) => {
     if (!hasStream) return;
     if (retryTimer.current) clearTimeout(retryTimer.current);
@@ -665,19 +684,12 @@ export default function PlayerScreen() {
 
   useEffect(() => {
     if (!isTV) return;
-    // TV-remote semantic long presses, limited to actions Charm already owns.
-    // Long Down exposes channel browsing without triggering a stream reload;
-    // Long Select simply wakes the controls/quick-action surface.
+    // Long Select is exclusively owned by the contextual Quick Actions route.
+    // The generic long-press channel keeps only Long Down browsing behavior.
     return addTvLongPressListener((key) => {
-      if (key === "DOWN") {
-        runRemoteAction(remoteShortcuts.longDown);
-        return;
-      }
-      if (key === "SELECT") {
-        runRemoteAction(remoteShortcuts.longSelect);
-      }
+      if (key === "DOWN") runRemoteAction(remoteShortcuts.longDown);
     });
-  }, [isTV, remoteShortcuts.longDown, remoteShortcuts.longSelect, runRemoteAction]);
+  }, [isTV, remoteShortcuts.longDown, runRemoteAction]);
 
   useEffect(() => {
     if (!params.channelId || params.channelId === channelIdRef.current) return;
@@ -1123,4 +1135,3 @@ const styles = StyleSheet.create({
   channelCardName: { color: "#fff", fontFamily: fonts.medium, fontSize: 7.5, textAlign: "center" },
   focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
 });
-
