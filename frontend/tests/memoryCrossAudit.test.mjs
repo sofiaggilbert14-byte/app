@@ -77,7 +77,6 @@ test("all source refresh modes share one provider/cache/SQLite owner", async () 
   assert.match(native, /refreshInFlight: !!refreshPromise \|\| !!playlistOnlyRefreshPromise/);
 });
 
-
 test("direct IPTV sources preserve HTTP and cache writes avoid reparsing the old full channel graph", async () => {
   const source = await readFile(join(root, "src/source.native.ts"), "utf8");
   assert.match(source, /function sourceUrl\(url: string\)/);
@@ -99,7 +98,7 @@ test("native playlist order flows from M3U position through SQLite to All channe
     readFile(join(root, "src/core/guideGroups.ts"), "utf8"),
   ]);
   assert.match(parser, /rawEntries\.add\(/);
-  assert.match(database, /ORDER BY provider_position ASC, name COLLATE NOCASE ASC/);
+  assert.match(database, /ORDER BY provider_position ASC\s*,\s*name COLLATE NOCASE ASC/);
   assert.doesNotMatch(source, /sortChannelsInPlace/);
   assert.match(groups, /group === "All"[\s\S]{0,120}return channels/);
 });
