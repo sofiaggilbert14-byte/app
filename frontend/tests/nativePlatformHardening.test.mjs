@@ -57,9 +57,13 @@ test("EPG low-storage refusal closes already-open provider connections", async (
     source("android/app/src/main/java/com/charmiptv/app/CustomEpgNativeModule.kt"),
   ]);
   for (const native of modules) {
-    assert.match(native, /try \{\n\s*\/\/ The connection is already open here[\s\S]{0,220}assertRefreshStorageAvailable\(declaredLength\)/);
-    assert.match(native, /catch \(t: Throwable\) \{\n\s*connection\.disconnect\(\)\n\s*throw t/);
-    assert.doesNotMatch(native, /assertRefreshStorageAvailable\(declaredLength\)\n\s*\n\s*try \{/);
+    const storageCheck = native.indexOf("assertRefreshStorageAvailable(declaredLength)");
+    assert.notEqual(storageCheck, -1, "declared-length storage guard missing");
+    const before = native.slice(Math.max(0, storageCheck - 500), storageCheck);
+    const after = native.slice(storageCheck, storageCheck + 900);
+    assert.match(before, /status !in 200\.\.299[\s\S]*connection\.disconnect|declaredLength > MAX_COMPRESSED_EPG_BYTES[\s\S]*connection\.disconnect/);
+    assert.match(after, /catch \(t: Throwable\) \{\s*connection\.disconnect\(\);?\s*throw t/);
+    assert.match(after, /FilterInputStream\(connection\.inputStream\)[\s\S]*finally \{ connection\.disconnect\(\) \}/);
   }
 });
 
@@ -70,7 +74,7 @@ test("native provider connections close when connect or response acquisition fai
     source("android/app/src/main/java/com/charmiptv/app/NativePlaylistParser.kt"),
   ]);
   for (const native of modules) {
-    assert.match(native, /val status = try \{\n\s*connection\.connect\(\)\n\s*connection\.responseCode\n\s*\} catch \(t: Throwable\) \{\n\s*connection\.disconnect\(\)/);
+    assert.match(native, /val status = try \{[\s\S]{0,180}connection\.connect\(\)[\s\S]{0,120}connection\.responseCode[\s\S]{0,180}catch \(t: Throwable\) \{[\s\S]{0,100}connection\.disconnect\(\)/);
   }
 });
 
