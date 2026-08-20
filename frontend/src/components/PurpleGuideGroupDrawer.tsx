@@ -39,15 +39,15 @@ export function PurpleGuideGroupDrawer({
 
   useEffect(() => {
     if (!open) return;
-    // The groups drawer owns horizontal/back remote actions. Up/Down and OK stay
-    // with Android's native focus engine inside the drawer, so only one layer
-    // responds to a physical key at a time.
+    // The groups drawer owns horizontal remote actions. BACK stays with the
+    // Guide Back hierarchy so each drawer transition keeps its deliberate
+    // double-Back gesture. Up/Down and OK stay with Android native focus.
     setGuideNavigationActive(false);
     setRemoteContext("guide_groups");
     setPreferActiveFocus(true);
     const clearPreferred = setTimeout(() => setPreferActiveFocus(false), 240);
     const offKey = addTvKeyListener((key) => {
-      if (key === "LEFT" || key === "BACK") {
+      if (key === "LEFT") {
         openMainDrawerRef.current();
         return;
       }
