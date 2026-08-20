@@ -100,7 +100,7 @@ test("native playlist order flows from M3U position through SQLite to All channe
   assert.match(parser, /rawEntries\.add\(/);
   assert.match(database, /ORDER BY provider_position ASC\s*,\s*name COLLATE NOCASE ASC/);
   assert.doesNotMatch(source, /sortChannelsInPlace/);
-  assert.match(groups, /group === "All"[\s\S]{0,120}return channels/);
+  assert.match(groups, /if \(sourceGroup === "All" && opts\.hiddenIds\.size === 0 && opts\.customOrder\.length === 0\) return channels/);
 });
 
 test("large-list UI paths skip redundant whole-list sorting and Android legacy programme scans", async () => {
