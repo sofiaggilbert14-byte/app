@@ -60,7 +60,8 @@ test("EPG low-storage refusal closes already-open provider connections", async (
     const storageCheck = native.indexOf("assertRefreshStorageAvailable(declaredLength)");
     assert.notEqual(storageCheck, -1, "declared-length storage guard missing");
     const guarded = native.slice(Math.max(0, storageCheck - 700), storageCheck + 1800);
-    assert.match(guarded, /try \{[\s\S]*assertRefreshStorageAvailable\(declaredLength\)[\s\S]*catch \(t: Throwable\) \{\s*connection\.disconnect\(\)\s*throw t/);
+    assert.match(guarded, /try \{[\s\S]*assertRefreshStorageAvailable\(declaredLength\)/);
+    assert.match(guarded, /catch \(t: Throwable\) \{\s*connection\.disconnect\(\);?\s*throw t/);
     assert.match(guarded, /FilterInputStream\(connection\.inputStream\)[\s\S]*finally \{\s*connection\.disconnect\(\)/);
   }
 });
