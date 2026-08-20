@@ -18,64 +18,88 @@ permissions:
 jobs:
   compile:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
-    defaults:
-      run:
-        working-directory: frontend
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: agent/code-interaction-audit
           fetch-depth: 0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      - id: node
+        continue-on-error: true
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '24'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+      - id: java
+        continue-on-error: true
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
         with:
           distribution: temurin
           java-version: '17'
-      - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d
-      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+      - id: gradle_setup
+        continue-on-error: true
+        uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d
+      - id: android_setup
+        continue-on-error: true
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
       - name: Install Android SDK
+        id: sdk
+        continue-on-error: true
         run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006"
-      - name: Compile exact audit source
-        shell: bash
+      - name: Install JavaScript dependencies
+        id: install
+        continue-on-error: true
+        working-directory: frontend
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Verify checked-in Android configuration
+        id: native_config
+        continue-on-error: true
+        working-directory: frontend
+        run: npm run verify:native-config
+      - name: Compile Media3 FFmpeg bridge and app Kotlin/Java
+        id: native_compile
+        continue-on-error: true
+        working-directory: frontend
+        env:
+          CI: '1'
+          GRADLE_OPTS: '-Dorg.gradle.jvmargs=-Xmx3g -Dorg.gradle.workers.max=1'
         run: |
-          set +e
-          source_head=$(git rev-parse HEAD)
-          npm ci --legacy-peer-deps --no-audit --no-fund
-          install=$?
-          verify=99
-          compile=99
-          if [ "$install" -eq 0 ]; then
-            npm run verify:native-config
-            verify=$?
-          fi
-          if [ "$install" -eq 0 ] && [ "$verify" -eq 0 ]; then
-            chmod +x android/gradlew
-            ./android/gradlew -p android \
-              :ffmpeg-audio:compileDebugJavaWithJavac \
-              :app:compileDebugKotlin \
-              :app:compileDebugJavaWithJavac \
-              --no-daemon --max-workers=1 --stacktrace
-            compile=$?
-          fi
-          cd ..
+          chmod +x android/gradlew
+          ./android/gradlew -p android \
+            :ffmpeg-audio:compileDebugJavaWithJavac \
+            :app:compileDebugKotlin \
+            :app:compileDebugJavaWithJavac \
+            --no-daemon --max-workers=1 --stacktrace
+      - name: Publish native compile status
+        if: always()
+        working-directory: .
+        env:
+          NODE: ${{ steps.node.outcome }}
+          JAVA: ${{ steps.java.outcome }}
+          GRADLE_SETUP: ${{ steps.gradle_setup.outcome }}
+          ANDROID_SETUP: ${{ steps.android_setup.outcome }}
+          SDK: ${{ steps.sdk.outcome }}
+          INSTALL: ${{ steps.install.outcome }}
+          NATIVE_CONFIG: ${{ steps.native_config.outcome }}
+          NATIVE_COMPILE: ${{ steps.native_compile.outcome }}
+        run: |
           cat > ci/code-interaction-audit-native.txt <<EOF
-          source_head=$source_head
-          install=$install
-          native_config=$verify
-          android_compile=$compile
+          source_head=${GITHUB_SHA}
+          node=${NODE}
+          java=${JAVA}
+          gradle_setup=${GRADLE_SETUP}
+          android_setup=${ANDROID_SETUP}
+          sdk=${SDK}
+          install=${INSTALL}
+          native_config=${NATIVE_CONFIG}
+          android_compile=${NATIVE_COMPILE}
           EOF
           git config user.name "Charm Interaction Audit Bot"
           git config user.email "actions@users.noreply.github.com"
           git add ci/code-interaction-audit-native.txt
-          if ! git diff --cached --quiet; then
-            git commit -m "test(audit): record native compile"
-            git push origin HEAD:agent/code-interaction-audit
-          fi
-          if [ "$install" -ne 0 ] || [ "$verify" -ne 0 ] || [ "$compile" -ne 0 ]; then
+          git commit -m "test(audit): record native compile" || true
+          git push origin HEAD:agent/code-interaction-audit
+          if [ "${NODE}" != success ] || [ "${JAVA}" != success ] || [ "${GRADLE_SETUP}" != success ] || [ "${ANDROID_SETUP}" != success ] || [ "${SDK}" != success ] || [ "${INSTALL}" != success ] || [ "${NATIVE_CONFIG}" != success ] || [ "${NATIVE_COMPILE}" != success ]; then
             exit 1
           fi
