@@ -39,7 +39,11 @@ test("VLC post-playback stalls become bounded recovery events", async () => {
   assert.match(player, /const VLC_FROZEN_PROGRESS_MS = 15_000/);
   assert.match(player, /const VLC_BUFFERING_FAIL_MS = 22_000/);
   assert.match(player, /const vlcProgressSeenRef = useRef\(false\)/);
-  assert.match(player, /onProgress=\{\(\) => \{/);
+  assert.match(player, /const vlcLastProgressValueRef = useRef<number \| null>\(null\)/);
+  assert.match(player, /onProgress=\{\(info: any\) => \{/);
+  assert.match(player, /const currentTime = Number\(info\?\.currentTime\)/);
+  assert.match(player, /const position = Number\(info\?\.position\)/);
+  assert.match(player, /Math\.abs\(progressValue - previous\) > 0\.0001/);
   assert.match(player, /vlcLastProgressAtRef\.current = Date\.now\(\)/);
   assert.match(player, /vlcBufferingSinceRef\.current = Date\.now\(\)/);
   assert.match(player, /const bufferingStalled = bufferingSince != null && now - bufferingSince >= VLC_BUFFERING_FAIL_MS/);
