@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { storage } from "@/src/utils/storage";
-import { useGuideGroupTabPreferences } from "@/src/core/guideGroupTabPreferences";
+import { useGuideGroupTabPreferences } from "@/src/core/guideGroupTabPersistence";
 
 const PINNED_KEY = "gs_guide_pinned_groups";
 const HIDE_PREVIEW_KEY = "gs_guide_hide_preview";
@@ -140,8 +140,6 @@ export function useGuideUiPreferences(): Snapshot & {
   setShowProviderGroups: (next: boolean) => void;
   setHiddenGroups: (next: string[]) => void;
 } {
-  // Keep Guide subscribed to tab alias/visibility/order metadata even though the
-  // legacy guide UI preference shape remains source compatible.
   useGuideGroupTabPreferences();
   const [value, setValue] = useState(cached);
   useEffect(() => {
