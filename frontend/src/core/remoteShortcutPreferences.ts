@@ -3,6 +3,8 @@ import { storage } from "@/src/utils/storage";
 
 export type PlayerRemoteAction = "channel_up" | "channel_down" | "channels" | "controls" | "favorite" | "guide" | "previous" | "none";
 export type LongDownAction = Extract<PlayerRemoteAction, "channels" | "guide" | "none">;
+// Kept as a compatibility type for the existing Settings screen. Native long
+// Select is now reserved for contextual Quick Actions and never executes this value.
 export type LongSelectAction = Extract<PlayerRemoteAction, "favorite" | "controls" | "guide" | "previous" | "none">;
 
 export type RemoteShortcutPreferences = {
@@ -16,7 +18,7 @@ export type RemoteShortcutPreferences = {
 const KEY = "gs_remote_shortcuts_v1";
 const DEFAULTS: RemoteShortcutPreferences = {
   longDown: "channels",
-  longSelect: "favorite",
+  longSelect: "controls",
   channelUp: "channel_up",
   channelDown: "channel_down",
   mediaPlayPause: "controls",
@@ -29,9 +31,14 @@ const listeners = new Set<(value: RemoteShortcutPreferences) => void>();
 function normalize(value: Partial<RemoteShortcutPreferences> | null | undefined): RemoteShortcutPreferences {
   const action = (raw: unknown, fallback: PlayerRemoteAction): PlayerRemoteAction =>
     raw === "channel_up" || raw === "channel_down" || raw === "channels" || raw === "controls" || raw === "favorite" || raw === "guide" || raw === "previous" || raw === "none" ? raw : fallback;
+  const legacyLongSelect = value?.longSelect;
   return {
     longDown: value?.longDown === "guide" || value?.longDown === "none" ? value.longDown : "channels",
-    longSelect: value?.longSelect === "favorite" || value?.longSelect === "guide" || value?.longSelect === "controls" || value?.longSelect === "previous" || value?.longSelect === "none" ? value.longSelect : "favorite",
+    // Migrate the old long-OK Favorite shortcut. Long OK is now owned by the
+    // Quick Actions overlay; Favorite lives inside that overlay instead.
+    longSelect: legacyLongSelect === "guide" || legacyLongSelect === "previous" || legacyLongSelect === "none"
+      ? legacyLongSelect
+      : "controls",
     channelUp: action(value?.channelUp, "channel_up"),
     channelDown: action(value?.channelDown, "channel_down"),
     mediaPlayPause: action(value?.mediaPlayPause, "controls"),
@@ -84,4 +91,3 @@ export function useRemoteShortcutPreferences() {
     reset: () => { setValue(DEFAULTS); void setRemoteShortcutPreferences(DEFAULTS); },
   };
 }
-
