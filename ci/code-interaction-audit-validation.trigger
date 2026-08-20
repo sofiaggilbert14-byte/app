@@ -1,1 +1,1 @@
-2026-08-20 interaction audit validation run 5 - combined player and Guide fixes
+2026-08-20 interaction audit validation run 6 - late playback recovery, VLC watchdog, and live Guide clock
