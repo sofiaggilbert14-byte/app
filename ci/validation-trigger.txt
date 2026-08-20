@@ -1,1 +1,1 @@
-validate=live-tv-repair-final-2026-08-20-1534
+validate=media3-live-guide-repair-2026-08-20-1816
