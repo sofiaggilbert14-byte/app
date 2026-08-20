@@ -110,7 +110,6 @@ test("settings recovery and drawer transition guard are wired", async () => {
   assert.match(shell, /PURPLE_DRAWER_ANIMATION_MS \+ 70/);
 });
 
-
 test("Settings claims destination focus before swapping tile/detail trees", async () => {
   const settings = await source("app/(tabs)/settings.tsx");
   const choose = settings.match(/const choose = useCallback\([\s\S]*?\n  \}, \[router\]\);/)?.[0] || "";
@@ -125,7 +124,7 @@ test("native Guide precomputes row labels outside the repaint loop", async () =>
   const view = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");
   assert.match(view, /ChannelRow\(val id: String, val name: String, val number: String, val label: String\)/);
   assert.match(view, /drawClippedText\(canvas, row\.label/);
-  assert.doesNotMatch(view, /val rowLabel = if \(row\.number\.isBlank\(\)\)/);
+  assert.doesNotMatch(view, /val rowLabel = if \(row\.number\.isBlank\(\)/);
 });
 
 test("native Guide treats horizontal cache misses as loading, not false boundaries", async () => {
@@ -156,6 +155,7 @@ test("native Guide resolves short versus held Select before opening a programme"
   assert.match(keys, /val shortPress = selectKeyDown && !selectLongPressSeen/);
   assert.match(keys, /if \(shortPress\) emitSelection\(true, pressed = !channelRailSelected\)/);
   assert.doesNotMatch(keys, /KEYCODE_DPAD_CENTER[^\n]*emitSelection\(true, pressed = true\)/);
-  assert.match(activity, /TvRemoteModule\.remoteContext != "guide"/);
+  assert.match(activity, /selectKey && event\.repeatCount > 0 && \(remoteContext == "guide" \|\| remoteContext == "player"\)/);
+  assert.match(activity, /emit\("TvRemoteQuickActions"/);
+  assert.match(activity, /if \(selectKey && emittedLongPressKeyCode == keyCode\) return true/);
 });
-
