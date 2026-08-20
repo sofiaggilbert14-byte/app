@@ -1,0 +1,88 @@
+name: Apply Phase 9 Media3 and Guide Live Clock Repair
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/phase9-media3-guide-liveclock-repair.yml"
+      - "ci/validation-trigger.txt"
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.event.pull_request.head.ref == 'agent/phase9-tivimate-scan-repair'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: agent/phase9-tivimate-scan-repair
+          fetch-depth: 0
+
+      - name: Repair Media3 stalled-ready recovery and Guide live window
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('frontend/src/components/StreamPlayer.tsx')
+          s = p.read_text()
+          s = s.replace(
+              'const BUFFERING_RESYNC_MS = 5000;\nconst BUFFERING_FAIL_MS = 22000;',
+              'const BUFFERING_RESYNC_MS = 5000;\nconst MEDIA3_READY_STALL_MS = 9000;\nconst BUFFERING_FAIL_MS = 22000;',
+          )
+          s = s.replace(
+              '        bufferingSinceRef.current = null;\n        silentResyncCountRef.current = 0;\n        silentResyncInFlightRef.current = false;\n        setMediaReady(true);',
+              '        bufferingSinceRef.current = null;\n        silentResyncInFlightRef.current = false;\n        setMediaReady(true);',
+          )
+          s = s.replace(
+              '        hasAdvancedPlaybackRef.current = true;\n        // Frames/time are advancing again, so any buffering watchdog is stale.\n        bufferingSinceRef.current = null;',
+              '        hasAdvancedPlaybackRef.current = true;\n        // Only real clock advancement proves recovery succeeded. A readyToPlay\n        // event alone can be emitted by a decoder that is still frozen.\n        silentResyncCountRef.current = 0;\n        // Frames/time are advancing again, so any buffering watchdog is stale.\n        bufferingSinceRef.current = null;',
+          )
+          old = '''      const now = Date.now();\n      const bufferingSince = bufferingSinceRef.current;\n      // Live clocks can emit sparse time updates while healthy. Only an explicit\n      // post-playback Media3 loading/buffering state owns recovery.\n      if (bufferingSince == null) return;\n      const bufferingFor = now - bufferingSince;\n      if (bufferingFor < BUFFERING_RESYNC_MS) return;'''
+          new = '''      const now = Date.now();\n      // Poll Media3's clock directly. JS timeUpdate events may be sparse on live\n      // streams, but player.currentTime advancing proves the decoder is healthy.\n      const directPlaybackTime = Number(player.currentTime);\n      if (Number.isFinite(directPlaybackTime) && directPlaybackTime > lastPlaybackTimeRef.current + 0.05) {\n        lastPlaybackTimeRef.current = directPlaybackTime;\n        lastPlaybackAdvanceAtRef.current = now;\n        hasAdvancedPlaybackRef.current = true;\n        bufferingSinceRef.current = null;\n        silentResyncCountRef.current = 0;\n        return;\n      }\n      const bufferingSince = bufferingSinceRef.current;\n      const stalledReady =\n        hasPlayedRef.current &&\n        now - lastPlaybackAdvanceAtRef.current >= MEDIA3_READY_STALL_MS;\n      // Explicit buffering recovers quickly; a readyToPlay decoder must also have\n      // a genuinely frozen polled clock before recovery is allowed.\n      if (bufferingSince == null && !stalledReady) return;\n      const recoverySince = bufferingSince ?? lastPlaybackAdvanceAtRef.current;\n      const bufferingFor = now - recoverySince;\n      if (bufferingFor < BUFFERING_RESYNC_MS) return;'''
+          if old not in s:
+              raise SystemExit('Media3 watchdog anchor not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+
+          p = Path('frontend/app/(tabs)/guide.tsx')
+          s = p.read_text()
+          anchor = '  const [now, setNow] = useState(() => new Date().toISOString());\n'
+          addition = '''  const [now, setNow] = useState(() => new Date().toISOString());\n  // Keep one half-hour of history, but let expired Guide time fall off while the\n  // screen stays open. NativeGuideView clamps only a stale viewport, so browsing\n  // ahead remains untouched and the current channel/focus is preserved.\n  const liveWindowStart = useMemo(() => {\n    const baseStart = Date.parse(windowStart);\n    const baseEnd = Date.parse(windowEnd);\n    const current = Date.parse(now);\n    if (!Number.isFinite(baseStart) || !Number.isFinite(baseEnd) || !Number.isFinite(current) || baseEnd <= baseStart) {\n      return windowStart;\n    }\n    const bucketMs = 30 * 60_000;\n    const rollingStart = Math.floor(current / bucketMs) * bucketMs - bucketMs;\n    const bounded = Math.max(baseStart, Math.min(rollingStart, baseEnd - 1));\n    return new Date(bounded).toISOString();\n  }, [now, windowEnd, windowStart]);\n'''
+          if anchor not in s:
+              raise SystemExit('Guide now-state anchor not found')
+          s = s.replace(anchor, addition, 1)
+          old_prop = '                windowStart={windowStart}\n                windowEnd={windowEnd}'
+          new_prop = '                windowStart={liveWindowStart}\n                windowEnd={windowEnd}'
+          if old_prop not in s:
+              raise SystemExit('NativeGuideCanvas window props anchor not found')
+          s = s.replace(old_prop, new_prop, 1)
+          p.write_text(s)
+
+          test = Path('frontend/tests/media3GuideLiveClock.test.mjs')
+          test.write_text('''import test from "node:test";\nimport assert from "node:assert/strict";\nimport { readFile } from "node:fs/promises";\n\ntest("Media3 detects a frozen ready clock without trusting sparse timeUpdate events", async () => {\n  const body = await readFile(new URL("../src/components/StreamPlayer.tsx", import.meta.url), "utf8");\n  assert.match(body, /MEDIA3_READY_STALL_MS = 9000/);\n  assert.match(body, /const directPlaybackTime = Number\\(player\\.currentTime\\)/);\n  assert.match(body, /bufferingSince == null && !stalledReady/);\n  assert.match(body, /silentResyncCountRef\\.current = 0;[\\s\\S]{0,140}return;/);\n});\n\ntest("Guide advances its native left boundary as wall clock time advances", async () => {\n  const body = await readFile(new URL("../app/(tabs)/guide.tsx", import.meta.url), "utf8");\n  assert.match(body, /const liveWindowStart = useMemo/);\n  assert.match(body, /rollingStart = Math\\.floor\\(current \\/ bucketMs\\) \\* bucketMs - bucketMs/);\n  assert.match(body, /windowStart=\\{liveWindowStart\\}/);\n});\n''')
+          PY
+
+      - name: Run full frontend regression suite
+        working-directory: frontend
+        run: npm test
+
+      - name: Typecheck
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Commit repaired source
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            frontend/src/components/StreamPlayer.tsx \
+            'frontend/app/(tabs)/guide.tsx' \
+            frontend/tests/media3GuideLiveClock.test.mjs
+          git diff --cached --quiet && exit 0
+          git commit -m "fix(tv): recover frozen Media3 and advance live Guide clock"
+          git push origin HEAD:agent/phase9-tivimate-scan-repair
