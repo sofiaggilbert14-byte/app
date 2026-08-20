@@ -662,7 +662,6 @@ class NativeGuideView(context: Context) : View(context) {
 
   companion object {
     private const val LIVE_CLOCK_TICK_MS = 30_000L
-    private const val LIVE_CLOCK_TICK_MS = 30_000L
     private const val PAINT_CACHE_CHANNELS = 128
     private const val LOW_RAM_PAINT_CACHE_CHANNELS = 64
   }
