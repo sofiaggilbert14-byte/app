@@ -23,3 +23,14 @@ if old_commit in player:
 elif "Preserve the actually tuned channel at commit time" not in player:
     raise SystemExit("player debounced commit anchor not found")
 player_path.write_text(player, encoding="utf-8")
+
+native_guide_path = Path("frontend/android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt")
+native_guide = native_guide_path.read_text(encoding="utf-8")
+while "import kotlin.math.abs\nimport kotlin.math.abs\n" in native_guide:
+    native_guide = native_guide.replace(
+        "import kotlin.math.abs\nimport kotlin.math.abs\n",
+        "import kotlin.math.abs\n",
+    )
+if native_guide.count("import kotlin.math.abs\n") != 1:
+    raise SystemExit("NativeGuideView abs import normalization failed")
+native_guide_path.write_text(native_guide, encoding="utf-8")
