@@ -17,6 +17,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
@@ -57,6 +58,11 @@ class NativeGuideView(context: Context) : View(context) {
   private var pendingRestoreChannelId: String? = null
   private var pendingRestoreTimeMs: Long? = null
   private var reloadGeneration = 0
+  // Keep the live Guide runway moving with wall-clock time. Manual horizontal
+  // browsing disables follow so the cursor is never dragged away from a future
+  // programme the viewer intentionally selected.
+  private var liveFollowEnabled = true
+  private var lastLiveFollowQueryStartMs = Long.MIN_VALUE
   private val settleSelectionRunnable = Runnable {
     if (enabled && !disposed && rows.isNotEmpty()) emitSelection(true)
   }
@@ -227,6 +233,7 @@ class NativeGuideView(context: Context) : View(context) {
     pendingRestoreTimeMs = wanted
     if (windowEndMs <= windowStartMs || wanted < windowStartMs || wanted >= windowEndMs) return
     pendingRestoreTimeMs = null
+    liveFollowEnabled = abs(wanted - System.currentTimeMillis()) <= 30L * 60_000L
     if (wanted == selectedTimeMs) return
     selectedTimeMs = wanted
     viewportStartMs = clampViewportStart(selectedTimeMs - visibleWindowMs / 6L)
@@ -371,6 +378,7 @@ class NativeGuideView(context: Context) : View(context) {
       KeyEvent.KEYCODE_DPAD_UP -> if (selectedRow == 0) emit("upBoundary", null) else moveVertical(-1)
       KeyEvent.KEYCODE_DPAD_DOWN -> moveVertical(1)
       KeyEvent.KEYCODE_DPAD_LEFT -> {
+        liveFollowEnabled = false
         if (event.repeatCount > 0 && event.eventTime - lastHorizontalMoveAt < 55L) return true
         lastHorizontalMoveAt = event.eventTime
         if (channelRailSelected) {
@@ -396,6 +404,7 @@ class NativeGuideView(context: Context) : View(context) {
         invalidate(); emitSelection(false)
       }
       KeyEvent.KEYCODE_DPAD_RIGHT -> {
+        liveFollowEnabled = false
         if (event.repeatCount > 0 && event.eventTime - lastHorizontalMoveAt < 55L) return true
         lastHorizontalMoveAt = event.eventTime
         if (channelRailSelected) {
@@ -523,8 +532,26 @@ class NativeGuideView(context: Context) : View(context) {
     return channelWidth + ((timeMs - visibleStartMs).toFloat() / duration.toFloat()) * guideWidth
   }
 
+  private fun advanceLiveViewport(now: Long) {
+    if (!enabled || !liveFollowEnabled || windowEndMs <= windowStartMs) return
+    val liveTime = now.coerceIn(windowStartMs, windowEndMs - 1)
+    val desiredStart = clampViewportStart(liveTime - 15L * 60_000L)
+    if (abs(desiredStart - viewportStartMs) < 60_000L) return
+    viewportStartMs = desiredStart
+    selectedTimeMs = liveTime
+    // Query only when the live runway has materially advanced. Repaint movement
+    // is cheap; SQLite reads remain bounded and coalesced.
+    if (abs(viewportStartMs - lastLiveFollowQueryStartMs) >= 2L * 60_000L) {
+      lastLiveFollowQueryStartMs = viewportStartMs
+      loadPrograms()
+    }
+    if (enabled && rows.isNotEmpty()) emitSelection(false)
+  }
+
   override fun onDraw(canvas: Canvas) {
     super.onDraw(canvas)
+    val wallClockNow = System.currentTimeMillis()
+    advanceLiveViewport(wallClockNow)
     canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), background)
     canvas.drawRect(0f, 0f, width.toFloat(), headerHeight, header)
 
@@ -576,11 +603,12 @@ class NativeGuideView(context: Context) : View(context) {
       canvas.drawLine(0f, top + rowHeight, width.toFloat(), top + rowHeight, divider)
     }
 
-    val now = System.currentTimeMillis()
-    if (now in visibleStartMs..visibleEndMs) {
-      val x = timeToX(now, visibleStartMs, visibleEndMs)
+    if (wallClockNow in visibleStartMs..visibleEndMs) {
+      val x = timeToX(wallClockNow, visibleStartMs, visibleEndMs)
       canvas.drawLine(x, headerHeight, x, height.toFloat(), nowPaint)
     }
+    // Keep wall-clock movement alive even when React is otherwise idle.
+    postInvalidateDelayed(30_000L)
   }
 
   private fun drawHeader(canvas: Canvas, start: Long, end: Long) {

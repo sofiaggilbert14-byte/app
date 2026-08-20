@@ -77,6 +77,7 @@ const SILENT_AUDIO_GRACE_MS = 2200;
 // BUFFERING/loading state arms the watchdog. A silent internal re-prepare gets
 // first chance before the parent retry/failure machinery is notified.
 const BUFFERING_RESYNC_MS = 5000;
+const MEDIA3_FROZEN_CLOCK_MS = 9000;
 const BUFFERING_FAIL_MS = 22000;
 const MAX_SILENT_BUFFERING_RESYNCS = 2;
 
@@ -830,7 +831,9 @@ function ExpoStream({
         lastPlaybackAdvanceAtRef.current = Date.now();
         hasPlayedRef.current = true;
         bufferingSinceRef.current = null;
-        silentResyncCountRef.current = 0;
+        // Do not clear the bounded resync count merely because Media3 reports
+        // readyToPlay. A wedged decoder can report ready without advancing its
+        // clock. The count resets only after real playback progress.
         silentResyncInFlightRef.current = false;
         setMediaReady(true);
         reportAndSelectMedia3Tracks();
@@ -862,7 +865,9 @@ function ExpoStream({
         lastPlaybackTimeRef.current = currentTime;
         lastPlaybackAdvanceAtRef.current = Date.now();
         hasAdvancedPlaybackRef.current = true;
-        // Frames/time are advancing again, so any buffering watchdog is stale.
+        // Real clock progress proves the decoder recovered. Only now reset the
+        // bounded recovery budget and clear any buffering watchdog.
+        silentResyncCountRef.current = 0;
         bufferingSinceRef.current = null;
       }
     });
@@ -875,12 +880,29 @@ function ExpoStream({
       if (!mountedRef.current || tearingDownRef.current || paused || blocked) return;
       if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
       const now = Date.now();
+      const observedPlaybackTime = Number(player.currentTime);
+      if (Number.isFinite(observedPlaybackTime) && observedPlaybackTime > lastPlaybackTimeRef.current + 0.05) {
+        lastPlaybackTimeRef.current = observedPlaybackTime;
+        lastPlaybackAdvanceAtRef.current = now;
+        hasAdvancedPlaybackRef.current = true;
+        silentResyncCountRef.current = 0;
+        bufferingSinceRef.current = null;
+      }
       const bufferingSince = bufferingSinceRef.current;
-      // Live clocks can emit sparse time updates while healthy. Only an explicit
-      // post-playback Media3 loading/buffering state owns recovery.
-      if (bufferingSince == null) return;
-      const bufferingFor = now - bufferingSince;
-      if (bufferingFor < BUFFERING_RESYNC_MS) return;
+      // Media3 may wedge while still reporting readyToPlay. Poll its actual
+      // playback clock and require the native playing signal before declaring a
+      // frozen-ready decoder. This avoids the old false-positive path caused by
+      // sparse JS timeUpdate delivery while still recovering a truly stuck clock.
+      const frozenReadyClock =
+        bufferingSince == null &&
+        hasPlayedRef.current &&
+        Boolean((player as any).playing) &&
+        now - lastPlaybackAdvanceAtRef.current >= MEDIA3_FROZEN_CLOCK_MS;
+      if (bufferingSince == null && !frozenReadyClock) return;
+      const bufferingFor = bufferingSince != null
+        ? now - bufferingSince
+        : now - lastPlaybackAdvanceAtRef.current;
+      if (bufferingFor < (bufferingSince != null ? BUFFERING_RESYNC_MS : MEDIA3_FROZEN_CLOCK_MS)) return;
 
       if (
         silentResyncCountRef.current < MAX_SILENT_BUFFERING_RESYNCS &&

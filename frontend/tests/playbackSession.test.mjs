@@ -193,10 +193,14 @@ test("fullscreen launched from Guide returns the currently tuned channel to Guid
   assert.match(exit, /router\.back\(\)/);
 });
 
-test("Media3 watchdog only recovers after an explicit buffering state", async () => {
+test("Media3 watchdog recovers real buffering and a genuinely frozen native clock", async () => {
   const player = await source("src/components/StreamPlayer.tsx");
-  assert.match(player, /if \(bufferingSince == null\) return/);
-  assert.match(player, /const bufferingFor = now - bufferingSince/);
+  assert.match(player, /const MEDIA3_FROZEN_CLOCK_MS = 9000/);
+  assert.match(player, /const observedPlaybackTime = Number\(player\.currentTime\)/);
+  assert.match(player, /Boolean\(\(player as any\)\.playing\)/);
+  assert.match(player, /const frozenReadyClock =/);
+  assert.match(player, /if \(bufferingSince == null && !frozenReadyClock\) return/);
+  assert.match(player, /silentResyncCountRef\.current = 0;[\s\S]{0,100}bufferingSinceRef\.current = null/);
   assert.doesNotMatch(player, /const stalledReady =/);
   assert.match(player, /const BUFFERING_RESYNC_MS = 5000/);
   assert.match(player, /const BUFFERING_FAIL_MS = 22000/);

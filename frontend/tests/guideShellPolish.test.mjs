@@ -476,3 +476,14 @@ test("Android remote accepts the drawer_edge ownership context used by the shell
   assert.match(bridge, /\| "drawer_edge"/);
 });
 
+
+
+test("native guide live-follow advances programme cells with wall clock without stealing manual horizontal browsing", async () => {
+  const nativeGuide = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");
+  assert.match(nativeGuide, /private var liveFollowEnabled = true/);
+  assert.match(nativeGuide, /private fun advanceLiveViewport\(now: Long\)/);
+  assert.match(nativeGuide, /desiredStart = clampViewportStart\(liveTime - 15L \* 60_000L\)/);
+  assert.match(nativeGuide, /postInvalidateDelayed\(30_000L\)/);
+  assert.match(nativeGuide, /KEYCODE_DPAD_LEFT -> \{\s*liveFollowEnabled = false/);
+  assert.match(nativeGuide, /KEYCODE_DPAD_RIGHT -> \{\s*liveFollowEnabled = false/);
+});
