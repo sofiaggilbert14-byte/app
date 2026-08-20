@@ -1,7 +1,129 @@
-source_head=e3cf6f6794d3b0433665acff7f705f9a11d9b5c3
+source_head=b4fa7e19df4d71e7483d0d07931f50b1db481450
 install=0
 test=1
 typecheck=0
 native_config=0
 doctor=0
 lint=0
+
+--- failing test tail ---
+  duration_ms: 1.176696
+  type: 'test'
+  ...
+# Subtest: EPG cold-start logo lookup has an additive alias-kind/channel index
+ok 175 - EPG cold-start logo lookup has an additive alias-kind/channel index
+  ---
+  duration_ms: 0.685896
+  type: 'test'
+  ...
+# Subtest: Android SQLite PRAGMA operations use query cursors instead of execSQL
+ok 176 - Android SQLite PRAGMA operations use query cursors instead of execSQL
+  ---
+  duration_ms: 0.848591
+  type: 'test'
+  ...
+# Subtest: custom EPG last-good retention does not fake a successful programme refresh
+ok 177 - custom EPG last-good retention does not fake a successful programme refresh
+  ---
+  duration_ms: 0.65057
+  type: 'test'
+  ...
+# Subtest: custom EPG retained-guide refresh result reaches the TV UI
+ok 178 - custom EPG retained-guide refresh result reaches the TV UI
+  ---
+  duration_ms: 0.775107
+  type: 'test'
+  ...
+# Subtest: custom EPG channel assignment does not block remote focus on a full XMLTV refresh
+ok 179 - custom EPG channel assignment does not block remote focus on a full XMLTV refresh
+  ---
+  duration_ms: 0.850366
+  type: 'test'
+  ...
+# Subtest: zero custom EPG bindings retain last-good programme data
+ok 180 - zero custom EPG bindings retain last-good programme data
+  ---
+  duration_ms: 0.64145
+  type: 'test'
+  ...
+# Subtest: Guide long Select routes channel rail and programme cells contextually
+ok 181 - Guide long Select routes channel rail and programme cells contextually
+  ---
+  duration_ms: 1.395864
+  type: 'test'
+  ...
+# Subtest: Player Quick Actions dispatch into the mounted player instead of duplicating decoder state
+ok 182 - Player Quick Actions dispatch into the mounted player instead of duplicating decoder state
+  ---
+  duration_ms: 1.308637
+  type: 'test'
+  ...
+# Subtest: Settings reserve Long OK Select for contextual Quick Actions
+ok 183 - Settings reserve Long OK Select for contextual Quick Actions
+  ---
+  duration_ms: 0.880387
+  type: 'test'
+  ...
+# Subtest: Guide quick-action overlays explicitly take TV focus from the native Guide
+ok 184 - Guide quick-action overlays explicitly take TV focus from the native Guide
+  ---
+  duration_ms: 0.90949
+  type: 'test'
+  ...
+# Subtest: Guide tab customization keeps provider identity separate from display metadata
+ok 185 - Guide tab customization keeps provider identity separate from display metadata
+  ---
+  duration_ms: 0.806225
+  type: 'test'
+  ...
+# Subtest: Group settings keep custom visibility on stable ids and provider order on raw ids
+ok 186 - Group settings keep custom visibility on stable ids and provider order on raw ids
+  ---
+  duration_ms: 0.825835
+  type: 'test'
+  ...
+# Subtest: customization persistence cannot let stale initial reads overwrite newer edits
+ok 187 - customization persistence cannot let stale initial reads overwrite newer edits
+  ---
+  duration_ms: 1.022034
+  type: 'test'
+  ...
+# Subtest: automatic TV layout starts full viewport and calibration owns real overscan
+ok 188 - automatic TV layout starts full viewport and calibration owns real overscan
+  ---
+  duration_ms: 0.76268
+  type: 'test'
+  ...
+# Subtest: player exposes distinct Fit Fill Zoom Stretch without decoder restart
+ok 189 - player exposes distinct Fit Fill Zoom Stretch without decoder restart
+  ---
+  duration_ms: 1.214564
+  type: 'test'
+  ...
+# Subtest: source refresh settings cannot be overwritten by a stale startup read
+ok 190 - source refresh settings cannot be overwritten by a stale startup read
+  ---
+  duration_ms: 0.873714
+  type: 'test'
+  ...
+# Subtest: EPG source settings and binding hydration cannot overwrite newer user edits
+ok 191 - EPG source settings and binding hydration cannot overwrite newer user edits
+  ---
+  duration_ms: 0.755951
+  type: 'test'
+  ...
+# Subtest: Guide BACK requires a fresh double-press for each drawer layer
+ok 192 - Guide BACK requires a fresh double-press for each drawer layer
+  ---
+  duration_ms: 1.175137
+  type: 'test'
+  ...
+1..192
+# tests 192
+# suites 0
+# pass 188
+# fail 4
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 287.530013
