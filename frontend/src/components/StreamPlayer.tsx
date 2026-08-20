@@ -885,16 +885,15 @@ function ExpoStream({
       if (status === "readyToPlay") {
         lastPlaybackTimeRef.current = player.currentTime;
         lastPlaybackAdvanceAtRef.current = Date.now();
-        hasPlayedRef.current = true;
         bufferingSinceRef.current = null;
-        // Do not clear the bounded resync count merely because Media3 reports
-        // readyToPlay. A wedged decoder can report ready without advancing its
-        // clock. The count resets only after real playback progress.
+        // readyToPlay means Media3 prepared the stream, not that hardware has
+        // actually rendered/advanced it. Keep the wrapper startup timeout alive
+        // until the first real playback-clock advance proves the decoder is live.
+        // This mirrors TiViMate's first-frame stability gate without trusting the
+        // transient Media3 `playing` flag that can also drop during later stalls.
         silentResyncInFlightRef.current = false;
         setMediaReady(true);
         reportAndSelectMedia3Tracks();
-        recordStablePlayback(sessionRole, engine, uri);
-        emit("playing");
       } else if (status === "loading") {
         // Startup loading is handled by the separate start timeout. Only a
         // rebuffer after actual playback arms freeze recovery.
@@ -917,14 +916,21 @@ function ExpoStream({
 
   useEffect(() => {
     const progressSub = player.addListener("timeUpdate", ({ currentTime }) => {
+      if (!mediaReady) return;
       if (currentTime > lastPlaybackTimeRef.current + 0.05) {
+        const firstProgress = !hasPlayedRef.current;
         lastPlaybackTimeRef.current = currentTime;
         lastPlaybackAdvanceAtRef.current = Date.now();
+        hasPlayedRef.current = true;
         hasAdvancedPlaybackRef.current = true;
-        // Real clock progress proves the decoder recovered. Only now reset the
-        // bounded recovery budget and clear any buffering watchdog.
+        // Real clock progress proves startup/recovery succeeded. Only now reset
+        // the bounded recovery budget and publish stable playback to the parent.
         silentResyncCountRef.current = 0;
         bufferingSinceRef.current = null;
+        if (firstProgress && isSessionCurrent(sessionRole, sessionGeneration)) {
+          recordStablePlayback(sessionRole, engine, uri);
+          emit("playing");
+        }
       }
     });
     if (mode === "preview" || paused || blocked || !mediaReady) {
