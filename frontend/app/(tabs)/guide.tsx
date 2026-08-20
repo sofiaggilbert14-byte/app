@@ -68,7 +68,7 @@ import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
 import type { StreamStatus } from "@/src/components/StreamPlayer";
 import { subscribeAndroidMemoryPressure } from "@/src/utils/androidMemoryPressure";
-import { setGuideNavigationActive, setGuideRepeatInterval, setRemoteContext } from "@/src/utils/tvRemote";
+import { resetRemoteContextIfOwned, setGuideNavigationActive, setGuideRepeatInterval, setRemoteContext } from "@/src/utils/tvRemote";
 import { focusGuidePreviewSurface } from "@/src/utils/guidePreviewFocus";
 
 // Session-only guide position survives the root player route unmounting tabs.
@@ -217,7 +217,10 @@ export default function PurpleGuideScreen() {
       return () => {
         setGuideScreenActive(false);
         setGuideNavigationActive(false);
-        setRemoteContext("default");
+        // A route/modal/drawer may already own the remote by the time Guide
+        // blur cleanup runs. Release only our own ownership so stale cleanup
+        // cannot clobber the newer focus context.
+        resetRemoteContextIfOwned("guide", "default");
       };
     }, []),
   );
