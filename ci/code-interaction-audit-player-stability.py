@@ -45,6 +45,11 @@ stream = stream_path.read_text(encoding="utf-8")
 old_frozen = '''      const frozenReadyClock =\n        bufferingSince == null &&\n        hasPlayedRef.current &&\n        Boolean((player as any).playing) &&\n        now - lastPlaybackAdvanceAtRef.current >= MEDIA3_FROZEN_CLOCK_MS;'''
 new_frozen = '''      const frozenReadyClock =\n        bufferingSince == null &&\n        hasPlayedRef.current &&\n        mediaReady &&\n        now - lastPlaybackAdvanceAtRef.current >= MEDIA3_FROZEN_CLOCK_MS;'''
 stream = replace_once(stream, old_frozen, new_frozen, "Media3 frozen-clock gate")
+stream = stream.replace(
+    '''      // Media3 may wedge while still reporting readyToPlay. Poll its actual\n      // playback clock and require the native playing signal before declaring a\n      // frozen-ready decoder. This avoids the old false-positive path caused by\n      // sparse JS timeUpdate delivery while still recovering a truly stuck clock.''',
+    '''      // Media3 may wedge while still reporting readyToPlay. Poll its actual\n      // playback clock directly; once this fullscreen decoder has genuinely played,\n      // a stale clock is authoritative even if Media3's playing flag also dropped.\n      // This keeps recovery independent of sparse JS timeUpdate delivery.''',
+    1,
+)
 
 old_timeout_gate = '''    const timer = setTimeout(() => {\n      if (stableRef.current || fallbackUsed) return;\n      if (!isSessionCurrent(role, sessionGeneration)) return;\n      const alternate = alternateEngine(engine, vlcAvailable);'''
 new_timeout_gate = '''    const timer = setTimeout(() => {\n      if (stableRef.current) return;\n      if (!isSessionCurrent(role, sessionGeneration)) return;\n      // The one allowed alternate engine still needs a bounded startup. If it\n      // never reaches playing, surface an error so PlayerScreen can perform its\n      // full decoder remount/backoff instead of staying on a permanent spinner.\n      if (fallbackUsed) {\n        setSessionPhase(role, sessionGeneration, "failed", "start-timeout");\n        setStatus("error", "start-timeout");\n        return;\n      }\n      const alternate = alternateEngine(engine, vlcAvailable);'''
@@ -56,10 +61,10 @@ stream = replace_once(stream, old_late_swap, new_late_swap, "late alternate stab
 stream_path.write_text(stream, encoding="utf-8")
 
 
-# Normalize a migration artifact and make the native Guide own a bounded wall-
-# clock redraw. advanceLiveViewport already coalesces SQLite reads (>=2 minutes),
-# so a 30-second paint tick moves old blocks off-screen without creating a query
-# storm. Manual horizontal browsing still disables live-follow as before.
+# Normalize a migration artifact and make the native Guide own exactly one
+# bounded wall-clock redraw. advanceLiveViewport already coalesces SQLite reads
+# (>=2 minutes), so a 30-second paint tick moves old blocks off-screen without
+# creating a query storm. Manual horizontal browsing still disables live-follow.
 native_guide_path = Path("frontend/android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt")
 native_guide = native_guide_path.read_text(encoding="utf-8")
 while "import kotlin.math.abs\nimport kotlin.math.abs\n" in native_guide:
@@ -105,12 +110,16 @@ native_guide = replace_once(
     '''  fun dispose() {\n    if (disposed) return\n    stopLiveClock()\n    removeCallbacks(settleSelectionRunnable)''',
     "Guide dispose clock stop",
 )
-native_guide = replace_once(
-    native_guide,
-    '''  companion object {''',
-    '''  companion object {\n    private const val LIVE_CLOCK_TICK_MS = 30_000L''',
-    "Guide live clock constant",
-)
+if "private const val LIVE_CLOCK_TICK_MS = 30_000L" not in native_guide:
+    native_guide = native_guide.replace(
+        "  companion object {",
+        "  companion object {\n    private const val LIVE_CLOCK_TICK_MS = 30_000L",
+        1,
+    )
+legacy_draw_tick = '''    // Keep wall-clock movement alive even when React is otherwise idle.\n    postInvalidateDelayed(30_000L)\n'''
+native_guide = native_guide.replace(legacy_draw_tick, "", 1)
+if "postInvalidateDelayed(30_000L)" in native_guide:
+    raise SystemExit("duplicate Guide live-clock scheduler remains")
 native_guide_path.write_text(native_guide, encoding="utf-8")
 
 
@@ -139,14 +148,3 @@ old_back = '      if (key === "LEFT" || key === "BACK") {'
 new_back = '      if (key === "LEFT") {'
 groups = replace_once(groups, old_back, new_back, "Guide Groups BACK ownership")
 groups_path.write_text(groups, encoding="utf-8")
-
-
-# Program Details opened from the Guide must preserve the same return anchor as
-# direct Guide playback. Otherwise Watch now can return to a generic route even
-# though the user entered fullscreen from a specific Guide selection.
-program_modal_path = Path("frontend/src/components/ProgramModal.tsx")
-program_modal = program_modal_path.read_text(encoding="utf-8")
-old_watch = '    openFullscreenPlayer(router, channel.id);'
-new_watch = '    openFullscreenPlayer(router, channel.id, { returnToGuide: pathname?.startsWith("/guide") });'
-program_modal = replace_once(program_modal, old_watch, new_watch, "ProgramModal Guide return anchor")
-program_modal_path.write_text(program_modal, encoding="utf-8")
