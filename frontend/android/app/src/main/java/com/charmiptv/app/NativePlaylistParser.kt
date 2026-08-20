@@ -149,9 +149,19 @@ internal object NativePlaylistParser {
   }
 
   private fun openPlaylist(urlString: String): InputStream {
-    val cleanUrl = urlString.trim()
-    if (!isHttpUrl(cleanUrl)) {
+    val requestedUrl = urlString.trim()
+    if (!isHttpUrl(requestedUrl)) {
       throw IllegalStateException("M3U URL must use http or https")
+    }
+    // Preserve the transport behavior of the last known-good Charm builds:
+    // legacy IPTV http:// playlist endpoints are attempted over HTTPS first.
+    // This keeps cold start on the same provider path that previously loaded
+    // successfully while the sideload manifest still permits cleartext stream
+    // playback URLs returned inside the playlist itself.
+    val cleanUrl = if (requestedUrl.startsWith("http://", ignoreCase = true)) {
+      "https://${requestedUrl.substring(7)}"
+    } else {
+      requestedUrl
     }
 
     // Clone the shared RN client instead of creating a second connection pool.
