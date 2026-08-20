@@ -7,6 +7,11 @@ on:
     paths:
       - ".github/workflows/phase9-final-sideload.yml"
       - "ci/phase9-final-sideload-trigger.txt"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/phase9-final-sideload.yml"
   workflow_dispatch:
 
 permissions:
