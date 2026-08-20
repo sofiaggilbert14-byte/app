@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { AppState } from "react-native";
 import { usePathname } from "expo-router";
-import { refreshEpgOnly, refreshSourcesIfDue } from "@/src/source";
+import { refreshEpgOnly, refreshSource, refreshSourcesIfDue } from "@/src/source";
 import { consumeNativeScheduledEpgRefresh, refreshNativeSourceGuide } from "@/src/nativeEpg";
 import { getMultiEpgSources, saveMultiEpgSource } from "@/src/core/multiEpgSources";
 import { isGuideSurfing } from "@/src/utils/guideSurfGate";
@@ -40,17 +40,25 @@ export function SourceRefreshScheduler() {
       // Synchronize settings -> native source records before checking due state.
       await syncNativeCustomEpgPolicy(prefs.epgHours, prefs.epgPastDays);
       if (!screenIsSafe()) return;
+
+      const isInitialCheck = initialCheckPending;
       if (initialCheckPending) {
         initialCheckPending = false;
+        // Cold start is cache-first by default. Only an explicit user opt-in is
+        // allowed to force the provider playlist/EPG path after the 30s idle gate.
         if (!prefs.updateEpgOnAppStart) return;
       }
 
       running = true;
       try {
-        const nativeDue = await consumeNativeScheduledEpgRefresh();
-        if (!screenIsSafe()) return;
-        if (nativeDue) await refreshEpgOnly();
-        else await refreshSourcesIfDue();
+        if (isInitialCheck) {
+          await refreshSource(true);
+        } else {
+          const nativeDue = await consumeNativeScheduledEpgRefresh();
+          if (!screenIsSafe()) return;
+          if (nativeDue) await refreshEpgOnly();
+          else await refreshSourcesIfDue();
+        }
         if (!screenIsSafe()) return;
 
         // Independent XMLTV stores refresh serially under this same owner. The
