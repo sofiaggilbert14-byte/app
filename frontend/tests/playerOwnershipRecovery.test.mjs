@@ -14,6 +14,14 @@ test("player cleanup cannot clobber a newer TV remote owner", async () => {
   assert.doesNotMatch(player, /return \(\) => setRemoteContext\("default"\)/);
 });
 
+test("Guide blur cleanup cannot clobber a newer TV remote owner", async () => {
+  const guide = await source("app/(tabs)/guide.tsx");
+  assert.match(guide, /resetRemoteContextIfOwned/);
+  assert.match(guide, /resetRemoteContextIfOwned\("guide", "default"\)/);
+  const focusEffect = guide.match(/useFocusEffect\([\s\S]*?\n\s*\);/)?.[0] || "";
+  assert.doesNotMatch(focusEffect, /setRemoteContext\("default"\)/);
+});
+
 test("ErrorBoundary crash recovery waits for native decoder release before remount", async () => {
   const player = await source("app/player.tsx");
   const reset = player.match(/onReset=\{\(\) => \{[\s\S]*?\n\s*\}\}/)?.[0] || "";
