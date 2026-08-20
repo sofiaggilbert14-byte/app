@@ -34,7 +34,6 @@ import {
   expandRunwayKeepSet,
 } from "@/src/core/guideSlidingCache";
 import {
-  getGuideSelection,
   resetGuideSelection,
   setGuideFocusedProgram,
   useGuideSelection,
@@ -69,9 +68,8 @@ import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
 import type { StreamStatus } from "@/src/components/StreamPlayer";
 import { subscribeAndroidMemoryPressure } from "@/src/utils/androidMemoryPressure";
-import { addTvLongPressListener, setGuideNavigationActive, setGuideRepeatInterval, setRemoteContext } from "@/src/utils/tvRemote";
+import { setGuideNavigationActive, setGuideRepeatInterval, setRemoteContext } from "@/src/utils/tvRemote";
 import { focusGuidePreviewSurface } from "@/src/utils/guidePreviewFocus";
-import { useRemoteShortcutPreferences } from "@/src/core/remoteShortcutPreferences";
 
 // Session-only guide position survives the root player route unmounting tabs.
 // Do not persist to disk: this is navigation state, not a user preference.
@@ -251,7 +249,6 @@ export default function PurpleGuideScreen() {
     retainGuideSlidingCache,
     releaseGuideSlidingCache,
   } = useStore();
-  const remoteShortcuts = useRemoteShortcutPreferences();
 
   const {
     pinnedGroups,
@@ -341,16 +338,8 @@ export default function PurpleGuideScreen() {
       if (surfReleaseTimer.current) clearTimeout(surfReleaseTimer.current);
       surfReleaseTimer.current = null;
       if (memoryLogoRestoreTimer.current) clearTimeout(memoryLogoRestoreTimer.current);
-      // Moderate pressure should shed disposable image/cache work without
-      // killing a healthy settled preview. Only critical pressure releases
-      // the decoder; this avoids the live preview disappearing a few seconds
-      // after tune on memory-constrained Android TV devices.
       if (pressure === "critical") setPreviewId(null);
       setSurfLogosSuppressed(true);
-      // Drop decoded logo memory immediately, then permit near-size disk-cached
-      // images again after Android has had time to reclaim. A new pressure event
-      // extends the quiet period; Safe Preview Off no longer leaves logos hidden
-      // for the rest of the app session.
       memoryLogoRestoreTimer.current = setTimeout(
         () => setSurfLogosSuppressed(false),
         pressure === "critical" ? 12_000 : 4_000,
@@ -372,7 +361,6 @@ export default function PurpleGuideScreen() {
     router.replace("/epg-sources" as any);
   }, [closeDrawer, router]);
 
-  // After Remind/Cancel sheet closes, return focus to the guide cell — never Live TV.
   useEffect(() => {
     if (activeProgram) return;
     if (!hadProgramModalRef.current) return;
@@ -382,9 +370,6 @@ export default function PurpleGuideScreen() {
     if (origin?.channelId) guideSessionChannelId = origin.channelId;
   }, [activeProgram]);
 
-  // Phase 9 navigation ladder: Guide -> Groups drawer -> Main drawer.
-  // Native remote ownership consumes group-drawer boundary keys, so the Guide
-  // cannot also move underneath the drawer.
   useTvBackHandler(
     useCallback(() => {
       if (drawerOpen || activeProgram) return false;
@@ -414,22 +399,6 @@ export default function PurpleGuideScreen() {
   );
 
   useEffect(() => {
-    if (!isFocused || drawerOpen || groupDrawerOpen || activeProgram) return;
-    return addTvLongPressListener((key) => {
-      if (key !== "SELECT") return;
-      const selection = getGuideSelection();
-      const channelId = selection.channelId || guideSessionChannelId;
-      const channel = channelId ? channelById(channelId) : null;
-      if (selection.surface === "channel" || remoteShortcuts.longSelect === "favorite") {
-        if (channelId) toggleFavorite(channelId);
-      } else if (remoteShortcuts.longSelect === "controls" && selection.program && channel) {
-        modalOriginRef.current = { channelId: channel.id, programStart: selection.program.start };
-        openProgram(selection.program, channel);
-      }
-    });
-  }, [activeProgram, channelById, drawerOpen, groupDrawerOpen, isFocused, openProgram, remoteShortcuts.longSelect, toggleFavorite]);
-
-  useEffect(() => {
     if (loading || refreshing || channels.length > 0) return;
     if (bootRetryRef.current >= 1) return;
     bootRetryRef.current += 1;
@@ -437,8 +406,6 @@ export default function PurpleGuideScreen() {
     return () => clearTimeout(timer);
   }, [loading, refreshing, channels.length, hardRefresh]);
 
-  // Tick often enough for the timeline "now" indicator / progress fills without
-  // rebuilding guide geometry (the native canvas owns its layout).
   useEffect(() => {
     if (!isFocused) return;
     setNow(new Date().toISOString());
@@ -466,12 +433,7 @@ export default function PurpleGuideScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      // Refocus after blur/player: rewarm the last runway so soft-trim on blur
-      // does not leave an empty Guide waiting for the first D-pad event.
       const last = lastRunwayRef.current;
-      // Search/fullscreen jumps own re-entry. Do not spend SQLite/bridge/cache
-      // work rewarming the old Guide runway first; the jump reset will seed the
-      // requested channel immediately and avoids wrong-row contention/black return.
       if (!peekGuideJump() && last.ids.length) {
         setViewportGuideChannelIds(last.ids);
         setPriorityMatchChannelIds(
@@ -503,8 +465,6 @@ export default function PurpleGuideScreen() {
           clearTimeout(surfReleaseTimer.current);
           surfReleaseTimer.current = null;
         }
-        // A real route blur must unmount preview playback before cache release.
-        // The overlay drawer does not blur this route, so its runway stays warm.
         setPreviewId(null);
         setViewportGuideChannelIds(null);
         setPriorityMatchChannelIds([]);
@@ -528,8 +488,6 @@ export default function PurpleGuideScreen() {
         customGroups: customGuideGroups.byName,
         includeProviderGroups: showProviderGroups,
       }),
-    // failedCount invalidates when the in-memory failure registry grows/shrinks.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [channels, favoriteSet, recentIdSet, hiddenIdSet, failedCount, epgGuideFilter, customGuideGroups.byName, showProviderGroups],
   );
 
@@ -552,8 +510,6 @@ export default function PurpleGuideScreen() {
     [customGuideGroups.groups, groupCounts, hiddenGroups, pinnedGroups, playlistGroups, showProviderGroups],
   );
 
-  // Apply a fixed start group once per normal Guide entry. "Last used" keeps
-  // session state; explicit Search/player jumps always win over this preference.
   useEffect(() => {
     if (startPreferenceAppliedRef.current || !isFocused || !channels.length) return;
     if (peekGuideJump()) return;
@@ -589,13 +545,11 @@ export default function PurpleGuideScreen() {
     }
     const target = list.find((channel) => channel.id === jumpFilterBypassId);
     if (!target) return filteredList;
-    // Preserve the selected group's existing order while temporarily admitting only the requested row.
     const visibleIds = new Set(filteredList.map((channel) => channel.id));
     visibleIds.add(target.id);
     return list.filter((channel) => visibleIds.has(channel.id));
   }, [channels, customGuideGroups.byName, customOrder, epgGuideFilter, favoriteSet, group, hasOwnedEpgMatch, hiddenIdSet, jumpFilterBypassId, recent, recentIdSet]);
 
-  // Keep the complete selected group identity stable.
   const filtered = filteredMeta;
 
   const orderedFilteredIds = useMemo(() => {
@@ -622,24 +576,16 @@ export default function PurpleGuideScreen() {
     lastRunwayRef.current = { ids: dataIds, priority: priorityIds, pageSize };
     setViewportGuideChannelIds(ids);
     if (channels.length >= 400) {
-      // Match the focused/next rows first. A symmetric runway starts at its
-      // oldest retained row, which must not delay the visible edge.
       setPriorityMatchChannelIds(
         Array.from(new Set([...priorityIds, ...ids])).slice(0, 400),
       );
     } else {
       setPriorityMatchChannelIds([]);
     }
-    // Conveyor belt: retain focus ± 1 page immediately so reverse movement never
-    // blanks. Native Guide already performs the bounded SQLite paint query itself.
     retainGuideSlidingCache(
       expandRunwayKeepSet(orderedFilteredIds, ids, pageSize, 1, filteredIdIndex),
     );
 
-    // TiViMate-style hot path: while a key is repeating, do not start a second JS
-    // programme fetch for every native focus hop. Keep only the newest runway and
-    // hydrate preview/metadata once navigation settles. This removes duplicate DB
-    // pressure without delaying the native highlight or last-good canvas paint.
     pendingRunwayPatchRef.current = { ids: dataIds, priorityIds };
     if (runwayPatchTimer.current) clearTimeout(runwayPatchTimer.current);
     const delay = rapid ? 110 : 0;
@@ -659,8 +605,6 @@ export default function PurpleGuideScreen() {
   ]);
 
   const viewportSeedKeyRef = useRef("");
-  // Seed only on cold load/group/reset. A silent refresh must not yank a deeply
-  // scrolled guide's EPG query scope back to the first channels.
   useEffect(() => {
     if (!isFocused || !filtered.length) return;
     const key = `${group}:${resetToken}:${powerProfile}`;
@@ -676,9 +620,6 @@ export default function PurpleGuideScreen() {
     const restoreIndex = guideSessionChannelId
       ? (filteredIdIndex.get(guideSessionChannelId) ?? 0)
       : 0;
-    // Warm the runway around the actual restore/focus row. Warming index 0 while
-    // restoring row 5000 made the native canvas and JS cache disagree and is a
-    // direct path to black/empty metadata after Search, All, or fullscreen return.
     const ids = buildGuideRunwayIds(filtered, restoreIndex, visibleRows, 1, powerProfile);
     const priorityFrom = Math.max(0, restoreIndex);
     const priority = filtered
@@ -699,8 +640,6 @@ export default function PurpleGuideScreen() {
     retainGuideSlidingCache(
       expandRunwayKeepSet(orderedFilteredIds, ids, visibleRows, 1, filteredIdIndex),
     );
-    // Prewarm immediately on Guide/group entry, before the first native focus
-    // event. SQLite and the bridge can populate the restore runway early.
     void patchProgramsForChannelIds(
       ids,
       lastRunwayRef.current.priority,
@@ -723,8 +662,6 @@ export default function PurpleGuideScreen() {
     screenWidth,
   ]);
 
-  // If Favorites/Recent (or a vanished category) becomes empty, fall back to All
-  // so the guide never leaves an unfocusable empty surface.
   useEffect(() => {
     if (!groups.includes(group) && !overflowGroups.includes(group)) {
       guideSessionGroup = "All";
@@ -737,8 +674,6 @@ export default function PurpleGuideScreen() {
   const channelNumberById = useMemo(() => {
     const result: Record<string, number> = {};
     if (!channelNumbers) return result;
-    // Native source/cache rows are already name-sorted; do not clone/sort all
-    // 6k+ channels again just to produce optional display numbers.
     for (let index = 0; index < channels.length; index += 1) {
       const channel = channels[index];
       result[channel.id] = resolveChannelNumber(channel.id, index + 1, customNumbers);
@@ -746,8 +681,6 @@ export default function PurpleGuideScreen() {
     return result;
   }, [channelNumbers, channels, customNumbers]);
 
-  // Repeated focus uses this O(1) lookup through the external selection store;
-  // it never scans the complete filtered channel array.
   const filteredChannelById = useMemo(
     () => new Map(filtered.map((channel) => [channel.id, channel] as const)),
     [filtered],
@@ -757,8 +690,6 @@ export default function PurpleGuideScreen() {
     [filtered, filteredChannelById, lastChannelId],
   );
 
-  // Decoder preview stays deliberately delayed during held navigation. Guide
-  // metadata does not: title/description must track the actual focused row now.
   const previewDelay =
     safePreviewMode === "delayed" || safePreviewMode === "surf"
       ? powerTuning.previewArmDelayedMs
@@ -779,7 +710,6 @@ export default function PurpleGuideScreen() {
     }
     previewTimer.current = setTimeout(() => {
       previewTimer.current = null;
-      // Break the sticky error latch — always remount the decoder for this tune.
       setPreviewStatus("loading");
       setPreviewEpoch((value) => value + 1);
       setPreviewId(requestedId);
@@ -796,9 +726,6 @@ export default function PurpleGuideScreen() {
       if (previewTimer.current) clearTimeout(previewTimer.current);
       const requestedId = channel.id;
       guideSessionChannelId = requestedId;
-
-      // Moving left/right across programmes on the same channel updates details
-      // immediately but must not tear down and re-arm an unchanged decoder.
       if (previewId === requestedId && previewStatus !== "error") return;
 
       const nowTs = Date.now();
@@ -814,10 +741,6 @@ export default function PurpleGuideScreen() {
       }
 
       if (nowTs < rapidSurfUntilRef.current || rapid) {
-        // Keep decoder/GPU work out of the repeated-focus path. Only the last
-        // focused channel after the hold settles is allowed to tune preview.
-        // Defer the one-time decoder/logo release until after native focus has
-        // painted; doing this synchronously makes the highlight visibly stall.
         if (!surfReleaseTimer.current) {
           surfReleaseTimer.current = setTimeout(() => {
             surfReleaseTimer.current = null;
@@ -866,7 +789,6 @@ export default function PurpleGuideScreen() {
   const play = useCallback(
     (channel: Channel) => {
       void Haptics.selectionAsync().catch(() => undefined);
-      // Drop guide preview before fullscreen allocates a decoder.
       if (previewTimer.current) clearTimeout(previewTimer.current);
       setPreviewId(null);
       addRecent(channel);
@@ -934,19 +856,14 @@ export default function PurpleGuideScreen() {
   );
 
   const onGuideLeftBoundary = useCallback(() => {
-    // Guide -> dedicated groups drawer. The main application drawer is one
-    // additional Left/Back away and never shares focus ownership with the grid.
     if (!drawerOpen && !groupDrawerOpen && !activeProgram) setGroupDrawerOpen(true);
   }, [activeProgram, drawerOpen, groupDrawerOpen]);
 
   const onGuideUpBoundary = useCallback(() => {
-    // Disable the native canvas before requesting a React action. A single
-    // focus owner prevents the canvas from reclaiming focus during the handoff.
     setPreviewActionsFocused(true);
     requestAnimationFrame(() => focusGuidePreviewSurface());
   }, []);
 
-  // One-shot Search/Health/player jump — apply on focus/mount only.
   useFocusEffect(
     useCallback(() => {
       const jump = consumeGuideJump();
@@ -1027,13 +944,7 @@ export default function PurpleGuideScreen() {
           <View style={styles.center}>
             <ActivityIndicator color={tvColors.purpleBright} size="large" />
             <Text style={styles.centerText}>Loading channels and guide…</Text>
-            <Pressable
-              focusable
-              disabled={refreshing}
-              onPress={() => void hardRefresh()}
-              style={({ focused }: any) => [styles.retryButton, focused && styles.focused]}
-              testID="purple-guide-retry-loading"
-            >
+            <Pressable focusable disabled={refreshing} onPress={() => void hardRefresh()} style={({ focused }: any) => [styles.retryButton, focused && styles.focused]} testID="purple-guide-retry-loading">
               <Ionicons name="refresh-outline" size={14} color="#fff" />
               <Text style={styles.retryText}>{refreshing ? "Loading…" : "Retry now"}</Text>
             </Pressable>
@@ -1042,13 +953,7 @@ export default function PurpleGuideScreen() {
           <View style={styles.center}>
             <Ionicons name="cloud-offline-outline" size={32} color={tvColors.purpleSoft} />
             <Text style={styles.centerText}>{error}</Text>
-            <Pressable
-              focusable
-              disabled={refreshing}
-              onPress={() => void hardRefresh()}
-              style={({ focused }: any) => [styles.retryButton, focused && styles.focused]}
-              testID="purple-guide-retry-error"
-            >
+            <Pressable focusable disabled={refreshing} onPress={() => void hardRefresh()} style={({ focused }: any) => [styles.retryButton, focused && styles.focused]} testID="purple-guide-retry-error">
               <Ionicons name="refresh-outline" size={14} color="#fff" />
               <Text style={styles.retryText}>{refreshing ? "Reloading…" : "Reload guide"}</Text>
             </Pressable>
@@ -1057,13 +962,7 @@ export default function PurpleGuideScreen() {
           <View style={styles.center}>
             <Ionicons name="tv-outline" size={32} color={tvColors.purpleSoft} />
             <Text style={styles.centerText}>No channels in the current playlist yet.</Text>
-            <Pressable
-              focusable
-              disabled={refreshing}
-              onPress={() => void hardRefresh()}
-              style={({ focused }: any) => [styles.retryButton, focused && styles.focused]}
-              testID="purple-guide-retry-empty"
-            >
+            <Pressable focusable disabled={refreshing} onPress={() => void hardRefresh()} style={({ focused }: any) => [styles.retryButton, focused && styles.focused]} testID="purple-guide-retry-empty">
               <Ionicons name="refresh-outline" size={14} color="#fff" />
               <Text style={styles.retryText}>{refreshing ? "Loading…" : "Reload guide"}</Text>
             </Pressable>
@@ -1100,8 +999,6 @@ export default function PurpleGuideScreen() {
               guideFocusTag={nativeGuideFocusTag}
             />
 
-            {/* Preview + six actions + description form one compact top strip.
-                The Guide owns the full width below it. */}
             <View style={styles.gridPanel}>
               <NativeGuideCanvas
                 channels={filtered}
@@ -1138,10 +1035,7 @@ export default function PurpleGuideScreen() {
                       key={digit}
                       onPress={() => {
                         setPinError(false);
-                        setPinDigits((prev) => {
-                          const next = (prev + digit).slice(0, 8);
-                          return next;
-                        });
+                        setPinDigits((prev) => (prev + digit).slice(0, 8));
                       }}
                       style={({ focused }: any) => [styles.pinKey, focused && styles.focused]}
                     >
@@ -1150,20 +1044,10 @@ export default function PurpleGuideScreen() {
                   ))}
                 </View>
                 <View style={styles.pinActions}>
-                  <Pressable
-                    onPress={() => {
-                      setPinPromptGroup(null);
-                      setPinDigits("");
-                      setPinError(false);
-                    }}
-                    style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}
-                  >
+                  <Pressable onPress={() => { setPinPromptGroup(null); setPinDigits(""); setPinError(false); }} style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}>
                     <Text style={styles.secondaryText}>Cancel</Text>
                   </Pressable>
-                  <Pressable
-                    onPress={submitPin}
-                    style={({ focused }: any) => [styles.watchButton, focused && styles.focused]}
-                  >
+                  <Pressable onPress={submitPin} style={({ focused }: any) => [styles.watchButton, focused && styles.focused]}>
                     <Text style={styles.watchText}>Unlock</Text>
                   </Pressable>
                 </View>
@@ -1182,83 +1066,21 @@ const styles = StyleSheet.create({
   gridPanel: { flex: 1, minWidth: 0, minHeight: 0 },
   pinCard: { width: 340, maxWidth: "100%", borderRadius: 10, backgroundColor: tvColors.panel, padding: 16, gap: 10 },
   overlayTitle: { color: "#fff", fontFamily: fonts.bold, fontSize: 16, textAlign: "center" },
-  watchButton: {
-    flex: 1,
-    minWidth: 0,
-    minHeight: 27,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-    backgroundColor: tvColors.purple,
-    borderRadius: 5,
-    borderWidth: 2,
-    borderColor: "transparent",
-    paddingHorizontal: 3,
-  },
+  watchButton: { flex: 1, minWidth: 0, minHeight: 27, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, backgroundColor: tvColors.purple, borderRadius: 5, borderWidth: 2, borderColor: "transparent", paddingHorizontal: 3 },
   watchText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 7.5 },
-  secondaryButton: {
-    flex: 1,
-    minWidth: 0,
-    minHeight: 27,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-    backgroundColor: tvColors.panelRaised,
-    borderRadius: 5,
-    borderWidth: 2,
-    borderColor: "transparent",
-    paddingHorizontal: 3,
-  },
+  secondaryButton: { flex: 1, minWidth: 0, minHeight: 27, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, backgroundColor: tvColors.panelRaised, borderRadius: 5, borderWidth: 2, borderColor: "transparent", paddingHorizontal: 3 },
   secondaryText: { color: "#fff", fontFamily: fonts.medium, fontSize: 7.2 },
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.55)",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 20,
-    padding: 24,
-  },
+  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center", zIndex: 20, padding: 24 },
   pinHint: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 10 },
-  pinDigits: {
-    color: "#fff",
-    fontFamily: fonts.bold,
-    fontSize: 22,
-    letterSpacing: 8,
-    textAlign: "center",
-    marginVertical: 4,
-  },
+  pinDigits: { color: "#fff", fontFamily: fonts.bold, fontSize: 22, letterSpacing: 8, textAlign: "center", marginVertical: 4 },
   pinError: { color: "#f87171", fontFamily: fonts.medium, fontSize: 10, textAlign: "center" },
   pinPad: { flexDirection: "row", flexWrap: "wrap", gap: 6, justifyContent: "center" },
-  pinKey: {
-    width: 44,
-    minHeight: 36,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 5,
-    borderWidth: 2,
-    borderColor: "transparent",
-    backgroundColor: tvColors.panelRaised,
-  },
+  pinKey: { width: 44, minHeight: 36, alignItems: "center", justifyContent: "center", borderRadius: 5, borderWidth: 2, borderColor: "transparent", backgroundColor: tvColors.panelRaised },
   pinKeyText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 14 },
   pinActions: { flexDirection: "row", gap: 8, marginTop: 4 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.md },
   centerText: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 11, textAlign: "center", maxWidth: 320 },
-  retryButton: {
-    minHeight: 32,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 14,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: "transparent",
-    backgroundColor: tvColors.purple,
-    marginTop: 4,
-  },
+  retryButton: { minHeight: 32, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, borderRadius: 6, borderWidth: 2, borderColor: "transparent", backgroundColor: tvColors.purple, marginTop: 4 },
   retryText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 9 },
   focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
 });
-
-
