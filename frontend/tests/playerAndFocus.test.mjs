@@ -110,14 +110,18 @@ test("fullscreen remote mappings use one native semantic router and remain playe
   assert.match(settings, /Restore remote defaults/);
 });
 
-test("Guide long Select honors the same favorite-or-action-drawer mapping as Player", async () => {
-  const [guide, modal] = await Promise.all([
+test("Guide long Select is exclusively contextual Quick Actions, never the old Favorite shortcut", async () => {
+  const [guide, overlay, modal, activity] = await Promise.all([
     source("app/(tabs)/guide.tsx"),
+    source("src/components/TvQuickActionsOverlay.tsx"),
     source("src/components/ProgramModal.tsx"),
+    source("android/app/src/main/java/com/charmiptv/app/MainActivity.kt"),
   ]);
-  assert.match(guide, /remoteShortcuts\.longSelect === "favorite"/);
-  assert.match(guide, /remoteShortcuts\.longSelect === "controls" && selection\.program && channel/);
-  assert.match(guide, /openProgram\(selection\.program, channel\)/);
+  assert.doesNotMatch(guide, /remoteShortcuts\.longSelect/);
+  assert.doesNotMatch(guide, /addTvLongPressListener/);
+  assert.match(activity, /emitRemoteEvent\("TvRemoteQuickActions", context\)/);
+  assert.match(overlay, /guideSelection\?\.surface === "program" && guideSelection\.program/);
+  assert.match(overlay, /openProgram\(guideSelection\.program, selectedChannel\)/);
   assert.match(modal, /trapFocusUp trapFocusDown trapFocusLeft trapFocusRight/);
 });
 
@@ -133,4 +137,3 @@ test("custom EPG clear is explicit and preserves source configuration and bindin
   assert.match(bridge, /export async function clearNativeUserGuide/);
   assert.match(screen, /Clear EPG data/);
 });
-
