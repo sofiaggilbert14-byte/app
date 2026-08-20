@@ -35,12 +35,7 @@ export function fingerprintStreamUri(uri: string, kind?: string): string {
   return `${kind || "unknown"}:${clean.length}:${(hash >>> 0).toString(16)}:${leaf}`;
 }
 
-/**
- * Match a live diagnostic key to a URI without needing to know which stream-kind
- * classifier the player used. The kind is metadata; length/hash/leaf identify
- * the same sanitized URI. This keeps Quick Actions on the channel actually
- * playing after in-player zaps without retaining raw provider URLs.
- */
+/** Match a diagnostic key without needing the player's stream-kind classifier. */
 export function matchesStreamFingerprint(uri: string, streamKey: string): boolean {
   const candidate = fingerprintStreamUri(uri);
   const candidateBody = candidate.slice(candidate.indexOf(":") + 1);
@@ -58,7 +53,6 @@ export function recordAudioDiagnostics(
   };
   lastSnapshot = snapshot;
   try {
-    // Always emit — TV silent-stream QA depends on logcat, not only __DEV__.
     console.info(
       "[CharmIPTV audio]",
       [
@@ -84,7 +78,13 @@ export function recordAudioDiagnostics(
 }
 
 export function getLastAudioDiagnostics(): AudioDiagnosticsSnapshot | null {
-  return lastSnapshot;
+  if (!lastSnapshot) return null;
+  // Public consumers that need current-channel lookup do not know the internal
+  // HLS/TS classifier. Normalize only this returned view; retained/logged
+  // diagnostics still keep the original kind for debugging.
+  const key = lastSnapshot.streamKey;
+  const body = key.slice(key.indexOf(":") + 1);
+  return { ...lastSnapshot, streamKey: `unknown:${body}` };
 }
 
 /** Flatten for diagnostics text export. */
