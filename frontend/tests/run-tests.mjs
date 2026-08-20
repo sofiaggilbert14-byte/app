@@ -16,3 +16,5 @@ import "./ramEpgEngine.test.mjs";
 import "./memoryCrossAudit.test.mjs";
 import "./tivimateColdStartPolicy.test.mjs";
 import "./quickActionsContext.test.mjs";
+import "./groupTabsScreenFit.test.mjs";
+import "./sourceRefreshPersistence.test.mjs";
