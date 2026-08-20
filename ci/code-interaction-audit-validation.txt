@@ -1,0 +1,5 @@
+install=0
+test=0
+typecheck=0
+native_config=0
+doctor=0
