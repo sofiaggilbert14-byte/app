@@ -1,0 +1,322 @@
+name: Code Interaction Audit Final Sideload
+
+on:
+  push:
+    branches:
+      - agent/code-interaction-audit
+    paths:
+      - ci/code-interaction-audit-final-sideload.trigger
+  pull_request:
+    branches:
+      - agent/code-interaction-audit
+    paths:
+      - ci/code-interaction-audit-final-sideload.trigger
+
+permissions:
+  contents: read
+
+env:
+  EXPO_PUBLIC_M3U_URL: ${{ secrets.M3U_URL || vars.EXPO_PUBLIC_M3U_URL }}
+  EXPO_PUBLIC_EPG_URL: ${{ secrets.EPG_URL || vars.EXPO_PUBLIC_EPG_URL }}
+  EXPO_PUBLIC_GUIDE_WINDOW_HOURS: ${{ vars.EXPO_PUBLIC_GUIDE_WINDOW_HOURS || '6' }}
+
+jobs:
+  release-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: agent/code-interaction-audit
+          fetch-depth: 0
+
+      - id: node
+        continue-on-error: true
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - id: java
+        continue-on-error: true
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - id: gradle_setup
+        continue-on-error: true
+        uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d
+
+      - id: android_setup
+        continue-on-error: true
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+
+      - name: Require playlist and EPG configuration
+        id: config
+        continue-on-error: true
+        shell: bash
+        run: test -n "${EXPO_PUBLIC_M3U_URL}" && test -n "${EXPO_PUBLIC_EPG_URL}"
+
+      - name: Install pinned Android SDK NDK and CMake
+        id: sdk
+        continue-on-error: true
+        shell: bash
+        run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006" "cmake;3.22.1"
+
+      - name: Whole-app lifecycle scan
+        id: lifecycle
+        continue-on-error: true
+        shell: bash
+        run: python ci/code-interaction-audit-lifecycle-scan.py
+
+      - name: Preview and player lifecycle scan
+        id: preview_lifecycle
+        continue-on-error: true
+        shell: bash
+        run: python ci/code-interaction-audit-preview-lifecycle-scan.py
+
+      - name: Install JavaScript dependencies
+        id: install
+        continue-on-error: true
+        working-directory: frontend
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: Unit and interaction tests
+        id: tests
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee /tmp/code-interaction-audit-tests.log
+
+      - name: Typecheck
+        id: typecheck
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run typecheck 2>&1 | tee /tmp/code-interaction-audit-typecheck.log
+
+      - name: Lint
+        id: lint
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Expo Doctor
+        id: doctor
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        working-directory: frontend
+        run: npm run doctor
+
+      - name: Verify checked-in native config
+        id: native_config
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        working-directory: frontend
+        run: npm run verify:native-config
+
+      - name: Verify native Guide architecture
+        id: native_guide
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        working-directory: frontend
+        run: npm run verify:native-guide
+
+      - name: Validate repository patch shape
+        id: diff_check
+        continue-on-error: true
+        run: git diff --check HEAD^
+
+      - name: Build LGPL Media3 FFmpeg audio extension
+        id: ffmpeg
+        if: steps.install.outcome == 'success' && steps.sdk.outcome == 'success'
+        continue-on-error: true
+        working-directory: frontend
+        shell: bash
+        run: |
+          chmod +x scripts/build-media3-ffmpeg-audio.sh
+          ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/27.1.12297006" ./scripts/build-media3-ffmpeg-audio.sh
+
+      - name: Compile Kotlin Java and Media3 FFmpeg bridge
+        id: android_compile
+        if: steps.install.outcome == 'success' && steps.sdk.outcome == 'success' && steps.ffmpeg.outcome == 'success'
+        continue-on-error: true
+        working-directory: frontend
+        env:
+          CI: '1'
+          GRADLE_OPTS: '-Dorg.gradle.jvmargs=-Xmx3g -Dorg.gradle.workers.max=1'
+        shell: bash
+        run: |
+          chmod +x android/gradlew
+          set -o pipefail
+          ./android/gradlew -p android \
+            :ffmpeg-audio:compileDebugJavaWithJavac \
+            :app:compileDebugKotlin \
+            :app:compileDebugJavaWithJavac \
+            --no-daemon --max-workers=1 --stacktrace 2>&1 | tee /tmp/code-interaction-audit-native.log
+
+      - name: Build standalone sideload APK
+        id: assemble
+        if: >-
+          steps.config.outcome == 'success' &&
+          steps.lifecycle.outcome == 'success' &&
+          steps.preview_lifecycle.outcome == 'success' &&
+          steps.tests.outcome == 'success' &&
+          steps.typecheck.outcome == 'success' &&
+          steps.lint.outcome == 'success' &&
+          steps.doctor.outcome == 'success' &&
+          steps.native_config.outcome == 'success' &&
+          steps.native_guide.outcome == 'success' &&
+          steps.diff_check.outcome == 'success' &&
+          steps.android_compile.outcome == 'success'
+        continue-on-error: true
+        working-directory: frontend
+        env:
+          CI: '1'
+          GRADLE_OPTS: '-Dorg.gradle.jvmargs=-Xmx3g -Dorg.gradle.workers.max=2'
+        shell: bash
+        run: |
+          chmod +x android/gradlew
+          set -o pipefail
+          ./android/gradlew -p android assembleSideload --no-daemon --stacktrace 2>&1 | tee /tmp/code-interaction-audit-assemble.log
+
+      - name: Verify and stage tester APK
+        id: verify_apk
+        if: steps.assemble.outcome == 'success'
+        continue-on-error: true
+        working-directory: frontend
+        shell: bash
+        run: |
+          APP_VERSION="$(node -p 'require("./app.json").expo.version')"
+          NOTES="../docs/TESTER_RELEASE_NOTES_${APP_VERSION}.md"
+          APK="android/app/build/outputs/apk/sideload/app-sideload.apk"
+          test -f "$APK"
+          test -f "$NOTES"
+          unzip -l "$APK" | grep -E "(index\.android\.bundle|assets/.*\.bundle|resources\.arsc)" >/dev/null
+          unzip -l "$APK" | grep -E 'lib/arm64-v8a/libffmpegJNI\.so' >/dev/null
+          unzip -l "$APK" | grep -E 'lib/armeabi-v7a/libffmpegJNI\.so' >/dev/null
+          mkdir -p android/app/build/outputs/apk/tester
+          OUT="android/app/build/outputs/apk/tester/CharmIPTV-Code-Interaction-Audit-${APP_VERSION}.apk"
+          cp "$APK" "$OUT"
+          sha256sum "$OUT" > android/app/build/outputs/apk/tester/SHA256SUMS.txt
+          cp "$NOTES" android/app/build/outputs/apk/tester/TESTER_RELEASE_NOTES.md
+          cp ../ci/code-interaction-audit-lifecycle-report.txt android/app/build/outputs/apk/tester/LIFECYCLE_SCAN.txt
+          cp ../ci/code-interaction-audit-preview-lifecycle-report.txt android/app/build/outputs/apk/tester/PREVIEW_PLAYER_SCAN.txt
+          echo "app_version=${APP_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "apk_name=$(basename "$OUT")" >> "$GITHUB_OUTPUT"
+
+      - name: Write exact validation status
+        if: always()
+        shell: bash
+        env:
+          NODE: ${{ steps.node.outcome }}
+          JAVA: ${{ steps.java.outcome }}
+          GRADLE_SETUP: ${{ steps.gradle_setup.outcome }}
+          ANDROID_SETUP: ${{ steps.android_setup.outcome }}
+          CONFIG: ${{ steps.config.outcome }}
+          SDK: ${{ steps.sdk.outcome }}
+          LIFECYCLE: ${{ steps.lifecycle.outcome }}
+          PREVIEW_LIFECYCLE: ${{ steps.preview_lifecycle.outcome }}
+          INSTALL: ${{ steps.install.outcome }}
+          TESTS: ${{ steps.tests.outcome }}
+          TYPECHECK: ${{ steps.typecheck.outcome }}
+          LINT: ${{ steps.lint.outcome }}
+          DOCTOR: ${{ steps.doctor.outcome }}
+          NATIVE_CONFIG: ${{ steps.native_config.outcome }}
+          NATIVE_GUIDE: ${{ steps.native_guide.outcome }}
+          DIFF_CHECK: ${{ steps.diff_check.outcome }}
+          FFMPEG: ${{ steps.ffmpeg.outcome }}
+          ANDROID_COMPILE: ${{ steps.android_compile.outcome }}
+          ASSEMBLE: ${{ steps.assemble.outcome }}
+          VERIFY_APK: ${{ steps.verify_apk.outcome }}
+        run: |
+          mkdir -p frontend/android/app/build/outputs/apk/tester
+          cat > frontend/android/app/build/outputs/apk/tester/VALIDATION_STATUS.txt <<EOF
+          source_head=${GITHUB_SHA}
+          run_id=${GITHUB_RUN_ID}
+          run_number=${GITHUB_RUN_NUMBER}
+          node=${NODE}
+          java=${JAVA}
+          gradle_setup=${GRADLE_SETUP}
+          android_setup=${ANDROID_SETUP}
+          config=${CONFIG}
+          sdk=${SDK}
+          lifecycle=${LIFECYCLE}
+          preview_lifecycle=${PREVIEW_LIFECYCLE}
+          install=${INSTALL}
+          test=${TESTS}
+          typecheck=${TYPECHECK}
+          lint=${LINT}
+          doctor=${DOCTOR}
+          native_config=${NATIVE_CONFIG}
+          native_guide=${NATIVE_GUIDE}
+          diff_check=${DIFF_CHECK}
+          ffmpeg=${FFMPEG}
+          android_compile=${ANDROID_COMPILE}
+          assemble_sideload=${ASSEMBLE}
+          verify_apk=${VERIFY_APK}
+          EOF
+
+      - name: Upload verified sideload artifact
+        id: upload
+        if: >-
+          steps.config.outcome == 'success' &&
+          steps.lifecycle.outcome == 'success' &&
+          steps.preview_lifecycle.outcome == 'success' &&
+          steps.tests.outcome == 'success' &&
+          steps.typecheck.outcome == 'success' &&
+          steps.lint.outcome == 'success' &&
+          steps.doctor.outcome == 'success' &&
+          steps.native_config.outcome == 'success' &&
+          steps.native_guide.outcome == 'success' &&
+          steps.diff_check.outcome == 'success' &&
+          steps.ffmpeg.outcome == 'success' &&
+          steps.android_compile.outcome == 'success' &&
+          steps.assemble.outcome == 'success' &&
+          steps.verify_apk.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: CharmIPTV-Final-Sideload-${{ steps.verify_apk.outputs.app_version }}-${{ github.run_number }}
+          path: frontend/android/app/build/outputs/apk/tester/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enforce final release gate
+        if: always()
+        shell: bash
+        env:
+          NODE: ${{ steps.node.outcome }}
+          JAVA: ${{ steps.java.outcome }}
+          GRADLE_SETUP: ${{ steps.gradle_setup.outcome }}
+          ANDROID_SETUP: ${{ steps.android_setup.outcome }}
+          CONFIG: ${{ steps.config.outcome }}
+          SDK: ${{ steps.sdk.outcome }}
+          LIFECYCLE: ${{ steps.lifecycle.outcome }}
+          PREVIEW_LIFECYCLE: ${{ steps.preview_lifecycle.outcome }}
+          INSTALL: ${{ steps.install.outcome }}
+          TESTS: ${{ steps.tests.outcome }}
+          TYPECHECK: ${{ steps.typecheck.outcome }}
+          LINT: ${{ steps.lint.outcome }}
+          DOCTOR: ${{ steps.doctor.outcome }}
+          NATIVE_CONFIG: ${{ steps.native_config.outcome }}
+          NATIVE_GUIDE: ${{ steps.native_guide.outcome }}
+          DIFF_CHECK: ${{ steps.diff_check.outcome }}
+          FFMPEG: ${{ steps.ffmpeg.outcome }}
+          ANDROID_COMPILE: ${{ steps.android_compile.outcome }}
+          ASSEMBLE: ${{ steps.assemble.outcome }}
+          VERIFY_APK: ${{ steps.verify_apk.outcome }}
+          UPLOAD: ${{ steps.upload.outcome }}
+        run: |
+          for result in "$NODE" "$JAVA" "$GRADLE_SETUP" "$ANDROID_SETUP" "$CONFIG" "$SDK" "$LIFECYCLE" "$PREVIEW_LIFECYCLE" "$INSTALL" "$TESTS" "$TYPECHECK" "$LINT" "$DOCTOR" "$NATIVE_CONFIG" "$NATIVE_GUIDE" "$DIFF_CHECK" "$FFMPEG" "$ANDROID_COMPILE" "$ASSEMBLE" "$VERIFY_APK" "$UPLOAD"; do
+            test "$result" = success
+          done
