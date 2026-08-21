@@ -1,0 +1,65 @@
+name: Apply Code Interaction Settings Player Repair
+
+on:
+  push:
+    branches:
+      - agent/code-interaction-audit
+    paths:
+      - ci/code-interaction-audit-settings-player-repair.trigger
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: agent/code-interaction-audit
+          fetch-depth: 0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Apply settings/player lifecycle repairs
+        run: python3 ci/code-interaction-audit-settings-player-repair.py
+
+      - name: Run complete settings lifecycle scan
+        run: python3 ci/code-interaction-audit-settings-lifecycle-scan.py
+
+      - name: Install JavaScript dependencies
+        working-directory: frontend
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: Unit and interaction tests
+        working-directory: frontend
+        run: npm test
+
+      - name: Typecheck
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Validate patch shape
+        run: git diff --check
+
+      - name: Commit repaired source
+        shell: bash
+        run: |
+          git config user.name "charm-audit-bot"
+          git config user.email "charm-audit-bot@users.noreply.github.com"
+          git add frontend ci/code-interaction-audit-settings-lifecycle-report.txt
+          if git diff --cached --quiet; then
+            echo "No source changes to commit"
+            exit 0
+          fi
+          git commit -m "fix: isolate settings EPG and player lifecycles"
+          git push origin HEAD:agent/code-interaction-audit
