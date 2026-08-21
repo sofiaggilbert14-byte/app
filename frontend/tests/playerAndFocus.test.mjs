@@ -75,7 +75,8 @@ test("Guide action strip walks all six actions before returning to the native Gu
   assert.match(rail, /testID="guide-preview-hide"/);
   assert.doesNotMatch(actionStripBeforeHide, /nextFocusDown=\{guideFocusTag \|\| undefined\}/);
   assert.match(rail.slice(rail.lastIndexOf("ref={hideFocus.setRef}")), /nextFocusDown=\{guideFocusTag \|\| undefined\}/);
-  assert.doesNotMatch(rail, /hasTVPreferredFocus=\{preferPlayFocus\}/);
+  assert.match(rail, /hasTVPreferredFocus=\{preferPlayFocus\}/);
+  assert.match(rail, /setTimeout\(\(\) => setPreferPlayFocus\(false\), 320\)/);
 });
 
 test("active native Guide claims initial focus when its first channel rows arrive", async () => {

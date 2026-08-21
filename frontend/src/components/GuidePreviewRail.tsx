@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import dayjs from "dayjs";
@@ -39,6 +39,7 @@ type Props = {
   /** Opens the app drawer and lands focus on the top drawer row. */
   onOpenDrawer: () => void;
   onActionsFocusChange: (focused: boolean) => void;
+  focusRequestToken: number;
   guideFocusTag?: number | null;
 };
 
@@ -77,6 +78,7 @@ export function GuidePreviewRail({
   onHideToggle,
   onOpenDrawer,
   onActionsFocusChange,
+  focusRequestToken,
   guideFocusTag,
 }: Props) {
   const playFocus = usePreviewFocusNode("play", true);
@@ -86,6 +88,13 @@ export function GuidePreviewRail({
   const muteFocus = usePreviewFocusNode("mute");
   const hideFocus = usePreviewFocusNode("hide");
   const showFocus = usePreviewFocusNode("show-preview");
+  const [preferPlayFocus, setPreferPlayFocus] = useState(false);
+  useEffect(() => {
+    if (focusRequestToken <= 0) return;
+    setPreferPlayFocus(true);
+    const timer = setTimeout(() => setPreferPlayFocus(false), 320);
+    return () => clearTimeout(timer);
+  }, [focusRequestToken]);
   const nowDate = useMemo(() => new Date(now), [now]);
   const progress = current ? progressPct(current, nowDate) : 0;
   const endsIn = current?.stop
@@ -162,6 +171,7 @@ export function GuidePreviewRail({
         <View style={styles.actionColumn}>
           <Pressable
             ref={playFocus.setRef}
+            hasTVPreferredFocus={preferPlayFocus}
             disabled={!channel}
             onPress={onPlay}
             onFocus={() => { onActionsFocusChange(true); playFocus.onFocus(); }}

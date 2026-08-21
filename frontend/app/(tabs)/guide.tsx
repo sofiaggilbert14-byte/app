@@ -116,6 +116,7 @@ function GuideSelectionPreview({
   onHideToggle,
   onOpenDrawer,
   onActionsFocusChange,
+  focusRequestToken,
   guideFocusTag,
 }: {
   width: number;
@@ -140,6 +141,7 @@ function GuideSelectionPreview({
   onHideToggle: () => void;
   onOpenDrawer: () => void;
   onActionsFocusChange: (focused: boolean) => void;
+  focusRequestToken: number;
   guideFocusTag?: number | null;
 }) {
   const selection = useGuideSelection();
@@ -192,6 +194,7 @@ function GuideSelectionPreview({
       onHideToggle={onHideToggle}
       onOpenDrawer={onOpenDrawer}
       onActionsFocusChange={onActionsFocusChange}
+      focusRequestToken={focusRequestToken}
       guideFocusTag={guideFocusTag}
     />
   );
@@ -289,6 +292,7 @@ function PurpleGuideScreenContent() {
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewStatus, setPreviewStatus] = useState<StreamStatus>("loading");
   const [previewActionsFocused, setPreviewActionsFocused] = useState(false);
+  const [previewFocusRequestToken, setPreviewFocusRequestToken] = useState(0);
   const [nativeGuideFocusTag, setNativeGuideFocusTag] = useState<number | null>(null);
   const [resetToken, setResetToken] = useState(0);
   const [restoreTimeMs, setRestoreTimeMs] = useState<number | null>(null);
@@ -953,10 +957,10 @@ function PurpleGuideScreenContent() {
   }, [activeProgram, drawerOpen, groupDrawerOpen]);
 
   const onGuideUpBoundary = useCallback(() => {
-    // Keep the native Guide active until Android confirms focus on a real
-    // preview action. GuidePreviewRail's onFocus owns the transition to
-    // previewActionsFocused=true; if this request misses during a route/decoder
-    // handoff, focus stays safely in the Guide instead of disappearing.
+    // RC.5 used a short preferred-focus claim for this boundary. Restore that
+    // reliable TV behavior without restoring its old playback lifecycle: the
+    // native Guide remains active until a real action receives Android focus.
+    setPreviewFocusRequestToken((value) => value + 1);
     requestAnimationFrame(() => {
       focusGuidePreviewSurface();
     });
@@ -1092,6 +1096,7 @@ function PurpleGuideScreenContent() {
               onHideToggle={() => setHidePreview(!hidePreview)}
               onOpenDrawer={openDrawerFromPreview}
               onActionsFocusChange={setPreviewActionsFocused}
+              focusRequestToken={previewFocusRequestToken}
               guideFocusTag={nativeGuideFocusTag}
             />
 
