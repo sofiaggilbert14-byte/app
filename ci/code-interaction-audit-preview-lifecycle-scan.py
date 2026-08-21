@@ -24,18 +24,21 @@ if 'if (!uri || role === "preview") return;' not in stream:
 if "noteStreamFailure" in guide or "clearStreamFailure" in guide:
     critical.append("Guide preview can mutate fullscreen failed-stream registry")
 
-# A visible preview must self-release if its native decoder/socket freezes.
+# A visible preview must self-release if its native decoder/socket freezes. The
+# stricter deep repair uses an 8s VLC frozen-progress gate, 12s terminal buffering
+# gate, and exactly one Media3 reprepare per unstable episode.
 if 'if (mode === "preview" || paused || blocked) return;' in stream:
     critical.append("VLC preview is excluded from frozen-progress watchdog")
 if 'if (mode === "preview" || paused || blocked || !mediaReady)' in stream:
-    critical.append("Media3 preview is excluded from frozen-clock watchdog")
+    critical.append("Media3 preview is excluded from buffering watchdog")
 for required in (
-    "const VLC_FROZEN_PROGRESS_MS = 15_000",
-    "const VLC_BUFFERING_FAIL_MS = 22_000",
+    "const VLC_FROZEN_PROGRESS_MS = 8_000",
+    "const VLC_BUFFERING_FAIL_MS = 12_000",
     "if (bufferingSince == null) return;",
     "const BUFFERING_RESYNC_MS = 5000",
-    "const BUFFERING_FAIL_MS = 22000",
+    "const BUFFERING_FAIL_MS = 12_000",
     "MAX_SILENT_BUFFERING_RESYNCS = 1",
+    "const RESYNC_REARM_STABLE_MS = 30_000",
 ):
     if required not in stream:
         critical.append(f"missing bounded player watchdog contract: {required}")
@@ -78,6 +81,8 @@ for required in (
     "DECODER_RESTART_SETTLE_MS = 120",
     "CHANNEL_ZAP_SETTLE_MS = 850",
     'stopFullscreenSession()',
+    "const MAX_AUTO_STREAM_RETRIES = 3",
+    "const STABLE_RETRY_RESET_MS = 30_000",
 ):
     if required not in player:
         critical.append(f"fullscreen decoder ownership contract missing: {required}")
