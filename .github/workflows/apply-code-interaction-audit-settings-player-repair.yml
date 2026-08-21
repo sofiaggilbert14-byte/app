@@ -49,6 +49,9 @@ jobs:
       - name: Run complete settings lifecycle scan
         run: python3 ci/code-interaction-audit-settings-lifecycle-scan.py
 
+      - name: Inventory every settings configuration option
+        run: python3 ci/code-interaction-audit-setting-option-inventory.py
+
       - name: Run player OSD ownership scan
         run: python3 ci/code-interaction-audit-osd-lifecycle-scan.py
 
@@ -90,6 +93,7 @@ jobs:
           git config user.email "charm-audit-bot@users.noreply.github.com"
           git add frontend \
             ci/code-interaction-audit-settings-lifecycle-report.txt \
+            ci/code-interaction-audit-setting-option-inventory.txt \
             ci/code-interaction-audit-osd-lifecycle-report.txt \
             ci/code-interaction-audit-guide-modal-lifecycle-report.txt \
             ci/code-interaction-audit-tab-lifecycle-report.txt \
