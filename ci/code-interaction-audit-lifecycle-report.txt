@@ -5,11 +5,11 @@ arrow_callbacks=518
 timer_sites=71
 listener_sites=31
 stream_player_mount_sites=2
-critical_findings=1
+critical_findings=0
 warnings=0
 
 CRITICAL
-duplicate import: frontend/plugins/withTvRemote.js: import com.facebook.react.bridge.ReactApplicationContext
+none
 
 WARNINGS / MANUAL REVIEW
 none
