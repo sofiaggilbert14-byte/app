@@ -35,7 +35,18 @@ for path in files:
     metrics["listeners"] += data.count("addListener(") + data.count("addEventListener(")
     metrics["stream_players"] += data.count("<StreamPlayer")
 
-    import_lines = [line.strip() for line in data.splitlines() if line.strip().startswith("import ")]
+    # Exact duplicate imports are useful corruption signals, especially in Kotlin.
+    # A bare TypeScript `import {` begins a multiline import block and is not a
+    # complete import statement, so repeated occurrences are expected and must
+    # not be treated as duplicates.
+    import_lines = []
+    for raw in data.splitlines():
+        line = raw.strip()
+        if not line.startswith("import "):
+            continue
+        if line == "import {" or line.endswith("{"):
+            continue
+        import_lines.append(line)
     dupes = [line for line, count in Counter(import_lines).items() if count > 1]
     for line in dupes:
         critical.append(f"duplicate import: {rel}: {line}")
