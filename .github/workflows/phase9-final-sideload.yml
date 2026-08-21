@@ -40,10 +40,9 @@ jobs:
         working-directory: .
         shell: bash
         run: |
-          git diff --exit-code a98c49e8631f2c0e90be7cfb630395c75ada09ec -- \
-            frontend/src/source.native.ts \
-            frontend/src/nativeEpg.ts \
-            frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt
+          # This scanner compares the immutable native transport baseline while
+          # allowing only the additive, playlist-only playback URL lookup API.
+          python3 ci/tivimate-whole-repo-player-interaction-scan.py
 
       - name: Verify 24-hour guide contract
         working-directory: .
@@ -167,3 +166,4 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
+
