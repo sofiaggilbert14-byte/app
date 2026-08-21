@@ -164,57 +164,8 @@ jobs:
             :app:compileDebugJavaWithJavac \
             --no-daemon --max-workers=1 --stacktrace 2>&1 | tee /tmp/code-interaction-audit-native.log
 
-      - name: Build standalone sideload APK
-        id: assemble
-        if: >-
-          steps.config.outcome == 'success' &&
-          steps.lifecycle.outcome == 'success' &&
-          steps.preview_lifecycle.outcome == 'success' &&
-          steps.tests.outcome == 'success' &&
-          steps.typecheck.outcome == 'success' &&
-          steps.lint.outcome == 'success' &&
-          steps.doctor.outcome == 'success' &&
-          steps.native_config.outcome == 'success' &&
-          steps.native_guide.outcome == 'success' &&
-          steps.diff_check.outcome == 'success' &&
-          steps.android_compile.outcome == 'success'
-        continue-on-error: true
-        working-directory: frontend
-        env:
-          CI: '1'
-          GRADLE_OPTS: '-Dorg.gradle.jvmargs=-Xmx3g -Dorg.gradle.workers.max=2'
-        shell: bash
-        run: |
-          chmod +x android/gradlew
-          set -o pipefail
-          ./android/gradlew -p android assembleSideload --no-daemon --stacktrace 2>&1 | tee /tmp/code-interaction-audit-assemble.log
-
-      - name: Verify and stage tester APK
-        id: verify_apk
-        if: steps.assemble.outcome == 'success'
-        continue-on-error: true
-        working-directory: frontend
-        shell: bash
-        run: |
-          APP_VERSION="$(node -p 'require("./app.json").expo.version')"
-          NOTES="../docs/TESTER_RELEASE_NOTES_${APP_VERSION}.md"
-          APK="android/app/build/outputs/apk/sideload/app-sideload.apk"
-          test -f "$APK"
-          test -f "$NOTES"
-          unzip -l "$APK" | grep -E "(index\.android\.bundle|assets/.*\.bundle|resources\.arsc)" >/dev/null
-          unzip -l "$APK" | grep -E 'lib/arm64-v8a/libffmpegJNI\.so' >/dev/null
-          unzip -l "$APK" | grep -E 'lib/armeabi-v7a/libffmpegJNI\.so' >/dev/null
-          mkdir -p android/app/build/outputs/apk/tester
-          OUT="android/app/build/outputs/apk/tester/CharmIPTV-Code-Interaction-Audit-${APP_VERSION}.apk"
-          cp "$APK" "$OUT"
-          sha256sum "$OUT" > android/app/build/outputs/apk/tester/SHA256SUMS.txt
-          cp "$NOTES" android/app/build/outputs/apk/tester/TESTER_RELEASE_NOTES.md
-          cp ../ci/code-interaction-audit-lifecycle-report.txt android/app/build/outputs/apk/tester/LIFECYCLE_SCAN.txt
-          cp ../ci/code-interaction-audit-preview-lifecycle-report.txt android/app/build/outputs/apk/tester/PREVIEW_PLAYER_SCAN.txt
-          echo "app_version=${APP_VERSION}" >> "$GITHUB_OUTPUT"
-          echo "apk_name=$(basename "$OUT")" >> "$GITHUB_OUTPUT"
-
-      - name: Write exact validation status
+      - name: Persist pre-assemble gate outcomes
+        id: preflight
         if: always()
         shell: bash
         env:
@@ -236,11 +187,11 @@ jobs:
           DIFF_CHECK: ${{ steps.diff_check.outcome }}
           FFMPEG: ${{ steps.ffmpeg.outcome }}
           ANDROID_COMPILE: ${{ steps.android_compile.outcome }}
-          ASSEMBLE: ${{ steps.assemble.outcome }}
-          VERIFY_APK: ${{ steps.verify_apk.outcome }}
         run: |
-          mkdir -p frontend/android/app/build/outputs/apk/tester
-          cat > frontend/android/app/build/outputs/apk/tester/VALIDATION_STATUS.txt <<EOF
+          OUT=frontend/android/app/build/outputs/apk/tester
+          mkdir -p "$OUT"
+          ready=true
+          cat > "$OUT/PREBUILD_STATUS.txt" <<EOF
           source_head=${GITHUB_SHA}
           run_id=${GITHUB_RUN_ID}
           run_number=${GITHUB_RUN_NUMBER}
@@ -262,27 +213,106 @@ jobs:
           diff_check=${DIFF_CHECK}
           ffmpeg=${FFMPEG}
           android_compile=${ANDROID_COMPILE}
+          EOF
+          for pair in \
+            "node:${NODE}" "java:${JAVA}" "gradle_setup:${GRADLE_SETUP}" "android_setup:${ANDROID_SETUP}" \
+            "config:${CONFIG}" "sdk:${SDK}" "lifecycle:${LIFECYCLE}" "preview_lifecycle:${PREVIEW_LIFECYCLE}" \
+            "install:${INSTALL}" "test:${TESTS}" "typecheck:${TYPECHECK}" "lint:${LINT}" "doctor:${DOCTOR}" \
+            "native_config:${NATIVE_CONFIG}" "native_guide:${NATIVE_GUIDE}" "diff_check:${DIFF_CHECK}" \
+            "ffmpeg:${FFMPEG}" "android_compile:${ANDROID_COMPILE}"; do
+            name="${pair%%:*}"
+            value="${pair#*:}"
+            echo "${name}=${value}"
+            if [ "$value" != success ]; then
+              echo "::error title=Release prerequisite failed::${name}=${value}"
+              ready=false
+            fi
+          done
+          cp ci/code-interaction-audit-lifecycle-report.txt "$OUT/LIFECYCLE_SCAN.txt" 2>/dev/null || true
+          cp ci/code-interaction-audit-preview-lifecycle-report.txt "$OUT/PREVIEW_PLAYER_SCAN.txt" 2>/dev/null || true
+          cp /tmp/code-interaction-audit-tests.log "$OUT/TESTS.log" 2>/dev/null || true
+          cp /tmp/code-interaction-audit-typecheck.log "$OUT/TYPECHECK.log" 2>/dev/null || true
+          cp /tmp/code-interaction-audit-native.log "$OUT/NATIVE_COMPILE.log" 2>/dev/null || true
+          echo "ready=${ready}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload prebuild diagnostics
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: CharmIPTV-Prebuild-Diagnostics-${{ github.run_number }}
+          path: frontend/android/app/build/outputs/apk/tester/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Build standalone sideload APK
+        id: assemble
+        if: always()
+        continue-on-error: true
+        working-directory: frontend
+        env:
+          CI: '1'
+          PREFLIGHT_READY: ${{ steps.preflight.outputs.ready }}
+          GRADLE_OPTS: '-Dorg.gradle.jvmargs=-Xmx3g -Dorg.gradle.workers.max=2'
+        shell: bash
+        run: |
+          if [ "${PREFLIGHT_READY}" != true ]; then
+            echo "::error title=APK assembly blocked::One or more release prerequisites failed. See PREBUILD_STATUS.txt."
+            exit 1
+          fi
+          chmod +x android/gradlew
+          set -o pipefail
+          ./android/gradlew -p android assembleSideload --no-daemon --stacktrace 2>&1 | tee /tmp/code-interaction-audit-assemble.log
+
+      - name: Verify and stage tester APK
+        id: verify_apk
+        if: steps.assemble.outcome == 'success'
+        continue-on-error: true
+        working-directory: frontend
+        shell: bash
+        run: |
+          APP_VERSION="$(node -p 'require("./app.json").expo.version')"
+          NOTES="../docs/TESTER_RELEASE_NOTES_${APP_VERSION}.md"
+          APK="android/app/build/outputs/apk/sideload/app-sideload.apk"
+          test -f "$APK"
+          test -f "$NOTES"
+          unzip -l "$APK" | grep -E "(index\.android\.bundle|assets/.*\.bundle|resources\.arsc)" >/dev/null
+          unzip -l "$APK" | grep -E 'lib/arm64-v8a/libffmpegJNI\.so' >/dev/null
+          unzip -l "$APK" | grep -E 'lib/armeabi-v7a/libffmpegJNI\.so' >/dev/null
+          OUTDIR="android/app/build/outputs/apk/tester"
+          mkdir -p "$OUTDIR"
+          OUT="$OUTDIR/CharmIPTV-Code-Interaction-Audit-${APP_VERSION}.apk"
+          cp "$APK" "$OUT"
+          sha256sum "$OUT" > "$OUTDIR/SHA256SUMS.txt"
+          cp "$NOTES" "$OUTDIR/TESTER_RELEASE_NOTES.md"
+          cp ../ci/code-interaction-audit-lifecycle-report.txt "$OUTDIR/LIFECYCLE_SCAN.txt"
+          cp ../ci/code-interaction-audit-preview-lifecycle-report.txt "$OUTDIR/PREVIEW_PLAYER_SCAN.txt"
+          echo "app_version=${APP_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "apk_name=$(basename "$OUT")" >> "$GITHUB_OUTPUT"
+
+      - name: Write exact validation status
+        if: always()
+        shell: bash
+        env:
+          PREFLIGHT_READY: ${{ steps.preflight.outputs.ready }}
+          ASSEMBLE: ${{ steps.assemble.outcome }}
+          VERIFY_APK: ${{ steps.verify_apk.outcome }}
+        run: |
+          OUT=frontend/android/app/build/outputs/apk/tester
+          mkdir -p "$OUT"
+          cat >> "$OUT/VALIDATION_STATUS.txt" <<EOF
+          source_head=${GITHUB_SHA}
+          run_id=${GITHUB_RUN_ID}
+          run_number=${GITHUB_RUN_NUMBER}
+          preflight_ready=${PREFLIGHT_READY}
           assemble_sideload=${ASSEMBLE}
           verify_apk=${VERIFY_APK}
           EOF
+          cp /tmp/code-interaction-audit-assemble.log "$OUT/ASSEMBLE.log" 2>/dev/null || true
 
       - name: Upload verified sideload artifact
         id: upload
-        if: >-
-          steps.config.outcome == 'success' &&
-          steps.lifecycle.outcome == 'success' &&
-          steps.preview_lifecycle.outcome == 'success' &&
-          steps.tests.outcome == 'success' &&
-          steps.typecheck.outcome == 'success' &&
-          steps.lint.outcome == 'success' &&
-          steps.doctor.outcome == 'success' &&
-          steps.native_config.outcome == 'success' &&
-          steps.native_guide.outcome == 'success' &&
-          steps.diff_check.outcome == 'success' &&
-          steps.ffmpeg.outcome == 'success' &&
-          steps.android_compile.outcome == 'success' &&
-          steps.assemble.outcome == 'success' &&
-          steps.verify_apk.outcome == 'success'
+        if: steps.verify_apk.outcome == 'success'
         continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -295,28 +325,12 @@ jobs:
         if: always()
         shell: bash
         env:
-          NODE: ${{ steps.node.outcome }}
-          JAVA: ${{ steps.java.outcome }}
-          GRADLE_SETUP: ${{ steps.gradle_setup.outcome }}
-          ANDROID_SETUP: ${{ steps.android_setup.outcome }}
-          CONFIG: ${{ steps.config.outcome }}
-          SDK: ${{ steps.sdk.outcome }}
-          LIFECYCLE: ${{ steps.lifecycle.outcome }}
-          PREVIEW_LIFECYCLE: ${{ steps.preview_lifecycle.outcome }}
-          INSTALL: ${{ steps.install.outcome }}
-          TESTS: ${{ steps.tests.outcome }}
-          TYPECHECK: ${{ steps.typecheck.outcome }}
-          LINT: ${{ steps.lint.outcome }}
-          DOCTOR: ${{ steps.doctor.outcome }}
-          NATIVE_CONFIG: ${{ steps.native_config.outcome }}
-          NATIVE_GUIDE: ${{ steps.native_guide.outcome }}
-          DIFF_CHECK: ${{ steps.diff_check.outcome }}
-          FFMPEG: ${{ steps.ffmpeg.outcome }}
-          ANDROID_COMPILE: ${{ steps.android_compile.outcome }}
+          PREFLIGHT_READY: ${{ steps.preflight.outputs.ready }}
           ASSEMBLE: ${{ steps.assemble.outcome }}
           VERIFY_APK: ${{ steps.verify_apk.outcome }}
           UPLOAD: ${{ steps.upload.outcome }}
         run: |
-          for result in "$NODE" "$JAVA" "$GRADLE_SETUP" "$ANDROID_SETUP" "$CONFIG" "$SDK" "$LIFECYCLE" "$PREVIEW_LIFECYCLE" "$INSTALL" "$TESTS" "$TYPECHECK" "$LINT" "$DOCTOR" "$NATIVE_CONFIG" "$NATIVE_GUIDE" "$DIFF_CHECK" "$FFMPEG" "$ANDROID_COMPILE" "$ASSEMBLE" "$VERIFY_APK" "$UPLOAD"; do
-            test "$result" = success
-          done
+          test "${PREFLIGHT_READY}" = true
+          test "${ASSEMBLE}" = success
+          test "${VERIFY_APK}" = success
+          test "${UPLOAD}" = success
