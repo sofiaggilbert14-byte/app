@@ -2,7 +2,9 @@ from pathlib import Path
 
 ROOT = Path("frontend")
 stream_path = ROOT / "src/components/StreamPlayer.tsx"
+player_path = ROOT / "app/player.tsx"
 stream = stream_path.read_text(encoding="utf-8")
+player = player_path.read_text(encoding="utf-8")
 
 
 def replace_once(old: str, new: str, label: str) -> None:
@@ -11,6 +13,14 @@ def replace_once(old: str, new: str, label: str) -> None:
     if count != 1:
         raise SystemExit(f"{label}: expected exactly one match, found {count}")
     stream = stream.replace(old, new, 1)
+
+
+def replace_player_once(old: str, new: str, label: str) -> None:
+    global player
+    count = player.count(old)
+    if count != 1:
+        raise SystemExit(f"{label}: expected exactly one match, found {count}")
+    player = player.replace(old, new, 1)
 
 # TiViMate-style ownership: one bounded in-engine re-prepare, then hand recovery
 # back to the outer fullscreen owner. Multiple nested re-prepares plus route-level
@@ -93,5 +103,15 @@ replace_once(
     "import pauseSessionDecoders",
 )
 
+# Fullscreen ownership must be explicit rather than inherited from StreamPlayer's
+# route-sensitive default. This makes preview/fullscreen decoder intent auditable
+# and prevents future routing refactors from accidentally producing preview mode.
+replace_player_once(
+    'sessionRole="fullscreen"',
+    'mode="full"\n          sessionRole="fullscreen"',
+    "declare fullscreen playback mode",
+)
+
 stream_path.write_text(stream, encoding="utf-8")
+player_path.write_text(player, encoding="utf-8")
 print("Applied CharmIPTV player freeze/decoder ownership repair")
