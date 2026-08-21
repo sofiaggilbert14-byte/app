@@ -55,10 +55,8 @@ import { useCustomGuideGroups } from "@/src/core/customGuideGroups";
 import { resolveChannelNumber, useChannelCustomize } from "@/src/core/channelCustomize";
 import { useParentalPin } from "@/src/core/parentalPin";
 import {
-  clearStreamFailure,
   failedStreamCount,
   isFailedChannel,
-  noteStreamFailure,
 } from "@/src/core/streamFailureRegistry";
 import { consumeGuideJump, peekGuideJump } from "@/src/core/guideSearchJump";
 import { consumeGuideGroupsOnEntry } from "@/src/core/guideEntryIntent";
@@ -167,12 +165,6 @@ function GuideSelectionPreview({
     !!channel?.url &&
     previewId === channel.id &&
     previewStatus !== "error";
-
-  useEffect(() => {
-    if (!channel?.id) return;
-    if (previewStatus === "error") noteStreamFailure(channel.id);
-    if (previewStatus === "playing") clearStreamFailure(channel.id);
-  }, [channel?.id, previewStatus]);
 
   return (
     <GuidePreviewRail

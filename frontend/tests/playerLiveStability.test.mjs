@@ -59,6 +59,19 @@ test("Guide preview cannot rewrite fullscreen engine memory", async () => {
   assert.doesNotMatch(player, /stableRef\.current = true;\s*rememberSuccessfulStreamEngine\(engineMemoryKey, engine\);/);
 });
 
+test("Guide preview stalls are bounded and cannot poison fullscreen health state", async () => {
+  const [player, guide] = await Promise.all([
+    source("src/components/StreamPlayer.tsx"),
+    source("app/(tabs)/guide.tsx"),
+  ]);
+  assert.doesNotMatch(player, /if \(mode === "preview" \|\| paused \|\| blocked\) return;/);
+  assert.doesNotMatch(player, /if \(mode === "preview" \|\| paused \|\| blocked \|\| !mediaReady\)/);
+  assert.match(player, /const VLC_FROZEN_PROGRESS_MS = 15_000/);
+  assert.match(player, /const MEDIA3_FROZEN_CLOCK_MS = 9000/);
+  assert.doesNotMatch(guide, /noteStreamFailure/);
+  assert.doesNotMatch(guide, /clearStreamFailure/);
+});
+
 test("late stable-stream failure clears the stable gate and bounds fallback startup", async () => {
   const player = await source("src/components/StreamPlayer.tsx");
   assert.match(player, /if \(fallbackUsed\) \{\s*setSessionPhase\(role, sessionGeneration, "failed", "start-timeout"\);\s*setStatus\("error", "start-timeout"\);/);

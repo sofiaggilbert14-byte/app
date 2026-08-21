@@ -418,7 +418,7 @@ function VlcStream({
   }, [blocked, hardStop]);
 
   useEffect(() => {
-    if (mode === "preview" || paused || blocked) return;
+    if (paused || blocked) return;
     const watchdog = setInterval(() => {
       if (!activeRef.current || tearingDownRef.current || paused || blocked) return;
       if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
@@ -933,7 +933,7 @@ function ExpoStream({
         }
       }
     });
-    if (mode === "preview" || paused || blocked || !mediaReady) {
+    if (paused || blocked || !mediaReady) {
       return () => progressSub.remove();
     }
     lastPlaybackTimeRef.current = player.currentTime;
