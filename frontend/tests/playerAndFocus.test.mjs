@@ -122,7 +122,9 @@ test("Guide long Select is exclusively contextual Quick Actions, never the old F
   ]);
   assert.doesNotMatch(guide, /remoteShortcuts\.longSelect/);
   assert.doesNotMatch(guide, /addTvLongPressListener/);
-  assert.match(activity, /emitRemoteEvent\("TvRemoteQuickActions", context\)/);
+  assert.match(activity, /selectHoldHandler\.postDelayed/);
+  assert.match(activity, /ViewConfiguration\.getLongPressTimeout\(\)\.toLong\(\)/);
+  assert.match(activity, /emitRemoteEvent\("TvRemoteQuickActions", owner\)/);
   assert.match(overlay, /guideSelection\?\.surface === "program" && guideSelection\.program/);
   assert.match(overlay, /PROGRAM QUICK ACTIONS/);
   assert.match(overlay, /Program details \/ reminder/);
@@ -175,12 +177,16 @@ test("Media3 recovery only reparses a real post-playback buffering state", async
   assert.match(stream, /RESYNC_REARM_STABLE_MS = 30_000/);
 });
 
-test("long Select consumes release and program context stays in Quick Actions", async () => {
+test("long Select consumes release and short Select is reinjected only after classification", async () => {
   const [activity, overlay] = await Promise.all([
     source("android/app/src/main/java/com/charmiptv/app/MainActivity.kt"),
     source("src/components/TvQuickActionsOverlay.tsx"),
   ]);
-  assert.match(activity, /if \(consumedLongSelect\) return true/);
+  assert.match(activity, /if \(wasLong\) return true/);
+  assert.match(activity, /if \(owner == null \|\| TvRemoteModule\.remoteContext != owner\) return true/);
+  assert.match(activity, /super\.dispatchKeyEvent\(down\)/);
+  assert.match(activity, /super\.dispatchKeyEvent\(up\)/);
+  assert.doesNotMatch(activity, /consumedLongSelect/);
   assert.match(overlay, /PROGRAM QUICK ACTIONS/);
   assert.match(overlay, /Program details \/ reminder/);
   assert.doesNotMatch(overlay, /guideSelection\.program\) \{\s*openProgram/);
