@@ -43,7 +43,7 @@ jobs:
         run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006"
 
       - name: Apply TiViMate behavioral repair
-        run: python ci/tivimate-deep-player-quickactions-repair.py
+        run: python ci/tivimate-deep-player-quickactions-repair-v2.py
 
       - name: Player decoder codec bleed scan
         run: python ci/code-interaction-audit-player-freeze-scan.py
