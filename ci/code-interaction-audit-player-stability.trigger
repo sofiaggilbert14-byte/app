@@ -1,2 +1,2 @@
-2026-08-20 code interaction audit player stability repair
-isolated audit branch run 17 - React effect cleanup returns void while preserving owner safety
+2026-08-21 post-timeout player/preview isolation repair
+whole-app lifecycle audit pass 1
