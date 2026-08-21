@@ -1,0 +1,108 @@
+name: Code Interaction Audit Phase 9 Integration
+
+on:
+  push:
+    branches:
+      - agent/code-interaction-audit
+    paths:
+      - ci/code-interaction-audit-phase9-integration.trigger
+  pull_request:
+    branches:
+      - agent/code-interaction-audit
+    paths:
+      - ci/code-interaction-audit-phase9-integration.trigger
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: agent/code-interaction-audit
+          fetch-depth: 0
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Apply Phase 9 integration repair
+        run: python ci/code-interaction-audit-phase9-integration-repair.py
+
+      - name: Repair convergence scan
+        run: python ci/code-interaction-audit-repair-idempotence-scan.py
+
+      - name: Complete Settings lifecycle scan
+        run: python ci/code-interaction-audit-settings-lifecycle-scan.py
+
+      - name: Settings option inventory
+        run: python ci/code-interaction-audit-setting-option-inventory.py
+
+      - name: EPG schedule lifecycle scan
+        run: python ci/code-interaction-audit-epg-schedule-lifecycle-scan.py
+
+      - name: OSD ownership scan
+        run: python ci/code-interaction-audit-osd-lifecycle-scan.py
+
+      - name: Foreground refresh scan
+        run: python ci/code-interaction-audit-foreground-refresh-scan.py
+
+      - name: Guide modal preview input ownership scan
+        run: python ci/code-interaction-audit-guide-modal-lifecycle-scan.py
+
+      - name: Inactive tab RAM scan
+        run: python ci/code-interaction-audit-tab-lifecycle-scan.py
+
+      - name: Whole-app lifecycle scan
+        run: python ci/code-interaction-audit-lifecycle-scan.py
+
+      - name: Preview and player lifecycle scan
+        run: python ci/code-interaction-audit-preview-lifecycle-scan.py
+
+      - name: Install JavaScript dependencies
+        working-directory: frontend
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: Unit and interaction tests
+        working-directory: frontend
+        run: npm test
+
+      - name: Typecheck
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Validate repository patch shape
+        run: git diff --check
+
+      - name: Commit verified Phase 9 repair
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No changes needed"
+            exit 0
+          fi
+          git config user.name "Charm Interaction Audit Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add \
+            frontend/app/epg-source.tsx \
+            frontend/app/group-settings.tsx \
+            frontend/android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt \
+            frontend/tests/groupTabsScreenFit.test.mjs \
+            frontend/tests/guideLiveClock.test.mjs \
+            ci/code-interaction-audit-settings-lifecycle-scan.py \
+            .github/workflows/code-interaction-audit-final-sideload.yml
+          git commit -m "fix: integrate Phase 9 guide EPG focus and live timeline"
+          git push origin HEAD:agent/code-interaction-audit
