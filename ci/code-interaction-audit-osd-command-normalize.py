@@ -37,9 +37,9 @@ if 'emitTvQuickActions("player")' not in text:
     if count != 1:
         raise SystemExit(f"player Quick Actions button normalization expected one legacy More button, found {count}")
 
-# The local More surface is gone; no dead focus node from that surface may
-# survive and retain an accidental focus target or fail strict type/lint checks.
-text = re.sub(r'^\s*const moreFirstActionRef = useRef<any>\(null\);\n', '', text, count=1, flags=re.MULTILINE)
+# The local More surface is gone. Remove every obsolete focus-ref line regardless
+# of LF/CRLF or indentation so no dead Android TV focus target survives.
+text = "\n".join(line for line in text.splitlines() if "moreFirstActionRef" not in line) + "\n"
 
 path.write_text(text, encoding="utf-8")
 print("player Quick Actions command/button bridge normalized")
