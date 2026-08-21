@@ -99,29 +99,75 @@ jobs:
           git push origin HEAD:agent/tivimate-deep-player-quickactions-repair
 
       - name: Typecheck
+        id: typecheck
         working-directory: frontend
-        run: npm run typecheck
+        shell: bash
+        run: |
+          set +e
+          npm run typecheck 2>&1 | tee /tmp/charm-typecheck.log
+          exit ${PIPESTATUS[0]}
 
       - name: Lint
+        id: lint
         working-directory: frontend
-        run: npm run lint
+        shell: bash
+        run: |
+          set +e
+          npm run lint 2>&1 | tee /tmp/charm-lint.log
+          exit ${PIPESTATUS[0]}
 
       - name: Verify native configuration
+        id: native_config
         working-directory: frontend
-        run: npm run verify:native-config
+        shell: bash
+        run: |
+          set +e
+          npm run verify:native-config 2>&1 | tee /tmp/charm-native-config.log
+          exit ${PIPESTATUS[0]}
 
       - name: Compile FFmpeg Media3 and app native bridge
+        id: native_compile
         working-directory: frontend
+        shell: bash
         env:
           CI: '1'
           GRADLE_OPTS: '-Dorg.gradle.jvmargs=-Xmx3g -Dorg.gradle.workers.max=1'
         run: |
+          set +e
           chmod +x android/gradlew
           ./android/gradlew -p android \
             :ffmpeg-audio:compileDebugJavaWithJavac \
             :app:compileDebugKotlin \
             :app:compileDebugJavaWithJavac \
-            --no-daemon --max-workers=1 --stacktrace
+            --no-daemon --max-workers=1 --stacktrace 2>&1 | tee /tmp/charm-native-compile.log
+          exit ${PIPESTATUS[0]}
+
+      - name: Publish post-unit failure diagnostic
+        if: ${{ failure() && steps.unit_tests.outcome != 'failure' }}
+        shell: bash
+        run: |
+          {
+            echo "typecheck=${{ steps.typecheck.outcome }}"
+            echo "lint=${{ steps.lint.outcome }}"
+            echo "native_config=${{ steps.native_config.outcome }}"
+            echo "native_compile=${{ steps.native_compile.outcome }}"
+            for file in /tmp/charm-typecheck.log /tmp/charm-lint.log /tmp/charm-native-config.log /tmp/charm-native-compile.log; do
+              if [ -f "$file" ]; then
+                echo
+                echo "===== $file ====="
+                tail -n 220 "$file"
+              fi
+            done
+          } > ci/tivimate-latest-post-unit.txt
+          git config user.name "Charm Interaction Audit Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add ci/tivimate-latest-post-unit.txt
+          if git diff --cached --quiet; then
+            echo "Post-unit diagnostic unchanged"
+            exit 0
+          fi
+          git commit -m "ci(tivimate): capture post-unit gate diagnostics"
+          git push origin HEAD:agent/tivimate-deep-player-quickactions-repair
 
       - name: Validate repair patch shape
         run: git diff --check
