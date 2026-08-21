@@ -10,8 +10,10 @@ import sys
 ROOT = Path("frontend")
 EXTS = {".ts", ".tsx", ".js", ".mjs", ".kt", ".java"}
 SKIP = {"node_modules", "build", ".gradle", ".expo", "dist"}
-# Immutable RC.5-9 source baseline. Use the commit, not a movable branch ref.
-BASELINE_REF = "061d5b073d5f9c721b9362ef67d4a02dd05637f7"
+# Immutable repair-entry baseline. Build 8 remains in this commit's ancestry,
+# while this ref also includes the later verified EPG ownership work that was
+# already present when the deep-player repair resumed.
+BASELINE_REF = "a98c49e8631f2c0e90be7cfb630395c75ada09ec"
 MAIN_REF = "origin/main"
 SHIPPED_PREFIXES = (
     "frontend/app/",
@@ -33,6 +35,8 @@ def git_show(ref: str, path: str) -> str:
     return subprocess.check_output(
         ["git", "show", f"{ref}:{path}"],
         text=True,
+        encoding="utf-8",
+        errors="replace",
         stderr=subprocess.DEVNULL,
     )
 
@@ -41,6 +45,8 @@ def git_paths(ref: str) -> list[str]:
     out = subprocess.check_output(
         ["git", "ls-tree", "-r", "--name-only", ref, "frontend"],
         text=True,
+        encoding="utf-8",
+        errors="replace",
         stderr=subprocess.DEVNULL,
     )
     return [
@@ -117,8 +123,8 @@ for path in current_files:
     ):
         critical.append(f"AppState listener has no obvious cleanup: {rel}")
 
-# Exact RC.5-9 transport baseline: these are the Android M3U/XMLTV ownership
-# files proven in the last working build. Player repair must never mutate them.
+# Exact repair-entry transport baseline: the player repair must not mutate the
+# already-established Android M3U/XMLTV ownership implementation.
 for rel in (
     "frontend/src/source.native.ts",
     "frontend/src/nativeEpg.ts",
@@ -128,10 +134,10 @@ for rel in (
     try:
         baseline = git_show(BASELINE_REF, rel)
     except Exception as exc:
-        critical.append(f"RC5-9 baseline unavailable for {rel}: {exc}")
+        critical.append(f"repair-entry baseline unavailable for {rel}: {exc}")
         continue
     if current != baseline:
-        critical.append(f"RC5-9 M3U/EPG transport drift: {rel}")
+        critical.append(f"repair changed M3U/EPG transport: {rel}")
 
 # Background workers are optional architecture. If present, they may only set
 # due flags; they must never download or parse playlist/EPG data themselves.

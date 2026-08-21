@@ -89,7 +89,7 @@ function fullscreenPlaybackOwnsDecoder(): boolean {
   return getSessionPhase("fullscreen") !== "idle";
 }
 
-const DEFAULT_GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 12);
+const DEFAULT_GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 24);
 
 function readGuideWindowHours(value: string | number | null | undefined, fallback: GuideWindowHours): GuideWindowHours {
   const n = Number(value || fallback);

@@ -81,7 +81,6 @@ const BUFFERING_RESYNC_MS = 5000;
 const BUFFERING_FAIL_MS = 12_000;
 const MAX_SILENT_BUFFERING_RESYNCS = 1;
 const RESYNC_REARM_STABLE_MS = 30_000;
-const VLC_FROZEN_PROGRESS_MS = 8_000;
 const VLC_BUFFERING_FAIL_MS = 12_000;
 
 function pruneFailureMap(now = Date.now()) {
@@ -304,9 +303,6 @@ function VlcStream({
   const tearingDownRef = useRef(false);
   const playerRef = useRef<any>(null);
   const vlcHasPlayedRef = useRef(false);
-  const vlcProgressSeenRef = useRef(false);
-  const vlcLastProgressValueRef = useRef<number | null>(null);
-  const vlcLastProgressAtRef = useRef(Date.now());
   const vlcBufferingSinceRef = useRef<number | null>(null);
   const { uri, headers } = useMemo(() => parsePipeHeaders(rawUri), [rawUri]);
   const { blocked, setBlocked } = useCircuitCooldown(sessionRole, engine, uri, setStatus);
@@ -328,8 +324,6 @@ function VlcStream({
       `--network-caching=${networkCaching}`,
       `--live-caching=${liveCaching}`,
       `--file-caching=${fileCaching}`,
-      "--clock-jitter=0",
-      "--clock-synchro=0",
       "--http-reconnect",
       "--adaptive-logic=rate",
       `--http-user-agent=${userAgent}`,
@@ -422,13 +416,12 @@ function VlcStream({
       if (!activeRef.current || tearingDownRef.current || paused || blocked) return;
       if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
       if (!vlcHasPlayedRef.current) return;
-      const now = Date.now();
       const bufferingSince = vlcBufferingSinceRef.current;
-      const bufferingStalled = bufferingSince != null && now - bufferingSince >= VLC_BUFFERING_FAIL_MS;
-      const progressStalled =
-        vlcProgressSeenRef.current &&
-        now - vlcLastProgressAtRef.current >= VLC_FROZEN_PROGRESS_MS;
-      if (!bufferingStalled && !progressStalled) return;
+      // LibVLC progress is not a reliable liveness signal for non-seekable live
+      // inputs: a healthy MPEG-TS stream may keep reporting a fixed/unknown
+      // position. Only LibVLC's explicit post-playback buffering state may arm
+      // recovery, matching the Media3 state-based watchdog contract.
+      if (bufferingSince == null || Date.now() - bufferingSince < VLC_BUFFERING_FAIL_MS) return;
       vlcBufferingSinceRef.current = null;
       vlcHasPlayedRef.current = false;
       fail();
@@ -469,30 +462,10 @@ function VlcStream({
         }
         emit("loading");
       }}
-      onProgress={(info: any) => {
-        if (!activeRef.current || tearingDownRef.current) return;
-        if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
-        const currentTime = Number(info?.currentTime);
-        const position = Number(info?.position);
-        const progressValue = Number.isFinite(currentTime)
-          ? currentTime
-          : Number.isFinite(position)
-            ? position
-            : Number.NaN;
-        if (!Number.isFinite(progressValue)) return;
-        const previous = vlcLastProgressValueRef.current;
-        vlcLastProgressValueRef.current = progressValue;
-        if (previous == null || Math.abs(progressValue - previous) > 0.0001) {
-          if (previous != null) vlcProgressSeenRef.current = true;
-          vlcLastProgressAtRef.current = Date.now();
-          vlcBufferingSinceRef.current = null;
-        }
-      }}
       onPlaying={() => {
         if (!activeRef.current || tearingDownRef.current) return;
         if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
         vlcHasPlayedRef.current = true;
-        vlcLastProgressAtRef.current = Date.now();
         vlcBufferingSinceRef.current = null;
         recordStablePlayback(sessionRole, engine, uri);
         emit("playing");

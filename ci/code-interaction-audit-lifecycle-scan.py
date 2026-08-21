@@ -74,7 +74,7 @@ if 'const RESYNC_REARM_STABLE_MS = 30_000' not in stream or 'const BUFFERING_FAI
 if "MEDIA3_FROZEN_CLOCK_MS" in stream or "const frozenReadyClock =" in stream:
     critical.append("Media3 clock-silence-only decoder reload is enabled")
 if (
-    'const VLC_FROZEN_PROGRESS_MS = 8_000' not in stream
+    'const VLC_BUFFERING_FAIL_MS = 12_000' not in stream
     or 'const VLC_BUFFERING_FAIL_MS = 12_000' not in stream
     or 'onStopped={fail}' not in stream
 ):

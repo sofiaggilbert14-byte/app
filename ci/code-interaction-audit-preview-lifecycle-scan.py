@@ -32,7 +32,6 @@ if 'if (mode === "preview" || paused || blocked) return;' in stream:
 if 'if (mode === "preview" || paused || blocked || !mediaReady)' in stream:
     critical.append("Media3 preview is excluded from buffering watchdog")
 for required in (
-    "const VLC_FROZEN_PROGRESS_MS = 8_000",
     "const VLC_BUFFERING_FAIL_MS = 12_000",
     "if (bufferingSince == null) return;",
     "const BUFFERING_RESYNC_MS = 5000",

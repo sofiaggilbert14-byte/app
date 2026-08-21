@@ -211,7 +211,7 @@ test("Cloudflare builder and worker bound provider data and share the 12-hour gu
   assert.match(builder, /MAX_EPG_DECOMPRESSED_BYTES/);
   assert.match(builder, /readGuideWindowHours\(process\.env\.GUIDE_WINDOW_HOURS, 12\)/);
   assert.match(builder, /function readGuideWindowHours\(value, fallback = 12\)/);
-  assert.match(store, /readGuideWindowHours\(process\.env\.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 12\)/);
+  assert.match(store, /readGuideWindowHours\(process\.env\.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 24\)/);
   assert.match(builder, /getReader\(\)/);
   assert.doesNotMatch(worker, /detail:\s*String\(e\)/);
   assert.match(worker, /Request could not be completed/);

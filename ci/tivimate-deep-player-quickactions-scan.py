@@ -50,8 +50,8 @@ for token in (
     "const BUFFERING_FAIL_MS = 12_000;",
     "const MAX_SILENT_BUFFERING_RESYNCS = 1;",
     "const RESYNC_REARM_STABLE_MS = 30_000;",
-    "const VLC_FROZEN_PROGRESS_MS = 8_000;",
     "const VLC_BUFFERING_FAIL_MS = 12_000;",
+    "bufferingSince == null || Date.now() - bufferingSince < VLC_BUFFERING_FAIL_MS",
     "const stableProgressSinceRef = useRef<number | null>(null);",
     "if (bufferingSince == null) return;",
     "if (!hasPlayedRef.current) bufferingSinceRef.current = null;",
@@ -61,6 +61,15 @@ for token in (
 for obsolete in ("MEDIA3_FROZEN_CLOCK_MS", "frozenReadyClock", "lastPlaybackAdvanceAtRef", "hasAdvancedPlaybackRef"):
     if obsolete in stream:
         critical.append(f"obsolete nested/frozen-clock recovery remains: {obsolete}")
+for obsolete in (
+    "VLC_FROZEN_PROGRESS_MS",
+    "vlcLastProgressAtRef",
+    "vlcProgressSeenRef",
+    "--clock-jitter=0",
+    "--clock-synchro=0",
+):
+    if obsolete in stream:
+        critical.append(f"VLC false-freeze override remains: {obsolete}")
 
 # Outer remount owner gets one 1/2/4 second sequence. A transient PLAYING event
 # does not buy another sequence until 30 seconds stable on the same channel.

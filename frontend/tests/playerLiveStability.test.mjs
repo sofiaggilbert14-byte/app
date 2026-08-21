@@ -38,19 +38,11 @@ test("Media3 dead provider reads fail promptly without clock-only decoder reload
 
 test("VLC post-playback stalls become bounded recovery events", async () => {
   const player = await source("src/components/StreamPlayer.tsx");
-  assert.match(player, /const VLC_FROZEN_PROGRESS_MS = 8_000/);
   assert.match(player, /const VLC_BUFFERING_FAIL_MS = 12_000/);
-  assert.match(player, /const vlcProgressSeenRef = useRef\(false\)/);
-  assert.match(player, /const vlcLastProgressValueRef = useRef<number \| null>\(null\)/);
-  assert.match(player, /onProgress=\{\(info: any\) => \{/);
-  assert.match(player, /const currentTime = Number\(info\?\.currentTime\)/);
-  assert.match(player, /const position = Number\(info\?\.position\)/);
-  assert.match(player, /Math\.abs\(progressValue - previous\) > 0\.0001/);
-  assert.match(player, /vlcLastProgressAtRef\.current = Date\.now\(\)/);
   assert.match(player, /vlcBufferingSinceRef\.current = Date\.now\(\)/);
-  assert.match(player, /const bufferingStalled = bufferingSince != null && now - bufferingSince >= VLC_BUFFERING_FAIL_MS/);
-  assert.match(player, /now - vlcLastProgressAtRef\.current >= VLC_FROZEN_PROGRESS_MS/);
-  assert.match(player, /if \(!bufferingStalled && !progressStalled\) return/);
+  assert.match(player, /bufferingSince == null \|\| Date\.now\(\) - bufferingSince < VLC_BUFFERING_FAIL_MS/);
+  assert.doesNotMatch(player, /VLC_FROZEN_PROGRESS_MS|vlcLastProgressAtRef|vlcProgressSeenRef|onProgress=/);
+  assert.doesNotMatch(player, /--clock-jitter=0|--clock-synchro=0/);
   assert.match(player, /vlcHasPlayedRef\.current = false;\s*fail\(\)/);
   assert.match(player, /onError=\{fail\}\s*onStopped=\{fail\}/);
 });
@@ -68,7 +60,6 @@ test("Guide preview stalls are bounded and cannot poison fullscreen health state
   ]);
   assert.doesNotMatch(player, /if \(mode === "preview" \|\| paused \|\| blocked\) return;/);
   assert.doesNotMatch(player, /if \(mode === "preview" \|\| paused \|\| blocked \|\| !mediaReady\)/);
-  assert.match(player, /const VLC_FROZEN_PROGRESS_MS = 8_000/);
   assert.match(player, /const VLC_BUFFERING_FAIL_MS = 12_000/);
   assert.match(player, /if \(bufferingSince == null\) return/);
   assert.match(player, /const RESYNC_REARM_STABLE_MS = 30_000/);

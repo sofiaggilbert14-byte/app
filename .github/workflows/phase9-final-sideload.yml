@@ -36,11 +36,11 @@ jobs:
           ref: agent/tivimate-deep-player-quickactions-repair
           fetch-depth: 0
 
-      - name: Guard RC5-9 M3U and EPG transport baseline
+      - name: Guard repair-entry M3U and EPG transport baseline
         working-directory: .
         shell: bash
         run: |
-          git diff --exit-code 061d5b073d5f9c721b9362ef67d4a02dd05637f7 -- \
+          git diff --exit-code a98c49e8631f2c0e90be7cfb630395c75ada09ec -- \
             frontend/src/source.native.ts \
             frontend/src/nativeEpg.ts \
             frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt
@@ -96,8 +96,7 @@ jobs:
           python3 ci/code-interaction-audit-epg-schedule-lifecycle-scan.py
           python3 ci/code-interaction-audit-guide-modal-lifecycle-scan.py
           python3 ci/code-interaction-audit-surface-ownership-scan.py
-          python3 ci/code-interaction-audit-player-stability.py
-          python3 ci/code-interaction-audit-preview-isolation.py
+          python3 ci/code-interaction-audit-osd-lifecycle-scan.py
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps --no-audit --no-fund

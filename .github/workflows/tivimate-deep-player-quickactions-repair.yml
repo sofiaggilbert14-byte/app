@@ -53,8 +53,8 @@ jobs:
       - name: Install Android SDK
         run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006"
 
-      - name: Apply TiViMate behavioral repair
-        run: python ci/tivimate-deep-player-quickactions-repair-v2.py
+      - name: Verify TiViMate behavioral repair
+        run: python ci/tivimate-deep-player-quickactions-scan.py
 
       - name: Repair Guide lint dependency warning
         shell: bash
@@ -100,19 +100,15 @@ jobs:
           from pathlib import Path
           path = Path('frontend/src/store.tsx')
           text = path.read_text(encoding='utf-8')
-          old = 'const DEFAULT_GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 12);'
           new = 'const DEFAULT_GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 24);'
-          if old in text:
-              text = text.replace(old, new, 1)
-              path.write_text(text, encoding='utf-8')
-          elif new not in text:
+          if new not in text:
               raise SystemExit('Guide default window contract changed unexpectedly')
           PY
 
-      - name: Guard RC5-9 M3U and EPG transport baseline
+      - name: Guard repair-entry M3U and EPG transport baseline
         shell: bash
         run: |
-          git diff --exit-code 061d5b073d5f9c721b9362ef67d4a02dd05637f7 -- \
+          git diff --exit-code a98c49e8631f2c0e90be7cfb630395c75ada09ec -- \
             frontend/src/source.native.ts \
             frontend/src/nativeEpg.ts \
             frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt

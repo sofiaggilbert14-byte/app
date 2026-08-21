@@ -526,8 +526,12 @@ function PurpleGuideScreenContent() {
   const failedCount = failedStreamCount();
 
   const groupCounts = useMemo(
-    () =>
-      buildGroupCounts(channels, {
+    () => {
+      // The failure registry is module-owned. Reading its count here makes a
+      // failure-state render recompute this memo without pretending the EPG
+      // filter participates in group counts.
+      void failedCount;
+      return buildGroupCounts(channels, {
         favoriteSet,
         recentIds: recentIdSet,
         hasEpgMatch: hasOwnedEpgMatch,
@@ -535,8 +539,9 @@ function PurpleGuideScreenContent() {
         hiddenIds: hiddenIdSet,
         customGroups: customGuideGroups.byName,
         includeProviderGroups: showProviderGroups,
-      }),
-    [channels, favoriteSet, recentIdSet, hasOwnedEpgMatch, hiddenIdSet, failedCount, epgGuideFilter, customGuideGroups.byName, showProviderGroups],
+      });
+    },
+    [channels, favoriteSet, recentIdSet, hasOwnedEpgMatch, hiddenIdSet, failedCount, customGuideGroups.byName, showProviderGroups],
   );
 
   const playlistGroups = useMemo(
