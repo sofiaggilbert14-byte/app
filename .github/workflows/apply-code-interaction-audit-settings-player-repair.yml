@@ -6,6 +6,11 @@ on:
       - agent/code-interaction-audit
     paths:
       - ci/code-interaction-audit-settings-player-repair.trigger
+  pull_request:
+    branches:
+      - agent/code-interaction-audit
+    paths:
+      - ci/code-interaction-audit-settings-player-repair.trigger
 
 permissions:
   contents: write
