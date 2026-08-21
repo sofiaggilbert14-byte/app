@@ -53,6 +53,12 @@ test("VLC post-playback stalls become bounded recovery events", async () => {
   assert.match(player, /onError=\{fail\}\s*onStopped=\{fail\}/);
 });
 
+test("Guide preview cannot rewrite fullscreen engine memory", async () => {
+  const player = await source("src/components/StreamPlayer.tsx");
+  assert.match(player, /if \(role === "fullscreen"\) rememberSuccessfulStreamEngine\(engineMemoryKey, engine\)/);
+  assert.doesNotMatch(player, /stableRef\.current = true;\s*rememberSuccessfulStreamEngine\(engineMemoryKey, engine\);/);
+});
+
 test("late stable-stream failure clears the stable gate and bounds fallback startup", async () => {
   const player = await source("src/components/StreamPlayer.tsx");
   assert.match(player, /if \(fallbackUsed\) \{\s*setSessionPhase\(role, sessionGeneration, "failed", "start-timeout"\);\s*setStatus\("error", "start-timeout"\);/);

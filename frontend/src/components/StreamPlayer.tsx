@@ -1199,7 +1199,7 @@ export function StreamPlayer({
       if (status === "playing") {
         if (role === "fullscreen") setNativePlaybackStarting(false);
         stableRef.current = true;
-        rememberSuccessfulStreamEngine(engineMemoryKey, engine);
+        if (role === "fullscreen") rememberSuccessfulStreamEngine(engineMemoryKey, engine);
         setSessionPhase(role, sessionGeneration, "playing");
         setStatus("playing");
         return;
