@@ -1,2 +1,2 @@
-2026-08-21 post-timeout player/preview isolation repair
-whole-app lifecycle audit pass 1
+2026-08-21 preview watchdog and fullscreen-health isolation
+whole-app lifecycle audit pass 3
