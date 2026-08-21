@@ -14,7 +14,7 @@ import * as Haptics from "expo-haptics";
 import { useStore } from "@/src/store";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { fonts, radius, tvColors } from "@/src/theme";
-import { addTvQuickActionsListener, emitPlayerQuickCommand, setRemoteContext, type PlayerQuickCommand, type TvQuickActionsContext } from "@/src/utils/tvRemote";
+import { addTvQuickActionsListener, emitPlayerQuickCommand, resetRemoteContextIfOwned, setRemoteContext, type PlayerQuickCommand, type TvQuickActionsContext } from "@/src/utils/tvRemote";
 import { getGuideSelection } from "@/src/core/guideSelectionStore";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 import { useChannelCustomize } from "@/src/core/channelCustomize";
@@ -84,6 +84,7 @@ export function TvQuickActionsOverlay() {
   const [status, setStatus] = useState<string | null>(null);
   const [focusClaim, setFocusClaim] = useState(false);
   const queryGeneration = useRef(0);
+  const openPathRef = useRef<string | null>(null);
 
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
   const hiddenSet = useMemo(() => new Set(customize.hiddenIds), [customize.hiddenIds]);
@@ -111,7 +112,12 @@ export function TvQuickActionsOverlay() {
     setStatus(null);
     setGuideProgram(null);
     setBusy(false);
-    setRemoteContext(pathname?.startsWith("/player") ? "player" : pathname?.startsWith("/guide") ? "guide" : "default");
+    openPathRef.current = null;
+    const restore = pathname?.startsWith("/player") ? "player" : pathname?.startsWith("/guide") ? "guide" : "default";
+    // A route can claim its new owner before a stale modal close runs. Release
+    // only if Quick Actions still owns the remote context so modal teardown can
+    // never overwrite the player/Guide/drawer that replaced it.
+    resetRemoteContextIfOwned("modal", restore);
   }, [pathname]);
 
   const runPlayerCommand = useCallback((command: PlayerQuickCommand) => {
@@ -137,9 +143,19 @@ export function TvQuickActionsOverlay() {
     setMode("main");
     setStatus(null);
     setSourceChoice(null);
+    openPathRef.current = pathname || "";
     setOpen(true);
     setRemoteContext("modal");
-  }), [channelById, openProgram, resolvePlayerChannelId]);
+  }), [channelById, openProgram, pathname, resolvePlayerChannelId]);
+
+  useEffect(() => {
+    if (!open) return;
+    const openedPath = openPathRef.current;
+    if (openedPath == null || openedPath === (pathname || "")) return;
+    // Automatic navigation (sleep timer, player recovery exit, etc.) must not
+    // leave a stale modal/focus layer running over the next screen.
+    close();
+  }, [close, open, pathname]);
 
   useEffect(() => {
     if (!open) return;
