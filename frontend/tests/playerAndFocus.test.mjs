@@ -170,8 +170,9 @@ test("Media3 recovery only reparses a real post-playback buffering state", async
   assert.match(stream, /const bufferingFor = now - bufferingSince/);
   assert.doesNotMatch(stream, /MEDIA3_FROZEN_CLOCK_MS|const frozenReadyClock =|const stalledReady =/);
   assert.match(stream, /const BUFFERING_RESYNC_MS = 5000/);
-  assert.match(stream, /const BUFFERING_FAIL_MS = 22000/);
+  assert.match(stream, /const BUFFERING_FAIL_MS = 12_000/);
   assert.match(stream, /MAX_SILENT_BUFFERING_RESYNCS = 1/);
+  assert.match(stream, /RESYNC_REARM_STABLE_MS = 30_000/);
 });
 
 test("long Select consumes release and program context stays in Quick Actions", async () => {
