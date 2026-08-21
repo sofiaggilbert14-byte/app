@@ -1,7 +1,7 @@
   }
 
 test at tests/nativeGuideArchitecture.test.mjs:149:1
-✖ native Guide resolves short versus held Select before opening a programme (1.223466ms)
+✖ native Guide resolves short versus held Select before opening a programme (1.175586ms)
   AssertionError [ERR_ASSERTION]: The input did not match the regular expression /event\.action == android\.view\.KeyEvent\.ACTION_DOWN && event\.repeatCount > 0 && emittedLongPressKeyCode != event\.keyCode/. Input:
   
   'package com.charmiptv.app\n' +
