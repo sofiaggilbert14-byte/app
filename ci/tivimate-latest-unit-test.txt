@@ -1,0 +1,260 @@
+    '  DeviceEventEmitter,\n' +
+    '  Pressable,\n' +
+    '  ScrollView,\n' +
+    '  StyleSheet,\n' +
+    '  Text,\n' +
+    '  TextInput,\n' +
+    '  View,\n' +
+    '} from "react-native";\n' +
+    'import { useGlobalSearchParams, usePathname, useRouter } from "expo-router";\n' +
+    'import { Ionicons } from "@expo/vector-icons";\n' +
+    'import * as Haptics from "expo-haptics";\n' +
+    'import { useStore } from "@/src/store";\n' +
+    'import { FocusGuide } from "@/src/components/TVFocusGuideView";\n' +
+    'import { requestNativeFocus } from "@/src/utils/tvFocus";\n' +
+    'import { fonts, radius, tvColors } from "@/src/theme";\n' +
+    'import { addTvQuickActionsListener, emitPlayerQuickCommand, resetRemoteContextIfOwned, setGuideNavigationActive, setRemoteContext, type PlayerQuickCommand, type TvQuickActionsContext } from "@/src/utils/tvRemote";\n' +
+    'import { getGuideSelection } from "@/src/core/guideSelectionStore";\n' +
+    'import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";\n' +
+    'import { useChannelCustomize } from "@/src/core/channelCustomize";\n' +
+    'import { useEpgSourcePreferences } from "@/src/core/epgSourcePreferences";\n' +
+    'import { useSourceRefreshPreferences } from "@/src/core/sourceRefreshPreferences";\n' +
+    'import {\n' +
+    '  assignMultiEpgChannel,\n' +
+    '  clearMultiEpgChannelAssignments,\n' +
+    '  useMultiEpgSources,\n' +
+    '} from "@/src/core/multiEpgSources";\n' +
+    'import {\n' +
+    '  configureNativeUserGuideSources,\n' +
+    '  listNativeSourceGuideChannels,\n' +
+    '  listNativeUserGuideChannels,\n' +
+    '  setNativeGuideChannelBinding,\n' +
+    '  setNativeSourceGuideBinding,\n' +
+    '} from "@/src/nativeEpg";\n' +
+    'import { invalidateGuideOwnershipCaches } from "@/src/source";\n' +
+    'import { fingerprintStreamUri, getLastAudioDiagnostics } from "@/src/core/audioDiagnostics";\n' +
+    'import { usePlayerEnginePreference, type PlayerEnginePreference } from "@/src/playerEnginePreference";\n' +
+    'import { usePlaybackBufferProfile, type PlaybackBufferProfile } from "@/src/core/playbackBufferProfile";\n' +
+    'import type { Program } from "@/src/api";\n' +
+    '\n' +
+    'type Mode = "main" | "epg-source" | "epg-channel";\n' +
+    'type SourceChoice = { id: string; name: string; url: string; enabled: boolean; legacy: boolean };\n' +
+    'type EpgRow = { id: string; name: string };\n' +
+    '\n' +
+    'const BUFFER_ORDER: PlaybackBufferProfile[] = ["low_latency", "balanced", "stable"];\n' +
+    'const ENGINE_ORDER: PlayerEnginePreference[] = ["default", "media3", "vlc"];\n' +
+    '\n' +
+    'function nextValue<T>(values: readonly T[], current: T): T {\n' +
+    '  const index = Math.max(0, values.indexOf(current));\n' +
+    '  return values[(index + 1) % values.length];\n' +
+    '}\n' +
+    '\n' +
+    'export function TvQuickActionsOverlay() {\n' +
+    '  const router = useRouter();\n' +
+    '  const pathname = usePathname();\n' +
+    '  const params = useGlobalSearchParams<{ channelId?: string }>();\n' +
+    '  const {\n' +
+    '    channels,\n' +
+    '    channelById,\n' +
+    '    favorites,\n' +
+    '    toggleFavorite,\n' +
+    '    sleepTimerMinutes,\n' +
+    '    setSleepTimerMinutes,\n' +
+    '    openProgram,\n' +
+    '  } = useStore();\n' +
+    '  const customize = useChannelCustomize();\n' +
+    '  const primaryEpg = useEpgSourcePreferences();\n' +
+    '  const refreshPrefs = useSourceRefreshPreferences();\n' +
+    '  const multiEpg = useMultiEpgSources();\n' +
+    '  const [playerEngine, setPlayerEngine] = usePlayerEnginePreference();\n' +
+    '  const [bufferProfile, setBufferProfile] = usePlaybackBufferProfile();\n' +
+    '\n' +
+    '  const [open, setOpen] = useState(false);\n' +
+    '  const [context, setContext] = useState<TvQuickActionsContext>("guide");\n' +
+    '  const [channelId, setChannelId] = useState<string | null>(null);\n' +
+    '  const [guideProgram, setGuideProgram] = useState<Program | null>(null);\n' +
+    '  const [mode, setMode] = useState<Mode>("main");\n' +
+    '  const [sourceChoice, setSourceChoice] = useState<SourceChoice | null>(null);\n' +
+    '  const [epgQuery, setEpgQuery] = useState("");\n' +
+    '  const [epgRows, setEpgRows] = useState<EpgRow[]>([]);\n' +
+    '  const [epgTotal, setEpgTotal] = useState(0);\n' +
+    '  const [busy, setBusy] = useState(false);\n' +
+    '  const [status, setStatus] = useState<string | null>(null);\n' +
+    '  const [focusClaim, setFocusClaim] = useState(false);\n' +
+    '  const queryGeneration = useRef(0);\n' +
+    '  const openPathRef = useRef<string | null>(null);\n' +
+    '  const firstActionRef = useRef<any>(null);\n' +
+    '\n' +
+    '  const favoriteSet = useMemo(() => new Set(favorites), [favorites]);\n' +
+    '  const hiddenSet = useMemo(() => new Set(customize.hiddenIds), [customize.hiddenIds]);\n' +
+    '  const channel = channelId ? channelById(channelId) : null;\n' +
+    '\n' +
+    '  const resolvePlayerChannelId = useCallback((): string | null => {\n' +
+    '    const diagnostics = getLastAudioDiagnostics();\n' +
+    '    if (diagnostics?.role === "fullscreen" && diagnostics.streamKey) {\n' +
+    '      for (const item of channels) {\n' +
+    '        if (!item.url) continue;\n' +
+    '        if (fingerprintStreamUri(item.url) === diagnostics.streamKey) return item.id;\n' +
+    '      }\n' +
+    '    }\n' +
+    '    const routeId = String(params.channelId || "").trim();\n' +
+    '    return routeId && channelById(routeId) ? routeId : null;\n' +
+    '  }, [channelById, channels, params.channelId]);\n' +
+    '\n' +
+    '  const close = useCallback(() => {\n' +
+    '    setOpen(false);\n' +
+    '    setMode("main");\n' +
+    '    setSourceChoice(null);\n' +
+    '    setEpgRows([]);\n' +
+    '    setEpgTotal(0);\n' +
+    '    setEpgQuery("");\n' +
+    '    setStatus(null);\n' +
+    '    setGuideProgram(null);\n' +
+    '    setBusy(false);\n' +
+    '    DeviceEventEmitter.emit("CharmQuickActionsVisibility", false);\n' +
+    '    openPathRef.current = null;\n' +
+    '    const restore = pathname?.startsWith("/player") ? "player" : pathname?.startsWith("/guide") ? "guide" : "default";\n' +
+    '    // A route can claim its new owner before a stale modal close runs. Release\n' +
+    '    // only if Quick Actions still owns the remote context so modal teardown can\n' +
+    '    // never overwrite the player/Guide/drawer that replaced it.\n' +
+    '    const restored = resetRemoteContextIfOwned("modal", restore);\n' +
+    '    if (restored && restore === "guide") setGuideNavigationActive(true);\n' +
+    '  }, [pathname]);\n' +
+    '\n' +
+    '  const runPlayerCommand = useCallback((command: PlayerQuickCommand) => {\n' +
+    '    close();\n' +
+    '    requestAnimationFrame(() => emitPlayerQuickCommand(command));\n' +
+    '  }, [close]);\n' +
+    '\n' +
+    '  useEffect(() => addTvQuickActionsListener((nextContext) => {\n' +
+    '    const guideSelection = nextContext === "guide" ? getGuideSelection() : null;\n' +
+    '    const id = guideSelection?.channelId || resolvePlayerChannelId();\n' +
+    '    if (!id) return;\n' +
+    '    const selectedChannel = channelById(id);\n' +
+    '    if (!selectedChannel) return;\n' +
+    '    void Haptics.selectionAsync().catch(() => undefined);\n' +
+    '\n' +
+    '    setContext(nextContext);\n' +
+    '    setChannelId(id);\n' +
+    '    setGuideProgram(\n' +
+    '      nextContext === "guide" && guideSelection?.surface === "program" && guideSelection.program\n' +
+    '        ? guideSelection.program\n' +
+    '        : null,\n' +
+    '    );\n' +
+    '    setMode("main");\n' +
+    '    setStatus(null);\n' +
+    '    setSourceChoice(null);\n' +
+    '    openPathRef.current = pathname || "";\n' +
+    '    DeviceEventEmitter.emit("CharmQuickActionsVisibility", true);\n' +
+    '    setOpen(true);\n' +
+    '    if (nextContext === "guide") setGuideNavigationActive(false);\n' +
+    '    setRemoteContext("modal");\n' +
+    '  }), [channelById, openProgram, pathname, resolvePlayerChannelId]);\n' +
+    '\n' +
+    '  useEffect(() => () => {\n' +
+    '    DeviceEventEmitter.emit("CharmQuickActionsVisibility", false);\n' +
+    '  }, []);\n' +
+    '\n' +
+    '  useEffect(() => {\n' +
+    '    if (!open) return;\n' +
+    '    const openedPath = openPathRef.current;\n' +
+    '    if (openedPath == null || openedPath === (pathname || "")) return;\n' +
+    '    // Automatic navigation (sleep timer, player recovery exit, etc.) must not\n' +
+    '    // leave a stale modal/focus layer running over the next screen.\n' +
+    '    close();\n' +
+    '  }, [close, open, pathname]);\n' +
+    '\n' +
+    '  useEffect(() => {\n' +
+    '    if (!open) return;\n' +
+    '    setFocusClaim(false);\n' +
+    '    let focusFrame: number | null = null;\n' +
+    '    const frame = requestAnimationFrame(() => {\n' +
+    '      setFocusClaim(true);\n' +
+    '      if (mode === "main") {\n' +
+    '        focusFrame = requestAnimationFrame(() => requestNativeFocus(firstActionRef.current));\n' +
+    '      }\n' +
+    '    });\n' +
+    '    return () => {\n' +
+    '      cancelAnimationFrame(frame);\n' +
+    '      if (focusFrame != null) cancelAnimationFrame(focusFrame);\n' +
+    '    };\n' +
+    '  }, [open, mode, sourceChoice?.id]);\n' +
+    '\n' +
+    '  useEffect(() => {\n' +
+    '    if (!open) return;\n' +
+    '    const sub = BackHandler.addEventListener("hardwareBackPress", () => {\n' +
+    '      if (mode === "epg-channel") {\n' +
+    '        setMode("epg-source");\n' +
+    '        setSourceChoice(null);\n' +
+    '        setEpgRows([]);\n' +
+    '        setEpgTotal(0);\n' +
+    '        return true;\n' +
+    '      }\n' +
+    '      if (mode === "epg-source") {\n' +
+    '        setMode("main");\n' +
+    '        return true;\n' +
+    '      }\n' +
+    '      close();\n' +
+    '      return true;\n' +
+    '    });\n' +
+    '    return () => sub.remove();\n' +
+    '  }, [close, mode, open]);\n' +
+    '\n' +
+    '  useEffect(() => {\n' +
+    '    if (!open || mode !== "epg-channel" || !sourceChoice) return;\n' +
+    '    const timer = setTimeout(() => {\n' +
+    '      const generation = ++queryGeneration.current;\n' +
+    '      void (async () => {\n' +
+    '        try {\n' +
+    '          const page = sourceChoice.legacy\n' +
+    '            ? await listNativeUserGuideChannels(epgQuery, 0, 80)\n' +
+    '            : await listNativeSourceGuideChannels(sourceChoice.id, epgQuery, 0, 80);\n' +
+    '          if (generation !== queryGeneration.current) return;\n' +
+    '          setEpgRows(page.rows || []);\n' +
+    '          setEpgTotal(Math.max(0, Number(page.total) || 0));\n' +
+    '        } catch (error) {\n' +
+    '          if (generation !== queryGeneration.current) return;\n' +
+    '          setEpgRows([]);\n' +
+    '          setEpgTotal(0);\n' +
+    '          setStatus(error instanceof Error ? error.message : "Could not read EPG channels.");\n' +
+    '        }\n' +
+    '      })();\n' +
+    '    }, 180);\n' +
+    '    return () => clearTimeout(timer);\n' +
+    '  }, [epgQuery, mode, open, sourceChoice]);\n' +
+    '\n' +
+    '  const sourceChoices = useMemo<SourceChoice[]>(() => {\n' +
+    '    const out: SourceChoice[] = [];\n' +
+    '    if (primaryEpg.userUrl) {\n' +
+    '      out.push({ id: "user", name: primaryEpg.userName || "Custom EPG", url: primaryEpg.userUrl, enabled: primaryEpg.userEnabled, legacy: true });\n' +
+    '    }\n' +
+    '    for (const source of multiEpg.sources) {\n' +
+    '      if (!source.url) continue;\n' +
+    '      out.push({ id: source.id, name: source.name, url: source.url, enabled: source.enabled, legacy: false });\n' +
+    '    }\n' +
+    '    return out;\n' +
+    '  }, [multiEpg.sources, primaryEpg.userEnabled, primaryEpg.userName, primaryEpg.userUrl]);\n' +
+    '\n' +
+    '  const extraOwner = useMemo(\n' +
+    '    () => channelId ? multiEpg.sources.find((source) => !!source.overrides[channelId]) || null : null,\n' +
+    '    [channelId, multiEpg.sources],\n' +
+    '  );\n' +
+    '  const legacyOwnerId = channelId ? primaryEpg.userOverrides[channelId] || "" : "";\n' +
+    '  const ownerLabel = legacyOwnerId\n' +
+    '    ? primaryEpg.userName\n' +
+    '    : extraOwner\n' +
+    '      ? extraOwner.name\n' +
+    '      : primaryEpg.primaryEnabled\n' +
+    '        ? "Automatic / Charm EPG"\n' +
+    '    '... 14645 more characters
+  
+      at TestContext.<anonymous> (file:///home/runner/work/app/app/frontend/tests/quickActionsContext.test.mjs:77:10)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";\nimport {\n  BackHandler,\n  DeviceEventEmitter,\n  Pressable,\n  ScrollView,\n  StyleSheet,\n  Text,\n  TextInput,\n  View,\n...',
+    expected: /requestAnimationFrame\(\(\) => setFocusClaim\(true\)\)/,
+    operator: 'match',
+    diff: 'simple'
+  }
