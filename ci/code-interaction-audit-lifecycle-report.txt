@@ -5,23 +5,11 @@ arrow_callbacks=518
 timer_sites=71
 listener_sites=31
 stream_player_mount_sites=2
-critical_findings=13
+critical_findings=1
 warnings=0
 
 CRITICAL
-duplicate import: frontend/app/player.tsx: import {
 duplicate import: frontend/plugins/withTvRemote.js: import com.facebook.react.bridge.ReactApplicationContext
-duplicate import: frontend/src/source.native.ts: import {
-duplicate import: frontend/src/source.ts: import {
-duplicate import: frontend/src/store.tsx: import {
-duplicate import: frontend/tests/guideSlidingCache.test.mjs: import {
-duplicate import: frontend/tests/guideShellPolish.test.mjs: import {
-duplicate import: frontend/app/(tabs)/settings.tsx: import {
-duplicate import: frontend/app/(tabs)/guide.tsx: import {
-duplicate import: frontend/src/core/customGuideGroups.ts: import {
-duplicate import: frontend/src/core/channelCustomize.ts: import {
-duplicate import: frontend/src/components/StreamPlayer.tsx: import {
-duplicate import: frontend/src/components/TvQuickActionsOverlay.tsx: import {
 
 WARNINGS / MANUAL REVIEW
 none
