@@ -15,84 +15,278 @@ on:
 permissions:
   contents: write
 
+env:
+  EXPO_PUBLIC_M3U_URL: ${{ secrets.M3U_URL || vars.EXPO_PUBLIC_M3U_URL }}
+  EXPO_PUBLIC_EPG_URL: ${{ secrets.EPG_URL || vars.EXPO_PUBLIC_EPG_URL }}
+  EXPO_PUBLIC_GUIDE_WINDOW_HOURS: ${{ vars.EXPO_PUBLIC_GUIDE_WINDOW_HOURS || '6' }}
+
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: agent/code-interaction-audit
           fetch-depth: 0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+
+      - id: node
+        continue-on-error: true
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '24'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Validate interaction audit
-        id: audit
+
+      - id: java
+        continue-on-error: true
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - id: gradle_setup
+        continue-on-error: true
+        uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d
+
+      - id: android_setup
+        continue-on-error: true
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+
+      - name: Require playlist and EPG configuration
+        id: config
+        continue-on-error: true
         shell: bash
         run: |
-          set +e
-          source_head=$(git rev-parse HEAD)
-          cd frontend
-          npm ci --legacy-peer-deps --no-audit --no-fund
-          install=$?
-          test=99
-          typecheck=99
-          native=99
-          doctor=99
-          lint=99
-          if [ "$install" -eq 0 ]; then
-            set -o pipefail
-            npm test 2>&1 | tee /tmp/code-interaction-audit-tests.log
-            test=$?
-            npm run typecheck 2>&1 | tee /tmp/code-interaction-audit-typecheck.log
-            typecheck=$?
-            set +o pipefail
-            npm run verify:native-config
-            native=$?
-            npm run doctor
-            doctor=$?
-            npm run lint
-            lint=$?
-          fi
-          cd ..
+          test -n "${EXPO_PUBLIC_M3U_URL}" && test -n "${EXPO_PUBLIC_EPG_URL}"
+
+      - name: Install pinned Android SDK, NDK and CMake
+        id: sdk
+        continue-on-error: true
+        shell: bash
+        run: |
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006" "cmake;3.22.1"
+
+      - name: Install JavaScript dependencies
+        id: install
+        continue-on-error: true
+        working-directory: frontend
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: Unit and interaction tests
+        id: tests
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee /tmp/code-interaction-audit-tests.log
+
+      - name: Typecheck
+        id: typecheck
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run typecheck 2>&1 | tee /tmp/code-interaction-audit-typecheck.log
+
+      - name: Lint
+        id: lint
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Expo Doctor
+        id: doctor
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        working-directory: frontend
+        run: npm run doctor
+
+      - name: Verify checked-in native config
+        id: native_config
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        working-directory: frontend
+        run: npm run verify:native-config
+
+      - name: Verify native Guide architecture
+        id: native_guide
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        working-directory: frontend
+        run: npm run verify:native-guide
+
+      - name: Validate repository patch shape
+        id: diff_check
+        continue-on-error: true
+        run: git diff --check HEAD^
+
+      - name: Build LGPL Media3 FFmpeg audio extension
+        id: ffmpeg
+        if: steps.install.outcome == 'success' && steps.sdk.outcome == 'success'
+        continue-on-error: true
+        working-directory: frontend
+        shell: bash
+        run: |
+          chmod +x scripts/build-media3-ffmpeg-audio.sh
+          ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/27.1.12297006" ./scripts/build-media3-ffmpeg-audio.sh
+
+      - name: Compile Kotlin Java and Media3 FFmpeg bridge
+        id: android_compile
+        if: steps.install.outcome == 'success' && steps.sdk.outcome == 'success' && steps.ffmpeg.outcome == 'success'
+        continue-on-error: true
+        working-directory: frontend
+        env:
+          CI: '1'
+          GRADLE_OPTS: '-Dorg.gradle.jvmargs=-Xmx3g -Dorg.gradle.workers.max=1'
+        shell: bash
+        run: |
+          chmod +x android/gradlew
+          set -o pipefail
+          ./android/gradlew -p android \
+            :ffmpeg-audio:compileDebugJavaWithJavac \
+            :app:compileDebugKotlin \
+            :app:compileDebugJavaWithJavac \
+            --no-daemon --max-workers=1 --stacktrace 2>&1 | tee /tmp/code-interaction-audit-native.log
+
+      - name: Build standalone sideload APK
+        id: assemble
+        if: >-
+          steps.config.outcome == 'success' &&
+          steps.tests.outcome == 'success' &&
+          steps.typecheck.outcome == 'success' &&
+          steps.lint.outcome == 'success' &&
+          steps.doctor.outcome == 'success' &&
+          steps.native_config.outcome == 'success' &&
+          steps.native_guide.outcome == 'success' &&
+          steps.diff_check.outcome == 'success' &&
+          steps.android_compile.outcome == 'success'
+        continue-on-error: true
+        working-directory: frontend
+        env:
+          CI: '1'
+          GRADLE_OPTS: '-Dorg.gradle.jvmargs=-Xmx3g -Dorg.gradle.workers.max=2'
+        shell: bash
+        run: |
+          chmod +x android/gradlew
+          set -o pipefail
+          ./android/gradlew -p android assembleSideload --no-daemon --stacktrace 2>&1 | tee /tmp/code-interaction-audit-assemble.log
+
+      - name: Verify and stage tester APK
+        id: verify_apk
+        if: steps.assemble.outcome == 'success'
+        continue-on-error: true
+        working-directory: frontend
+        shell: bash
+        run: |
+          APP_VERSION="$(node -p 'require("./app.json").expo.version')"
+          NOTES="../docs/TESTER_RELEASE_NOTES_${APP_VERSION}.md"
+          APK="android/app/build/outputs/apk/sideload/app-sideload.apk"
+          test -f "$APK"
+          test -f "$NOTES"
+          unzip -l "$APK" | grep -E "(index\.android\.bundle|assets/.*\.bundle|resources\.arsc)" >/dev/null
+          unzip -l "$APK" | grep -E 'lib/arm64-v8a/libffmpegJNI\.so' >/dev/null
+          unzip -l "$APK" | grep -E 'lib/armeabi-v7a/libffmpegJNI\.so' >/dev/null
+          mkdir -p android/app/build/outputs/apk/tester
+          OUT="android/app/build/outputs/apk/tester/CharmIPTV-Code-Interaction-Audit-${APP_VERSION}.apk"
+          cp "$APK" "$OUT"
+          sha256sum "$OUT" > android/app/build/outputs/apk/tester/SHA256SUMS.txt
+          cp "$NOTES" android/app/build/outputs/apk/tester/TESTER_RELEASE_NOTES.md
+          echo "app_version=${APP_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "apk_name=$(basename "$OUT")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload sideload artifact
+        id: upload
+        if: steps.verify_apk.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: CharmIPTV-Code-Interaction-Audit-${{ steps.verify_apk.outputs.app_version }}-${{ github.run_number }}
+          path: frontend/android/app/build/outputs/apk/tester/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish final validation status
+        if: always()
+        shell: bash
+        env:
+          NODE: ${{ steps.node.outcome }}
+          JAVA: ${{ steps.java.outcome }}
+          GRADLE_SETUP: ${{ steps.gradle_setup.outcome }}
+          ANDROID_SETUP: ${{ steps.android_setup.outcome }}
+          CONFIG: ${{ steps.config.outcome }}
+          SDK: ${{ steps.sdk.outcome }}
+          INSTALL: ${{ steps.install.outcome }}
+          TESTS: ${{ steps.tests.outcome }}
+          TYPECHECK: ${{ steps.typecheck.outcome }}
+          LINT: ${{ steps.lint.outcome }}
+          DOCTOR: ${{ steps.doctor.outcome }}
+          NATIVE_CONFIG: ${{ steps.native_config.outcome }}
+          NATIVE_GUIDE: ${{ steps.native_guide.outcome }}
+          DIFF_CHECK: ${{ steps.diff_check.outcome }}
+          FFMPEG: ${{ steps.ffmpeg.outcome }}
+          ANDROID_COMPILE: ${{ steps.android_compile.outcome }}
+          ASSEMBLE: ${{ steps.assemble.outcome }}
+          VERIFY_APK: ${{ steps.verify_apk.outcome }}
+          UPLOAD: ${{ steps.upload.outcome }}
+          APP_VERSION: ${{ steps.verify_apk.outputs.app_version }}
+          APK_NAME: ${{ steps.verify_apk.outputs.apk_name }}
+        run: |
+          artifact_name="CharmIPTV-Code-Interaction-Audit-${APP_VERSION}-${GITHUB_RUN_NUMBER}"
           cat > ci/code-interaction-audit-validation.txt <<EOF
-          source_head=$source_head
-          install=$install
-          test=$test
-          typecheck=$typecheck
-          native_config=$native
-          doctor=$doctor
-          lint=$lint
+          source_head=${GITHUB_SHA}
+          run_id=${GITHUB_RUN_ID}
+          run_number=${GITHUB_RUN_NUMBER}
+          artifact_name=${artifact_name}
+          app_version=${APP_VERSION}
+          apk_name=${APK_NAME}
+          node=${NODE}
+          java=${JAVA}
+          gradle_setup=${GRADLE_SETUP}
+          android_setup=${ANDROID_SETUP}
+          config=${CONFIG}
+          sdk=${SDK}
+          install=${INSTALL}
+          test=${TESTS}
+          typecheck=${TYPECHECK}
+          lint=${LINT}
+          doctor=${DOCTOR}
+          native_config=${NATIVE_CONFIG}
+          native_guide=${NATIVE_GUIDE}
+          diff_check=${DIFF_CHECK}
+          ffmpeg=${FFMPEG}
+          android_compile=${ANDROID_COMPILE}
+          assemble_sideload=${ASSEMBLE}
+          verify_apk=${VERIFY_APK}
+          upload=${UPLOAD}
           EOF
-          if [ "$test" -ne 0 ] && [ -f /tmp/code-interaction-audit-tests.log ]; then
+          if [ "${TESTS}" != success ] && [ -f /tmp/code-interaction-audit-tests.log ]; then
             printf '\n--- failing assertions ---\n' >> ci/code-interaction-audit-validation.txt
             grep -n -B 2 -A 35 '^not ok ' /tmp/code-interaction-audit-tests.log >> ci/code-interaction-audit-validation.txt || true
-            printf '\n--- test summary ---\n' >> ci/code-interaction-audit-validation.txt
             tail -n 12 /tmp/code-interaction-audit-tests.log >> ci/code-interaction-audit-validation.txt
           fi
-          if [ "$typecheck" -ne 0 ] && [ -f /tmp/code-interaction-audit-typecheck.log ]; then
+          if [ "${TYPECHECK}" != success ] && [ -f /tmp/code-interaction-audit-typecheck.log ]; then
             printf '\n--- typecheck diagnostics ---\n' >> ci/code-interaction-audit-validation.txt
             tail -n 160 /tmp/code-interaction-audit-typecheck.log >> ci/code-interaction-audit-validation.txt
           fi
-          if [ "$install" -ne 0 ] || [ "$test" -ne 0 ] || [ "$typecheck" -ne 0 ] || [ "$native" -ne 0 ] || [ "$doctor" -ne 0 ] || [ "$lint" -ne 0 ]; then
-            echo "audit_failed=1" >> "$GITHUB_OUTPUT"
-          else
-            echo "audit_failed=0" >> "$GITHUB_OUTPUT"
+          if [ "${ANDROID_COMPILE}" != success ] && [ -f /tmp/code-interaction-audit-native.log ]; then
+            printf '\n--- native compile diagnostics ---\n' >> ci/code-interaction-audit-validation.txt
+            tail -n 220 /tmp/code-interaction-audit-native.log >> ci/code-interaction-audit-validation.txt
           fi
-      - name: Publish validation status
-        if: always()
-        shell: bash
-        run: |
+          if [ "${ASSEMBLE}" != success ] && [ -f /tmp/code-interaction-audit-assemble.log ]; then
+            printf '\n--- sideload assemble diagnostics ---\n' >> ci/code-interaction-audit-validation.txt
+            tail -n 220 /tmp/code-interaction-audit-assemble.log >> ci/code-interaction-audit-validation.txt
+          fi
           git config user.name "Charm Interaction Audit Bot"
           git config user.email "actions@users.noreply.github.com"
           git add ci/code-interaction-audit-validation.txt
-          if ! git diff --cached --quiet; then
-            git commit -m "test(audit): record interaction validation"
-            git push origin HEAD:agent/code-interaction-audit
+          git commit -m "test(audit): record final sideload validation" || true
+          git push origin HEAD:agent/code-interaction-audit
+          if [ "${NODE}" != success ] || [ "${JAVA}" != success ] || [ "${GRADLE_SETUP}" != success ] || [ "${ANDROID_SETUP}" != success ] || [ "${CONFIG}" != success ] || [ "${SDK}" != success ] || [ "${INSTALL}" != success ] || [ "${TESTS}" != success ] || [ "${TYPECHECK}" != success ] || [ "${LINT}" != success ] || [ "${DOCTOR}" != success ] || [ "${NATIVE_CONFIG}" != success ] || [ "${NATIVE_GUIDE}" != success ] || [ "${DIFF_CHECK}" != success ] || [ "${FFMPEG}" != success ] || [ "${ANDROID_COMPILE}" != success ] || [ "${ASSEMBLE}" != success ] || [ "${VERIFY_APK}" != success ] || [ "${UPLOAD}" != success ]; then
+            exit 1
           fi
-      - name: Enforce validation
-        if: steps.audit.outputs.audit_failed == '1'
-        run: exit 1
