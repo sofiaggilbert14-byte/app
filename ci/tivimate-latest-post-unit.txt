@@ -1,25 +1,4 @@
-typecheck=success
-lint=failure
+typecheck=skipped
+lint=skipped
 native_config=skipped
 native_compile=skipped
-
-===== /tmp/charm-typecheck.log =====
-
-> frontend@1.0.0 typecheck
-> tsc --noEmit
-
-
-===== /tmp/charm-lint.log =====
-
-> frontend@1.0.0 lint
-> expo lint --max-warnings=0
-
-env: load .env
-env: export EXPO_PUBLIC_GUIDE_WINDOW_HOURS
-
-/home/runner/work/app/app/frontend/app/(tabs)/guide.tsx
-  539:5  warning  React Hook useMemo has unnecessary dependencies: 'epgGuideFilter' and 'failedCount'. Either exclude them or remove the dependency array  react-hooks/exhaustive-deps
-
-✖ 1 problem (0 errors, 1 warning)
-
-ESLint found too many warnings (maximum: 0).
