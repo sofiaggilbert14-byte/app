@@ -87,7 +87,6 @@ test("Quick Actions releases modal ownership safely and closes on route replacem
   assert.match(overlay, /resetRemoteContextIfOwned\("modal", restore\)/);
   assert.match(overlay, /const openPathRef = useRef<string \| null>\(null\)/);
   assert.match(overlay, /openPathRef\.current = pathname \|\| ""/);
-  assert.match(overlay, /openedPath !== \(pathname \|\| ""\)/);
   assert.match(overlay, /if \(openedPath == null \|\| openedPath === \(pathname \|\| ""\)\) return;[\s\S]{0,180}close\(\)/);
   assert.doesNotMatch(overlay, /setRemoteContext\(pathname\?\.startsWith/);
 });

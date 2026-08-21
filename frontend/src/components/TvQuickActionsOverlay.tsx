@@ -85,6 +85,7 @@ export function TvQuickActionsOverlay() {
   const [focusClaim, setFocusClaim] = useState(false);
   const queryGeneration = useRef(0);
   const openPathRef = useRef<string | null>(null);
+  const openPathRef = useRef<string | null>(null);
 
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
   const hiddenSet = useMemo(() => new Set(customize.hiddenIds), [customize.hiddenIds]);
