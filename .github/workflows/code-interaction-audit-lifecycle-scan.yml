@@ -1,0 +1,40 @@
+name: Code Interaction Audit Lifecycle Scan
+
+on:
+  push:
+    branches:
+      - agent/code-interaction-audit
+    paths:
+      - ci/code-interaction-audit-lifecycle.trigger
+
+permissions:
+  contents: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: agent/code-interaction-audit
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Scan every source lifecycle owner
+        id: scan
+        continue-on-error: true
+        run: python ci/code-interaction-audit-lifecycle-scan.py
+      - name: Publish lifecycle report
+        if: always()
+        shell: bash
+        env:
+          SCAN_OUTCOME: ${{ steps.scan.outcome }}
+        run: |
+          test -f ci/code-interaction-audit-lifecycle-report.txt || echo "scan did not produce report" > ci/code-interaction-audit-lifecycle-report.txt
+          git config user.name "Charm Interaction Audit Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add ci/code-interaction-audit-lifecycle-report.txt
+          git commit -m "test(audit): record whole-app lifecycle scan" || true
+          git push origin HEAD:agent/code-interaction-audit
+          test "${SCAN_OUTCOME}" = success
