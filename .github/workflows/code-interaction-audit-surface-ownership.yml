@@ -1,0 +1,27 @@
+name: Code Interaction Audit Surface Ownership
+
+on:
+  pull_request:
+    branches:
+      - agent/code-interaction-audit
+    paths:
+      - ci/code-interaction-audit-final-sideload.trigger
+
+permissions:
+  contents: read
+
+jobs:
+  surface-ownership:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: agent/code-interaction-audit
+          fetch-depth: 0
+      - name: Drawer overlay live-preview player surface ownership scan
+        run: python ci/code-interaction-audit-surface-ownership-scan.py
+      - name: Whole-app lifecycle rescan
+        run: python ci/code-interaction-audit-lifecycle-scan.py
+      - name: Preview and player lifecycle rescan
+        run: python ci/code-interaction-audit-preview-lifecycle-scan.py
