@@ -36,6 +36,7 @@ jobs:
           python ci/code-interaction-audit-media3-first-frame.py
           python ci/code-interaction-audit-guide-owner.py
           python ci/code-interaction-audit-test-contracts.py
+          python ci/code-interaction-audit-preview-isolation.py
       - name: Validate patch shape
         run: git diff --check
       - name: Commit repairs
@@ -61,6 +62,7 @@ jobs:
                   frontend/android/app/src/main/java/com/charmiptv/app/MainActivity.kt \
                   frontend/src/components/PurpleGuideGroupDrawer.tsx \
                   frontend/tests/playbackSession.test.mjs \
-                  frontend/tests/guideShellPolish.test.mjs
-          git commit -m "fix(audit): stabilize playback and Guide ownership"
+                  frontend/tests/guideShellPolish.test.mjs \
+                  frontend/tests/playerLiveStability.test.mjs
+          git commit -m "fix(audit): isolate preview from fullscreen playback"
           git push origin HEAD:agent/code-interaction-audit
