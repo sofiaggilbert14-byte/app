@@ -30,8 +30,9 @@ checks = {
         and 'owner == "player"' in PLAYLIST
     ),
     "scheduler refuses to start provider work on player or guide": (
-        '!pathname.startsWith("/guide")' in SCHEDULER
-        and '!pathname.startsWith("/player")' in SCHEDULER
+        ('!pathname?.startsWith("/guide")' in SCHEDULER or '!pathname.startsWith("/guide")' in SCHEDULER)
+        and ('!pathname?.startsWith("/player")' in SCHEDULER or '!pathname.startsWith("/player")' in SCHEDULER)
+        and 'if (!screenIsSafe()) return;' in SCHEDULER
     ),
 }
 
