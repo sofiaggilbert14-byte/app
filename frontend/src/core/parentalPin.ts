@@ -20,6 +20,7 @@ type Snapshot = {
 let cached: Snapshot = { pin: null, lockedGroups: [] };
 let loaded = false;
 let loadPromise: Promise<Snapshot> | null = null;
+let mutationEpoch = 0;
 const listeners = new Set<(value: Snapshot) => void>();
 
 function emit() {
@@ -33,16 +34,19 @@ function emit() {
 async function load(): Promise<Snapshot> {
   if (loaded) return cached;
   if (loadPromise) return loadPromise;
+  const loadEpoch = mutationEpoch;
   loadPromise = (async () => {
     const securePin = normalizeParentalPin(await storage.secureGet<string>(PIN_KEY, ""));
     const plainPin = normalizeParentalPin(await storage.getItem<string>(PIN_KEY, ""));
     const locked = await storage.getItem<string[]>(LOCKED_GROUPS_KEY, []);
     const pin = securePin || plainPin;
-    setParentalPinMemory(pin);
-    cached = {
+    const next: Snapshot = {
       pin,
       lockedGroups: Array.isArray(locked) ? locked.filter((item) => typeof item === "string").slice(0, 40) : [],
     };
+    if (loaded || loadEpoch !== mutationEpoch) return cached;
+    setParentalPinMemory(pin);
+    cached = next;
     loaded = true;
     return cached;
   })();
@@ -58,6 +62,7 @@ export function verifyParentalPin(candidate: string): boolean {
 }
 
 export async function setParentalPin(pin: string | null): Promise<void> {
+  mutationEpoch += 1;
   const next = setParentalPinMemory(pin);
   cached = { ...cached, pin: next };
   loaded = true;
@@ -73,6 +78,7 @@ export async function setParentalPin(pin: string | null): Promise<void> {
 }
 
 export async function setLockedGroups(groups: string[]): Promise<void> {
+  mutationEpoch += 1;
   cached = { ...cached, lockedGroups: groups.slice(0, 40) };
   loaded = true;
   emit();

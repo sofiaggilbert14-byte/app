@@ -1,0 +1,11 @@
+CharmIPTV complete settings/Guide/EPG/player lifecycle scan
+settings_static_label_sites=61
+epg_settings_static_label_sites=25
+critical_findings=0
+warnings=0
+
+CRITICAL
+none
+
+WARNINGS
+none

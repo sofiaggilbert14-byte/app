@@ -29,6 +29,7 @@ import { buildGuidePatchTiers, keepUsefulGuidePatch } from "@/src/core/guidePatc
 import { formatNativeEpgError } from "@/src/core/epgMatching";
 import { reminderKey, setTimeFormat24h } from "@/src/utils/time";
 import { subscribeAndroidMemoryPressure } from "@/src/utils/androidMemoryPressure";
+import { getSessionPhase } from "@/src/core/playbackSession";
 import { clearChannelLogoMemory, setChannelLogoMemoryProfile } from "@/src/components/ChannelLogo";
 import { sanitizeFavoriteIds, toggleFavoriteId } from "@/src/utils/favoriteIds";
 import { pushRecentId, sanitizeRecentIds } from "@/src/utils/recentIds";
@@ -83,6 +84,10 @@ const CLOCK_24H_KEY = "gs_clock_24h";
 const START_SCREEN_KEY = "gs_start_screen";
 const SLEEP_TIMER_MINUTES_KEY = "gs_sleep_timer_minutes";
 const INSTANT_GUIDE_KEY = "gs_instant_guide";
+
+function fullscreenPlaybackOwnsDecoder(): boolean {
+  return getSessionPhase("fullscreen") !== "idle";
+}
 
 const DEFAULT_GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 12);
 
@@ -247,6 +252,9 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const windowStartRef = useRef("");
   const windowEndRef = useRef("");
   const guideEpochRef = useRef(0);
+  // Bootstrap storage reads are asynchronous. A user edit made before a read
+  // resolves owns that setting and must never be overwritten by the stale disk value.
+  const settingsTouchedRef = useRef(new Set<string>());
 
   const [favorites, setFavorites] = useState<string[]>([]);
   const [recentIds, setRecentIds] = useState<string[]>([]);
@@ -336,42 +344,52 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   }, [channelByIdMap, recentIds]);
 
   const setPointerMode = useCallback((v: boolean) => {
+    settingsTouchedRef.current.add(PMODE_KEY);
     setPointerModeState(v);
     storage.setItem(PMODE_KEY, v);
   }, []);
   const setGuideLayout = useCallback((v: GuideLayout) => {
+    settingsTouchedRef.current.add(GUIDE_LAYOUT_KEY);
     setGuideLayoutState(v);
     storage.setItem(GUIDE_LAYOUT_KEY, v);
   }, []);
   const setGuideDensity = useCallback((v: GuideDensity) => {
+    settingsTouchedRef.current.add(GUIDE_DENSITY_KEY);
     setGuideDensityState(v);
     storage.setItem(GUIDE_DENSITY_KEY, v);
   }, []);
   const setSafePreviewMode = useCallback((v: SafePreviewMode) => {
+    settingsTouchedRef.current.add(SAFE_PREVIEW_MODE_KEY);
     setSafePreviewModeState(v);
     storage.setItem(SAFE_PREVIEW_MODE_KEY, v);
   }, []);
   const setChannelNumbers = useCallback((v: boolean) => {
+    settingsTouchedRef.current.add(CHANNEL_NUMBERS_KEY);
     setChannelNumbersState(v);
     storage.setItem(CHANNEL_NUMBERS_KEY, v);
   }, []);
   const setChannelLogos = useCallback((v: boolean) => {
+    settingsTouchedRef.current.add(CHANNEL_LOGOS_KEY);
     setChannelLogosState(v);
     storage.setItem(CHANNEL_LOGOS_KEY, v);
   }, []);
   const setDeviceLayoutMode = useCallback((v: DeviceLayoutMode) => {
+    settingsTouchedRef.current.add(DEVICE_LAYOUT_MODE_KEY);
     setDeviceLayoutModeState(v);
     storage.setItem(DEVICE_LAYOUT_MODE_KEY, v);
   }, []);
   const setPlayerControlsTimeoutMs = useCallback((v: PlayerControlsTimeoutMs) => {
+    settingsTouchedRef.current.add(PLAYER_TIMEOUT_KEY);
     setPlayerControlsTimeoutMsState(v);
     storage.setItem(PLAYER_TIMEOUT_KEY, v);
   }, []);
   const setAutoRetryStreams = useCallback((v: boolean) => {
+    settingsTouchedRef.current.add(AUTO_RETRY_KEY);
     setAutoRetryStreamsState(v);
     storage.setItem(AUTO_RETRY_KEY, v);
   }, []);
   const setPreferTvgIdOnly = useCallback((v: boolean) => {
+    settingsTouchedRef.current.add(PREFER_TVG_ID_ONLY_KEY);
     setPreferTvgIdOnlyState(v);
     setPreferTvgIdOnlyMatching(v);
     storage.setItem(PREFER_TVG_ID_ONLY_KEY, v);
@@ -385,6 +403,8 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     })();
   }, []);
   const setPowerProfile = useCallback((v: PowerProfile) => {
+    settingsTouchedRef.current.add(POWER_PROFILE_KEY);
+    settingsTouchedRef.current.add(LOGOS_OFF_SURF_KEY);
     const next = resolvePowerProfile(v);
     setPowerProfileState(next);
     storage.setItem(POWER_PROFILE_KEY, next);
@@ -401,19 +421,23 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     storage.setItem(LOGOS_OFF_SURF_KEY, visualTuning.logosOffWhileSurfingDefault);
   }, []);
   const setLogosOffWhileSurfing = useCallback((v: boolean) => {
+    settingsTouchedRef.current.add(LOGOS_OFF_SURF_KEY);
     setLogosOffWhileSurfingState(v);
     storage.setItem(LOGOS_OFF_SURF_KEY, v);
   }, []);
   const setInstantGuide = useCallback((v: boolean) => {
+    settingsTouchedRef.current.add(INSTANT_GUIDE_KEY);
     setInstantGuideState(v);
     storage.setItem(INSTANT_GUIDE_KEY, v);
   }, []);
   const setEpgGuideFilter = useCallback((v: EpgGuideFilter) => {
+    settingsTouchedRef.current.add(EPG_GUIDE_FILTER_KEY);
     const next = resolveEpgGuideFilter(v);
     setEpgGuideFilterState(next);
     storage.setItem(EPG_GUIDE_FILTER_KEY, next);
   }, []);
   const setEpgManualRemaps = useCallback((v: Record<string, string>) => {
+    settingsTouchedRef.current.add(EPG_MANUAL_REMAPS_KEY);
     const next = sanitizeEpgManualRemap(v);
     setEpgManualRemapsState(next);
     setManualEpgRemaps(next);
@@ -421,11 +445,13 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     void refreshSilentRef.current(true);
   }, []);
   const setFavoriteFolders = useCallback((folders: FavoriteFolder[]) => {
+    settingsTouchedRef.current.add(FAVORITE_FOLDERS_KEY);
     const next = sanitizeFavoriteFolders(folders);
     setFavoriteFoldersState(next);
     storage.setItem(FAVORITE_FOLDERS_KEY, next);
   }, []);
   const addFavoriteFolder = useCallback((name: string) => {
+    settingsTouchedRef.current.add(FAVORITE_FOLDERS_KEY);
     const folder = createFavoriteFolder(name, favoriteFolders);
     if (!folder) return null;
     const next = sanitizeFavoriteFolders([...favoriteFolders, folder]);
@@ -434,6 +460,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     return folder;
   }, [favoriteFolders]);
   const toggleFavoriteFolderChannel = useCallback((folderId: string, channelId: string) => {
+    settingsTouchedRef.current.add(FAVORITE_FOLDERS_KEY);
     if (!folderId || !channelId) return;
     setFavoriteFoldersState((prev) => {
       const next = sanitizeFavoriteFolders(toggleChannelInFolder(prev, folderId, channelId));
@@ -442,6 +469,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
   const renameFavoriteFolderById = useCallback((folderId: string, name: string) => {
+    settingsTouchedRef.current.add(FAVORITE_FOLDERS_KEY);
     if (!folderId) return;
     setFavoriteFoldersState((prev) => {
       const next = sanitizeFavoriteFolders(renameFavoriteFolder(prev, folderId, name));
@@ -450,6 +478,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
   const removeFavoriteFolder = useCallback((id: string) => {
+    settingsTouchedRef.current.add(FAVORITE_FOLDERS_KEY);
     if (!id) return;
     setFavoriteFoldersState((prev) => {
       const next = prev.filter((folder) => folder.id !== id);
@@ -458,6 +487,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
   const setGuideWindowHours = useCallback((v: GuideWindowHours) => {
+    settingsTouchedRef.current.add(GUIDE_WINDOW_HOURS_KEY);
     const next = readGuideWindowHours(v, DEFAULT_GUIDE_WINDOW_HOURS);
     guideWindowHoursRef.current = next;
     setGuideWindowHoursState(next);
@@ -465,16 +495,19 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     void refreshSilentRef.current(true);
   }, []);
   const setClock24h = useCallback((v: boolean) => {
+    settingsTouchedRef.current.add(CLOCK_24H_KEY);
     setClock24hState(v);
     setTimeFormat24h(v);
     storage.setItem(CLOCK_24H_KEY, v);
   }, []);
   const setStartScreen = useCallback((v: StartScreen) => {
+    settingsTouchedRef.current.add(START_SCREEN_KEY);
     const next = resolveStartScreen(v);
     setStartScreenState(next);
     storage.setItem(START_SCREEN_KEY, next);
   }, []);
   const setSleepTimerMinutes = useCallback((v: SleepTimerMinutes) => {
+    settingsTouchedRef.current.add(SLEEP_TIMER_MINUTES_KEY);
     const next = resolveSleepTimerMinutes(v);
     setSleepTimerMinutesState(next);
     storage.setItem(SLEEP_TIMER_MINUTES_KEY, next);
@@ -637,7 +670,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   );
 
   const refresh = useCallback(async (silent = false) => {
-    if (silent && isGuideSurfing()) {
+    if (silent && (isGuideSurfing() || fullscreenPlaybackOwnsDecoder())) {
       pendingSilentRefreshRef.current = true;
       return;
     }
@@ -650,7 +683,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       const start = isToday ? undefined : day.startOf("day").toISOString();
       const data = await loadGuide(start, guideWindowHoursRef.current);
       if (requestId !== refreshRequestRef.current) return;
-      if (silent && isGuideSurfing()) {
+      if (silent && (isGuideSurfing() || fullscreenPlaybackOwnsDecoder())) {
         pendingSilentRefreshRef.current = true;
         return;
       }
@@ -839,70 +872,95 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       if (JSON.stringify(rawRecent) !== JSON.stringify(cleanedRecent)) void storage.setItem(RECENT_KEY, cleanedRecent);
       setLastChannelId(await storage.getItem<string | null>(LAST_CHANNEL_KEY, null));
       setReminders(sanitizeReminders((await storage.getItem<Reminder[]>(REM_KEY, [])) || []) as Reminder[]);
-      setPointerModeState((await storage.getItem<boolean>(PMODE_KEY, false)) || false);
+      const storedPointerMode = (await storage.getItem<boolean>(PMODE_KEY, false)) || false;
+      if (!settingsTouchedRef.current.has(PMODE_KEY)) setPointerModeState(storedPointerMode);
       const storedGuideLayout = await storage.getItem<string | null>(GUIDE_LAYOUT_KEY, null);
-      setGuideLayoutState(resolveStoredGuideLayout(storedGuideLayout, Platform.isTV, Platform.OS));
+      if (!settingsTouchedRef.current.has(GUIDE_LAYOUT_KEY)) setGuideLayoutState(resolveStoredGuideLayout(storedGuideLayout, Platform.isTV, Platform.OS));
       const extraCompactDefaultApplied = await storage.getItem<boolean>(EXTRA_COMPACT_DEFAULT_MIGRATION_KEY, false);
       const storedDensity = extraCompactDefaultApplied
         ? await storage.getItem<GuideDensity>(GUIDE_DENSITY_KEY, "extra_compact")
         : "extra_compact";
-      setGuideDensityState(storedDensity === "large" || storedDensity === "normal" || storedDensity === "compact" ? storedDensity : "extra_compact");
-      if (!extraCompactDefaultApplied) {
-        void storage.setItem(GUIDE_DENSITY_KEY, "extra_compact");
-        void storage.setItem(EXTRA_COMPACT_DEFAULT_MIGRATION_KEY, true);
+      if (!settingsTouchedRef.current.has(GUIDE_DENSITY_KEY)) {
+        setGuideDensityState(storedDensity === "large" || storedDensity === "normal" || storedDensity === "compact" ? storedDensity : "extra_compact");
+        if (!extraCompactDefaultApplied) void storage.setItem(GUIDE_DENSITY_KEY, "extra_compact");
       }
-      setSafePreviewModeState((await storage.getItem<SafePreviewMode>(SAFE_PREVIEW_MODE_KEY, "surf")) || "surf");
-      setChannelNumbersState((await storage.getItem<boolean>(CHANNEL_NUMBERS_KEY, false)) || false);
-      setChannelLogosState((await storage.getItem<boolean>(CHANNEL_LOGOS_KEY, true)) ?? true);
-      setDeviceLayoutModeState((await storage.getItem<DeviceLayoutMode>(DEVICE_LAYOUT_MODE_KEY, "auto")) || "auto");
-      setPlayerControlsTimeoutMsState((await storage.getItem<PlayerControlsTimeoutMs>(PLAYER_TIMEOUT_KEY, 8000)) || 8000);
-      setAutoRetryStreamsState((await storage.getItem<boolean>(AUTO_RETRY_KEY, true)) ?? true);
+      if (!extraCompactDefaultApplied) void storage.setItem(EXTRA_COMPACT_DEFAULT_MIGRATION_KEY, true);
+      const storedSafePreviewMode = (await storage.getItem<SafePreviewMode>(SAFE_PREVIEW_MODE_KEY, "surf")) || "surf";
+      if (!settingsTouchedRef.current.has(SAFE_PREVIEW_MODE_KEY)) setSafePreviewModeState(storedSafePreviewMode);
+      const storedChannelNumbers = (await storage.getItem<boolean>(CHANNEL_NUMBERS_KEY, false)) || false;
+      if (!settingsTouchedRef.current.has(CHANNEL_NUMBERS_KEY)) setChannelNumbersState(storedChannelNumbers);
+      const storedChannelLogos = (await storage.getItem<boolean>(CHANNEL_LOGOS_KEY, true)) ?? true;
+      if (!settingsTouchedRef.current.has(CHANNEL_LOGOS_KEY)) setChannelLogosState(storedChannelLogos);
+      const storedDeviceLayout = (await storage.getItem<DeviceLayoutMode>(DEVICE_LAYOUT_MODE_KEY, "auto")) || "auto";
+      if (!settingsTouchedRef.current.has(DEVICE_LAYOUT_MODE_KEY)) setDeviceLayoutModeState(storedDeviceLayout);
+      const storedPlayerTimeout = (await storage.getItem<PlayerControlsTimeoutMs>(PLAYER_TIMEOUT_KEY, 8000)) || 8000;
+      if (!settingsTouchedRef.current.has(PLAYER_TIMEOUT_KEY)) setPlayerControlsTimeoutMsState(storedPlayerTimeout);
+      const storedAutoRetry = (await storage.getItem<boolean>(AUTO_RETRY_KEY, true)) ?? true;
+      if (!settingsTouchedRef.current.has(AUTO_RETRY_KEY)) setAutoRetryStreamsState(storedAutoRetry);
       const tvgOnly = (await storage.getItem<boolean>(PREFER_TVG_ID_ONLY_KEY, false)) || false;
-      setPreferTvgIdOnlyState(tvgOnly);
-      setPreferTvgIdOnlyMatching(tvgOnly);
+      if (!settingsTouchedRef.current.has(PREFER_TVG_ID_ONLY_KEY)) {
+        setPreferTvgIdOnlyState(tvgOnly);
+        setPreferTvgIdOnlyMatching(tvgOnly);
+      }
       const profile = resolvePowerProfile(await storage.getItem<string>(POWER_PROFILE_KEY, "normal"));
-      setPowerProfileState(profile);
       const deviceMemory = await readDeviceMemoryProfile();
       const lowRamDevice = shouldUseLowRamTuning(deviceMemory);
       setDeviceLowRamCacheCap(lowRamDevice);
-      const memorySafeTuning = getPowerProfileTuning(profile);
-      setGuideProgramRowLimit(memorySafeTuning.programmeRowCacheLimit);
-      setProgrammeWindowCacheLimit(memorySafeTuning.programmeRowCacheLimit);
-      setChannelLogoMemoryProfile(profile === "weak" || lowRamDevice, deviceMemory?.logoMemoryBytes);
+      if (!settingsTouchedRef.current.has(POWER_PROFILE_KEY)) {
+        setPowerProfileState(profile);
+        const memorySafeTuning = getPowerProfileTuning(profile);
+        setGuideProgramRowLimit(memorySafeTuning.programmeRowCacheLimit);
+        setProgrammeWindowCacheLimit(memorySafeTuning.programmeRowCacheLimit);
+        setChannelLogoMemoryProfile(profile === "weak" || lowRamDevice, deviceMemory?.logoMemoryBytes);
+      }
       const rawLogosOffWhileSurfing = await storage.getItem<boolean | null>(LOGOS_OFF_SURF_KEY, null);
-      setLogosOffWhileSurfingState(typeof rawLogosOffWhileSurfing === "boolean" ? rawLogosOffWhileSurfing : getPowerProfileTuning(profile).logosOffWhileSurfingDefault);
-      setInstantGuideState((await storage.getItem<boolean>(INSTANT_GUIDE_KEY, true)) ?? true);
-      setEpgGuideFilterState(resolveEpgGuideFilter(await storage.getItem<string>(EPG_GUIDE_FILTER_KEY, "all")));
+      if (!settingsTouchedRef.current.has(LOGOS_OFF_SURF_KEY)) {
+        setLogosOffWhileSurfingState(typeof rawLogosOffWhileSurfing === "boolean" ? rawLogosOffWhileSurfing : getPowerProfileTuning(profile).logosOffWhileSurfingDefault);
+      }
+      const storedInstantGuide = (await storage.getItem<boolean>(INSTANT_GUIDE_KEY, true)) ?? true;
+      if (!settingsTouchedRef.current.has(INSTANT_GUIDE_KEY)) setInstantGuideState(storedInstantGuide);
+      const storedEpgGuideFilter = resolveEpgGuideFilter(await storage.getItem<string>(EPG_GUIDE_FILTER_KEY, "all"));
+      if (!settingsTouchedRef.current.has(EPG_GUIDE_FILTER_KEY)) setEpgGuideFilterState(storedEpgGuideFilter);
       const manualRemaps = sanitizeEpgManualRemap(await storage.getItem<Record<string, string>>(EPG_MANUAL_REMAPS_KEY, {}));
-      setEpgManualRemapsState(manualRemaps);
-      setManualEpgRemaps(manualRemaps);
+      if (!settingsTouchedRef.current.has(EPG_MANUAL_REMAPS_KEY)) {
+        setEpgManualRemapsState(manualRemaps);
+        setManualEpgRemaps(manualRemaps);
+      }
       const foldersSeeded = (await storage.getItem<boolean>(FAVORITE_FOLDERS_SEEDED_KEY, false)) || false;
       const storedFolders = sanitizeFavoriteFolders(await storage.getItem<FavoriteFolder[]>(FAVORITE_FOLDERS_KEY, []));
-      if (!foldersSeeded && !storedFolders.length) {
-        const seeded: FavoriteFolder[] = [];
-        for (const name of DEFAULT_FOLDER_PRESETS) {
-          const folder = createFavoriteFolder(name, seeded);
-          if (folder) seeded.push(folder);
+      if (!settingsTouchedRef.current.has(FAVORITE_FOLDERS_KEY)) {
+        if (!foldersSeeded && !storedFolders.length) {
+          const seeded: FavoriteFolder[] = [];
+          for (const name of DEFAULT_FOLDER_PRESETS) {
+            const folder = createFavoriteFolder(name, seeded);
+            if (folder) seeded.push(folder);
+          }
+          const next = sanitizeFavoriteFolders(seeded);
+          setFavoriteFoldersState(next);
+          void storage.setItem(FAVORITE_FOLDERS_KEY, next);
+          void storage.setItem(FAVORITE_FOLDERS_SEEDED_KEY, true);
+        } else {
+          setFavoriteFoldersState(storedFolders);
+          if (!foldersSeeded) void storage.setItem(FAVORITE_FOLDERS_SEEDED_KEY, true);
         }
-        const next = sanitizeFavoriteFolders(seeded);
-        setFavoriteFoldersState(next);
-        void storage.setItem(FAVORITE_FOLDERS_KEY, next);
-        void storage.setItem(FAVORITE_FOLDERS_SEEDED_KEY, true);
-      } else {
-        setFavoriteFoldersState(storedFolders);
-        if (!foldersSeeded) void storage.setItem(FAVORITE_FOLDERS_SEEDED_KEY, true);
       }
       const storedGuideWindowHours = readGuideWindowHours(
         await storage.getItem<number>(GUIDE_WINDOW_HOURS_KEY, DEFAULT_GUIDE_WINDOW_HOURS),
         DEFAULT_GUIDE_WINDOW_HOURS,
       );
-      guideWindowHoursRef.current = storedGuideWindowHours;
-      setGuideWindowHoursState(storedGuideWindowHours);
+      if (!settingsTouchedRef.current.has(GUIDE_WINDOW_HOURS_KEY)) {
+        guideWindowHoursRef.current = storedGuideWindowHours;
+        setGuideWindowHoursState(storedGuideWindowHours);
+      }
       const storedClock24h = (await storage.getItem<boolean>(CLOCK_24H_KEY, false)) || false;
-      setClock24hState(storedClock24h);
-      setTimeFormat24h(storedClock24h);
-      setStartScreenState(resolveStartScreen(await storage.getItem<string>(START_SCREEN_KEY, "home")));
-      setSleepTimerMinutesState(resolveSleepTimerMinutes(await storage.getItem<number>(SLEEP_TIMER_MINUTES_KEY, 0)));
+      if (!settingsTouchedRef.current.has(CLOCK_24H_KEY)) {
+        setClock24hState(storedClock24h);
+        setTimeFormat24h(storedClock24h);
+      }
+      const storedStartScreen = resolveStartScreen(await storage.getItem<string>(START_SCREEN_KEY, "home"));
+      if (!settingsTouchedRef.current.has(START_SCREEN_KEY)) setStartScreenState(storedStartScreen);
+      const storedSleepTimer = resolveSleepTimerMinutes(await storage.getItem<number>(SLEEP_TIMER_MINUTES_KEY, 0));
+      if (!settingsTouchedRef.current.has(SLEEP_TIMER_MINUTES_KEY)) setSleepTimerMinutesState(storedSleepTimer);
 
       // Cold start is local/cache only. TiViMate-style provider/EPG synchronization
       // is owned by the route-aware scheduler after its startup deferral; it must
@@ -922,7 +980,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       refreshTimer = setTimeout(() => {
         refreshTimer = null;
         if (disposed) return;
-        if (isGuideSurfing()) {
+        if (isGuideSurfing() || fullscreenPlaybackOwnsDecoder()) {
           pendingSilentRefreshRef.current = true;
           return;
         }
@@ -930,7 +988,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       }, 500);
     });
     const unsubSettle = onGuideSurfSettled(() => {
-      if (disposed || !pendingSilentRefreshRef.current) return;
+      if (disposed || !pendingSilentRefreshRef.current || fullscreenPlaybackOwnsDecoder()) return;
       pendingSilentRefreshRef.current = false;
       void refresh(true);
     });
@@ -962,7 +1020,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { busyRef.current = loading || refreshing; }, [loading, refreshing]);
   useEffect(() => {
     const timer = setInterval(() => {
-      if (busyRef.current || isGuideScreenActive() || isGuideSurfing()) return;
+      if (busyRef.current || isGuideScreenActive() || isGuideSurfing() || fullscreenPlaybackOwnsDecoder()) return;
       void refresh(true);
     }, 60 * 60 * 1000);
     return () => clearInterval(timer);

@@ -8,13 +8,16 @@ const DEFAULT_PRIORITY: LogoPriority = "playlist";
 let cached: LogoPriority = DEFAULT_PRIORITY;
 let loaded = false;
 let loadPromise: Promise<LogoPriority> | null = null;
+let mutationEpoch = 0;
 const listeners = new Set<(value: LogoPriority) => void>();
 
 async function load(): Promise<LogoPriority> {
   if (loaded) return cached;
   if (loadPromise) return loadPromise;
+  const loadEpoch = mutationEpoch;
   loadPromise = (async () => {
     const value = await storage.getItem<LogoPriority>(KEY, DEFAULT_PRIORITY);
+    if (loaded || loadEpoch !== mutationEpoch) return cached;
     cached = value === "epg" ? "epg" : "playlist";
     loaded = true;
     return cached;
@@ -31,6 +34,7 @@ export async function getLogoPriority(): Promise<LogoPriority> {
 }
 
 export async function setLogoPriority(value: LogoPriority): Promise<void> {
+  mutationEpoch += 1;
   cached = value === "epg" ? "epg" : "playlist";
   loaded = true;
   for (const listener of Array.from(listeners)) {

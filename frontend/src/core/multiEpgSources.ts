@@ -20,6 +20,7 @@ const MAX_SOURCES = 7;
 let cached: CustomEpgSourceRecord[] = [];
 let loaded = false;
 let loading: Promise<CustomEpgSourceRecord[]> | null = null;
+let mutationEpoch = 0;
 let writeChain: Promise<void> = Promise.resolve();
 const listeners = new Set<(value: CustomEpgSourceRecord[]) => void>();
 
@@ -82,7 +83,9 @@ function invalidateGuideOwnershipView() {
 async function load() {
   if (loaded) return cached;
   if (loading) return loading;
+  const loadEpoch = mutationEpoch;
   loading = storage.getItem<CustomEpgSourceRecord[]>(KEY, []).then((raw) => {
+    if (loaded || loadEpoch !== mutationEpoch) return cached;
     cached = normalize(raw);
     loaded = true;
     publishOwnership();
@@ -92,6 +95,7 @@ async function load() {
   try { return await loading; } finally { loading = null; }
 }
 function commit(next: CustomEpgSourceRecord[]) {
+  mutationEpoch += 1;
   cached = normalize(next); loaded = true;
   publishOwnership();
   listeners.forEach((listener) => { try { listener(cached); } catch {} });
@@ -99,16 +103,26 @@ function commit(next: CustomEpgSourceRecord[]) {
   const snapshot = cached;
   writeChain = writeChain.then(async () => { await storage.setItem(KEY, snapshot); }).catch(() => {});
 }
+function afterHydration(action: () => void): void {
+  if (loaded) { action(); return; }
+  void load().then(action).catch(() => action());
+}
 export async function getMultiEpgSources(): Promise<CustomEpgSourceRecord[]> { return [...(await load())]; }
 export function saveMultiEpgSource(source: CustomEpgSourceRecord) {
   const clean = normalizeRecord(source); if (!clean) return;
-  const index = cached.findIndex((item) => item.id === clean.id);
-  commit(index >= 0 ? cached.map((item, at) => at === index ? clean : item) : [...cached, clean]);
+  afterHydration(() => {
+    const index = cached.findIndex((item) => item.id === clean.id);
+    commit(index >= 0 ? cached.map((item, at) => at === index ? clean : item) : [...cached, clean]);
+  });
 }
-export function removeMultiEpgSource(id: string) { commit(cached.filter((item) => item.id !== cleanId(id))); }
+export function removeMultiEpgSource(id: string) {
+  const clean = cleanId(id);
+  afterHydration(() => commit(cached.filter((item) => item.id !== clean)));
+}
 export function clearMultiEpgChannelAssignments(channelId: string) {
   const channel = String(channelId || "").trim();
   if (!channel) return;
+  afterHydration(() => {
   let changed = false;
   const next = cached.map((source) => {
     if (!Object.prototype.hasOwnProperty.call(source.overrides, channel)) return source;
@@ -118,13 +132,14 @@ export function clearMultiEpgChannelAssignments(channelId: string) {
     return { ...source, overrides };
   });
   if (changed) commit(next);
+  });
 }
 export function assignMultiEpgChannel(sourceId: string, channelId: string, xmltvId: string) {
   const owner = cleanId(sourceId), channel = String(channelId || "").trim(), xmltv = String(xmltvId || "").trim();
   if (!owner || !channel || !xmltv) return;
-  commit(cached.map((source) => ({ ...source, overrides: source.id === owner
+  afterHydration(() => commit(cached.map((source) => ({ ...source, overrides: source.id === owner
     ? { ...source.overrides, [channel]: xmltv }
-    : Object.fromEntries(Object.entries(source.overrides).filter(([id]) => id !== channel)) })));
+    : Object.fromEntries(Object.entries(source.overrides).filter(([id]) => id !== channel)) }))));
 }
 export function createCustomEpgSourceId(): string {
   return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`.slice(0, 24);

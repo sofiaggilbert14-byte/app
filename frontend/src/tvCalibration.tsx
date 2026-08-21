@@ -49,11 +49,13 @@ export function TvCalibrationProvider({ children }: { children: React.ReactNode 
   const [calibration, setCalibration] = useState<TvCalibration>(DEFAULT_CALIBRATION);
   const [draftCalibration, setDraftCalibration] = useState<TvCalibration>(DEFAULT_CALIBRATION);
   const saveInFlightRef = useRef(false);
+  const hydrationMutationRef = useRef(0);
 
   useEffect(() => {
     let active = true;
+    const loadEpoch = hydrationMutationRef.current;
     storage.getItem<TvCalibration>(STORAGE_KEY, DEFAULT_CALIBRATION).then((saved) => {
-      if (!active || !saved) return;
+      if (!active || !saved || loadEpoch !== hydrationMutationRef.current) return;
       const next = normalize(saved);
       setCalibration(next);
       setDraftCalibration(next);
@@ -62,6 +64,7 @@ export function TvCalibrationProvider({ children }: { children: React.ReactNode 
   }, []);
 
   const setSide = useCallback((side: keyof TvCalibration, value: number) => {
+    hydrationMutationRef.current += 1;
     setDraftCalibration((current) => ({ ...current, [side]: clamp(value) }));
   }, []);
 
@@ -78,8 +81,8 @@ export function TvCalibrationProvider({ children }: { children: React.ReactNode 
     }
   }, [draftCalibration]);
 
-  const reset = useCallback(() => setDraftCalibration(DEFAULT_CALIBRATION), []);
-  const discard = useCallback(() => setDraftCalibration(calibration), [calibration]);
+  const reset = useCallback(() => { hydrationMutationRef.current += 1; setDraftCalibration(DEFAULT_CALIBRATION); }, []);
+  const discard = useCallback(() => { hydrationMutationRef.current += 1; setDraftCalibration(calibration); }, [calibration]);
   const hasChanges = useMemo(() => !sameCalibration(calibration, draftCalibration), [calibration, draftCalibration]);
   const value = useMemo(
     () => ({ calibration, draftCalibration, setSide, save, reset, discard, hasChanges }),

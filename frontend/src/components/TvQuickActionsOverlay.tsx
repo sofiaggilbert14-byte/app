@@ -29,7 +29,6 @@ import {
   configureNativeUserGuideSources,
   listNativeSourceGuideChannels,
   listNativeUserGuideChannels,
-  refreshNativeSourceGuide,
   setNativeGuideChannelBinding,
   setNativeSourceGuideBinding,
 } from "@/src/nativeEpg";
@@ -84,7 +83,6 @@ export function TvQuickActionsOverlay() {
   const [status, setStatus] = useState<string | null>(null);
   const [focusClaim, setFocusClaim] = useState(false);
   const queryGeneration = useRef(0);
-  const openPathRef = useRef<string | null>(null);
   const openPathRef = useRef<string | null>(null);
 
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
@@ -269,7 +267,6 @@ export function TvQuickActionsOverlay() {
         await ensureNativeSources({ id: sourceChoice.id, enabled: true });
         await setNativeSourceGuideBinding(sourceChoice.id, channel.id, xmltvId);
         assignMultiEpgChannel(sourceChoice.id, channel.id, xmltvId);
-        void refreshNativeSourceGuide(sourceChoice.id, sourceChoice.url).catch(() => undefined);
       }
       invalidateGuideOwnershipCaches();
       setStatus(`${channel.name} now uses ${sourceChoice.name}: ${xmltvId}`);
@@ -369,8 +366,8 @@ export function TvQuickActionsOverlay() {
                 {context === "guide" ? <Action icon={favoriteSet.has(channel.id) ? "heart" : "heart-outline"} label={favoriteSet.has(channel.id) ? "Remove Favorite" : "Add Favorite"} onPress={favorite} /> : null}
               </>
             )}
-            <Action icon="git-compare-outline" label="Assign custom EPG" value={ownerLabel} onPress={() => { setStatus(null); setMode("epg-source"); }} />
-            {(legacyOwnerId || extraOwner) ? <Action icon="refresh-outline" label="Use automatic EPG" onPress={() => void clearEpgAssignment()} disabled={busy} /> : null}
+            {context === "guide" ? <Action icon="git-compare-outline" label="Assign custom EPG" value={ownerLabel} onPress={() => { setStatus(null); setMode("epg-source"); }} /> : null}
+            {context === "guide" && (legacyOwnerId || extraOwner) ? <Action icon="refresh-outline" label="Use automatic EPG" onPress={() => void clearEpgAssignment()} disabled={busy} /> : null}
 
             {context === "guide" ? (
               <>
