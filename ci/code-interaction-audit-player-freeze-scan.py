@@ -81,13 +81,20 @@ if 'if (bufferingSince == null) return;' not in stream:
 if "MEDIA3_FROZEN_CLOCK_MS" in stream or "const frozenReadyClock =" in stream:
     critical.append("Media3 clock-only reload can cause pause/reload/freeze cascades")
 
-# One in-engine Media3 resync only. Outer PlayerScreen owns subsequent remounts.
+# Exactly one in-engine Media3 resync per unstable episode. The outer fullscreen
+# owner gets one bounded 1s/2s/4s sequence and may only re-arm after 30s stable.
 if "const MAX_SILENT_BUFFERING_RESYNCS = 1;" not in stream:
     critical.append("Media3 has more than one nested silent re-prepare budget")
-if "const MAX_AUTO_STREAM_RETRIES = 4;" not in player:
-    critical.append("fullscreen outer retry budget is missing/became unbounded")
+if "const RESYNC_REARM_STABLE_MS = 30_000;" not in stream:
+    critical.append("Media3 unstable episode can re-arm before 30 seconds stable")
+if "const MAX_AUTO_STREAM_RETRIES = 3;" not in player:
+    critical.append("fullscreen outer retry budget is not exactly three attempts")
+if "const STABLE_RETRY_RESET_MS = 30_000;" not in player:
+    critical.append("fullscreen retry budget can re-arm before 30 seconds stable")
 if "STREAM_RETRY_DELAYS_MS = [1000, 2000, 4000]" not in player:
     critical.append("fullscreen retry backoff contract changed unexpectedly")
+if 'if (status === "playing") {\n      setRetryAttempt(0);' in player:
+    critical.append("brief PLAYING state immediately resets outer retry budget")
 if 'if (failReason === "circuit-open" || isFullscreenCircuitOpen(channel?.url)) return;' not in player:
     critical.append("auto retry can storm a circuit-open decoder")
 
