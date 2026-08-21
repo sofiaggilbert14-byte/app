@@ -47,10 +47,21 @@ def patch_guide() -> None:
         "  const [groupDrawerOpen, setGroupDrawerOpen] = useState(false);\n  const [quickActionsOpen, setQuickActionsOpen] = useState(false);\n  const { width: screenWidth, height: screenHeight } = useWindowDimensions();",
         "Guide Quick Actions visibility state",
     )
+    text = replace_once(
+        text,
+        "  const modalOriginRef = useRef<{ channelId: string; programStart: string } | null>(null);\n  const orderedFilteredIdsRef",
+        "  const modalOriginRef = useRef<{ channelId: string; programStart: string } | null>(null);\n  const pinModalOwnedRef = useRef(false);\n  const orderedFilteredIdsRef",
+        "Guide PIN modal ownership ref",
+    )
+
     effect = '''\n  useEffect(() => {\n    if (!isFocused) {\n      setQuickActionsOpen(false);\n      return;\n    }\n    const sub = DeviceEventEmitter.addListener("CharmQuickActionsVisibility", (open: boolean) => {\n      setQuickActionsOpen(!!open);\n    });\n    return () => {\n      sub.remove();\n      setQuickActionsOpen(false);\n    };\n  }, [isFocused]);\n'''
     anchor = '''\n  useEffect(() => {\n    if (!isFocused) return;\n    const sub = DeviceEventEmitter.addListener("CharmGuideGroupsRequestOpen", () => {'''
     if effect not in text:
         text = replace_once(text, anchor, effect + anchor, "Guide Quick Actions visibility listener")
+
+    modal_input_effect = '''\n  useEffect(() => {\n    // TiViMate-style window ownership: an overlay that is visually on top must\n    // also be the only semantic key owner. Otherwise Channel/Page keys can move\n    // the hidden native Guide and held Select can reopen Guide actions underneath.\n    if (!isFocused) {\n      setGuideNavigationActive(false);\n      if (pinModalOwnedRef.current) {\n        pinModalOwnedRef.current = false;\n        resetRemoteContextIfOwned("modal", "default");\n      }\n      return;\n    }\n\n    if (quickActionsOpen || activeProgram || pinPromptGroup) {\n      setGuideNavigationActive(false);\n    }\n\n    if (pinPromptGroup) {\n      pinModalOwnedRef.current = true;\n      if (previewTimer.current) {\n        clearTimeout(previewTimer.current);\n        previewTimer.current = null;\n      }\n      if (previewRecoverTimer.current) {\n        clearTimeout(previewRecoverTimer.current);\n        previewRecoverTimer.current = null;\n      }\n      if (surfReleaseTimer.current) {\n        clearTimeout(surfReleaseTimer.current);\n        surfReleaseTimer.current = null;\n      }\n      setPreviewId(null);\n      setPreviewActionsFocused(false);\n      setRemoteContext("modal");\n      return;\n    }\n\n    if (pinModalOwnedRef.current) {\n      pinModalOwnedRef.current = false;\n      if (!quickActionsOpen && !activeProgram) {\n        const fallback = groupDrawerOpen ? "guide_groups" : drawerOpen ? "main_drawer" : "guide";\n        const restored = resetRemoteContextIfOwned("modal", fallback);\n        if (restored && fallback === "guide") setGuideNavigationActive(true);\n      }\n      return;\n    }\n\n    if (!quickActionsOpen && !activeProgram && !drawerOpen && !groupDrawerOpen) {\n      setGuideNavigationActive(true);\n    }\n  }, [activeProgram, drawerOpen, groupDrawerOpen, isFocused, pinPromptGroup, quickActionsOpen]);\n'''
+    if modal_input_effect not in text:
+        text = replace_once(text, anchor, modal_input_effect + anchor, "Guide modal input ownership")
 
     text = replace_once(
         text,
@@ -69,4 +80,4 @@ def patch_guide() -> None:
 
 patch_quick_actions()
 patch_guide()
-print("Guide modal/preview ownership repair applied")
+print("Guide modal/preview/input ownership repair applied")
