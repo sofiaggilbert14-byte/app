@@ -148,12 +148,18 @@ test("player route cannot reclaim a channel selected inside fullscreen", async (
   assert.match(player, /routeChannelId === lastRouteChannelIdRef\.current/);
 });
 
-test("player More panel owns focus and scrolls all actions", async () => {
-  const player = await source("app/player.tsx");
-  assert.match(player, /moreFirstActionRef/);
-  assert.match(player, /requestNativeFocus\(moreFirstActionRef\.current\)/);
-  assert.match(player, /style=\{styles\.morePanel\}/);
-  assert.match(player, /nestedScrollEnabled/);
+test("player delegates More to the single global Quick Actions owner", async () => {
+  const [player, overlay, remote] = await Promise.all([
+    source("app/player.tsx"),
+    source("src/components/TvQuickActionsOverlay.tsx"),
+    source("src/utils/tvRemote.ts"),
+  ]);
+  assert.match(player, /emitTvQuickActions\("player"\)/);
+  assert.match(remote, /export function emitTvQuickActions/);
+  assert.match(overlay, /PLAYER QUICK ACTIONS/);
+  assert.doesNotMatch(player, /moreFirstActionRef/);
+  assert.doesNotMatch(player, /styles\.morePanel/);
+  assert.doesNotMatch(player, /playerOverlay.*"more"/);
 });
 
 test("Media3 recovery follows the real playback clock after a stream has played", async () => {

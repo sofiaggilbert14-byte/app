@@ -46,8 +46,9 @@ function ReminderCleanup() {
   const { reminders, removeReminder } = useStore();
 
   useEffect(() => {
-    if (reminders.length === 0) return;
-    // Expire due reminders without hijacking an active player session.
+    if (reminders.length === 0 || pathname?.startsWith("/player")) return;
+    // Expire due reminders only outside fullscreen playback. OS notification
+    // delivery remains independent; this cleanup is maintenance, not playback work.
     // Notification tap handling (NotificationRouter) is the user-driven switch path.
     const check = () => {
       const now = Date.now();
@@ -62,7 +63,7 @@ function ReminderCleanup() {
     };
     check();
     // Slow interval — reminders are sparse; avoid wakeups on weak boxes.
-    const timer = setInterval(check, pathname?.startsWith("/player") ? 60000 : 30000);
+    const timer = setInterval(check, 30000);
     return () => clearInterval(timer);
   }, [pathname, reminders, removeReminder]);
 

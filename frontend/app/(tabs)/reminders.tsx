@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { FocusedTabMount } from "@/src/components/FocusedTabMount";
 import {
   FlatList,
   Pressable,
@@ -92,7 +93,7 @@ function ReminderCard({
   );
 }
 
-export default function RemindersScreen() {
+function RemindersScreenContent() {
   const router = useRouter();
   const isFocused = useIsFocused();
   const { width } = useWindowDimensions();
@@ -402,3 +403,11 @@ const styles = StyleSheet.create({
     fontSize: 9.5,
   },
 });
+
+export default function RemindersScreen() {
+  return (
+    <FocusedTabMount>
+      <RemindersScreenContent />
+    </FocusedTabMount>
+  );
+}

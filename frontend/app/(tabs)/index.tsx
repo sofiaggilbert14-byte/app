@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FocusedTabMount } from "@/src/components/FocusedTabMount";
 import { findNodeHandle, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
@@ -60,7 +61,7 @@ function RecentChannelCard({
   );
 }
 
-export default function LiveTvHomeScreen() {
+function LiveTvHomeScreenContent() {
   const router = useRouter();
   const isFocused = useIsFocused();
   const {
@@ -318,3 +319,11 @@ const styles = StyleSheet.create({
   channelProgram: { color: tvColors.purpleSoft, fontFamily: fonts.medium, fontSize: 8.5, marginTop: 2 },
   focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
 });
+
+export default function LiveTvHomeScreen() {
+  return (
+    <FocusedTabMount>
+      <LiveTvHomeScreenContent />
+    </FocusedTabMount>
+  );
+}

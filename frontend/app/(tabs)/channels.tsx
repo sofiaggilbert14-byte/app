@@ -1,4 +1,5 @@
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { FocusedTabMount } from "@/src/components/FocusedTabMount";
 import { FlatList, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
@@ -102,7 +103,7 @@ const ChannelListRow = memo(function ChannelListRow({
   );
 });
 
-export default function ChannelsScreen() {
+function ChannelsScreenContent() {
   const router = useRouter();
   const isFocused = useIsFocused();
   const { channels, favorites, toggleFavorite, addRecent, channelLogos, hardRefresh, loading, refreshing, error, clock24h } = useStore();
@@ -342,3 +343,11 @@ const styles = StyleSheet.create({
   time: { width: 102, color: tvColors.textMuted, fontFamily: fonts.regular, fontSize: 7.5, textAlign: "right" },
   heart: { width: 28, height: 28, alignItems: "center", justifyContent: "center" },
 });
+
+export default function ChannelsScreen() {
+  return (
+    <FocusedTabMount>
+      <ChannelsScreenContent />
+    </FocusedTabMount>
+  );
+}

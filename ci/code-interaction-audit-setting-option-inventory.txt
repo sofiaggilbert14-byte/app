@@ -1,0 +1,135 @@
+CharmIPTV complete settings/configuration option inventory
+target_files=7
+static_options=130
+unclassified=0
+
+guide_preview_visual_focus	app/(tabs)/settings.tsx	24-hour clock
+security_backup_general	app/(tabs)/settings.tsx	About CharmIPTV
+security_backup_general	app/(tabs)/settings.tsx	Account
+cache_memory_logo_maintenance	app/(tabs)/settings.tsx	Advertised video max
+security_backup_general	app/(tabs)/settings.tsx	Android build
+screen_scoped_ui_or_storage	app/(tabs)/settings.tsx	Appearance
+cache_memory_logo_maintenance	app/(tabs)/settings.tsx	Audio tracks seen
+hot_player_policy_or_track	app/(tabs)/settings.tsx	Auto retry streams
+security_backup_general	app/(tabs)/settings.tsx	Backup & Restore
+hot_player_policy_or_track	app/(tabs)/settings.tsx	Channel Down button
+hot_player_policy_or_track	app/(tabs)/settings.tsx	Channel Up button
+guide_preview_visual_focus	app/(tabs)/settings.tsx	Channel logos
+guide_preview_visual_focus	app/(tabs)/settings.tsx	Channel numbers
+channel_group_storage	app/(tabs)/settings.tsx	Channel page
+channel_group_storage	app/(tabs)/settings.tsx	Channels
+security_backup_general	app/(tabs)/settings.tsx	Clear PIN
+channel_group_storage	app/(tabs)/settings.tsx	Clear custom order
+hot_player_policy_or_track	app/(tabs)/settings.tsx	Controls timeout
+security_backup_general	app/(tabs)/settings.tsx	Core
+guide_preview_visual_focus	app/(tabs)/settings.tsx	Device layout
+cache_memory_logo_maintenance	app/(tabs)/settings.tsx	Failed streams
+channel_group_storage	app/(tabs)/settings.tsx	Guide & channels
+guide_preview_visual_focus	app/(tabs)/settings.tsx	Guide density
+guide_preview_visual_focus	app/(tabs)/settings.tsx	Guide layout
+cache_memory_logo_maintenance	app/(tabs)/settings.tsx	Health
+guide_preview_visual_focus	app/(tabs)/settings.tsx	Hide guide preview
+guide_preview_visual_focus	app/(tabs)/settings.tsx	Hide preview by default
+security_backup_general	app/(tabs)/settings.tsx	Install package
+guide_preview_visual_focus	app/(tabs)/settings.tsx	Instant Guide / reduce motion
+security_backup_general	app/(tabs)/settings.tsx	Interface
+cache_memory_logo_maintenance	app/(tabs)/settings.tsx	Last audio engine
+cache_memory_logo_maintenance	app/(tabs)/settings.tsx	Last audio mime
+cache_memory_logo_maintenance	app/(tabs)/settings.tsx	Last audio silent
+guide_preview_visual_focus	app/(tabs)/settings.tsx	Live preview
+security_backup_general	app/(tabs)/settings.tsx	Lock session now
+guide_preview_visual_focus	app/(tabs)/settings.tsx	Logos off while surfing
+hot_player_policy_or_track	app/(tabs)/settings.tsx	Long Down
+guide_epg_ownership_mapping	app/(tabs)/settings.tsx	Manage Guide groups & tabs
+controlled_decoder_rebuild	app/(tabs)/settings.tsx	Media3 audio mode
+controlled_decoder_rebuild	app/(tabs)/settings.tsx	Media3 tunneling
+guide_preview_visual_focus	app/(tabs)/settings.tsx	Mute guide preview
+guide_preview_visual_focus	app/(tabs)/settings.tsx	Mute preview by default
+cache_memory_logo_maintenance	app/(tabs)/settings.tsx	Native codecs
+channel_group_storage	app/(tabs)/settings.tsx	Next 100
+security_backup_general	app/(tabs)/settings.tsx	PIN
+security_backup_general	app/(tabs)/settings.tsx	Parental
+hot_player_policy_or_track	app/(tabs)/settings.tsx	Play/Pause media button
+screen_scoped_ui_or_storage	app/(tabs)/settings.tsx	Playback
+controlled_decoder_rebuild	app/(tabs)/settings.tsx	Playback buffer
+security_backup_general	app/(tabs)/settings.tsx	Pointer mode
+cache_memory_logo_maintenance	app/(tabs)/settings.tsx	Power profile
+hot_player_policy_or_track	app/(tabs)/settings.tsx	Preferred audio language
+channel_group_storage	app/(tabs)/settings.tsx	Previous 100
+security_backup_general	app/(tabs)/settings.tsx	Profile
+cache_memory_logo_maintenance	app/(tabs)/settings.tsx	Prune old disk cache
+screen_scoped_ui_or_storage	app/(tabs)/settings.tsx	Remote Control
+hot_player_policy_or_track	app/(tabs)/settings.tsx	Remote · Long Down
+cache_memory_logo_maintenance	app/(tabs)/settings.tsx	Report cache storage
+hot_player_policy_or_track	app/(tabs)/settings.tsx	Restore remote defaults
+security_backup_general	app/(tabs)/settings.tsx	Set PIN
+hot_player_policy_or_track	app/(tabs)/settings.tsx	Silent-audio fallback
+hot_player_policy_or_track	app/(tabs)/settings.tsx	Sleep timer
+guide_preview_visual_focus	app/(tabs)/settings.tsx	Start screen
+hot_player_policy_or_track	app/(tabs)/settings.tsx	Subtitle background
+hot_player_policy_or_track	app/(tabs)/settings.tsx	Subtitle size
+controlled_decoder_rebuild	app/(tabs)/settings.tsx	VLC audio output
+controlled_decoder_rebuild	app/(tabs)/settings.tsx	VLC hardware decode
+security_backup_general	app/(tabs)/settings.tsx	Version
+controlled_decoder_rebuild	app/(tabs)/settings.tsx	Video player
+guide_epg_ownership_mapping	app/(tabs)/epg-sources.tsx	Add another EPG source
+guide_epg_ownership_mapping	app/(tabs)/epg-sources.tsx	Ambiguous
+cache_memory_logo_maintenance	app/(tabs)/epg-sources.tsx	Cache age
+cache_memory_logo_maintenance	app/(tabs)/epg-sources.tsx	Channel Logo Sources
+guide_preview_visual_focus	app/(tabs)/epg-sources.tsx	Channel logos priority
+channel_group_storage	app/(tabs)/epg-sources.tsx	Channels
+channel_group_storage	app/(tabs)/epg-sources.tsx	Channels with EPG
+cache_memory_logo_maintenance	app/(tabs)/epg-sources.tsx	Clear channel logo cache
+guide_epg_ownership_mapping	app/(tabs)/epg-sources.tsx	Custom EPG & channel assignments
+source_schedule_or_explicit_refresh	app/(tabs)/epg-sources.tsx	EPG auto refresh
+source_schedule_or_explicit_refresh	app/(tabs)/epg-sources.tsx	EPG refreshed
+guide_epg_ownership_mapping	app/(tabs)/epg-sources.tsx	Guide Data
+guide_epg_ownership_mapping	app/(tabs)/epg-sources.tsx	Guide EPG filter
+guide_epg_ownership_mapping	app/(tabs)/epg-sources.tsx	Guide opens on
+guide_epg_ownership_mapping	app/(tabs)/epg-sources.tsx	Guide window
+cache_memory_logo_maintenance	app/(tabs)/epg-sources.tsx	Maintenance
+guide_epg_ownership_mapping	app/(tabs)/epg-sources.tsx	Manage Guide groups & custom tabs
+guide_epg_ownership_mapping	app/(tabs)/epg-sources.tsx	Matched
+guide_epg_ownership_mapping	app/(tabs)/epg-sources.tsx	Native EPG Cache
+source_schedule_or_explicit_refresh	app/(tabs)/epg-sources.tsx	Past days to keep EPG
+guide_epg_ownership_mapping	app/(tabs)/epg-sources.tsx	Playlist Channel Map
+source_schedule_or_explicit_refresh	app/(tabs)/epg-sources.tsx	Playlist auto refresh
+source_schedule_or_explicit_refresh	app/(tabs)/epg-sources.tsx	Playlist refreshed
+guide_epg_ownership_mapping	app/(tabs)/epg-sources.tsx	Prefer tvg-id matching only
+guide_epg_ownership_mapping	app/(tabs)/epg-sources.tsx	Primary XMLTV Guide
+source_schedule_or_explicit_refresh	app/(tabs)/epg-sources.tsx	Refresh Schedule
+source_schedule_or_explicit_refresh	app/(tabs)/epg-sources.tsx	Refresh in progress
+guide_epg_ownership_mapping	app/(tabs)/epg-sources.tsx	Show raw provider/M3U groups
+cache_memory_logo_maintenance	app/(tabs)/epg-sources.tsx	Source Health
+guide_epg_ownership_mapping	app/(tabs)/epg-sources.tsx	Sources
+cache_memory_logo_maintenance	app/(tabs)/epg-sources.tsx	Stop using local logo folder
+guide_epg_ownership_mapping	app/(tabs)/epg-sources.tsx	Unmatched
+source_schedule_or_explicit_refresh	app/(tabs)/epg-sources.tsx	Update EPG on app start
+source_schedule_or_explicit_refresh	app/(tabs)/epg-sources.tsx	Update EPG when playlist changes
+source_schedule_or_explicit_refresh	app/epg-custom.tsx	Past days to keep EPG
+source_schedule_or_explicit_refresh	app/epg-custom.tsx	Update interval
+source_schedule_or_explicit_refresh	app/epg-source.tsx	Clear EPG data
+source_schedule_or_explicit_refresh	app/epg-source.tsx	Enabled
+screen_scoped_ui_or_storage	app/epg-source.tsx	Next
+screen_scoped_ui_or_storage	app/epg-source.tsx	Previous
+channel_group_storage	app/epg-source.tsx	Remove source
+screen_scoped_ui_or_storage	app/epg-source.tsx	Save
+source_schedule_or_explicit_refresh	app/epg-source.tsx	Update EPG
+source_schedule_or_explicit_refresh	app/epg-source.tsx	Update interval
+security_backup_general	src/components/TvQuickActionsOverlay.tsx	All Settings
+hot_player_policy_or_track	src/components/TvQuickActionsOverlay.tsx	Aspect ratio
+guide_epg_ownership_mapping	src/components/TvQuickActionsOverlay.tsx	Assign custom EPG
+hot_player_policy_or_track	src/components/TvQuickActionsOverlay.tsx	Audio / subtitles
+screen_scoped_ui_or_storage	src/components/TvQuickActionsOverlay.tsx	Back
+guide_epg_ownership_mapping	src/components/TvQuickActionsOverlay.tsx	Back to EPG sources
+cache_memory_logo_maintenance	src/components/TvQuickActionsOverlay.tsx	Diagnostics
+security_backup_general	src/components/TvQuickActionsOverlay.tsx	Guide / channel settings
+security_backup_general	src/components/TvQuickActionsOverlay.tsx	Open TV Guide
+controlled_decoder_rebuild	src/components/TvQuickActionsOverlay.tsx	Playback buffer
+screen_scoped_ui_or_storage	src/components/TvQuickActionsOverlay.tsx	Playback compatibility
+controlled_decoder_rebuild	src/components/TvQuickActionsOverlay.tsx	Player engine
+hot_player_policy_or_track	src/components/TvQuickActionsOverlay.tsx	Previous channel
+guide_preview_visual_focus	src/components/TvQuickActionsOverlay.tsx	Program details / reminder
+hot_player_policy_or_track	src/components/TvQuickActionsOverlay.tsx	Sleep timer
+guide_epg_ownership_mapping	src/components/TvQuickActionsOverlay.tsx	Use automatic EPG
+hot_player_policy_or_track	src/components/TvQuickActionsOverlay.tsx	Watch channel now

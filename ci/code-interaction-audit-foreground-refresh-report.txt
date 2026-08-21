@@ -1,0 +1,10 @@
+Code Interaction Audit - Foreground Refresh Ownership
+=====================================================
+PASS: primary EPG raw parser yields to interactive TV owner
+PASS: custom EPG raw parser still yields to interactive TV owner
+PASS: EPG staging still checks owner before accepted batches
+PASS: EPG final swap still checks owner
+PASS: playlist stream yields after foreground ownership changes
+PASS: scheduler refuses to start provider work on player or guide
+
+critical_findings=0

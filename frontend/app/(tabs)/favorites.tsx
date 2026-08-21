@@ -1,4 +1,5 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FocusedTabMount } from "@/src/components/FocusedTabMount";
 import { FlatList, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
@@ -77,7 +78,7 @@ const FavoriteRow = memo(function FavoriteRow({
   );
 });
 
-export default function FavoritesScreen() {
+function FavoritesScreenContent() {
   const router = useRouter();
   const isFocused = useIsFocused();
   const {
@@ -302,3 +303,11 @@ const styles = StyleSheet.create({
   guideButton: { minHeight: 32, justifyContent: "center", paddingHorizontal: 14, borderRadius: 5, backgroundColor: tvColors.purple, borderWidth: 2, borderColor: "transparent", marginTop: 4 },
   guideText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 9 },
 });
+
+export default function FavoritesScreen() {
+  return (
+    <FocusedTabMount>
+      <FavoritesScreenContent />
+    </FocusedTabMount>
+  );
+}

@@ -15,7 +15,7 @@ export type TvKey = "UP" | "DOWN" | "LEFT" | "RIGHT" | "SELECT" | "BACK";
 export type TvLongPressKey = "DOWN" | "SELECT" | "BACK";
 export type TvShortcutKey = "CHANNEL_UP" | "CHANNEL_DOWN" | "MEDIA_PLAY_PAUSE";
 export type TvQuickActionsContext = "guide" | "player";
-export type PlayerQuickCommand = "OPEN_TRACKS" | "CYCLE_ASPECT";
+export type PlayerQuickCommand = "OPEN_TRACKS" | "CYCLE_ASPECT" | "PREVIOUS_CHANNEL" | "SAVE_DIAGNOSTICS";
 export type DeviceMemoryProfile = {
   memoryClassMb: number;
   lowRamDevice: boolean;
@@ -52,6 +52,11 @@ export function addTvQuickActionsListener(cb: (context: TvQuickActionsContext) =
   }
   const sub = DeviceEventEmitter.addListener(eventName, (context: TvQuickActionsContext) => cb(context));
   return () => sub.remove();
+}
+
+/** Open the same contextual Quick Actions owner used by native Long Select. */
+export function emitTvQuickActions(context: TvQuickActionsContext): void {
+  DeviceEventEmitter.emit("TvRemoteQuickActions", context);
 }
 
 /**

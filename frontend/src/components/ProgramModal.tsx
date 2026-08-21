@@ -9,7 +9,7 @@ import { useStore } from "@/src/store";
 import { reminderKey } from "@/src/utils/time";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
-import { resetRemoteContextIfOwned, setRemoteContext } from "@/src/utils/tvRemote";
+import { resetRemoteContextIfOwned, setGuideNavigationActive, setRemoteContext } from "@/src/utils/tvRemote";
 
 export function ProgramModal() {
   const { activeProgram, closeProgram, toggleReminder, reminders } = useStore();
@@ -43,6 +43,7 @@ export function ProgramModal() {
 
   React.useEffect(() => {
     if (!activeProgram) return;
+    if (pathname?.startsWith("/guide")) setGuideNavigationActive(false);
     setRemoteContext("modal");
     return () => {
       const restore = pathname?.startsWith("/player")
@@ -50,7 +51,8 @@ export function ProgramModal() {
         : pathname?.startsWith("/guide")
           ? "guide"
           : "default";
-      resetRemoteContextIfOwned("modal", restore);
+      const restored = resetRemoteContextIfOwned("modal", restore);
+      if (restored && restore === "guide") setGuideNavigationActive(true);
     };
   }, [activeProgram, pathname]);
 

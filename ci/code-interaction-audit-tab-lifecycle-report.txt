@@ -1,0 +1,11 @@
+CharmIPTV inactive-tab lifecycle/RAM scan
+expected_tabs=10
+focused_mount_gates=10
+critical_findings=0
+warnings=0
+
+CRITICAL
+none
+
+WARNINGS
+none

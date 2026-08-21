@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BackHandler,
+  DeviceEventEmitter,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,7 +15,7 @@ import * as Haptics from "expo-haptics";
 import { useStore } from "@/src/store";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { fonts, radius, tvColors } from "@/src/theme";
-import { addTvQuickActionsListener, emitPlayerQuickCommand, resetRemoteContextIfOwned, setRemoteContext, type PlayerQuickCommand, type TvQuickActionsContext } from "@/src/utils/tvRemote";
+import { addTvQuickActionsListener, emitPlayerQuickCommand, resetRemoteContextIfOwned, setGuideNavigationActive, setRemoteContext, type PlayerQuickCommand, type TvQuickActionsContext } from "@/src/utils/tvRemote";
 import { getGuideSelection } from "@/src/core/guideSelectionStore";
 import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 import { useChannelCustomize } from "@/src/core/channelCustomize";
@@ -111,12 +112,14 @@ export function TvQuickActionsOverlay() {
     setStatus(null);
     setGuideProgram(null);
     setBusy(false);
+    DeviceEventEmitter.emit("CharmQuickActionsVisibility", false);
     openPathRef.current = null;
     const restore = pathname?.startsWith("/player") ? "player" : pathname?.startsWith("/guide") ? "guide" : "default";
     // A route can claim its new owner before a stale modal close runs. Release
     // only if Quick Actions still owns the remote context so modal teardown can
     // never overwrite the player/Guide/drawer that replaced it.
-    resetRemoteContextIfOwned("modal", restore);
+    const restored = resetRemoteContextIfOwned("modal", restore);
+    if (restored && restore === "guide") setGuideNavigationActive(true);
   }, [pathname]);
 
   const runPlayerCommand = useCallback((command: PlayerQuickCommand) => {
@@ -143,9 +146,15 @@ export function TvQuickActionsOverlay() {
     setStatus(null);
     setSourceChoice(null);
     openPathRef.current = pathname || "";
+    DeviceEventEmitter.emit("CharmQuickActionsVisibility", true);
     setOpen(true);
+    if (nextContext === "guide") setGuideNavigationActive(false);
     setRemoteContext("modal");
   }), [channelById, openProgram, pathname, resolvePlayerChannelId]);
+
+  useEffect(() => () => {
+    DeviceEventEmitter.emit("CharmQuickActionsVisibility", false);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -376,12 +385,14 @@ export function TvQuickActionsOverlay() {
               </>
             ) : (
               <>
+                <Action icon="return-up-back-outline" label="Previous channel" onPress={() => runPlayerCommand("PREVIOUS_CHANNEL")} />
                 <Action icon="calendar-outline" label="Open TV Guide" onPress={goGuide} />
                 <Action icon="resize-outline" label="Aspect ratio" value="Fit / Zoom / Stretch" onPress={() => runPlayerCommand("CYCLE_ASPECT")} />
                 <Action icon="musical-notes-outline" label="Audio / subtitles" value="Live tracks" onPress={() => runPlayerCommand("OPEN_TRACKS")} />
-                <Action icon="speedometer-outline" label="Playback buffer" value={bufferProfile.replace("_", " ")} onPress={() => setBufferProfile(nextValue(BUFFER_ORDER, bufferProfile))} />
-                <Action icon="play-circle-outline" label="Player engine" value={playerEngine === "default" ? "Auto" : playerEngine.toUpperCase()} onPress={() => setPlayerEngine(nextValue(ENGINE_ORDER, playerEngine))} />
+                <Action icon="speedometer-outline" label="Playback buffer" value={bufferProfile.replace("_", " ")} onPress={() => { const next = nextValue(BUFFER_ORDER, bufferProfile); close(); requestAnimationFrame(() => setBufferProfile(next)); }} />
+                <Action icon="play-circle-outline" label="Player engine" value={playerEngine === "default" ? "Auto" : playerEngine.toUpperCase()} onPress={() => { const next = nextValue(ENGINE_ORDER, playerEngine); close(); requestAnimationFrame(() => setPlayerEngine(next)); }} />
                 <Action icon="moon-outline" label="Sleep timer" value={sleepTimerMinutes ? `${sleepTimerMinutes}m` : "Off"} onPress={() => setSleepTimerMinutes(sleepTimerMinutes === 0 ? 15 : sleepTimerMinutes === 15 ? 30 : sleepTimerMinutes === 30 ? 60 : sleepTimerMinutes === 60 ? 90 : 0)} />
+                <Action icon="bug-outline" label="Diagnostics" value="Save player report" onPress={() => runPlayerCommand("SAVE_DIAGNOSTICS")} />
                 <Action icon="options-outline" label="Playback compatibility" value="Advanced settings" onPress={openSettings} />
                 <Action icon="settings-outline" label="All Settings" onPress={openSettings} />
               </>

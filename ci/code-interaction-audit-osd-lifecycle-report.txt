@@ -1,0 +1,5 @@
+CharmIPTV player OSD ownership scan
+critical_findings=0
+
+CRITICAL
+none

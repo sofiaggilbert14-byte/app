@@ -1,0 +1,5 @@
+CharmIPTV Guide modal/preview/input ownership scan
+critical_findings=0
+
+CRITICAL
+none

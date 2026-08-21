@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FocusedTabMount } from "@/src/components/FocusedTabMount";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
@@ -23,7 +24,7 @@ const SUGGESTIONS = ["News", "Sports", "Movies", "Kids", "Discovery"];
 
 type FocusZone = "keyboard" | "results" | "header" | null;
 
-export default function SearchScreen() {
+function SearchScreenContent() {
   const router = useRouter();
   const isFocused = useIsFocused();
   const { openDrawer } = usePurpleTvDrawer();
@@ -461,3 +462,11 @@ const styles = StyleSheet.create({
   noResultsText: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 9 },
   focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
 });
+
+export default function SearchScreen() {
+  return (
+    <FocusedTabMount>
+      <SearchScreenContent />
+    </FocusedTabMount>
+  );
+}

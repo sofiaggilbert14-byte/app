@@ -65,8 +65,16 @@ internal object NativePlaylistParser {
     openPlaylist(urlString).use { stream ->
       BufferedReader(InputStreamReader(stream, Charsets.UTF_8), NETWORK_BUFFER_SIZE).use { reader ->
         var firstLine = true
+        var rawLineCount = 0L
         while (true) {
           val rawLine = reader.readLine() ?: break
+          rawLineCount += 1L
+          if ((rawLineCount and 0xffL) == 0L) {
+            val owner = TvRemoteModule.remoteContext
+            if (owner == "guide" || owner == "player" || owner == "modal") {
+              throw IllegalStateException("Playlist refresh deferred for active TV interaction")
+            }
+          }
           var line = rawLine.trim()
           if (firstLine) {
             firstLine = false

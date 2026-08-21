@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FocusedTabMount } from "@/src/components/FocusedTabMount";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -30,7 +31,7 @@ const REFRESH_OPTIONS: { label: string; value: SourceRefreshIntervalHours }[] = 
 const STANDARD_GUIDE_GROUPS = ["All", "Favorites", "Sports", "News", "Movies", "Kids", "Music"] as const;
 type ActiveAction = "refresh-all" | "refresh-epg" | "rebuild" | "logo" | null;
 
-export default function EpgSourcesScreen() {
+function EpgSourcesScreenContent() {
   const router = useRouter();
   const { refresh, channels, clock24h, epgGuideFilter, setEpgGuideFilter, guideWindowHours, setGuideWindowHours, preferTvgIdOnly, setPreferTvgIdOnly } = useStore();
   const sourceRefresh = useSourceRefreshPreferences();
@@ -305,3 +306,11 @@ const styles = StyleSheet.create({
   actionStatus: { color: tvColors.purpleSoft, fontFamily: fonts.medium, fontSize: 8.5, textAlign: "center" },
   disabled: { opacity: 0.55 }, focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
 });
+
+export default function EpgSourcesScreen() {
+  return (
+    <FocusedTabMount>
+      <EpgSourcesScreenContent />
+    </FocusedTabMount>
+  );
+}

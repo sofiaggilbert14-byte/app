@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FocusedTabMount } from "@/src/components/FocusedTabMount";
 import { DeviceEventEmitter, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -117,7 +118,7 @@ const TILES: Tile[] = [
 
 const ADULT_GROUP_RE = /adult|xxx|porn/i;
 
-export default function SettingsScreen() {
+function SettingsScreenContent() {
   const router = useRouter();
   const {
     channels,
@@ -1136,3 +1137,11 @@ const styles = StyleSheet.create({
   miniActionText: { color: "#fff", fontFamily: fonts.medium, fontSize: 8 },
   focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
 });
+
+export default function SettingsScreen() {
+  return (
+    <FocusedTabMount>
+      <SettingsScreenContent />
+    </FocusedTabMount>
+  );
+}

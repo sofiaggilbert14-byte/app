@@ -1,9 +1,9 @@
 CharmIPTV whole-app lifecycle scan
-files_scanned=198
-function_declarations=1009
-arrow_callbacks=518
+files_scanned=199
+function_declarations=1021
+arrow_callbacks=523
 timer_sites=71
-listener_sites=31
+listener_sites=33
 stream_player_mount_sites=2
 critical_findings=0
 warnings=0

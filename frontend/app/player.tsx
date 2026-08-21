@@ -4,7 +4,6 @@ import {
   BackHandler,
   FlatList,
   Platform,
-  ScrollView,
   Pressable,
   StatusBar as RNStatusBar,
   StyleSheet,
@@ -30,7 +29,7 @@ import {
 } from "@/src/components/StreamPlayer";
 import { useStore } from "@/src/store";
 import { fonts, radius, tvColors } from "@/src/theme";
-import { addPlayerQuickCommandListener, addTvKeyListener, addTvLongPressListener, addTvShortcutListener, resetRemoteContextIfOwned, setRemoteContext } from "@/src/utils/tvRemote";
+import { addPlayerQuickCommandListener, addTvKeyListener, addTvLongPressListener, addTvShortcutListener, emitTvQuickActions, resetRemoteContextIfOwned, setRemoteContext } from "@/src/utils/tvRemote";
 import { useRemoteShortcutPreferences, type PlayerRemoteAction } from "@/src/core/remoteShortcutPreferences";
 import { getTvSafeInsets } from "@/src/utils/tvLayout";
 import { requestNativeFocus } from "@/src/utils/tvFocus";
@@ -105,7 +104,7 @@ export default function PlayerScreen() {
   const [failReason, setFailReason] = useState<SessionFailReason | null>(null);
   const [retryToken, setRetryToken] = useState(0);
   const [controls, setControls] = useState(true);
-  const [playerOverlay, setPlayerOverlay] = useState<"channels" | "tracks" | "more" | null>(null);
+  const [playerOverlay, setPlayerOverlay] = useState<"channels" | "tracks" | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [retryAttempt, setRetryAttempt] = useState(0);
   const [playerNow, setPlayerNow] = useState(() => new Date());
@@ -119,8 +118,7 @@ export default function PlayerScreen() {
   const [textTrackId, setTextTrackId] = useState<string | number | undefined>(undefined);
   const channelsOpen = playerOverlay === "channels";
   const tracksOpen = playerOverlay === "tracks";
-  const moreOpen = playerOverlay === "more";
-  const setOverlayOpen = useCallback((name: "channels" | "tracks" | "more", next: React.SetStateAction<boolean>) => {
+  const setOverlayOpen = useCallback((name: "channels" | "tracks", next: React.SetStateAction<boolean>) => {
     setPlayerOverlay((current) => {
       const open = current === name;
       const resolved = typeof next === "function" ? next(open) : next;
@@ -129,7 +127,6 @@ export default function PlayerScreen() {
   }, []);
   const setChannelsOpen = useCallback((next: React.SetStateAction<boolean>) => setOverlayOpen("channels", next), [setOverlayOpen]);
   const setTracksOpen = useCallback((next: React.SetStateAction<boolean>) => setOverlayOpen("tracks", next), [setOverlayOpen]);
-  const setMoreOpen = useCallback((next: React.SetStateAction<boolean>) => setOverlayOpen("more", next), [setOverlayOpen]);
   const { defaultLanguage: subtitleDefaultLanguage } = useSubtitlePreferences();
   const audioPreferences = useAudioTrackPreferences();
   const remoteShortcuts = useRemoteShortcutPreferences();
@@ -144,9 +141,8 @@ export default function PlayerScreen() {
   const channelsOpenRef = useRef(false);
   const generationRef = useRef(0);
   const channelsButtonRef = useRef<any>(null);
-  const moreButtonRef = useRef<any>(null);
-  const moreFirstActionRef = useRef<any>(null);
   const overlayOpenerRef = useRef<any>(null);
+  const saveAudioReportRef = useRef<() => void>(() => undefined);
   const nextButtonRef = useRef<any>(null);
   const prevButtonRef = useRef<any>(null);
   const preferControlRef = useRef<"next" | "prev" | null>(null);
@@ -263,9 +259,8 @@ export default function PlayerScreen() {
       setControls(false);
       setChannelsOpen(false);
       setTracksOpen(false);
-      setMoreOpen(false);
     }, overlayHideMs);
-  }, [overlayHideMs, setChannelsOpen, setMoreOpen, setTracksOpen]);
+  }, [overlayHideMs, setChannelsOpen, setTracksOpen]);
 
   const revealControls = useCallback((opts?: { claimChannelsFocus?: boolean }) => {
     const wasHidden = !controlsRef.current;
@@ -426,13 +421,20 @@ export default function PlayerScreen() {
         controlsRef.current = true;
         setControls(true);
         setChannelsOpen(false);
-        setMoreOpen(false);
         setTracksOpen(true);
         overlayOpenerRef.current = null;
         scheduleHide();
+        return;
+      }
+      if (command === "PREVIOUS_CHANNEL") {
+        returnToPreviousChannel();
+        return;
+      }
+      if (command === "SAVE_DIAGNOSTICS") {
+        saveAudioReportRef.current();
       }
     });
-  }, [cycleScaleMode, isTV, scheduleHide, setChannelsOpen, setMoreOpen, setTracksOpen]);
+  }, [cycleScaleMode, isTV, returnToPreviousChannel, scheduleHide, setChannelsOpen, setTracksOpen]);
 
   const restartStream = useCallback((clearCircuit: boolean) => {
     if (!hasStream) return;
@@ -476,11 +478,6 @@ export default function PlayerScreen() {
     if (opener) requestAnimationFrame(() => requestNativeFocus(opener));
   }, []);
 
-  useEffect(() => {
-    if (!moreOpen || !isTV) return;
-    const frame = requestAnimationFrame(() => requestNativeFocus(moreFirstActionRef.current));
-    return () => cancelAnimationFrame(frame);
-  }, [isTV, moreOpen]);
 
   // Cold mount / explicit retry only — channel zaps must not reclaim Channels focus.
   useEffect(() => {
@@ -652,6 +649,7 @@ export default function PlayerScreen() {
       showNotice("Diagnostics failed");
     }
   }, [channelMeta?.name, failReason, showNotice]);
+  saveAudioReportRef.current = () => { void saveAudioReport(); };
 
   const goGuide = useCallback(() => {
     void Haptics.selectionAsync().catch(() => undefined);
@@ -680,7 +678,6 @@ export default function PlayerScreen() {
     if (action === "channels") {
       controlsRef.current = true;
       setControls(true);
-      setMoreOpen(false);
       setTracksOpen(false);
       setChannelsOpen(true);
       scheduleHide();
@@ -694,7 +691,7 @@ export default function PlayerScreen() {
     }
     if (action === "guide") return goGuide();
     if (action === "previous") return returnToPreviousChannel();
-  }, [goGuide, returnToPreviousChannel, revealControls, scheduleHide, setChannelsOpen, setMoreOpen, setTracksOpen, showNotice, stepChannel, toggleFavorite]);
+  }, [goGuide, returnToPreviousChannel, revealControls, scheduleHide, setChannelsOpen, setTracksOpen, showNotice, stepChannel, toggleFavorite]);
 
   useEffect(() => {
     if (!isTV) return;
@@ -733,11 +730,6 @@ export default function PlayerScreen() {
         scheduleHide();
         return true;
       }
-      if (moreOpen) {
-        closeOverlayAndRestoreFocus();
-        scheduleHide();
-        return true;
-      }
       if (channelsOpen) {
         closeOverlayAndRestoreFocus();
         scheduleHide();
@@ -747,7 +739,7 @@ export default function PlayerScreen() {
       return true;
     });
     return () => sub.remove();
-  }, [channelsOpen, closeOverlayAndRestoreFocus, moreOpen, revealControls, scheduleHide, stopAndExit, tracksOpen]);
+  }, [channelsOpen, closeOverlayAndRestoreFocus, revealControls, scheduleHide, stopAndExit, tracksOpen]);
 
   const engineScaleMode: PlayerScaleMode = scaleMode === "fill" ? "zoom" : scaleMode === "stretch" ? "stretch" : "fit";
 
@@ -841,8 +833,7 @@ export default function PlayerScreen() {
             setControls(false);
             setChannelsOpen(false);
             setTracksOpen(false);
-            setMoreOpen(false);
-          } else {
+                } else {
             revealControls();
           }
         }}
@@ -956,8 +947,7 @@ export default function PlayerScreen() {
                 onPress={() => {
                   overlayOpenerRef.current = channelsButtonRef.current;
                   setTracksOpen(false);
-                  setMoreOpen(false);
-                  setChannelsOpen((value) => !value);
+                              setChannelsOpen((value) => !value);
                   scheduleHide();
                 }}
                 style={({ focused }: any) => [styles.textControl, channelsOpen && styles.controlActive, focused && styles.focused]}
@@ -994,74 +984,22 @@ export default function PlayerScreen() {
               </Pressable>
               <View style={styles.controlsSpacer} />
               <Pressable
-                ref={moreButtonRef}
                 onPress={() => {
-                  overlayOpenerRef.current = moreButtonRef.current;
                   setChannelsOpen(false);
                   setTracksOpen(false);
-                  setMoreOpen((value) => !value);
-                  scheduleHide();
+                  if (hideTimer.current) clearTimeout(hideTimer.current);
+                  emitTvQuickActions("player");
                 }}
-                style={({ focused }: any) => [styles.textControl, moreOpen && styles.controlActive, focused && styles.focused]}
+                style={({ focused }: any) => [styles.textControl, focused && styles.focused]}
               >
                 <Ionicons name="ellipsis-horizontal" size={15} color="#fff" />
-                <Text style={styles.controlLabel}>More</Text>
+                <Text style={styles.controlLabel}>Quick Actions</Text>
               </Pressable>
               <Pressable onPress={stopAndExit} style={({ focused }: any) => [styles.textControl, focused && styles.focused]}>
                 <Ionicons name="stop" size={15} color="#fff" />
                 <Text style={styles.controlLabel}>Stop</Text>
               </Pressable>
             </View>
-
-            {moreOpen ? (
-              <ScrollView
-                style={styles.morePanel}
-                contentContainerStyle={styles.morePanelContent}
-                showsVerticalScrollIndicator={false}
-                nestedScrollEnabled
-              >
-                <Pressable
-                  ref={moreFirstActionRef}
-                  hasTVPreferredFocus
-                  onPress={returnToPreviousChannel}
-                  style={({ focused }: any) => [styles.trackRow, focused && styles.focused]}
-                >
-                  <Ionicons name="return-up-back-outline" size={15} color="#fff" />
-                  <Text style={styles.controlLabel}>Previous channel</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => { overlayOpenerRef.current = moreButtonRef.current; setTracksOpen(true); scheduleHide(); }}
-                  style={({ focused }: any) => [styles.trackRow, focused && styles.focused]}
-                >
-                  <Ionicons name="musical-notes-outline" size={15} color="#fff" />
-                  <Text style={styles.controlLabel}>Audio / Subtitles</Text>
-                </Pressable>
-                <Pressable onPress={cycleScaleMode} style={({ focused }: any) => [styles.trackRow, focused && styles.focused]}>
-                  <Ionicons name="resize-outline" size={15} color="#fff" />
-                  <Text style={styles.controlLabel}>Aspect · {scaleMode === "fit" ? "Fit" : scaleMode === "fill" ? "Fill" : scaleMode === "zoom" ? "Zoom" : "Stretch"}</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => {
-                    const next = sleepTimerMinutes === 0 ? 15 : sleepTimerMinutes === 15 ? 30 : sleepTimerMinutes === 30 ? 60 : sleepTimerMinutes === 60 ? 90 : 0;
-                    setSleepTimerMinutes(next);
-                    showNotice(next ? `Sleep timer: ${next} min` : "Sleep timer: Off");
-                    scheduleHide();
-                  }}
-                  style={({ focused }: any) => [styles.trackRow, focused && styles.focused]}
-                >
-                  <Ionicons name="moon-outline" size={15} color="#fff" />
-                  <Text style={styles.controlLabel}>Sleep Timer · {sleepTimerMinutes ? `${sleepTimerMinutes}m` : "Off"}</Text>
-                </Pressable>
-                <Pressable onPress={() => router.replace("/settings" as any)} style={({ focused }: any) => [styles.trackRow, focused && styles.focused]}>
-                  <Ionicons name="settings-outline" size={15} color="#fff" />
-                  <Text style={styles.controlLabel}>Settings</Text>
-                </Pressable>
-                <Pressable onPress={() => void saveAudioReport()} style={({ focused }: any) => [styles.trackRow, focused && styles.focused]} testID="player-report-audio">
-                  <Ionicons name="bug-outline" size={15} color="#fff" />
-                  <Text style={styles.controlLabel}>Diagnostics</Text>
-                </Pressable>
-              </ScrollView>
-            ) : null}
 
             {tracksOpen ? (
               <View style={styles.tracksPanel}>
@@ -1177,8 +1115,6 @@ const styles = StyleSheet.create({
   pauseControl: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 19, borderWidth: 2, borderColor: "transparent", backgroundColor: tvColors.purple },
   channelStrip: { gap: 6, paddingTop: 5 },
   tracksPanel: { maxHeight: 160, marginTop: 6, padding: 8, borderRadius: radius.sm, backgroundColor: "rgba(16,16,30,0.94)", gap: 4 },
-  morePanel: { maxHeight: 190, marginTop: 6, borderRadius: radius.sm, backgroundColor: "rgba(16,16,30,0.94)" },
-  morePanelContent: { padding: 8, gap: 4 },
   trackRow: { minHeight: 28, justifyContent: "center", paddingHorizontal: 8, borderRadius: 5, borderWidth: 2, borderColor: "transparent" },
   trackUnsupported: { opacity: 0.45 },
   channelCard: { width: 96, minHeight: 54, alignItems: "center", justifyContent: "center", gap: 3, borderRadius: radius.sm, borderWidth: 2, borderColor: "transparent", backgroundColor: "rgba(16,16,30,0.94)", padding: 4 },

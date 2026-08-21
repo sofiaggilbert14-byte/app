@@ -44,7 +44,7 @@ export async function syncNativeCustomEpgPolicy(
         enabled: source.enabled,
         refreshHours: source.refreshHours,
       })),
-    ]);
+    ], { clearRam: false });
   } catch {
     // Native module may be unavailable on web/Expo Go; next Android startup retries.
   }

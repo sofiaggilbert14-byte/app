@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FocusedTabMount } from "@/src/components/FocusedTabMount";
 import {
   ActivityIndicator,
+  BackHandler,
   DeviceEventEmitter,
   Pressable,
   StyleSheet,
@@ -195,11 +197,12 @@ function GuideSelectionPreview({
   );
 }
 
-export default function PurpleGuideScreen() {
+function PurpleGuideScreenContent() {
   const router = useRouter();
   const isFocused = useIsFocused();
   const { drawerOpen, openDrawer, closeDrawer } = usePurpleTvDrawer();
   const [groupDrawerOpen, setGroupDrawerOpen] = useState(false);
+  const [quickActionsOpen, setQuickActionsOpen] = useState(false);
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   useFocusEffect(
     useCallback(() => {
@@ -307,6 +310,8 @@ export default function PurpleGuideScreen() {
   const rapidSurfUntilRef = useRef(0);
   const hadProgramModalRef = useRef(false);
   const modalOriginRef = useRef<{ channelId: string; programStart: string } | null>(null);
+  const pinModalOwnedRef = useRef(false);
+  const pinReturnToGroupsRef = useRef(false);
   const orderedFilteredIdsRef = useRef<string[]>([]);
   const filteredIdIndexRef = useRef<Map<string, number>>(new Map());
   const lastRunwayRef = useRef<{ ids: string[]; priority: string[]; pageSize: number }>({
@@ -376,7 +381,51 @@ export default function PurpleGuideScreen() {
       setGroupDrawerOpen(true);
       return true;
     }, [activeProgram, drawerOpen, groupDrawerOpen, openDrawer]),
+    !pinPromptGroup,
   );
+
+  useEffect(() => {
+    if (!isFocused) {
+      setQuickActionsOpen(false);
+      return;
+    }
+    const sub = DeviceEventEmitter.addListener("CharmQuickActionsVisibility", (open: boolean) => {
+      setQuickActionsOpen(!!open);
+    });
+    return () => {
+      sub.remove();
+      setQuickActionsOpen(false);
+    };
+  }, [isFocused]);
+
+  useEffect(() => {
+    // TiViMate-style window ownership: an overlay that is visually on top must
+    // also be the only semantic key owner. Otherwise Channel/Page keys can move
+    // the hidden native Guide and held Select can reopen Guide actions underneath.
+    if (!isFocused) {
+      setGuideNavigationActive(false);
+      if (pinModalOwnedRef.current) {
+        pinModalOwnedRef.current = false;
+        pinReturnToGroupsRef.current = false;
+        resetRemoteContextIfOwned("modal", "default");
+      }
+      return;
+    }
+
+    if (quickActionsOpen || activeProgram || pinPromptGroup) {
+      setGuideNavigationActive(false);
+    }
+
+    if (pinPromptGroup) {
+      pinModalOwnedRef.current = true;
+      setRemoteContext("modal");
+      return;
+    }
+
+    if (!quickActionsOpen && !activeProgram && !drawerOpen && !groupDrawerOpen) {
+      setGuideNavigationActive(true);
+    }
+  }, [activeProgram, drawerOpen, groupDrawerOpen, isFocused, pinPromptGroup, quickActionsOpen]);
 
   useEffect(() => {
     if (!isFocused) return;
@@ -810,17 +859,68 @@ export default function PurpleGuideScreen() {
     closeDrawer();
   }, [closeDrawer, group]);
 
+  const openPinPrompt = useCallback((next: string, returnToGroups: boolean) => {
+    // Claim the modal synchronously with the key action. The old group drawer
+    // must not stay mounted with a second FocusGuide underneath the PIN.
+    pinModalOwnedRef.current = true;
+    pinReturnToGroupsRef.current = returnToGroups;
+    setGuideNavigationActive(false);
+    setRemoteContext("modal");
+    if (previewTimer.current) {
+      clearTimeout(previewTimer.current);
+      previewTimer.current = null;
+    }
+    if (previewRecoverTimer.current) {
+      clearTimeout(previewRecoverTimer.current);
+      previewRecoverTimer.current = null;
+    }
+    if (surfReleaseTimer.current) {
+      clearTimeout(surfReleaseTimer.current);
+      surfReleaseTimer.current = null;
+    }
+    setPreviewId(null);
+    setPreviewActionsFocused(false);
+    if (returnToGroups) setGroupDrawerOpen(false);
+    setPinPromptGroup(next);
+    setPinDigits("");
+    setPinError(false);
+  }, []);
+
+  const closePinPrompt = useCallback((restoreGroups: boolean) => {
+    const returnToGroups = restoreGroups && pinReturnToGroupsRef.current;
+    pinReturnToGroupsRef.current = false;
+    pinModalOwnedRef.current = false;
+    setPinPromptGroup(null);
+    setPinDigits("");
+    setPinError(false);
+    if (returnToGroups) {
+      setGuideNavigationActive(false);
+      setRemoteContext("guide_groups");
+      setGroupDrawerOpen(true);
+      return;
+    }
+    const restored = resetRemoteContextIfOwned("modal", "guide");
+    if (restored) setGuideNavigationActive(true);
+  }, []);
+
+  useEffect(() => {
+    if (!pinPromptGroup) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      closePinPrompt(true);
+      return true;
+    });
+    return () => sub.remove();
+  }, [closePinPrompt, pinPromptGroup]);
+
   const chooseGroup = useCallback(
     (next: string) => {
       if (hasPin && isGroupLocked(next)) {
-        setPinPromptGroup(next);
-        setPinDigits("");
-        setPinError(false);
+        openPinPrompt(next, groupDrawerOpen);
         return;
       }
       applyGroup(next);
     },
-    [applyGroup, hasPin, isGroupLocked],
+    [applyGroup, groupDrawerOpen, hasPin, isGroupLocked, openPinPrompt],
   );
 
   const submitPin = useCallback(() => {
@@ -832,11 +932,9 @@ export default function PurpleGuideScreen() {
     }
     unlockGroup(pinPromptGroup);
     const next = pinPromptGroup;
-    setPinPromptGroup(null);
-    setPinDigits("");
-    setPinError(false);
+    closePinPrompt(false);
     applyGroup(next);
-  }, [applyGroup, pinDigits, pinPromptGroup, unlockGroup, verifyPin]);
+  }, [applyGroup, closePinPrompt, pinDigits, pinPromptGroup, unlockGroup, verifyPin]);
 
   const togglePinGroup = useCallback(
     (name: string) => {
@@ -871,9 +969,7 @@ export default function PurpleGuideScreen() {
       startPreferenceAppliedRef.current = true;
       const nextGroup = jump.group || "All";
       if (hasPin && isGroupLocked(nextGroup)) {
-        setPinPromptGroup(nextGroup);
-        setPinDigits("");
-        setPinError(false);
+        openPinPrompt(nextGroup, false);
         guideSessionChannelId = jump.channelId;
         return;
       }
@@ -890,7 +986,7 @@ export default function PurpleGuideScreen() {
       if (ch) {
         schedulePreview(jump.channelId, previewDelay + surfSettleExtraMs, !!ch.url);
       }
-    }, [channelById, hasPin, isGroupLocked, previewDelay, schedulePreview, surfSettleExtraMs]),
+    }, [channelById, hasPin, isGroupLocked, openPinPrompt, previewDelay, schedulePreview, surfSettleExtraMs]),
   );
 
   const onPreviewStatus = useCallback((status: StreamStatus) => {
@@ -981,7 +1077,7 @@ export default function PurpleGuideScreen() {
               hidePreview={hidePreview}
               muted={mutePreview}
               onToggleMute={() => setMutePreview(!mutePreview)}
-              previewId={safePreviewMode === "off" || drawerOpen || groupDrawerOpen || !!activeProgram || !isFocused ? null : previewId}
+              previewId={safePreviewMode === "off" || drawerOpen || groupDrawerOpen || !!activeProgram || !!pinPromptGroup || quickActionsOpen || !isFocused ? null : previewId}
               previewStatus={previewStatus}
               previewEpoch={previewEpoch}
               onPreviewStatus={onPreviewStatus}
@@ -1004,7 +1100,7 @@ export default function PurpleGuideScreen() {
                 channels={filtered}
                 windowStart={windowStart}
                 windowEnd={windowEnd}
-                active={isFocused && !activeProgram && !drawerOpen && !groupDrawerOpen && !previewActionsFocused}
+                active={isFocused && !activeProgram && !pinPromptGroup && !quickActionsOpen && !drawerOpen && !groupDrawerOpen && !previewActionsFocused}
                 restoreChannelId={guideSessionChannelId}
                 restoreTimeMs={restoreTimeMs}
                 reloadGeneration={resetToken}
@@ -1044,7 +1140,7 @@ export default function PurpleGuideScreen() {
                   ))}
                 </View>
                 <View style={styles.pinActions}>
-                  <Pressable onPress={() => { setPinPromptGroup(null); setPinDigits(""); setPinError(false); }} style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}>
+                  <Pressable onPress={() => closePinPrompt(true)} style={({ focused }: any) => [styles.secondaryButton, focused && styles.focused]}>
                     <Text style={styles.secondaryText}>Cancel</Text>
                   </Pressable>
                   <Pressable onPress={submitPin} style={({ focused }: any) => [styles.watchButton, focused && styles.focused]}>
@@ -1070,7 +1166,7 @@ const styles = StyleSheet.create({
   watchText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 7.5 },
   secondaryButton: { flex: 1, minWidth: 0, minHeight: 27, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, backgroundColor: tvColors.panelRaised, borderRadius: 5, borderWidth: 2, borderColor: "transparent", paddingHorizontal: 3 },
   secondaryText: { color: "#fff", fontFamily: fonts.medium, fontSize: 7.2 },
-  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center", zIndex: 20, padding: 24 },
+  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center", zIndex: 120, elevation: 120, padding: 24 },
   pinHint: { color: tvColors.textMuted, fontFamily: fonts.medium, fontSize: 10 },
   pinDigits: { color: "#fff", fontFamily: fonts.bold, fontSize: 22, letterSpacing: 8, textAlign: "center", marginVertical: 4 },
   pinError: { color: "#f87171", fontFamily: fonts.medium, fontSize: 10, textAlign: "center" },
@@ -1084,3 +1180,11 @@ const styles = StyleSheet.create({
   retryText: { color: "#fff", fontFamily: fonts.semibold, fontSize: 9 },
   focused: { borderColor: "#fff", backgroundColor: tvColors.purpleDeep },
 });
+
+export default function PurpleGuideScreen() {
+  return (
+    <FocusedTabMount>
+      <PurpleGuideScreenContent />
+    </FocusedTabMount>
+  );
+}

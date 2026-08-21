@@ -841,6 +841,12 @@ class EpgNativeModule(private val reactContext: ReactApplicationContext) :
             }
             "programme" -> {
               rawProgrammeCount += 1L
+              if ((rawProgrammeCount and 0x1ffL) == 0L) {
+                val owner = TvRemoteModule.remoteContext
+                if (owner == "guide" || owner == "player" || owner == "modal") {
+                  throw IllegalStateException("EPG refresh deferred for active TV interaction")
+                }
+              }
               if (rawProgrammeCount % PROGRESS_PROGRAMME_INTERVAL == 0L) {
                 val workRatio = 1.0 - exp(-rawProgrammeCount.toDouble() / PROGRESS_PROGRAMME_SCALE)
                 emitImportProgress("parsing", 0.3 + (0.55 * workRatio))
