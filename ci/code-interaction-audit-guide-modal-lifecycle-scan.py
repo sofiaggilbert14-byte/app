@@ -14,59 +14,81 @@ program_modal = read("src/components/ProgramModal.tsx")
 guide = read("app/(tabs)/guide.tsx")
 main_activity = read("android/app/src/main/java/com/charmiptv/app/MainActivity.kt")
 
-# A root Quick Actions modal must tell Guide to release preview/native focus while
-# the modal owns the remote. Closing or unmounting restores eligibility.
+# TiViMate-style top-level overlay ownership: Quick Actions immediately removes
+# Guide page-key ownership, owns the semantic remote, and restores Guide only if
+# the same modal still owns the context when it closes.
 for required in (
     'DeviceEventEmitter.emit("CharmQuickActionsVisibility", true)',
     'DeviceEventEmitter.emit("CharmQuickActionsVisibility", false)',
+    'if (nextContext === "guide") setGuideNavigationActive(false)',
     'setRemoteContext("modal")',
+    'const restored = resetRemoteContextIfOwned("modal", restore)',
+    'if (restored && restore === "guide") setGuideNavigationActive(true)',
 ):
     if required not in quick:
-        critical.append(f"Quick Actions visibility/input lifecycle missing: {required}")
+        critical.append(f"Quick Actions modal ownership missing: {required}")
 
+# Guide must disarm preview and native canvas for every modal owner.
 for required in (
     'const [quickActionsOpen, setQuickActionsOpen] = useState(false)',
     'DeviceEventEmitter.addListener("CharmQuickActionsVisibility"',
     '!!pinPromptGroup || quickActionsOpen || !isFocused ? null : previewId',
     '!activeProgram && !pinPromptGroup && !quickActionsOpen && !drawerOpen && !groupDrawerOpen',
+    'if (quickActionsOpen || activeProgram || pinPromptGroup)',
 ):
     if required not in guide:
         critical.append(f"Guide modal disarm invariant missing: {required}")
 
-# PIN is not merely a visual sheet. It must become a true modal key owner so
-# Page/Channel buttons and held Select cannot operate the hidden Guide behind it.
+# PIN must be a true modal transition, never a second focus owner stacked over
+# the Guide group drawer. It synchronously claims modal input, tears down pending
+# preview work, unmounts the drawer, owns Back, and restores the correct owner.
 for required in (
     'const pinModalOwnedRef = useRef(false)',
-    'if (quickActionsOpen || activeProgram || pinPromptGroup)',
-    'setGuideNavigationActive(false)',
+    'const pinReturnToGroupsRef = useRef(false)',
+    'const openPinPrompt = useCallback',
     'pinModalOwnedRef.current = true',
+    'setGuideNavigationActive(false)',
     'setRemoteContext("modal")',
-    'const fallback = groupDrawerOpen ? "guide_groups" : drawerOpen ? "main_drawer" : "guide"',
-    'resetRemoteContextIfOwned("modal", fallback)',
+    'if (previewTimer.current)',
+    'if (previewRecoverTimer.current)',
+    'if (surfReleaseTimer.current)',
     'setPreviewId(null)',
     'setPreviewActionsFocused(false)',
+    'if (returnToGroups) setGroupDrawerOpen(false)',
+    'const closePinPrompt = useCallback',
+    'setRemoteContext("guide_groups")',
+    'setGroupDrawerOpen(true)',
+    'resetRemoteContextIfOwned("modal", "guide")',
+    'BackHandler.addEventListener("hardwareBackPress"',
+    'closePinPrompt(true)',
+    '!pinPromptGroup',
+    'openPinPrompt(next, groupDrawerOpen)',
+    'openPinPrompt(nextGroup, false)',
+    'zIndex: 120, elevation: 120',
 ):
     if required not in guide:
-        critical.append(f"Guide PIN/modal input ownership missing: {required}")
+        critical.append(f"Guide PIN serialized ownership missing: {required}")
 
-# The PIN focus trap must keep native Android focus inside the sheet while it
-# owns the semantic remote context.
 if 'testID="guide-pin-overlay"' not in guide or 'trapFocusUp trapFocusDown trapFocusLeft trapFocusRight' not in guide:
     critical.append("Guide PIN focus trap is incomplete")
 
-# Program Details is another Guide/player modal and already owns semantic input;
-# the Guide modal state machine must therefore disarm Guide page-key routing for
-# activeProgram as well rather than allowing hidden channel-page movement.
-for required in ('setRemoteContext("modal")', 'resetRemoteContextIfOwned("modal", restore)'):
+# Program Details is the same modal class of owner and must lower/restore the
+# independent native Guide page-key flag together with semantic context.
+for required in (
+    'if (pathname?.startsWith("/guide")) setGuideNavigationActive(false)',
+    'setRemoteContext("modal")',
+    'const restored = resetRemoteContextIfOwned("modal", restore)',
+    'if (restored && restore === "guide") setGuideNavigationActive(true)',
+):
     if required not in program_modal:
-        critical.append(f"Program Details modal remote ownership regressed: {required}")
+        critical.append(f"Program Details modal ownership missing: {required}")
 
-# MainActivity routes Channel/Page buttons from this independent flag. This is
-# why every Guide overlay owner must explicitly lower the flag while visible.
+# MainActivity routes Channel/Page buttons from this independent flag. Every
+# Guide overlay owner must therefore explicitly lower it while visible.
 if 'TvRemoteModule.guideNavigationActive' not in main_activity or 'emitRemoteEvent("TvGuidePageKey", pageKey)' not in main_activity:
     critical.append("native Guide page-key ownership contract changed; manual audit required")
 
-# Drawers and program details must continue participating in preview disarm.
+# Existing Guide drawers/program surfaces remain part of preview disarm.
 for required in ('drawerOpen || groupDrawerOpen', '!!activeProgram'):
     if required not in guide:
         critical.append(f"existing Guide overlay preview disarm regressed: {required}")
