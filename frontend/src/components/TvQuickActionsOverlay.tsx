@@ -393,6 +393,7 @@ export function TvQuickActionsOverlay() {
                 <Action icon="play-circle-outline" label="Player engine" value={playerEngine === "default" ? "Auto" : playerEngine.toUpperCase()} onPress={() => { const next = nextValue(ENGINE_ORDER, playerEngine); close(); requestAnimationFrame(() => setPlayerEngine(next)); }} />
                 <Action icon="moon-outline" label="Sleep timer" value={sleepTimerMinutes ? `${sleepTimerMinutes}m` : "Off"} onPress={() => setSleepTimerMinutes(sleepTimerMinutes === 0 ? 15 : sleepTimerMinutes === 15 ? 30 : sleepTimerMinutes === 30 ? 60 : sleepTimerMinutes === 60 ? 90 : 0)} />
                 <Action icon="bug-outline" label="Diagnostics" value="Save player report" onPress={() => runPlayerCommand("SAVE_DIAGNOSTICS")} />
+                <Action icon="bug-outline" label="Diagnostics" value="Save player report" onPress={() => runPlayerCommand("SAVE_DIAGNOSTICS")} />
                 <Action icon="options-outline" label="Playback compatibility" value="Advanced settings" onPress={openSettings} />
                 <Action icon="settings-outline" label="All Settings" onPress={openSettings} />
               </>
