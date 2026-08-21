@@ -536,7 +536,7 @@ function PurpleGuideScreenContent() {
         customGroups: customGuideGroups.byName,
         includeProviderGroups: showProviderGroups,
       }),
-    [channels, favoriteSet, recentIdSet, hiddenIdSet, failedCount, epgGuideFilter, customGuideGroups.byName, showProviderGroups],
+    [channels, favoriteSet, recentIdSet, hasOwnedEpgMatch, hiddenIdSet, failedCount, epgGuideFilter, customGuideGroups.byName, showProviderGroups],
   );
 
   const playlistGroups = useMemo(
