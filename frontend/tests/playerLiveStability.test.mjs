@@ -19,7 +19,7 @@ test("live player routes only unsupported contribution transports straight to VL
   assert.equal(preferredEngine("webrtc"), "vlc");
 });
 
-test("Media3 live reads tolerate provider jitter without disabling bounded decoder recovery", async () => {
+test("Media3 live reads tolerate provider jitter without clock-only decoder reloads", async () => {
   const [patch, player] = await Promise.all([
     source("patches/expo-video+3.0.16.patch"),
     source("src/components/StreamPlayer.tsx"),
@@ -27,11 +27,11 @@ test("Media3 live reads tolerate provider jitter without disabling bounded decod
   assert.match(patch, /connectTimeout\(5, TimeUnit\.SECONDS\)/);
   assert.match(patch, /readTimeout\(30, TimeUnit\.SECONDS\)/);
   assert.doesNotMatch(patch, /readTimeout\(5, TimeUnit\.SECONDS\)/);
-  assert.match(player, /const MEDIA3_FROZEN_CLOCK_MS = 9000/);
   assert.match(player, /observedPlaybackTime = Number\(player\.currentTime\)/);
-  assert.match(player, /hasPlayedRef\.current &&\s*mediaReady &&\s*now - lastPlaybackAdvanceAtRef\.current >= MEDIA3_FROZEN_CLOCK_MS/);
-  assert.doesNotMatch(player, /Boolean\(\(player as any\)\.playing\)/);
-  assert.match(player, /MAX_SILENT_BUFFERING_RESYNCS = 2/);
+  assert.match(player, /if \(bufferingSince == null\) return/);
+  assert.match(player, /const bufferingFor = now - bufferingSince/);
+  assert.doesNotMatch(player, /MEDIA3_FROZEN_CLOCK_MS|const frozenReadyClock =/);
+  assert.match(player, /MAX_SILENT_BUFFERING_RESYNCS = 1/);
 });
 
 test("VLC post-playback stalls become bounded recovery events", async () => {
@@ -67,14 +67,15 @@ test("Guide preview stalls are bounded and cannot poison fullscreen health state
   assert.doesNotMatch(player, /if \(mode === "preview" \|\| paused \|\| blocked\) return;/);
   assert.doesNotMatch(player, /if \(mode === "preview" \|\| paused \|\| blocked \|\| !mediaReady\)/);
   assert.match(player, /const VLC_FROZEN_PROGRESS_MS = 15_000/);
-  assert.match(player, /const MEDIA3_FROZEN_CLOCK_MS = 9000/);
+  assert.match(player, /if \(bufferingSince == null\) return/);
+  assert.doesNotMatch(player, /MEDIA3_FROZEN_CLOCK_MS|const frozenReadyClock =/);
   assert.doesNotMatch(guide, /noteStreamFailure/);
   assert.doesNotMatch(guide, /clearStreamFailure/);
 });
 
 test("late stable-stream failure clears the stable gate and bounds fallback startup", async () => {
   const player = await source("src/components/StreamPlayer.tsx");
-  assert.match(player, /if \(fallbackUsed\) \{\s*setSessionPhase\(role, sessionGeneration, "failed", "start-timeout"\);\s*setStatus\("error", "start-timeout"\);/);
+  assert.match(player, /if \(fallbackUsed \|\| forceVlc \|\| forceMedia3\) \{\s*pauseSessionDecoders\(role\);\s*setSessionPhase\(role, sessionGeneration, "failed", "start-timeout"\);\s*setStatus\("error", "start-timeout"\);/);
   assert.match(player, /if \(alternate\) \{[\s\S]*?stableRef\.current = false;[\s\S]*?setFallbackUsed\(true\);[\s\S]*?setEngine\(alternate\);/);
   assert.doesNotMatch(player, /if \(stableRef\.current \|\| fallbackUsed\) return;/);
 });
