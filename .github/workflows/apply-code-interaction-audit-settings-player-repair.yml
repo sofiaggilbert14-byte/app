@@ -35,6 +35,9 @@ jobs:
       - name: Apply Guide modal preview ownership repair
         run: python3 ci/code-interaction-audit-guide-modal-repair.py
 
+      - name: Apply inactive tab teardown repair
+        run: python3 ci/code-interaction-audit-tab-lifecycle-repair.py
+
       - name: Run complete settings lifecycle scan
         run: python3 ci/code-interaction-audit-settings-lifecycle-scan.py
 
@@ -43,6 +46,9 @@ jobs:
 
       - name: Run Guide modal preview ownership scan
         run: python3 ci/code-interaction-audit-guide-modal-lifecycle-scan.py
+
+      - name: Run inactive tab lifecycle RAM scan
+        run: python3 ci/code-interaction-audit-tab-lifecycle-scan.py
 
       - name: Run whole-app lifecycle scan
         run: python3 ci/code-interaction-audit-lifecycle-scan.py
@@ -78,11 +84,12 @@ jobs:
             ci/code-interaction-audit-settings-lifecycle-report.txt \
             ci/code-interaction-audit-osd-lifecycle-report.txt \
             ci/code-interaction-audit-guide-modal-lifecycle-report.txt \
+            ci/code-interaction-audit-tab-lifecycle-report.txt \
             ci/code-interaction-audit-lifecycle-report.txt \
             ci/code-interaction-audit-preview-lifecycle-report.txt
           if git diff --cached --quiet; then
             echo "No source changes to commit"
             exit 0
           fi
-          git commit -m "fix: unify player actions and Guide modal lifecycles"
+          git commit -m "fix: unify player settings Guide modal and tab lifecycles"
           git push origin HEAD:agent/code-interaction-audit
