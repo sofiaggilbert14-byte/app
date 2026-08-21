@@ -1,4 +1,4 @@
-# trigger: deep repair cycle 6
+# trigger: deep repair cycle 7
 name: TiViMate Deep Player Quick Actions Repair
 
 on:
@@ -112,7 +112,7 @@ jobs:
       - name: Guard RC5-9 M3U and EPG transport baseline
         shell: bash
         run: |
-          git diff --exit-code origin/agent/code-interaction-audit-final-sideload-trigger-v9 -- \
+          git diff --exit-code 061d5b073d5f9c721b9362ef67d4a02dd05637f7 -- \
             frontend/src/source.native.ts \
             frontend/src/nativeEpg.ts \
             frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt
