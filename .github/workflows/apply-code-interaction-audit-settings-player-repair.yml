@@ -34,6 +34,9 @@ jobs:
       - name: Apply settings/player lifecycle repairs
         run: python3 ci/code-interaction-audit-settings-player-repair.py
 
+      - name: Normalize player Quick Actions command bridge
+        run: python3 ci/code-interaction-audit-osd-command-normalize.py
+
       - name: Apply single player Quick Actions ownership repair
         run: python3 ci/code-interaction-audit-osd-consolidation.py
 
