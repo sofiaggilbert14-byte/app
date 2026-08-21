@@ -163,17 +163,15 @@ test("player delegates More to the single global Quick Actions owner", async () 
   assert.doesNotMatch(player, /playerOverlay.*"more"/);
 });
 
-test("Media3 recovery follows the real playback clock after a stream has played", async () => {
+test("Media3 recovery only reparses a real post-playback buffering state", async () => {
   const stream = await source("src/components/StreamPlayer.tsx");
-  assert.match(stream, /const MEDIA3_FROZEN_CLOCK_MS = 9000/);
   assert.match(stream, /const observedPlaybackTime = Number\(player\.currentTime\)/);
-  assert.match(stream, /const frozenReadyClock =/);
-  assert.match(stream, /hasPlayedRef\.current &&\s*mediaReady &&\s*now - lastPlaybackAdvanceAtRef\.current >= MEDIA3_FROZEN_CLOCK_MS/);
-  assert.doesNotMatch(stream, /Boolean\(\(player as any\)\.playing\)/);
-  assert.match(stream, /if \(bufferingSince == null && !frozenReadyClock\) return/);
-  assert.doesNotMatch(stream, /const stalledReady =/);
+  assert.match(stream, /if \(bufferingSince == null\) return/);
+  assert.match(stream, /const bufferingFor = now - bufferingSince/);
+  assert.doesNotMatch(stream, /MEDIA3_FROZEN_CLOCK_MS|const frozenReadyClock =|const stalledReady =/);
   assert.match(stream, /const BUFFERING_RESYNC_MS = 5000/);
   assert.match(stream, /const BUFFERING_FAIL_MS = 22000/);
+  assert.match(stream, /MAX_SILENT_BUFFERING_RESYNCS = 1/);
 });
 
 test("long Select consumes release and program context stays in Quick Actions", async () => {
