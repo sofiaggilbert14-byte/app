@@ -35,21 +35,19 @@ for path in files:
     metrics["listeners"] += data.count("addListener(") + data.count("addEventListener(")
     metrics["stream_players"] += data.count("<StreamPlayer")
 
-    # Exact duplicate imports are useful corruption signals, especially in Kotlin.
-    # A bare TypeScript `import {` begins a multiline import block and is not a
-    # complete import statement, so repeated occurrences are expected and must
-    # not be treated as duplicates.
-    import_lines = []
-    for raw in data.splitlines():
-        line = raw.strip()
-        if not line.startswith("import "):
-            continue
-        if line == "import {" or line.endswith("{"):
-            continue
-        import_lines.append(line)
-    dupes = [line for line, count in Counter(import_lines).items() if count > 1]
-    for line in dupes:
-        critical.append(f"duplicate import: {rel}: {line}")
+    # Duplicate imports are a strong corruption signal in actual Kotlin/Java
+    # source files. Do not inspect JS config-plugin templates here: a single JS
+    # file can legitimately contain multiple generated Kotlin source strings,
+    # each with the same required import.
+    if path.suffix in {".kt", ".java"}:
+        import_lines = [
+            raw.strip()
+            for raw in data.splitlines()
+            if raw.strip().startswith("import ")
+        ]
+        dupes = [line for line, count in Counter(import_lines).items() if count > 1]
+        for line in dupes:
+            critical.append(f"duplicate import: {rel}: {line}")
 
     if "setInterval(" in data and "clearInterval(" not in data:
         warnings.append(f"interval without file-local clearInterval: {rel}")
