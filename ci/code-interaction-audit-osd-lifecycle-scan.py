@@ -12,17 +12,20 @@ quick = read("src/components/TvQuickActionsOverlay.tsx")
 remote = read("src/utils/tvRemote.ts")
 
 # One Actions/Quick-Actions owner. Channels and Tracks are subordinate player
-# surfaces; there must be no second local More panel with its own focus/timers.
+# surfaces; there must be no second local More panel, stale state, focus effect,
+# refs, or timers left after consolidation.
 for forbidden in (
     '"channels" | "tracks" | "more"',
     'playerOverlay === "more"',
     'setMoreOpen',
+    'moreOpen',
+    'moreButtonRef',
     'morePanel:',
     'morePanelContent:',
     'moreFirstActionRef',
 ):
     if forbidden in player:
-        critical.append(f"duplicate local player More owner remains: {forbidden}")
+        critical.append(f"duplicate/stale local player More owner remains: {forbidden}")
 if 'emitTvQuickActions("player")' not in player:
     critical.append("player Quick Actions button does not route to the global owner")
 if 'export function emitTvQuickActions(context: TvQuickActionsContext)' not in remote:
