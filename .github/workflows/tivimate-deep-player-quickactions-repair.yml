@@ -1,4 +1,4 @@
-# trigger: deep repair cycle 5
+# trigger: deep repair cycle 6
 name: TiViMate Deep Player Quick Actions Repair
 
 on:
@@ -10,6 +10,13 @@ on:
       - ci/tivimate-deep-player-quickactions-repair-v2.py
       - ci/tivimate-whole-repo-player-interaction-scan.py
       - .github/workflows/tivimate-deep-player-quickactions-repair.yml
+      - frontend/android/app/src/main/java/com/charmiptv/app/MainActivity.kt
+      - frontend/src/components/TvQuickActionsOverlay.tsx
+      - frontend/src/components/StreamPlayer.tsx
+      - frontend/app/player.tsx
+      - frontend/app/(tabs)/guide.tsx
+      - frontend/src/store.tsx
+      - frontend/patches/expo-video+3.0.16.patch
 
 permissions:
   contents: write
@@ -84,6 +91,22 @@ jobs:
               path.write_text(text, encoding='utf-8')
           elif new_start not in text or new_end not in text:
               raise SystemExit('Guide groupCounts lint-repair shape changed unexpectedly')
+          PY
+
+      - name: Preserve 24-hour guide runtime default
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('frontend/src/store.tsx')
+          text = path.read_text(encoding='utf-8')
+          old = 'const DEFAULT_GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 12);'
+          new = 'const DEFAULT_GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 24);'
+          if old in text:
+              text = text.replace(old, new, 1)
+              path.write_text(text, encoding='utf-8')
+          elif new not in text:
+              raise SystemExit('Guide default window contract changed unexpectedly')
           PY
 
       - name: Guard RC5-9 M3U and EPG transport baseline
@@ -171,10 +194,11 @@ jobs:
             frontend/src/components/StreamPlayer.tsx \
             frontend/app/player.tsx \
             frontend/app/'(tabs)'/guide.tsx \
+            frontend/src/store.tsx \
             frontend/patches/expo-video+3.0.16.patch
           if git diff --cached --quiet; then
             echo "No production repair changes needed"
             exit 0
           fi
-          git commit -m "fix(tivimate): converge player recovery and Guide lint"
+          git commit -m "fix(tivimate): converge player recovery Guide lint and 24h EPG"
           git push origin HEAD:agent/tivimate-deep-player-quickactions-repair
