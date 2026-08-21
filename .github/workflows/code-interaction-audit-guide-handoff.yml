@@ -81,6 +81,8 @@ jobs:
           git add \
             'frontend/app/(tabs)/guide.tsx' \
             frontend/src/components/GuidePreviewRail.tsx \
-            frontend/tests/guideActionHandoff.test.mjs
+            frontend/tests/guideActionHandoff.test.mjs \
+            frontend/tests/playerAndFocus.test.mjs \
+            frontend/tests/guideShellPolish.test.mjs
           git commit -m "fix(guide): restore rc5 action handoff without decoder overlap"
           git push origin HEAD:agent/code-interaction-audit
