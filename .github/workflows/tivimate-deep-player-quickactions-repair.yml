@@ -1,4 +1,4 @@
-# trigger: deep repair cycle 3
+# trigger: deep repair cycle 4
 name: TiViMate Deep Player Quick Actions Repair
 
 on:
@@ -55,13 +55,34 @@ jobs:
           from pathlib import Path
           path = Path('frontend/app/(tabs)/guide.tsx')
           text = path.read_text(encoding='utf-8')
-          old = '[channels, favoriteSet, recentIdSet, hasOwnedEpgMatch, hiddenIdSet, failedCount, epgGuideFilter, customGuideGroups.byName, showProviderGroups],'
-          new = '[channels, favoriteSet, recentIdSet, hasOwnedEpgMatch, hiddenIdSet, customGuideGroups.byName, showProviderGroups],'
-          if old in text:
-              text = text.replace(old, new, 1)
+          old_start = '''  const groupCounts = useMemo(
+    () =>
+      buildGroupCounts(channels, {
+'''
+          new_start = '''  const groupCounts = useMemo(
+    () => {
+      // streamFailureRegistry is module-owned state. Keep its count in this memo
+      // contract so Failed-group counts are recomputed on the next render after
+      // registry changes without rebuilding unrelated guide data.
+      void failedCount;
+      return buildGroupCounts(channels, {
+'''
+          old_end = '''        includeProviderGroups: showProviderGroups,
+      }),
+    [channels, favoriteSet, recentIdSet, hasOwnedEpgMatch, hiddenIdSet, failedCount, epgGuideFilter, customGuideGroups.byName, showProviderGroups],
+  );
+'''
+          new_end = '''        includeProviderGroups: showProviderGroups,
+      });
+    },
+    [channels, favoriteSet, recentIdSet, hasOwnedEpgMatch, hiddenIdSet, failedCount, customGuideGroups.byName, showProviderGroups],
+  );
+'''
+          if old_start in text and old_end in text:
+              text = text.replace(old_start, new_start, 1).replace(old_end, new_end, 1)
               path.write_text(text, encoding='utf-8')
-          elif new not in text:
-              raise SystemExit('Guide groupCounts dependency shape changed unexpectedly')
+          elif new_start not in text or new_end not in text:
+              raise SystemExit('Guide groupCounts lint-repair shape changed unexpectedly')
           PY
 
       - name: Guard RC5-9 M3U and EPG transport baseline
@@ -111,7 +132,7 @@ jobs:
         working-directory: frontend
         run: npm run typecheck
 
-      - name: Lint
+      - name: Lint with zero warnings
         working-directory: frontend
         run: npm run lint -- --max-warnings=0
 
@@ -138,10 +159,6 @@ jobs:
       - name: Commit verified deep repair
         shell: bash
         run: |
-          if git diff --quiet; then
-            echo "No repair changes needed"
-            exit 0
-          fi
           git config user.name "Charm Interaction Audit Bot"
           git config user.email "actions@users.noreply.github.com"
           git add \
@@ -150,7 +167,10 @@ jobs:
             frontend/src/components/StreamPlayer.tsx \
             frontend/app/player.tsx \
             frontend/app/'(tabs)'/guide.tsx \
-            frontend/patches/expo-video+3.0.16.patch \
-            ci/code-interaction-audit-player-freeze-report.txt
+            frontend/patches/expo-video+3.0.16.patch
+          if git diff --cached --quiet; then
+            echo "No production repair changes needed"
+            exit 0
+          fi
           git commit -m "fix(tivimate): converge player recovery and Guide lint"
           git push origin HEAD:agent/tivimate-deep-player-quickactions-repair
