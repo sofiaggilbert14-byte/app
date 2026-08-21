@@ -40,6 +40,9 @@ jobs:
       - name: Apply single player Quick Actions ownership repair
         run: python3 ci/code-interaction-audit-osd-consolidation.py
 
+      - name: Apply foreground refresh ownership repair
+        run: python3 ci/code-interaction-audit-foreground-refresh-repair.py
+
       - name: Apply Guide modal preview ownership repair
         run: python3 ci/code-interaction-audit-guide-modal-repair.py
 
@@ -60,6 +63,9 @@ jobs:
 
       - name: Run player OSD ownership scan
         run: python3 ci/code-interaction-audit-osd-lifecycle-scan.py
+
+      - name: Run foreground refresh ownership scan
+        run: python3 ci/code-interaction-audit-foreground-refresh-scan.py
 
       - name: Run Guide modal preview ownership scan
         run: python3 ci/code-interaction-audit-guide-modal-lifecycle-scan.py
@@ -102,6 +108,7 @@ jobs:
             ci/code-interaction-audit-setting-option-inventory.txt \
             ci/code-interaction-audit-epg-schedule-lifecycle-report.txt \
             ci/code-interaction-audit-osd-lifecycle-report.txt \
+            ci/code-interaction-audit-foreground-refresh-report.txt \
             ci/code-interaction-audit-guide-modal-lifecycle-report.txt \
             ci/code-interaction-audit-tab-lifecycle-report.txt \
             ci/code-interaction-audit-lifecycle-report.txt \
@@ -110,5 +117,5 @@ jobs:
             echo "No source changes to commit"
             exit 0
           fi
-          git commit -m "fix: unify player settings Guide modal tab and EPG lifecycles"
+          git commit -m "fix: unify player settings Guide modal tab EPG and refresh lifecycles"
           git push origin HEAD:agent/code-interaction-audit
