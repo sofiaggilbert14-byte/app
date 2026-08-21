@@ -29,8 +29,20 @@ jobs:
       - name: Apply settings/player lifecycle repairs
         run: python3 ci/code-interaction-audit-settings-player-repair.py
 
+      - name: Apply single player Quick Actions ownership repair
+        run: python3 ci/code-interaction-audit-osd-consolidation.py
+
       - name: Run complete settings lifecycle scan
         run: python3 ci/code-interaction-audit-settings-lifecycle-scan.py
+
+      - name: Run player OSD ownership scan
+        run: python3 ci/code-interaction-audit-osd-lifecycle-scan.py
+
+      - name: Run whole-app lifecycle scan
+        run: python3 ci/code-interaction-audit-lifecycle-scan.py
+
+      - name: Run preview/player lifecycle scan
+        run: python3 ci/code-interaction-audit-preview-lifecycle-scan.py
 
       - name: Install JavaScript dependencies
         working-directory: frontend
@@ -56,10 +68,14 @@ jobs:
         run: |
           git config user.name "charm-audit-bot"
           git config user.email "charm-audit-bot@users.noreply.github.com"
-          git add frontend ci/code-interaction-audit-settings-lifecycle-report.txt
+          git add frontend \
+            ci/code-interaction-audit-settings-lifecycle-report.txt \
+            ci/code-interaction-audit-osd-lifecycle-report.txt \
+            ci/code-interaction-audit-lifecycle-report.txt \
+            ci/code-interaction-audit-preview-lifecycle-report.txt
           if git diff --cached --quiet; then
             echo "No source changes to commit"
             exit 0
           fi
-          git commit -m "fix: isolate settings EPG and player lifecycles"
+          git commit -m "fix: unify player actions and settings lifecycles"
           git push origin HEAD:agent/code-interaction-audit
