@@ -1,1 +1,1 @@
-settings-player-lifecycle-cycle-3-observe-7
+settings-player-lifecycle-cycle-3-observe-8
