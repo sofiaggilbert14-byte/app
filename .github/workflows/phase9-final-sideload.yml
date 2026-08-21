@@ -5,7 +5,6 @@ on:
     branches:
       - agent/tivimate-deep-player-quickactions-repair
     paths:
-      - ".github/workflows/phase9-final-sideload.yml"
       - "ci/phase9-final-sideload-trigger.txt"
   workflow_dispatch:
 
@@ -28,7 +27,7 @@ jobs:
       CMAKE_BUILD_PARALLEL_LEVEL: "1"
       EXPO_PUBLIC_M3U_URL: ${{ secrets.M3U_URL || vars.EXPO_PUBLIC_M3U_URL }}
       EXPO_PUBLIC_EPG_URL: ${{ secrets.EPG_URL || vars.EXPO_PUBLIC_EPG_URL }}
-      EXPO_PUBLIC_GUIDE_WINDOW_HOURS: ${{ vars.EXPO_PUBLIC_GUIDE_WINDOW_HOURS || '12' }}
+      EXPO_PUBLIC_GUIDE_WINDOW_HOURS: ${{ vars.EXPO_PUBLIC_GUIDE_WINDOW_HOURS || '24' }}
 
     steps:
       - name: Checkout exact verified repair head
@@ -45,6 +44,13 @@ jobs:
             frontend/src/source.native.ts \
             frontend/src/nativeEpg.ts \
             frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt
+
+      - name: Verify 24-hour guide contract
+        working-directory: .
+        shell: bash
+        run: |
+          grep -F 'readGuideWindowHours(process.env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 24)' frontend/src/store.tsx
+          test "${EXPO_PUBLIC_GUIDE_WINDOW_HOURS}" = "24" || { echo "Final APK must use a 24-hour guide window"; exit 1; }
 
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -81,9 +87,11 @@ jobs:
       - name: Run final lifecycle and stability scans
         working-directory: .
         run: |
+          python3 ci/tivimate-deep-player-quickactions-scan.py
           python3 ci/code-interaction-audit-player-freeze-scan.py
           python3 ci/code-interaction-audit-preview-lifecycle-scan.py
           python3 ci/code-interaction-audit-lifecycle-scan.py
+          python3 ci/tivimate-whole-repo-player-interaction-scan.py
           python3 ci/code-interaction-audit-settings-lifecycle-scan.py
           python3 ci/code-interaction-audit-epg-schedule-lifecycle-scan.py
           python3 ci/code-interaction-audit-guide-modal-lifecycle-scan.py
@@ -140,13 +148,14 @@ jobs:
           APK="android/app/build/outputs/apk/sideload/app-sideload.apk"
           test -f "$APK"
           unzip -l "$APK" | grep -Eq "(assets/index\.android\.bundle|assets/.*\.bundle)"
-          unzip -l "$APK" | grep -q "lib/armeabi-v7a/"
-          unzip -l "$APK" | grep -q "lib/arm64-v8a/"
-          unzip -l "$APK" | grep -Eq "lib/(armeabi-v7a|arm64-v8a)/.*ffmpeg"
+          unzip -l "$APK" | grep -q "resources.arsc"
+          unzip -l "$APK" | grep -q "lib/armeabi-v7a/libffmpegJNI.so"
+          unzip -l "$APK" | grep -q "lib/arm64-v8a/libffmpegJNI.so"
           mkdir -p artifacts
           OUT="artifacts/CharmIPTV-2.1.0-rc.5-Verified-Universal-${GITHUB_RUN_NUMBER}.apk"
           cp "$APK" "$OUT"
           sha256sum "$OUT" > artifacts/SHA256SUMS.txt
+          printf 'verified_source_sha=%s\n' "$GITHUB_SHA" > artifacts/BUILD_INFO.txt
 
       - name: Upload final sideload APK
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -155,6 +164,7 @@ jobs:
           path: |
             frontend/artifacts/CharmIPTV-2.1.0-rc.5-Verified-Universal-${{ github.run_number }}.apk
             frontend/artifacts/SHA256SUMS.txt
+            frontend/artifacts/BUILD_INFO.txt
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
