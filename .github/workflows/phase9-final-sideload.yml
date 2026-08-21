@@ -70,9 +70,6 @@ jobs:
           echo "M3U and EPG build inputs are configured."
           echo "Guide default: ${EXPO_PUBLIC_GUIDE_WINDOW_HOURS} hours"
 
-      - name: Install dependencies
-        run: npm ci --legacy-peer-deps --no-audit --no-fund
-
       - name: Run final lifecycle and stability scans
         working-directory: .
         run: |
@@ -85,6 +82,9 @@ jobs:
           python3 ci/code-interaction-audit-surface-ownership-scan.py
           python3 ci/code-interaction-audit-player-stability.py
           python3 ci/code-interaction-audit-preview-isolation.py
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
 
       - name: Verify TiViMate/RAM architecture invariants
         run: node scripts/verify-overhaul-architecture.mjs
