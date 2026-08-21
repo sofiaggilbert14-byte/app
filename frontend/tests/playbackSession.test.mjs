@@ -142,7 +142,8 @@ test("StreamPlayer and player route use role-scoped session teardown", async () 
   assert.match(playerComp, /isSessionCurrent/);
   assert.match(playerComp, /sessionRole/);
   assert.match(playerComp, /role === "preview"/);
-  assert.doesNotMatch(playerComp, /rapidBurstRef|pauseSessionDecoders\(role\)/);
+  assert.doesNotMatch(playerComp, /rapidBurstRef/);
+  assert.match(playerComp, /pauseSessionDecoders\(role\)/);
   assert.match(playerComp, /clearFullscreenCircuit/);
   assert.match(playerComp, /stopPlayer\?\.\(\)/);
   assert.doesNotMatch(playerComp, /setNativeProps\?\.\(\{ clear: true \}\)/);
@@ -159,6 +160,7 @@ test("StreamPlayer and player route use role-scoped session teardown", async () 
   assert.doesNotMatch(playerComp, /forceStopAllStreams\(\)/);
   assert.match(playerRoute, /pauseSessionDecoders\("fullscreen"\)/);
   assert.match(playerRoute, /stopFullscreenSession/);
+  assert.match(playerRoute, /mode="full"/);
   assert.match(playerRoute, /sessionRole="fullscreen"/);
   assert.match(playerRoute, /clearFullscreenCircuit/);
   assert.match(playerRoute, /MAX_AUTO_STREAM_RETRIES/);
@@ -193,16 +195,16 @@ test("fullscreen launched from Guide returns the currently tuned channel to Guid
   assert.match(exit, /router\.back\(\)/);
 });
 
-test("Media3 watchdog recovers real buffering and a genuinely frozen native clock", async () => {
+test("Media3 watchdog recovers real buffering without clock-only decoder reloads", async () => {
   const player = await source("src/components/StreamPlayer.tsx");
-  assert.match(player, /const MEDIA3_FROZEN_CLOCK_MS = 9000/);
   assert.match(player, /const observedPlaybackTime = Number\(player\.currentTime\)/);
-  assert.match(player, /hasPlayedRef\.current &&\s*mediaReady &&\s*now - lastPlaybackAdvanceAtRef\.current >= MEDIA3_FROZEN_CLOCK_MS/);
   assert.doesNotMatch(player, /Boolean\(\(player as any\)\.playing\)/);
-  assert.match(player, /const frozenReadyClock =/);
-  assert.match(player, /if \(bufferingSince == null && !frozenReadyClock\) return/);
+  assert.doesNotMatch(player, /MEDIA3_FROZEN_CLOCK_MS|const frozenReadyClock =/);
+  assert.match(player, /if \(bufferingSince == null\) return/);
+  assert.match(player, /const bufferingFor = now - bufferingSince/);
   assert.match(player, /silentResyncCountRef\.current = 0;[\s\S]{0,100}bufferingSinceRef\.current = null/);
   assert.doesNotMatch(player, /const stalledReady =/);
   assert.match(player, /const BUFFERING_RESYNC_MS = 5000/);
   assert.match(player, /const BUFFERING_FAIL_MS = 22000/);
+  assert.match(player, /MAX_SILENT_BUFFERING_RESYNCS = 1/);
 });
