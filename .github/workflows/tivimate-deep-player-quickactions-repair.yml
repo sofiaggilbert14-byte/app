@@ -1,4 +1,4 @@
-# trigger: deep repair cycle 2
+# trigger: deep repair cycle 3
 name: TiViMate Deep Player Quick Actions Repair
 
 on:
@@ -7,6 +7,7 @@ on:
       - agent/tivimate-deep-player-quickactions-repair
     paths:
       - ci/tivimate-deep-player-quickactions-repair.py
+      - ci/tivimate-deep-player-quickactions-repair-v2.py
       - .github/workflows/tivimate-deep-player-quickactions-repair.yml
 
 permissions:
@@ -45,7 +46,31 @@ jobs:
         run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006"
 
       - name: Apply TiViMate behavioral repair
-        run: python ci/tivimate-deep-player-quickactions-repair.py
+        run: python ci/tivimate-deep-player-quickactions-repair-v2.py
+
+      - name: Repair Guide lint dependency warning
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('frontend/app/(tabs)/guide.tsx')
+          text = path.read_text(encoding='utf-8')
+          old = '[channels, favoriteSet, recentIdSet, hasOwnedEpgMatch, hiddenIdSet, failedCount, epgGuideFilter, customGuideGroups.byName, showProviderGroups],'
+          new = '[channels, favoriteSet, recentIdSet, hasOwnedEpgMatch, hiddenIdSet, customGuideGroups.byName, showProviderGroups],'
+          if old in text:
+              text = text.replace(old, new, 1)
+              path.write_text(text, encoding='utf-8')
+          elif new not in text:
+              raise SystemExit('Guide groupCounts dependency shape changed unexpectedly')
+          PY
+
+      - name: Guard RC5-9 M3U and EPG transport baseline
+        shell: bash
+        run: |
+          git diff --exit-code origin/agent/code-interaction-audit-final-sideload-trigger-v9 -- \
+            frontend/src/source.native.ts \
+            frontend/src/nativeEpg.ts \
+            frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt
 
       - name: Player decoder codec bleed scan
         run: python ci/code-interaction-audit-player-freeze-scan.py
@@ -88,7 +113,7 @@ jobs:
 
       - name: Lint
         working-directory: frontend
-        run: npm run lint
+        run: npm run lint -- --max-warnings=0
 
       - name: Verify native configuration
         working-directory: frontend
@@ -124,7 +149,8 @@ jobs:
             frontend/src/components/TvQuickActionsOverlay.tsx \
             frontend/src/components/StreamPlayer.tsx \
             frontend/app/player.tsx \
+            frontend/app/'(tabs)'/guide.tsx \
             frontend/patches/expo-video+3.0.16.patch \
             ci/code-interaction-audit-player-freeze-report.txt
-          git commit -m "fix(tivimate): repair player recovery and Quick Actions ownership"
+          git commit -m "fix(tivimate): converge player recovery and Guide lint"
           git push origin HEAD:agent/tivimate-deep-player-quickactions-repair
