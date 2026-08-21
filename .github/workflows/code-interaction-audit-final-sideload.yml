@@ -65,6 +65,21 @@ jobs:
         shell: bash
         run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006" "cmake;3.22.1"
 
+      - name: Full Settings Guide EPG focus lifecycle audit
+        id: full_audit
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python ci/code-interaction-audit-repair-idempotence-scan.py
+          python ci/code-interaction-audit-settings-lifecycle-scan.py
+          python ci/code-interaction-audit-setting-option-inventory.py
+          python ci/code-interaction-audit-epg-schedule-lifecycle-scan.py
+          python ci/code-interaction-audit-osd-lifecycle-scan.py
+          python ci/code-interaction-audit-foreground-refresh-scan.py
+          python ci/code-interaction-audit-guide-modal-lifecycle-scan.py
+          python ci/code-interaction-audit-tab-lifecycle-scan.py
+
       - name: Whole-app lifecycle scan
         id: lifecycle
         continue-on-error: true
@@ -175,6 +190,7 @@ jobs:
           ANDROID_SETUP: ${{ steps.android_setup.outcome }}
           CONFIG: ${{ steps.config.outcome }}
           SDK: ${{ steps.sdk.outcome }}
+          FULL_AUDIT: ${{ steps.full_audit.outcome }}
           LIFECYCLE: ${{ steps.lifecycle.outcome }}
           PREVIEW_LIFECYCLE: ${{ steps.preview_lifecycle.outcome }}
           INSTALL: ${{ steps.install.outcome }}
@@ -201,6 +217,7 @@ jobs:
           android_setup=${ANDROID_SETUP}
           config=${CONFIG}
           sdk=${SDK}
+          full_audit=${FULL_AUDIT}
           lifecycle=${LIFECYCLE}
           preview_lifecycle=${PREVIEW_LIFECYCLE}
           install=${INSTALL}
@@ -216,7 +233,7 @@ jobs:
           EOF
           for pair in \
             "node:${NODE}" "java:${JAVA}" "gradle_setup:${GRADLE_SETUP}" "android_setup:${ANDROID_SETUP}" \
-            "config:${CONFIG}" "sdk:${SDK}" "lifecycle:${LIFECYCLE}" "preview_lifecycle:${PREVIEW_LIFECYCLE}" \
+            "config:${CONFIG}" "sdk:${SDK}" "full_audit:${FULL_AUDIT}" "lifecycle:${LIFECYCLE}" "preview_lifecycle:${PREVIEW_LIFECYCLE}" \
             "install:${INSTALL}" "test:${TESTS}" "typecheck:${TYPECHECK}" "lint:${LINT}" "doctor:${DOCTOR}" \
             "native_config:${NATIVE_CONFIG}" "native_guide:${NATIVE_GUIDE}" "diff_check:${DIFF_CHECK}" \
             "ffmpeg:${FFMPEG}" "android_compile:${ANDROID_COMPILE}"; do
@@ -228,6 +245,7 @@ jobs:
               ready=false
             fi
           done
+          cp ci/code-interaction-audit-settings-lifecycle-report.txt "$OUT/SETTINGS_INTEGRATION_SCAN.txt" 2>/dev/null || true
           cp ci/code-interaction-audit-lifecycle-report.txt "$OUT/LIFECYCLE_SCAN.txt" 2>/dev/null || true
           cp ci/code-interaction-audit-preview-lifecycle-report.txt "$OUT/PREVIEW_PLAYER_SCAN.txt" 2>/dev/null || true
           cp /tmp/code-interaction-audit-tests.log "$OUT/TESTS.log" 2>/dev/null || true
@@ -285,6 +303,7 @@ jobs:
           cp "$APK" "$OUT"
           sha256sum "$OUT" > "$OUTDIR/SHA256SUMS.txt"
           cp "$NOTES" "$OUTDIR/TESTER_RELEASE_NOTES.md"
+          cp ../ci/code-interaction-audit-settings-lifecycle-report.txt "$OUTDIR/SETTINGS_INTEGRATION_SCAN.txt"
           cp ../ci/code-interaction-audit-lifecycle-report.txt "$OUTDIR/LIFECYCLE_SCAN.txt"
           cp ../ci/code-interaction-audit-preview-lifecycle-report.txt "$OUTDIR/PREVIEW_PLAYER_SCAN.txt"
           echo "app_version=${APP_VERSION}" >> "$GITHUB_OUTPUT"
