@@ -5,6 +5,7 @@ import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { PurpleTvShell } from "@/src/components/PurpleTvShell";
+import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { useStore } from "@/src/store";
 import { useEpgSourcePreferences } from "@/src/core/epgSourcePreferences";
 import {
@@ -47,6 +48,7 @@ export default function CustomEpgScreen() {
   const [xmltvTotal, setXmltvTotal] = useState(0);
   const [preferBackFocus, setPreferBackFocus] = useState(true);
   const queryGeneration = useRef(0);
+  const scrollRef = useRef<ScrollView | null>(null);
 
   useTvBackHandler(useCallback(() => {
     router.replace("/epg-sources" as any);
@@ -60,8 +62,12 @@ export default function CustomEpgScreen() {
   useEffect(() => setNameDraft(prefs.userName), [prefs.userName]);
 
   useEffect(() => {
-    const timer = setTimeout(() => setPreferBackFocus(false), 180);
-    return () => clearTimeout(timer);
+    const topTimer = setTimeout(() => scrollRef.current?.scrollTo({ y: 0, animated: false }), 0);
+    const focusTimer = setTimeout(() => setPreferBackFocus(false), 180);
+    return () => {
+      clearTimeout(topTimer);
+      clearTimeout(focusTimer);
+    };
   }, []);
 
   const selectedChannel = useMemo(
@@ -193,9 +199,6 @@ export default function CustomEpgScreen() {
       const result = await refreshNativeUserGuide(url);
       invalidateGuideOwnershipCaches();
       setXmltvPage(0);
-      // State updates are async; do not call reloadXmltvPage() here because it may
-      // still capture the previous page. Read page 0 explicitly, then the normal
-      // effect owns subsequent query/page changes.
       const firstPage = await listNativeUserGuideChannels(xmltvQuery, 0, XMLTV_PAGE_SIZE);
       setXmltvRows(firstPage.rows || []);
       setXmltvTotal(Math.max(0, Number(firstPage.total) || 0));
@@ -283,114 +286,89 @@ export default function CustomEpgScreen() {
           </Pressable>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Guide ownership</Text>
-            <Text style={styles.help}>Each playlist channel resolves to one Guide owner. A custom assignment overrides Charm EPG for that channel; the primary source is not queried for an overridden channel.</Text>
-            <Pressable onPress={togglePrimary} style={({ focused }: any) => [styles.row, focused && styles.focused]}>
-              <Text style={styles.rowText}>Charm built-in EPG</Text><Text style={styles.value}>{prefs.primaryEnabled ? "On" : "Off"}</Text>
-            </Pressable>
-            <Pressable onPress={toggleUser} style={({ focused }: any) => [styles.row, focused && styles.focused]}>
-              <Text style={styles.rowText}>Custom EPG</Text><Text style={styles.value}>{prefs.userEnabled ? "On" : "Off"}</Text>
-            </Pressable>
-          </View>
-
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Saved EPG source · Custom XMLTV URL</Text>
-            <Text style={styles.help}>This source remains saved when disabled. Open it here at any time to change its URL, refresh it, or manage channel assignments.</Text>
-            <TextInput
-              value={nameDraft}
-              onChangeText={setNameDraft}
-              placeholder="EPG source name"
-              placeholderTextColor={tvColors.textMuted}
-              maxLength={60}
-              style={styles.input}
-            />
-            <TextInput
-              value={urlDraft}
-              onChangeText={(value) => { setUrlTouched(true); setUrlDraft(value); }}
-              placeholder="http://server/path/guide.xml or .xml.gz"
-              placeholderTextColor={tvColors.textMuted}
-              autoCapitalize="none"
-              autoCorrect={false}
-              style={styles.input}
-            />
-            <View style={styles.actions}>
-              <Pressable disabled={busy} onPress={saveUrl} style={({ focused }: any) => [styles.action, busy && styles.disabled, focused && styles.focused]}><Text style={styles.actionText}>Save name & URL</Text></Pressable>
-              <Pressable disabled={busy} onPress={refreshUserGuide} style={({ focused }: any) => [styles.action, busy && styles.disabled, focused && styles.focused]}><Text style={styles.actionText}>{busy ? "Working…" : "Refresh Custom EPG"}</Text></Pressable>
-              <Pressable disabled={busy} onPress={clearUserGuide} style={({ focused }: any) => [styles.action, busy && styles.disabled, focused && styles.focused]}><Text style={styles.actionText}>Clear EPG data</Text></Pressable>
-            </View>
-          </View>
-
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Update & retention settings</Text>
-            <Text style={styles.help}>These controls use the same single background refresh owner as the provided guide, so custom and provided EPG updates cannot overlap or fight for SQLite/RAM.</Text>
-            <CycleSetting<SourceRefreshIntervalHours>
-              label="Update interval"
-              value={refreshPrefs.epgHours}
-              values={[0, 2, 4, 6, 12, 24]}
-              format={(value) => value === 0 ? "Manual only" : `${value} hours`}
-              onChange={refreshPrefs.setEpgHours}
-            />
-            <CycleSetting<1 | 3 | 7 | 14>
-              label="Past days to keep EPG"
-              value={refreshPrefs.epgPastDays}
-              values={[1, 3, 7, 14]}
-              format={(value) => `${value} day${value === 1 ? "" : "s"}`}
-              onChange={refreshPrefs.setEpgPastDays}
-            />
-            <Pressable onPress={() => refreshPrefs.setUpdateEpgOnAppStart(!refreshPrefs.updateEpgOnAppStart)} style={({ focused }: any) => [styles.row, focused && styles.focused]}><Text style={styles.rowText}>Update on app start</Text><Text style={styles.value}>{refreshPrefs.updateEpgOnAppStart ? "On" : "Off"}</Text></Pressable>
-            <Pressable onPress={() => refreshPrefs.setUpdateEpgOnPlaylistChange(!refreshPrefs.updateEpgOnPlaylistChange)} style={({ focused }: any) => [styles.row, focused && styles.focused]}><Text style={styles.rowText}>Update on playlist change</Text><Text style={styles.value}>{refreshPrefs.updateEpgOnPlaylistChange ? "On" : "Off"}</Text></Pressable>
-            <Text style={styles.help}>Latest update: {prefs.userLastRefreshAt ? formatRelativeAge(prefs.userLastRefreshAt) : "Never"}</Text>
-            <Text style={styles.help}>Status: {prefs.userLastStatus}</Text>
-          </View>
-
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>1 · Choose playlist channel</Text>
-            <TextInput value={channelQuery} onChangeText={(value) => { setChannelQuery(value); setChannelPage(0); }} placeholder="Search playlist channels" placeholderTextColor={tvColors.textMuted} style={styles.input} />
-            <View style={styles.pager}>
-              <Pressable disabled={channelPage <= 0} onPress={() => setChannelPage((value) => Math.max(0, value - 1))} style={({ focused }: any) => [styles.small, channelPage <= 0 && styles.disabled, focused && styles.focused]}><Text style={styles.actionText}>Previous</Text></Pressable>
-              <Text style={styles.value}>Page {channelPage + 1}/{channelPageCount} · {filteredChannels.length}</Text>
-              <Pressable disabled={channelPage + 1 >= channelPageCount} onPress={() => setChannelPage((value) => Math.min(channelPageCount - 1, value + 1))} style={({ focused }: any) => [styles.small, channelPage + 1 >= channelPageCount && styles.disabled, focused && styles.focused]}><Text style={styles.actionText}>Next</Text></Pressable>
-            </View>
-            {channelRows.map((channel) => {
-              const selected = channel.id === selectedChannelId;
-              const mapped = prefs.userOverrides[channel.id];
-              return (
-                <Pressable key={channel.id} onPress={() => setSelectedChannelId(channel.id)} style={({ focused }: any) => [styles.row, selected && styles.selected, focused && styles.focused]}>
-                  <View style={styles.flex}><Text numberOfLines={1} style={styles.rowText}>{channel.name}</Text><Text numberOfLines={1} style={styles.sub}>{channel.group || "Live TV"}</Text></View>
-                  <Text numberOfLines={1} style={styles.value}>{mapped ? `Custom · ${mapped}` : prefs.primaryEnabled ? "Charm EPG" : "No EPG"}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          {selectedChannel ? (
+        <FocusGuide autoFocus trapFocusUp trapFocusDown trapFocusLeft trapFocusRight style={styles.scrollWrap}>
+          <ScrollView ref={scrollRef} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} scrollEnabled nestedScrollEnabled contentInsetAdjustmentBehavior="never">
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>2 · Assign XMLTV channel to {selectedChannel.name}</Text>
-              <Text style={styles.help}>Current owner: {currentOverride ? `Custom EPG · ${currentOverride}` : prefs.primaryEnabled ? "Charm EPG" : "No EPG"}</Text>
-              <View style={styles.actions}>
-                {quickTvgId ? <Pressable disabled={busy} onPress={() => void assign(quickTvgId)} style={({ focused }: any) => [styles.action, focused && styles.focused]}><Text style={styles.actionText}>Try playlist tvg-id: {quickTvgId}</Text></Pressable> : null}
-                <Pressable disabled={!currentOverride || busy} onPress={clearAssignment} style={({ focused }: any) => [styles.action, (!currentOverride || busy) && styles.disabled, focused && styles.focused]}><Text style={styles.actionText}>Clear Override</Text></Pressable>
-              </View>
-              <TextInput value={xmltvQuery} onChangeText={(value) => { setXmltvQuery(value); setXmltvPage(0); }} placeholder="Search custom XMLTV channels" placeholderTextColor={tvColors.textMuted} style={styles.input} />
-              <View style={styles.pager}>
-                <Pressable disabled={xmltvPage <= 0} onPress={() => setXmltvPage((value) => Math.max(0, value - 1))} style={({ focused }: any) => [styles.small, xmltvPage <= 0 && styles.disabled, focused && styles.focused]}><Text style={styles.actionText}>Previous</Text></Pressable>
-                <Text style={styles.value}>Page {xmltvPage + 1}/{xmltvPageCount} · {xmltvTotal} XMLTV channels</Text>
-                <Pressable disabled={xmltvPage + 1 >= xmltvPageCount} onPress={() => setXmltvPage((value) => Math.min(xmltvPageCount - 1, value + 1))} style={({ focused }: any) => [styles.small, xmltvPage + 1 >= xmltvPageCount && styles.disabled, focused && styles.focused]}><Text style={styles.actionText}>Next</Text></Pressable>
-              </View>
-              {xmltvRows.map((row) => (
-                <Pressable key={row.id} disabled={busy} onPress={() => void assign(row.id)} style={({ focused }: any) => [styles.row, currentOverride === row.id && styles.selected, focused && styles.focused]}>
-                  <View style={styles.flex}><Text numberOfLines={1} style={styles.rowText}>{row.name || row.id}</Text><Text numberOfLines={1} style={styles.sub}>{row.id}</Text></View>
-                  <Text style={styles.value}>{currentOverride === row.id ? "Assigned" : "Assign"}</Text>
-                </Pressable>
-              ))}
-              {!xmltvRows.length ? <Text style={styles.help}>Refresh the custom EPG first, or change the XMLTV search.</Text> : null}
+              <Text style={styles.cardTitle}>Guide ownership</Text>
+              <Text style={styles.help}>Each playlist channel resolves to one Guide owner. A custom assignment overrides Charm EPG for that channel; the primary source is not queried for an overridden channel.</Text>
+              <Pressable onPress={togglePrimary} style={({ focused }: any) => [styles.row, focused && styles.focused]}>
+                <Text style={styles.rowText}>Charm built-in EPG</Text><Text style={styles.value}>{prefs.primaryEnabled ? "On" : "Off"}</Text>
+              </Pressable>
+              <Pressable onPress={toggleUser} style={({ focused }: any) => [styles.row, focused && styles.focused]}>
+                <Text style={styles.rowText}>Custom EPG</Text><Text style={styles.value}>{prefs.userEnabled ? "On" : "Off"}</Text>
+              </Pressable>
             </View>
-          ) : null}
 
-          {status ? <Text style={styles.status}>{status}</Text> : null}
-        </ScrollView>
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Saved EPG source · Custom XMLTV URL</Text>
+              <Text style={styles.help}>This source remains saved when disabled. Open it here at any time to change its URL, refresh it, or manage channel assignments.</Text>
+              <TextInput value={nameDraft} onChangeText={setNameDraft} placeholder="EPG source name" placeholderTextColor={tvColors.textMuted} maxLength={60} style={styles.input} />
+              <TextInput value={urlDraft} onChangeText={(value) => { setUrlTouched(true); setUrlDraft(value); }} placeholder="http://server/path/guide.xml or .xml.gz" placeholderTextColor={tvColors.textMuted} autoCapitalize="none" autoCorrect={false} style={styles.input} />
+              <View style={styles.actions}>
+                <Pressable disabled={busy} onPress={saveUrl} style={({ focused }: any) => [styles.action, busy && styles.disabled, focused && styles.focused]}><Text style={styles.actionText}>Save name & URL</Text></Pressable>
+                <Pressable disabled={busy} onPress={refreshUserGuide} style={({ focused }: any) => [styles.action, busy && styles.disabled, focused && styles.focused]}><Text style={styles.actionText}>{busy ? "Working…" : "Refresh Custom EPG"}</Text></Pressable>
+                <Pressable disabled={busy} onPress={clearUserGuide} style={({ focused }: any) => [styles.action, busy && styles.disabled, focused && styles.focused]}><Text style={styles.actionText}>Clear EPG data</Text></Pressable>
+              </View>
+            </View>
+
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Update & retention settings</Text>
+              <Text style={styles.help}>These controls use the same single background refresh owner as the provided guide, so custom and provided EPG updates cannot overlap or fight for SQLite/RAM.</Text>
+              <CycleSetting<SourceRefreshIntervalHours> label="Update interval" value={refreshPrefs.epgHours} values={[0, 2, 4, 6, 12, 24]} format={(value) => value === 0 ? "Manual only" : `${value} hours`} onChange={refreshPrefs.setEpgHours} />
+              <CycleSetting<1 | 3 | 7 | 14> label="Past days to keep EPG" value={refreshPrefs.epgPastDays} values={[1, 3, 7, 14]} format={(value) => `${value} day${value === 1 ? "" : "s"}`} onChange={refreshPrefs.setEpgPastDays} />
+              <Pressable onPress={() => refreshPrefs.setUpdateEpgOnAppStart(!refreshPrefs.updateEpgOnAppStart)} style={({ focused }: any) => [styles.row, focused && styles.focused]}><Text style={styles.rowText}>Update on app start</Text><Text style={styles.value}>{refreshPrefs.updateEpgOnAppStart ? "On" : "Off"}</Text></Pressable>
+              <Pressable onPress={() => refreshPrefs.setUpdateEpgOnPlaylistChange(!refreshPrefs.updateEpgOnPlaylistChange)} style={({ focused }: any) => [styles.row, focused && styles.focused]}><Text style={styles.rowText}>Update on playlist change</Text><Text style={styles.value}>{refreshPrefs.updateEpgOnPlaylistChange ? "On" : "Off"}</Text></Pressable>
+              <Text style={styles.help}>Latest update: {prefs.userLastRefreshAt ? formatRelativeAge(prefs.userLastRefreshAt) : "Never"}</Text>
+              <Text style={styles.help}>Status: {prefs.userLastStatus}</Text>
+            </View>
+
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>1 · Choose playlist channel</Text>
+              <TextInput value={channelQuery} onChangeText={(value) => { setChannelQuery(value); setChannelPage(0); }} placeholder="Search playlist channels" placeholderTextColor={tvColors.textMuted} style={styles.input} />
+              <View style={styles.pager}>
+                <Pressable disabled={channelPage <= 0} onPress={() => setChannelPage((value) => Math.max(0, value - 1))} style={({ focused }: any) => [styles.small, channelPage <= 0 && styles.disabled, focused && styles.focused]}><Text style={styles.actionText}>Previous</Text></Pressable>
+                <Text style={styles.value}>Page {channelPage + 1}/{channelPageCount} · {filteredChannels.length}</Text>
+                <Pressable disabled={channelPage + 1 >= channelPageCount} onPress={() => setChannelPage((value) => Math.min(channelPageCount - 1, value + 1))} style={({ focused }: any) => [styles.small, channelPage + 1 >= channelPageCount && styles.disabled, focused && styles.focused]}><Text style={styles.actionText}>Next</Text></Pressable>
+              </View>
+              {channelRows.map((channel) => {
+                const selected = channel.id === selectedChannelId;
+                const mapped = prefs.userOverrides[channel.id];
+                return (
+                  <Pressable key={channel.id} onPress={() => setSelectedChannelId(channel.id)} style={({ focused }: any) => [styles.row, selected && styles.selected, focused && styles.focused]}>
+                    <View style={styles.flex}><Text numberOfLines={1} style={styles.rowText}>{channel.name}</Text><Text numberOfLines={1} style={styles.sub}>{channel.group || "Live TV"}</Text></View>
+                    <Text numberOfLines={1} style={styles.value}>{mapped ? `Custom · ${mapped}` : prefs.primaryEnabled ? "Charm EPG" : "No EPG"}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {selectedChannel ? (
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>2 · Assign XMLTV channel to {selectedChannel.name}</Text>
+                <Text style={styles.help}>Current owner: {currentOverride ? `Custom EPG · ${currentOverride}` : prefs.primaryEnabled ? "Charm EPG" : "No EPG"}</Text>
+                <View style={styles.actions}>
+                  {quickTvgId ? <Pressable disabled={busy} onPress={() => void assign(quickTvgId)} style={({ focused }: any) => [styles.action, focused && styles.focused]}><Text style={styles.actionText}>Try playlist tvg-id: {quickTvgId}</Text></Pressable> : null}
+                  <Pressable disabled={!currentOverride || busy} onPress={clearAssignment} style={({ focused }: any) => [styles.action, (!currentOverride || busy) && styles.disabled, focused && styles.focused]}><Text style={styles.actionText}>Clear Override</Text></Pressable>
+                </View>
+                <TextInput value={xmltvQuery} onChangeText={(value) => { setXmltvQuery(value); setXmltvPage(0); }} placeholder="Search custom XMLTV channels" placeholderTextColor={tvColors.textMuted} style={styles.input} />
+                <View style={styles.pager}>
+                  <Pressable disabled={xmltvPage <= 0} onPress={() => setXmltvPage((value) => Math.max(0, value - 1))} style={({ focused }: any) => [styles.small, xmltvPage <= 0 && styles.disabled, focused && styles.focused]}><Text style={styles.actionText}>Previous</Text></Pressable>
+                  <Text style={styles.value}>Page {xmltvPage + 1}/{xmltvPageCount} · {xmltvTotal} XMLTV channels</Text>
+                  <Pressable disabled={xmltvPage + 1 >= xmltvPageCount} onPress={() => setXmltvPage((value) => Math.min(xmltvPageCount - 1, value + 1))} style={({ focused }: any) => [styles.small, xmltvPage + 1 >= xmltvPageCount && styles.disabled, focused && styles.focused]}><Text style={styles.actionText}>Next</Text></Pressable>
+                </View>
+                {xmltvRows.map((row) => (
+                  <Pressable key={row.id} disabled={busy} onPress={() => void assign(row.id)} style={({ focused }: any) => [styles.row, currentOverride === row.id && styles.selected, focused && styles.focused]}>
+                    <View style={styles.flex}><Text numberOfLines={1} style={styles.rowText}>{row.name || row.id}</Text><Text numberOfLines={1} style={styles.sub}>{row.id}</Text></View>
+                    <Text style={styles.value}>{currentOverride === row.id ? "Assigned" : "Assign"}</Text>
+                  </Pressable>
+                ))}
+                {!xmltvRows.length ? <Text style={styles.help}>Refresh the custom EPG first, or change the XMLTV search.</Text> : null}
+              </View>
+            ) : null}
+
+            {status ? <Text style={styles.status}>{status}</Text> : null}
+          </ScrollView>
+        </FocusGuide>
       </View>
     </PurpleTvShell>
   );
@@ -411,6 +389,7 @@ const styles = StyleSheet.create({
   title: { color: tvColors.text, fontFamily: fonts.bold, fontSize: 22, marginTop: 2 },
   back: { minHeight: 36, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, borderRadius: radius.sm, borderWidth: 1, borderColor: tvColors.line },
   backText: { color: "#fff", fontFamily: fonts.medium, fontSize: 10 },
+  scrollWrap: { flex: 1 },
   content: { gap: 12, paddingBottom: 50 },
   card: { backgroundColor: tvColors.panel, borderWidth: 1, borderColor: tvColors.line, borderRadius: radius.md, padding: 12, gap: 6 },
   cardTitle: { color: tvColors.text, fontFamily: fonts.bold, fontSize: 14 },
@@ -431,4 +410,3 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.35 },
   status: { color: tvColors.purpleSoft, fontFamily: fonts.medium, fontSize: 10.5, paddingHorizontal: 3 },
 });
-
