@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - agent/phase9-tivimate-scan-repair
+      - agent/tivimate-deep-player-quickactions-repair
     paths:
       - ".github/workflows/phase9-final-sideload.yml"
       - "ci/phase9-final-sideload-trigger.txt"
@@ -71,6 +72,21 @@ jobs:
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: Run final repair and lifecycle scans
+        working-directory: .
+        run: |
+          python3 ci/tivimate-deep-player-quickactions-repair.py
+          git diff --exit-code
+          python3 ci/code-interaction-audit-player-freeze-scan.py
+          python3 ci/code-interaction-audit-preview-lifecycle-scan.py
+          python3 ci/code-interaction-audit-lifecycle-scan.py
+          python3 ci/code-interaction-audit-settings-lifecycle-scan.py
+          python3 ci/code-interaction-audit-epg-schedule-lifecycle-scan.py
+          python3 ci/code-interaction-audit-guide-modal-lifecycle-scan.py
+          python3 ci/code-interaction-audit-surface-ownership-scan.py
+          python3 ci/code-interaction-audit-player-stability.py
+          python3 ci/code-interaction-audit-preview-isolation.py
 
       - name: Verify TiViMate/RAM architecture invariants
         run: node scripts/verify-overhaul-architecture.mjs
