@@ -35,7 +35,7 @@ for required in (
     "const MEDIA3_FROZEN_CLOCK_MS = 9000",
     "const BUFFERING_RESYNC_MS = 5000",
     "const BUFFERING_FAIL_MS = 22000",
-    "MAX_SILENT_BUFFERING_RESYNCS = 2",
+    "MAX_SILENT_BUFFERING_RESYNCS = 1",
 ):
     if required not in stream:
         critical.append(f"missing bounded player watchdog contract: {required}")
