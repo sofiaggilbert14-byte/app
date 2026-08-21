@@ -45,6 +45,9 @@ jobs:
       - name: Apply TiViMate behavioral repair
         run: python ci/tivimate-deep-player-quickactions-repair-v2.py
 
+      - name: TiViMate deep repair contract scan
+        run: python ci/tivimate-deep-player-quickactions-scan.py
+
       - name: Player decoder codec bleed scan
         run: python ci/code-interaction-audit-player-freeze-scan.py
 
@@ -65,12 +68,6 @@ jobs:
 
       - name: Drawer preview surface ownership scan
         run: python ci/code-interaction-audit-surface-ownership-scan.py
-
-      - name: Player stability contract scan
-        run: python ci/code-interaction-audit-player-stability.py
-
-      - name: Preview isolation contract scan
-        run: python ci/code-interaction-audit-preview-isolation.py
 
       - name: Install JavaScript dependencies
         working-directory: frontend
