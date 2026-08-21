@@ -85,3 +85,22 @@ test("player exposes distinct Fit Fill Zoom Stretch without decoder restart", as
   assert.match(screen, /zoomedVideo: \{ transform: \[\{ scale: 1\.2 \}\] \}/);
   assert.match(screen, /root: \{ flex: 1, backgroundColor: "#000", overflow: "hidden" \}/);
 });
+
+
+test("Phase 9 customization screens keep TV focus inside their scroll viewport", async () => {
+  const screens = await Promise.all([
+    text("app/epg-custom.tsx"),
+    text("app/epg-source.tsx"),
+    text("app/group-settings.tsx"),
+  ]);
+  for (const screen of screens) {
+    assert.match(screen, /FocusGuide/);
+    assert.match(screen, /trapFocusUp/);
+    assert.match(screen, /trapFocusDown/);
+    assert.match(screen, /trapFocusLeft/);
+    assert.match(screen, /trapFocusRight/);
+    assert.match(screen, /scrollRef/);
+    assert.match(screen, /nestedScrollEnabled/);
+    assert.match(screen, /contentInsetAdjustmentBehavior="never"/);
+  }
+});

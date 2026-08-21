@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { PurpleTvShell } from "@/src/components/PurpleTvShell";
+import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { useStore } from "@/src/store";
 import { useCustomGuideGroups } from "@/src/core/customGuideGroups";
 import { CURATED_GROUPS, SMART_GROUPS } from "@/src/core/guideGroups";
@@ -34,10 +35,12 @@ export default function GroupSettingsScreen() {
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
   const [preferBackFocus, setPreferBackFocus] = useState(true);
+  const scrollRef = useRef<ScrollView | null>(null);
 
   useEffect(() => {
-    const timer = setTimeout(() => setPreferBackFocus(false), 180);
-    return () => clearTimeout(timer);
+    const topTimer = setTimeout(() => scrollRef.current?.scrollTo({ y: 0, animated: false }), 0);
+    const focusTimer = setTimeout(() => setPreferBackFocus(false), 180);
+    return () => { clearTimeout(topTimer); clearTimeout(focusTimer); };
   }, []);
 
   const returnToSettings = useCallback(() => {
@@ -190,7 +193,8 @@ export default function GroupSettingsScreen() {
           </Pressable>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <FocusGuide autoFocus trapFocusUp trapFocusDown trapFocusLeft trapFocusRight style={styles.scrollWrap}>
+          <ScrollView ref={scrollRef} scrollEnabled nestedScrollEnabled showsVerticalScrollIndicator={false} contentInsetAdjustmentBehavior="never" contentContainerStyle={styles.content}>
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Provider group tabs</Text>
             <Text style={styles.help}>TiViMate-style metadata: provider names stay untouched for playlist matching while your display name, visibility, and order are saved separately.</Text>
@@ -301,7 +305,8 @@ export default function GroupSettingsScreen() {
               })}
             </View>
           ) : null}
-        </ScrollView>
+          </ScrollView>
+        </FocusGuide>
       </View>
     </PurpleTvShell>
   );
@@ -314,6 +319,7 @@ const styles = StyleSheet.create({
   title: { color: tvColors.text, fontFamily: fonts.bold, fontSize: 24 },
   back: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, minHeight: 36, borderRadius: radius.sm, borderWidth: 1, borderColor: tvColors.line },
   backText: { color: "#fff", fontFamily: fonts.medium, fontSize: 11 },
+  scrollWrap: { flex: 1 },
   content: { gap: 12, paddingBottom: 40 },
   card: { backgroundColor: tvColors.panel, borderWidth: 1, borderColor: tvColors.line, borderRadius: radius.md, padding: 12, gap: 6 },
   cardTitle: { color: tvColors.text, fontFamily: fonts.bold, fontSize: 14 },

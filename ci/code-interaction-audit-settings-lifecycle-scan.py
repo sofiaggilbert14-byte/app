@@ -19,6 +19,7 @@ store = read("src/store.tsx")
 scheduler = read("src/components/SourceRefreshScheduler.tsx")
 player = read("app/player.tsx")
 stream = read("src/components/StreamPlayer.tsx")
+native_guide = read("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt")
 
 # Every visible Settings family that can influence UI, Guide, sources, player,
 # cache/memory, focus, or startup must stay represented in this audit.
@@ -56,6 +57,25 @@ for required in ("const PAGE = 50", "queryGeneration = useRef(0)"):
 for required in ("const PAGE_SIZE = 100", "stable IDs", "provider names stay untouched"):
     if required not in groups:
         warnings.append(f"group/tab bounded-identity marker missing: {required}")
+
+
+# Every long Phase 9 customization surface uses one bounded Android-TV focus
+# corridor. The Back row gets deterministic initial focus and ScrollView owns
+# vertical traversal rather than letting Android focus escape off-screen.
+for name, source in (("Custom EPG", epg_custom), ("additional EPG", epg_source), ("Guide groups/tabs", groups)):
+    for required in ("FocusGuide", "trapFocusUp", "trapFocusDown", "trapFocusLeft", "trapFocusRight", "scrollRef", "nestedScrollEnabled", 'contentInsetAdjustmentBehavior="never"'):
+        if required not in source:
+            critical.append(f"{name} TV focus/scroll containment missing: {required}")
+
+# TiViMate-style live Guide behavior: expired time keeps sliding left while the
+# channel-name rail remains a fixed canvas region. Manual horizontal browsing
+# still disables live follow, so users can inspect past/future programs.
+for required in ("liveWindowHistoryMs", "liveWindowAdvanceThresholdMs", "val rollingStart = now - liveWindowHistoryMs", "windowStartMs = rollingStart", "windowEndMs = rollingStart + configuredWindowMs"):
+    if required not in native_guide:
+        critical.append(f"native Guide rolling live window missing: {required}")
+for required in ("liveFollowEnabled = false", "return channelWidth +", "canvas.drawRect(0f, top, channelWidth", "canvas.drawRect(channelWidth, top, width.toFloat()"):
+    if required not in native_guide:
+        critical.append(f"native Guide fixed-rail/manual-browse invariant missing: {required}")
 
 # Fullscreen Quick Actions is an OSD owner, not a provider-refresh owner. EPG
 # mapping can be done from Guide/EPG Settings, but must not download/index XMLTV

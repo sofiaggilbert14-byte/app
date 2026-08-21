@@ -27,3 +27,16 @@ test("manual time browsing rejoins wall-clock follow when selection returns to t
   assert.match(guide, /selectedTimeMs = nextTime\s*\n\s*ensureSelectedTimeVisible\(\)\s*\n\s*updateLiveFollowFromSelection\(\)/);
   assert.match(guide, /channelRailSelected = false\s*\n\s*updateLiveFollowFromSelection\(\)/);
 });
+
+
+test("native Guide rolls live time indefinitely while channel rail stays fixed", async () => {
+  const native = await source("android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt");
+  assert.match(native, /liveWindowHistoryMs/);
+  assert.match(native, /val rollingStart = now - liveWindowHistoryMs/);
+  assert.match(native, /windowStartMs = rollingStart/);
+  assert.match(native, /windowEndMs = rollingStart \+ configuredWindowMs/);
+  assert.match(native, /liveFollowEnabled = false/);
+  assert.match(native, /return channelWidth \+/);
+  assert.match(native, /canvas\.drawRect\(0f, top, channelWidth/);
+  assert.match(native, /canvas\.drawRect\(channelWidth, top, width\.toFloat\(\)/);
+});

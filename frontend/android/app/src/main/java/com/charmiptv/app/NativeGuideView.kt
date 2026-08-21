@@ -95,6 +95,8 @@ class NativeGuideView(context: Context) : View(context) {
   private val visibleWindowMs = 3L * 60L * 60_000L
   private val horizontalPrefetchBeforeMs = 30L * 60_000L
   private val horizontalPrefetchAfterMs = 60L * 60_000L
+  private val liveWindowHistoryMs = 60L * 60_000L
+  private val liveWindowAdvanceThresholdMs = 60_000L
 
   private val background = Paint().apply { color = Color.rgb(8, 7, 13) }
   private val header = Paint().apply { color = Color.rgb(22, 18, 33) }
@@ -566,6 +568,12 @@ class NativeGuideView(context: Context) : View(context) {
 
   private fun advanceLiveViewport(now: Long) {
     if (!enabled || !liveFollowEnabled || windowEndMs <= windowStartMs) return
+    val configuredWindowMs = max(visibleWindowMs, windowEndMs - windowStartMs)
+    val rollingStart = now - liveWindowHistoryMs
+    if (rollingStart >= windowStartMs + liveWindowAdvanceThresholdMs) {
+      windowStartMs = rollingStart
+      windowEndMs = rollingStart + configuredWindowMs
+    }
     val liveTime = now.coerceIn(windowStartMs, windowEndMs - 1)
     val desiredStart = clampViewportStart(liveTime - 15L * 60_000L)
     if (abs(desiredStart - viewportStartMs) < 60_000L) return

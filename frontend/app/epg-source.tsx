@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { PurpleTvShell } from "@/src/components/PurpleTvShell";
+import { FocusGuide } from "@/src/components/TVFocusGuideView";
 import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
 import { useStore } from "@/src/store";
 import { useEpgSourcePreferences } from "@/src/core/epgSourcePreferences";
@@ -39,8 +40,15 @@ export default function EpgSourceScreen() {
   const [xmltvTotal, setXmltvTotal] = useState(0);
   const [xmltvPage, setXmltvPage] = useState(0);
   const queryGeneration = useRef(0);
+  const scrollRef = useRef<ScrollView | null>(null);
+  const [preferBackFocus, setPreferBackFocus] = useState(true);
 
   useEffect(() => { if (saved) setDraft(saved); }, [saved]);
+  useEffect(() => {
+    const topTimer = setTimeout(() => scrollRef.current?.scrollTo({ y: 0, animated: false }), 0);
+    const focusTimer = setTimeout(() => setPreferBackFocus(false), 180);
+    return () => { clearTimeout(topTimer); clearTimeout(focusTimer); };
+  }, []);
   useTvBackHandler(useCallback(() => { router.replace("/epg-sources" as any); return true; }, [router]));
 
   const nativeSources = useCallback((nextExtras: CustomEpgSourceRecord[]) => [
@@ -125,8 +133,9 @@ export default function EpgSourceScreen() {
 
   const refreshIndex = Math.max(0, REFRESH_VALUES.indexOf(draft.refreshHours));
   return <PurpleTvShell active="/settings"><View style={styles.page}>
-    <View style={styles.header}><Text style={styles.title}>Saved EPG source</Text><Pressable onPress={() => router.replace("/epg-sources" as any)} style={({ focused }: any) => [styles.button, focused && styles.focused]}><Text style={styles.text}>Back</Text></Pressable></View>
-    <ScrollView contentContainerStyle={styles.content}>
+    <View style={styles.header}><Text style={styles.title}>Saved EPG source</Text><Pressable hasTVPreferredFocus={preferBackFocus} onFocus={() => setPreferBackFocus(false)} onPress={() => router.replace("/epg-sources" as any)} style={({ focused }: any) => [styles.button, focused && styles.focused]}><Text style={styles.text}>Back</Text></Pressable></View>
+    <FocusGuide autoFocus trapFocusUp trapFocusDown trapFocusLeft trapFocusRight style={styles.scrollWrap}>
+      <ScrollView ref={scrollRef} scrollEnabled nestedScrollEnabled showsVerticalScrollIndicator={false} contentInsetAdjustmentBehavior="never" contentContainerStyle={styles.content}>
       <View style={styles.card}><Text style={styles.cardTitle}>Source settings</Text>
         <TextInput value={draft.name} onChangeText={(name) => setDraft((value) => ({ ...value, name }))} placeholder="Source name" placeholderTextColor={tvColors.textMuted} style={styles.input} />
         <TextInput value={draft.url} onChangeText={(url) => setDraft((value) => ({ ...value, url }))} placeholder="https://server/guide.xml.gz" placeholderTextColor={tvColors.textMuted} autoCapitalize="none" autoCorrect={false} style={styles.input} />
@@ -146,10 +155,11 @@ export default function EpgSourceScreen() {
         <View style={styles.actions}><Button label="Previous" disabled={xmltvPage <= 0} onPress={() => setXmltvPage((value) => Math.max(0, value - 1))} /><Button label="Next" disabled={(xmltvPage + 1) * PAGE >= xmltvTotal} onPress={() => setXmltvPage((value) => value + 1)} /></View>
       </View> : null}
       {message ? <Text style={styles.status}>{message}</Text> : null}
-    </ScrollView>
+      </ScrollView>
+    </FocusGuide>
   </View></PurpleTvShell>;
 }
 
 function Row({ label, value, onPress, selected = false }: { label: string; value: string; onPress: () => void; selected?: boolean }) { return <Pressable onPress={onPress} style={({ focused }: any) => [styles.row, selected && styles.selected, focused && styles.focused]}><Text numberOfLines={1} style={styles.rowText}>{label}</Text><Text numberOfLines={1} style={styles.value}>{value}</Text></Pressable>; }
 function Button({ label, onPress, disabled = false }: { label: string; onPress: () => void; disabled?: boolean }) { return <Pressable disabled={disabled} onPress={onPress} style={({ focused }: any) => [styles.button, disabled && styles.disabled, focused && styles.focused]}><Text style={styles.text}>{label}</Text></Pressable>; }
-const styles = StyleSheet.create({ page:{flex:1,backgroundColor:tvColors.canvas,padding:18},header:{flexDirection:"row",justifyContent:"space-between",alignItems:"center",marginBottom:12},title:{color:tvColors.text,fontFamily:fonts.bold,fontSize:22},content:{gap:12,paddingBottom:50},card:{backgroundColor:tvColors.panel,borderWidth:1,borderColor:tvColors.line,borderRadius:radius.md,padding:12,gap:7},cardTitle:{color:tvColors.text,fontFamily:fonts.bold,fontSize:14},help:{color:tvColors.textMuted,fontFamily:fonts.regular,fontSize:10,lineHeight:15},input:{minHeight:40,borderRadius:radius.sm,borderWidth:1,borderColor:tvColors.line,color:tvColors.text,paddingHorizontal:10,fontFamily:fonts.regular,fontSize:10.5},row:{minHeight:42,paddingHorizontal:10,borderRadius:radius.sm,borderWidth:1,borderColor:"transparent",flexDirection:"row",alignItems:"center",gap:10},rowText:{color:tvColors.text,fontFamily:fonts.medium,fontSize:10.5,flex:1},value:{color:tvColors.purpleSoft,fontFamily:fonts.medium,fontSize:9.5,maxWidth:250},selected:{backgroundColor:"rgba(120,80,210,0.22)",borderColor:"rgba(168,132,245,0.30)"},focused:{borderColor:tvColors.purpleBright,backgroundColor:"rgba(126,84,218,0.32)"},actions:{flexDirection:"row",flexWrap:"wrap",gap:7},button:{minHeight:36,paddingHorizontal:12,alignItems:"center",justifyContent:"center",borderRadius:radius.sm,borderWidth:1,borderColor:tvColors.line},text:{color:"#fff",fontFamily:fonts.medium,fontSize:9.5},disabled:{opacity:0.35},status:{color:tvColors.purpleSoft,fontFamily:fonts.medium,fontSize:10.5} });
+const styles = StyleSheet.create({ page:{flex:1,backgroundColor:tvColors.canvas,padding:18},scrollWrap:{flex:1},header:{flexDirection:"row",justifyContent:"space-between",alignItems:"center",marginBottom:12},title:{color:tvColors.text,fontFamily:fonts.bold,fontSize:22},content:{gap:12,paddingBottom:50},card:{backgroundColor:tvColors.panel,borderWidth:1,borderColor:tvColors.line,borderRadius:radius.md,padding:12,gap:7},cardTitle:{color:tvColors.text,fontFamily:fonts.bold,fontSize:14},help:{color:tvColors.textMuted,fontFamily:fonts.regular,fontSize:10,lineHeight:15},input:{minHeight:40,borderRadius:radius.sm,borderWidth:1,borderColor:tvColors.line,color:tvColors.text,paddingHorizontal:10,fontFamily:fonts.regular,fontSize:10.5},row:{minHeight:42,paddingHorizontal:10,borderRadius:radius.sm,borderWidth:1,borderColor:"transparent",flexDirection:"row",alignItems:"center",gap:10},rowText:{color:tvColors.text,fontFamily:fonts.medium,fontSize:10.5,flex:1},value:{color:tvColors.purpleSoft,fontFamily:fonts.medium,fontSize:9.5,maxWidth:250},selected:{backgroundColor:"rgba(120,80,210,0.22)",borderColor:"rgba(168,132,245,0.30)"},focused:{borderColor:tvColors.purpleBright,backgroundColor:"rgba(126,84,218,0.32)"},actions:{flexDirection:"row",flexWrap:"wrap",gap:7},button:{minHeight:36,paddingHorizontal:12,alignItems:"center",justifyContent:"center",borderRadius:radius.sm,borderWidth:1,borderColor:tvColors.line},text:{color:"#fff",fontFamily:fonts.medium,fontSize:9.5},disabled:{opacity:0.35},status:{color:tvColors.purpleSoft,fontFamily:fonts.medium,fontSize:10.5} });
