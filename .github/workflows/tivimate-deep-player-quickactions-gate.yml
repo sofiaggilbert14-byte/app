@@ -45,6 +45,67 @@ jobs:
       - name: Apply TiViMate behavioral repair
         run: python ci/tivimate-deep-player-quickactions-repair-v2.py
 
+      - name: Repair Guide lint dependency warning
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('frontend/app/(tabs)/guide.tsx')
+          text = path.read_text(encoding='utf-8')
+          old_start = '''  const groupCounts = useMemo(
+    () =>
+      buildGroupCounts(channels, {
+'''
+          new_start = '''  const groupCounts = useMemo(
+    () => {
+      // streamFailureRegistry is module-owned state. Keep its count in this memo
+      // contract so Failed-group counts are recomputed on the next render after
+      // registry changes without rebuilding unrelated guide data.
+      void failedCount;
+      return buildGroupCounts(channels, {
+'''
+          old_end = '''        includeProviderGroups: showProviderGroups,
+      }),
+    [channels, favoriteSet, recentIdSet, hasOwnedEpgMatch, hiddenIdSet, failedCount, epgGuideFilter, customGuideGroups.byName, showProviderGroups],
+  );
+'''
+          new_end = '''        includeProviderGroups: showProviderGroups,
+      });
+    },
+    [channels, favoriteSet, recentIdSet, hasOwnedEpgMatch, hiddenIdSet, failedCount, customGuideGroups.byName, showProviderGroups],
+  );
+'''
+          if old_start in text and old_end in text:
+              text = text.replace(old_start, new_start, 1).replace(old_end, new_end, 1)
+              path.write_text(text, encoding='utf-8')
+          elif new_start not in text or new_end not in text:
+              raise SystemExit('Guide groupCounts lint-repair shape changed unexpectedly')
+          PY
+
+      - name: Preserve 24-hour guide runtime default
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('frontend/src/store.tsx')
+          text = path.read_text(encoding='utf-8')
+          old = 'const DEFAULT_GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 12);'
+          new = 'const DEFAULT_GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 24);'
+          if old in text:
+              text = text.replace(old, new, 1)
+              path.write_text(text, encoding='utf-8')
+          elif new not in text:
+              raise SystemExit('Guide default window contract changed unexpectedly')
+          PY
+
+      - name: Guard RC5-9 M3U and EPG transport baseline
+        shell: bash
+        run: |
+          git diff --exit-code origin/agent/code-interaction-audit-final-sideload-trigger-v9 -- \
+            frontend/src/source.native.ts \
+            frontend/src/nativeEpg.ts \
+            frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt
+
       - name: TiViMate deep repair contract scan
         run: python ci/tivimate-deep-player-quickactions-scan.py
 
@@ -185,10 +246,12 @@ jobs:
             frontend/src/components/TvQuickActionsOverlay.tsx \
             frontend/src/components/StreamPlayer.tsx \
             frontend/app/player.tsx \
+            frontend/app/'(tabs)'/guide.tsx \
+            frontend/src/store.tsx \
             frontend/patches/expo-video+3.0.16.patch
           if git diff --cached --quiet; then
-            echo "No repair source changes needed"
+            echo "No production repair changes needed"
             exit 0
           fi
-          git commit -m "fix(tivimate): repair player recovery and Quick Actions ownership"
+          git commit -m "fix(tivimate): converge player recovery Guide lint and 24h EPG"
           git push origin HEAD:agent/tivimate-deep-player-quickactions-repair
