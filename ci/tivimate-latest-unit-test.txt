@@ -1,260 +1,260 @@
-    '  DeviceEventEmitter,\n' +
-    '  Pressable,\n' +
-    '  ScrollView,\n' +
-    '  StyleSheet,\n' +
-    '  Text,\n' +
-    '  TextInput,\n' +
-    '  View,\n' +
-    '} from "react-native";\n' +
-    'import { useGlobalSearchParams, usePathname, useRouter } from "expo-router";\n' +
-    'import { Ionicons } from "@expo/vector-icons";\n' +
-    'import * as Haptics from "expo-haptics";\n' +
-    'import { useStore } from "@/src/store";\n' +
-    'import { FocusGuide } from "@/src/components/TVFocusGuideView";\n' +
-    'import { requestNativeFocus } from "@/src/utils/tvFocus";\n' +
-    'import { fonts, radius, tvColors } from "@/src/theme";\n' +
-    'import { addTvQuickActionsListener, emitPlayerQuickCommand, resetRemoteContextIfOwned, setGuideNavigationActive, setRemoteContext, type PlayerQuickCommand, type TvQuickActionsContext } from "@/src/utils/tvRemote";\n' +
-    'import { getGuideSelection } from "@/src/core/guideSelectionStore";\n' +
-    'import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";\n' +
-    'import { useChannelCustomize } from "@/src/core/channelCustomize";\n' +
-    'import { useEpgSourcePreferences } from "@/src/core/epgSourcePreferences";\n' +
-    'import { useSourceRefreshPreferences } from "@/src/core/sourceRefreshPreferences";\n' +
-    'import {\n' +
-    '  assignMultiEpgChannel,\n' +
-    '  clearMultiEpgChannelAssignments,\n' +
-    '  useMultiEpgSources,\n' +
-    '} from "@/src/core/multiEpgSources";\n' +
-    'import {\n' +
-    '  configureNativeUserGuideSources,\n' +
-    '  listNativeSourceGuideChannels,\n' +
-    '  listNativeUserGuideChannels,\n' +
-    '  setNativeGuideChannelBinding,\n' +
-    '  setNativeSourceGuideBinding,\n' +
-    '} from "@/src/nativeEpg";\n' +
-    'import { invalidateGuideOwnershipCaches } from "@/src/source";\n' +
-    'import { fingerprintStreamUri, getLastAudioDiagnostics } from "@/src/core/audioDiagnostics";\n' +
-    'import { usePlayerEnginePreference, type PlayerEnginePreference } from "@/src/playerEnginePreference";\n' +
-    'import { usePlaybackBufferProfile, type PlaybackBufferProfile } from "@/src/core/playbackBufferProfile";\n' +
-    'import type { Program } from "@/src/api";\n' +
-    '\n' +
-    'type Mode = "main" | "epg-source" | "epg-channel";\n' +
-    'type SourceChoice = { id: string; name: string; url: string; enabled: boolean; legacy: boolean };\n' +
-    'type EpgRow = { id: string; name: string };\n' +
-    '\n' +
-    'const BUFFER_ORDER: PlaybackBufferProfile[] = ["low_latency", "balanced", "stable"];\n' +
-    'const ENGINE_ORDER: PlayerEnginePreference[] = ["default", "media3", "vlc"];\n' +
-    '\n' +
-    'function nextValue<T>(values: readonly T[], current: T): T {\n' +
-    '  const index = Math.max(0, values.indexOf(current));\n' +
-    '  return values[(index + 1) % values.length];\n' +
-    '}\n' +
-    '\n' +
-    'export function TvQuickActionsOverlay() {\n' +
-    '  const router = useRouter();\n' +
-    '  const pathname = usePathname();\n' +
-    '  const params = useGlobalSearchParams<{ channelId?: string }>();\n' +
-    '  const {\n' +
-    '    channels,\n' +
-    '    channelById,\n' +
-    '    favorites,\n' +
-    '    toggleFavorite,\n' +
-    '    sleepTimerMinutes,\n' +
-    '    setSleepTimerMinutes,\n' +
-    '    openProgram,\n' +
-    '  } = useStore();\n' +
-    '  const customize = useChannelCustomize();\n' +
-    '  const primaryEpg = useEpgSourcePreferences();\n' +
-    '  const refreshPrefs = useSourceRefreshPreferences();\n' +
-    '  const multiEpg = useMultiEpgSources();\n' +
-    '  const [playerEngine, setPlayerEngine] = usePlayerEnginePreference();\n' +
-    '  const [bufferProfile, setBufferProfile] = usePlaybackBufferProfile();\n' +
-    '\n' +
-    '  const [open, setOpen] = useState(false);\n' +
-    '  const [context, setContext] = useState<TvQuickActionsContext>("guide");\n' +
-    '  const [channelId, setChannelId] = useState<string | null>(null);\n' +
-    '  const [guideProgram, setGuideProgram] = useState<Program | null>(null);\n' +
-    '  const [mode, setMode] = useState<Mode>("main");\n' +
-    '  const [sourceChoice, setSourceChoice] = useState<SourceChoice | null>(null);\n' +
-    '  const [epgQuery, setEpgQuery] = useState("");\n' +
-    '  const [epgRows, setEpgRows] = useState<EpgRow[]>([]);\n' +
-    '  const [epgTotal, setEpgTotal] = useState(0);\n' +
-    '  const [busy, setBusy] = useState(false);\n' +
-    '  const [status, setStatus] = useState<string | null>(null);\n' +
-    '  const [focusClaim, setFocusClaim] = useState(false);\n' +
-    '  const queryGeneration = useRef(0);\n' +
-    '  const openPathRef = useRef<string | null>(null);\n' +
-    '  const firstActionRef = useRef<any>(null);\n' +
-    '\n' +
-    '  const favoriteSet = useMemo(() => new Set(favorites), [favorites]);\n' +
-    '  const hiddenSet = useMemo(() => new Set(customize.hiddenIds), [customize.hiddenIds]);\n' +
-    '  const channel = channelId ? channelById(channelId) : null;\n' +
-    '\n' +
-    '  const resolvePlayerChannelId = useCallback((): string | null => {\n' +
-    '    const diagnostics = getLastAudioDiagnostics();\n' +
-    '    if (diagnostics?.role === "fullscreen" && diagnostics.streamKey) {\n' +
-    '      for (const item of channels) {\n' +
-    '        if (!item.url) continue;\n' +
-    '        if (fingerprintStreamUri(item.url) === diagnostics.streamKey) return item.id;\n' +
-    '      }\n' +
-    '    }\n' +
-    '    const routeId = String(params.channelId || "").trim();\n' +
-    '    return routeId && channelById(routeId) ? routeId : null;\n' +
-    '  }, [channelById, channels, params.channelId]);\n' +
-    '\n' +
-    '  const close = useCallback(() => {\n' +
-    '    setOpen(false);\n' +
-    '    setMode("main");\n' +
-    '    setSourceChoice(null);\n' +
-    '    setEpgRows([]);\n' +
-    '    setEpgTotal(0);\n' +
-    '    setEpgQuery("");\n' +
-    '    setStatus(null);\n' +
-    '    setGuideProgram(null);\n' +
-    '    setBusy(false);\n' +
-    '    DeviceEventEmitter.emit("CharmQuickActionsVisibility", false);\n' +
-    '    openPathRef.current = null;\n' +
-    '    const restore = pathname?.startsWith("/player") ? "player" : pathname?.startsWith("/guide") ? "guide" : "default";\n' +
-    '    // A route can claim its new owner before a stale modal close runs. Release\n' +
-    '    // only if Quick Actions still owns the remote context so modal teardown can\n' +
-    '    // never overwrite the player/Guide/drawer that replaced it.\n' +
-    '    const restored = resetRemoteContextIfOwned("modal", restore);\n' +
-    '    if (restored && restore === "guide") setGuideNavigationActive(true);\n' +
-    '  }, [pathname]);\n' +
-    '\n' +
-    '  const runPlayerCommand = useCallback((command: PlayerQuickCommand) => {\n' +
-    '    close();\n' +
-    '    requestAnimationFrame(() => emitPlayerQuickCommand(command));\n' +
-    '  }, [close]);\n' +
-    '\n' +
-    '  useEffect(() => addTvQuickActionsListener((nextContext) => {\n' +
-    '    const guideSelection = nextContext === "guide" ? getGuideSelection() : null;\n' +
-    '    const id = guideSelection?.channelId || resolvePlayerChannelId();\n' +
-    '    if (!id) return;\n' +
-    '    const selectedChannel = channelById(id);\n' +
-    '    if (!selectedChannel) return;\n' +
-    '    void Haptics.selectionAsync().catch(() => undefined);\n' +
-    '\n' +
-    '    setContext(nextContext);\n' +
-    '    setChannelId(id);\n' +
-    '    setGuideProgram(\n' +
-    '      nextContext === "guide" && guideSelection?.surface === "program" && guideSelection.program\n' +
-    '        ? guideSelection.program\n' +
-    '        : null,\n' +
-    '    );\n' +
-    '    setMode("main");\n' +
-    '    setStatus(null);\n' +
-    '    setSourceChoice(null);\n' +
-    '    openPathRef.current = pathname || "";\n' +
-    '    DeviceEventEmitter.emit("CharmQuickActionsVisibility", true);\n' +
-    '    setOpen(true);\n' +
-    '    if (nextContext === "guide") setGuideNavigationActive(false);\n' +
-    '    setRemoteContext("modal");\n' +
-    '  }), [channelById, openProgram, pathname, resolvePlayerChannelId]);\n' +
-    '\n' +
-    '  useEffect(() => () => {\n' +
-    '    DeviceEventEmitter.emit("CharmQuickActionsVisibility", false);\n' +
-    '  }, []);\n' +
-    '\n' +
-    '  useEffect(() => {\n' +
-    '    if (!open) return;\n' +
-    '    const openedPath = openPathRef.current;\n' +
-    '    if (openedPath == null || openedPath === (pathname || "")) return;\n' +
-    '    // Automatic navigation (sleep timer, player recovery exit, etc.) must not\n' +
-    '    // leave a stale modal/focus layer running over the next screen.\n' +
-    '    close();\n' +
-    '  }, [close, open, pathname]);\n' +
-    '\n' +
-    '  useEffect(() => {\n' +
-    '    if (!open) return;\n' +
-    '    setFocusClaim(false);\n' +
-    '    let focusFrame: number | null = null;\n' +
-    '    const frame = requestAnimationFrame(() => {\n' +
-    '      setFocusClaim(true);\n' +
-    '      if (mode === "main") {\n' +
-    '        focusFrame = requestAnimationFrame(() => requestNativeFocus(firstActionRef.current));\n' +
-    '      }\n' +
-    '    });\n' +
-    '    return () => {\n' +
-    '      cancelAnimationFrame(frame);\n' +
-    '      if (focusFrame != null) cancelAnimationFrame(focusFrame);\n' +
-    '    };\n' +
-    '  }, [open, mode, sourceChoice?.id]);\n' +
-    '\n' +
-    '  useEffect(() => {\n' +
-    '    if (!open) return;\n' +
-    '    const sub = BackHandler.addEventListener("hardwareBackPress", () => {\n' +
-    '      if (mode === "epg-channel") {\n' +
-    '        setMode("epg-source");\n' +
-    '        setSourceChoice(null);\n' +
-    '        setEpgRows([]);\n' +
-    '        setEpgTotal(0);\n' +
-    '        return true;\n' +
-    '      }\n' +
-    '      if (mode === "epg-source") {\n' +
-    '        setMode("main");\n' +
-    '        return true;\n' +
-    '      }\n' +
-    '      close();\n' +
-    '      return true;\n' +
-    '    });\n' +
-    '    return () => sub.remove();\n' +
-    '  }, [close, mode, open]);\n' +
-    '\n' +
-    '  useEffect(() => {\n' +
-    '    if (!open || mode !== "epg-channel" || !sourceChoice) return;\n' +
-    '    const timer = setTimeout(() => {\n' +
-    '      const generation = ++queryGeneration.current;\n' +
-    '      void (async () => {\n' +
-    '        try {\n' +
-    '          const page = sourceChoice.legacy\n' +
-    '            ? await listNativeUserGuideChannels(epgQuery, 0, 80)\n' +
-    '            : await listNativeSourceGuideChannels(sourceChoice.id, epgQuery, 0, 80);\n' +
-    '          if (generation !== queryGeneration.current) return;\n' +
-    '          setEpgRows(page.rows || []);\n' +
-    '          setEpgTotal(Math.max(0, Number(page.total) || 0));\n' +
-    '        } catch (error) {\n' +
-    '          if (generation !== queryGeneration.current) return;\n' +
-    '          setEpgRows([]);\n' +
-    '          setEpgTotal(0);\n' +
-    '          setStatus(error instanceof Error ? error.message : "Could not read EPG channels.");\n' +
-    '        }\n' +
-    '      })();\n' +
-    '    }, 180);\n' +
-    '    return () => clearTimeout(timer);\n' +
-    '  }, [epgQuery, mode, open, sourceChoice]);\n' +
-    '\n' +
-    '  const sourceChoices = useMemo<SourceChoice[]>(() => {\n' +
-    '    const out: SourceChoice[] = [];\n' +
-    '    if (primaryEpg.userUrl) {\n' +
-    '      out.push({ id: "user", name: primaryEpg.userName || "Custom EPG", url: primaryEpg.userUrl, enabled: primaryEpg.userEnabled, legacy: true });\n' +
-    '    }\n' +
-    '    for (const source of multiEpg.sources) {\n' +
-    '      if (!source.url) continue;\n' +
-    '      out.push({ id: source.id, name: source.name, url: source.url, enabled: source.enabled, legacy: false });\n' +
-    '    }\n' +
-    '    return out;\n' +
-    '  }, [multiEpg.sources, primaryEpg.userEnabled, primaryEpg.userName, primaryEpg.userUrl]);\n' +
-    '\n' +
-    '  const extraOwner = useMemo(\n' +
-    '    () => channelId ? multiEpg.sources.find((source) => !!source.overrides[channelId]) || null : null,\n' +
-    '    [channelId, multiEpg.sources],\n' +
-    '  );\n' +
-    '  const legacyOwnerId = channelId ? primaryEpg.userOverrides[channelId] || "" : "";\n' +
-    '  const ownerLabel = legacyOwnerId\n' +
-    '    ? primaryEpg.userName\n' +
-    '    : extraOwner\n' +
-    '      ? extraOwner.name\n' +
-    '      : primaryEpg.primaryEnabled\n' +
-    '        ? "Automatic / Charm EPG"\n' +
-    '    '... 14645 more characters
+  }
+
+test at tests/nativeGuideArchitecture.test.mjs:149:1
+✖ native Guide resolves short versus held Select before opening a programme (1.223466ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /event\.action == android\.view\.KeyEvent\.ACTION_DOWN && event\.repeatCount > 0 && emittedLongPressKeyCode != event\.keyCode/. Input:
   
-      at TestContext.<anonymous> (file:///home/runner/work/app/app/frontend/tests/quickActionsContext.test.mjs:77:10)
+  'package com.charmiptv.app\n' +
+    'import expo.modules.splashscreen.SplashScreenManager\n' +
+    '\n' +
+    'import android.os.Build\n' +
+    'import android.os.Bundle\n' +
+    'import android.os.Handler\n' +
+    'import android.os.Looper\n' +
+    'import android.view.ViewConfiguration\n' +
+    'import android.view.WindowManager\n' +
+    '\n' +
+    'import com.facebook.react.ReactActivity\n' +
+    'import com.facebook.react.ReactActivityDelegate\n' +
+    'import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled\n' +
+    'import com.facebook.react.defaults.DefaultReactActivityDelegate\n' +
+    '\n' +
+    'import expo.modules.ReactActivityDelegateWrapper\n' +
+    '\n' +
+    'class MainActivity : ReactActivity() {\n' +
+    '\n' +
+    '  private var lastAcceptedDirectionalRepeatAt = 0L\n' +
+    '  private var lastAcceptedDirectionalKeyCode = -1\n' +
+    '  private var emittedLongPressKeyCode = -1\n' +
+    '  private val selectHoldHandler = Handler(Looper.getMainLooper())\n' +
+    '  private var selectHoldKeyCode = -1\n' +
+    '  private var selectHoldContext: String? = null\n' +
+    '  private var selectLongTriggered = false\n' +
+    '  private val selectLongPressRunnable = Runnable {\n' +
+    '    val owner = selectHoldContext\n' +
+    '    if (\n' +
+    '      selectHoldKeyCode != -1 &&\n' +
+    '        !selectLongTriggered &&\n' +
+    '        (owner == "guide" || owner == "player") &&\n' +
+    '        TvRemoteModule.remoteContext == owner\n' +
+    '    ) {\n' +
+    '      selectLongTriggered = true\n' +
+    '      emitRemoteEvent("TvRemoteQuickActions", owner)\n' +
+    '    }\n' +
+    '  }\n' +
+    '\n' +
+    '  override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {\n' +
+    '    // TiViMate-style central action router: hardware media/channel buttons are\n' +
+    '    // semantic events only while the fullscreen player owns remote input.\n' +
+    '    if (\n' +
+    '      event.action == android.view.KeyEvent.ACTION_DOWN &&\n' +
+    '        event.repeatCount == 0 &&\n' +
+    '        TvRemoteModule.remoteContext == "player" &&\n' +
+    '        !TvRemoteModule.pointerActive\n' +
+    '    ) {\n' +
+    '      val shortcut = when (event.keyCode) {\n' +
+    '        android.view.KeyEvent.KEYCODE_CHANNEL_UP, android.view.KeyEvent.KEYCODE_PAGE_UP -> "CHANNEL_UP"\n' +
+    '        android.view.KeyEvent.KEYCODE_CHANNEL_DOWN, android.view.KeyEvent.KEYCODE_PAGE_DOWN -> "CHANNEL_DOWN"\n' +
+    '        android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, android.view.KeyEvent.KEYCODE_MEDIA_PLAY, android.view.KeyEvent.KEYCODE_MEDIA_PAUSE -> "MEDIA_PLAY_PAUSE"\n' +
+    '        else -> null\n' +
+    '      }\n' +
+    '      if (shortcut != null) {\n' +
+    '        emitRemoteEvent("TvRemoteShortcut", shortcut)\n' +
+    '        return true\n' +
+    '      }\n' +
+    '    }\n' +
+    '\n' +
+    '    // TiViMate-style window action router: classify OK/Select once per physical\n' +
+    '    // hold at the Activity boundary. Fire TV remotes do not all emit repeatCount\n' +
+    '    // events, so repeat-based long-press detection can fall through as a short\n' +
+    '    // Guide click and open ProgramModal/Watch Now underneath Quick Actions.\n' +
+    '    val selectKey =\n' +
+    '      event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER ||\n' +
+    '        event.keyCode == android.view.KeyEvent.KEYCODE_ENTER ||\n' +
+    '        event.keyCode == android.view.KeyEvent.KEYCODE_NUMPAD_ENTER ||\n' +
+    '        event.keyCode == android.view.KeyEvent.KEYCODE_BUTTON_A\n' +
+    '    if (selectKey && !TvRemoteModule.pointerActive) {\n' +
+    '      val context = TvRemoteModule.remoteContext\n' +
+    '      if (\n' +
+    '        event.action == android.view.KeyEvent.ACTION_DOWN &&\n' +
+    '          selectHoldKeyCode == -1 &&\n' +
+    '          (context == "guide" || context == "player")\n' +
+    '      ) {\n' +
+    '        selectHoldKeyCode = event.keyCode\n' +
+    '        selectHoldContext = context\n' +
+    '        selectLongTriggered = false\n' +
+    '        selectHoldHandler.removeCallbacks(selectLongPressRunnable)\n' +
+    '        selectHoldHandler.postDelayed(\n' +
+    '          selectLongPressRunnable,\n' +
+    '          ViewConfiguration.getLongPressTimeout().toLong(),\n' +
+    '        )\n' +
+    '        // Do not let the child view see the initial DOWN until the hold is\n' +
+    '        // classified. That is what prevents Watch Now / normal click bleed.\n' +
+    '        return true\n' +
+    '      }\n' +
+    '      if (selectHoldKeyCode == event.keyCode) {\n' +
+    '        if (event.action == android.view.KeyEvent.ACTION_DOWN) {\n' +
+    '          // Consume vendor repeat events too; the timer is the sole classifier.\n' +
+    '          return true\n' +
+    '        }\n' +
+    '        if (event.action == android.view.KeyEvent.ACTION_UP) {\n' +
+    '          selectHoldHandler.removeCallbacks(selectLongPressRunnable)\n' +
+    '          val owner = selectHoldContext\n' +
+    '          val wasLong = selectLongTriggered\n' +
+    '          selectHoldKeyCode = -1\n' +
+    '          selectHoldContext = null\n' +
+    '          selectLongTriggered = false\n' +
+    '          if (wasLong) return true\n' +
+    '          // A route/modal transition during the hold owns the release. Never\n' +
+    '          // replay a short click into a different surface.\n' +
+    '          if (owner == null || TvRemoteModule.remoteContext != owner) return true\n' +
+    '\n' +
+    '          if (owner == "player") emitRemoteEvent("TvRemoteKey", "SELECT")\n' +
+    '\n' +
+    '          // Re-inject one clean short click below this Activity override. Guide\n' +
+    '          // gets a normal NativeGuideView DOWN/UP pair; Player controls retain\n' +
+    '          // normal Android Pressable activation while JS gets one semantic key.\n' +
+    '          val down = android.view.KeyEvent(\n' +
+    '            event.downTime,\n' +
+    '            event.eventTime,\n' +
+    '            android.view.KeyEvent.ACTION_DOWN,\n' +
+    '            event.keyCode,\n' +
+    '            0,\n' +
+    '            event.metaState,\n' +
+    '            event.deviceId,\n' +
+    '            event.scanCode,\n' +
+    '            event.flags,\n' +
+    '            event.source,\n' +
+    '          )\n' +
+    '          val up = android.view.KeyEvent(\n' +
+    '            event.downTime,\n' +
+    '            event.eventTime,\n' +
+    '            android.view.KeyEvent.ACTION_UP,\n' +
+    '            event.keyCode,\n' +
+    '            0,\n' +
+    '            event.metaState,\n' +
+    '            event.deviceId,\n' +
+    '            event.scanCode,\n' +
+    '            event.flags,\n' +
+    '            event.source,\n' +
+    '          )\n' +
+    '          super.dispatchKeyEvent(down)\n' +
+    '          super.dispatchKeyEvent(up)\n' +
+    '          return true\n' +
+    '        }\n' +
+    '      }\n' +
+    '    }\n' +
+    '\n' +
+    '    // Generic long Down/Back remains repeat-driven because those actions are\n' +
+    '    // repeat/navigation semantics, not click-vs-hold classification.\n' +
+    '    if (\n' +
+    '      event.action == android.view.KeyEvent.ACTION_DOWN &&\n' +
+    '        event.repeatCount > 0 &&\n' +
+    '        emittedLongPressKeyCode != event.keyCode\n' +
+    '    ) {\n' +
+    '      val longKey = when (event.keyCode) {\n' +
+    '        android.view.KeyEvent.KEYCODE_DPAD_DOWN -> "DOWN"\n' +
+    '        android.view.KeyEvent.KEYCODE_BACK -> "BACK"\n' +
+    '        else -> null\n' +
+    '      }\n' +
+    '      if (longKey != null) {\n' +
+    '        emittedLongPressKeyCode = event.keyCode\n' +
+    '        emitRemoteEvent("TvRemoteLongPress", longKey)\n' +
+    '      }\n' +
+    '    } else if (\n' +
+    '      event.action == android.view.KeyEvent.ACTION_UP &&\n' +
+    '        event.keyCode == emittedLongPressKeyCode\n' +
+    '    ) {\n' +
+    '      emittedLongPressKeyCode = -1\n' +
+    '    }\n' +
+    '\n' +
+    '    // Phase 9 remote ownership. Drawers own only their boundary transitions;\n' +
+    '    // Up/Down/OK remain native focus events inside the active drawer.\n' +
+    '    if (event.action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount == 0 && !TvRemoteModule.pointerActive) {\n' +
+    '      val context = TvRemoteModule.remoteContext\n' +
+    '      val boundaryKey = when (event.keyCode) {\n' +
+    '        android.view.KeyEvent.KEYCODE_DPAD_LEFT -> "LEFT"\n' +
+    '        android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> "RIGHT"\n' +
+    '        android.view.KeyEvent.KEYCODE_BACK -> "BACK"\n' +
+    '        else -> null\n' +
+    '      }\n' +
+    '      val owned =\n' +
+    '        (context == "guide_groups" && (boundaryKey == "LEFT" || boundaryKey == "RIGHT")) ||\n' +
+    '          (context == "main_drawer" && boundaryKey == "RIGHT") ||\n' +
+    '          (context == "drawer_edge" && boundaryKey == "LEFT")\n' +
+    '      if (owned && boundaryKey != null) {\n' +
+    '        emitRemoteEvent("TvRemoteKey", boundaryKey)\n' +
+    '        return true\n' +
+    '      }\n' +
+    '    }\n' +
+    '    // Dedicated Channel/Page buttons provide safe one-page Guide jumps. They\n' +
+    '    // never overload ordinary D-pad taps, so channel-by-channel focus remains\n' +
+    '    // deterministic and a held arrow cannot accidentally trigger a page jump.\n' +
+    '    if (\n' +
+    '      event.action == android.view.KeyEvent.ACTION_DOWN &&\n' +
+    '        event.repeatCount == 0 &&\n' +
+    '        TvRemoteModule.guideNavigationActive &&\n' +
+    '        !TvRemoteModule.pointerActive\n' +
+    '    ) {\n' +
+    '      val pageKey = when (event.keyCode) {\n' +
+    '        android.view.KeyEvent.KEYCODE_CHANNEL_UP,\n' +
+    '        android.view.KeyEvent.KEYCODE_PAGE_UP,\n' +
+    '        android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS -> "UP"\n' +
+    '        android.view.KeyEvent.KEYCODE_CHANNEL_DOWN,\n' +
+    '        android.view.KeyEvent.KEYCODE_PAGE_DOWN,\n' +
+    '        android.view.KeyEvent.KEYCODE_MEDIA_NEXT -> "DOWN"\n' +
+    '        else -> when (event.scanCode) {\n' +
+    '          // ONN/vendor key layouts can leave the Android keyCode UNKNOWN while\n' +
+    '          // retaining Linux channel / 10-channel scan codes.\n' +
+    '          0x192, 0x1b8 -> "UP"\n' +
+    '          0x193, 0x1b9 -> "DOWN"\n' +
+    '          else -> null\n' +
+    '        }\n' +
+    '      }\n' +
+    '      if (pageKey != null) {\n' +
+    '        emitRemoteEvent("TvGuidePageKey", pageKey)\n' +
+    '        return true\n' +
+    '      }\n' +
+    '    }\n' +
+    '\n' +
+    '    val directional =\n' +
+    '      event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP ||\n' +
+    '        event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN ||\n' +
+    '        event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT ||\n' +
+    '        event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT\n' +
+    '\n' +
+    '    // Keep the first press and direction reversals instant. Held Guide repeats\n' +
+    '    // use a bounded native cadence and never wait for a JS/paint acknowledgement;\n' +
+    '    // that old cross-thread lock could release a repeat after a row was recycled.\n' +
+    '    if (event.action == android.view.KeyEvent.ACTION_DOWN && directional) {\n' +
+    '      val guideActive =\n' +
+    '        TvRemoteModule.guideNavigationActive &&\n' +
+    '          !TvRemoteModule.pointerActive\n' +
+    '      if (event.repeatCount == 0) {\n' +
+    '        lastAcceptedDirectionalKeyCode = event.keyCode\n' +
+    '        lastAcceptedDirectionalRepeatAt = event.eventTime\n' +
+    '      } else {\n' +
+    '        val elapsed = event.eventTime - lastAcceptedDirectionalRepeatAt\n' +
+    '        val sameDirection = event.keyCode == lastAcceptedDirectionalKeyCode\n' +
+    '        if (sameDirection) {\n' +
+    '          val repeatFloor = if (guideActive) TvRemoteModule.guideRepeatIntervalMs else MIN_DPAD_REPEAT_MS\n' +
+    '          if (elapsed < repeatFloor) {\n' +
+    '            return true\n' +
+    '          }\n' +
+    '        }\n' +
+    '        lastAcceptedDirectionalKeyCode = event.keyCode\n' +
+    '        lastAcceptedDirectionalRepeatAt = event.eventTime\n' +
+    '      }\n' +
+    '    } else if (event.action == android.view.KeyEvent.ACTION_UP && directional) {\n' +
+    '      lastAcceptedDirectionalKeyCode = -'... 3890 more characters
+  
+      at TestContext.<anonymous> (file:///home/runner/work/app/app/frontend/tests/nativeGuideArchitecture.test.mjs:158:10)
       at async Test.run (node:internal/test_runner/test:1389:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
     generatedMessage: true,
     code: 'ERR_ASSERTION',
-    actual: 'import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";\nimport {\n  BackHandler,\n  DeviceEventEmitter,\n  Pressable,\n  ScrollView,\n  StyleSheet,\n  Text,\n  TextInput,\n  View,\n...',
-    expected: /requestAnimationFrame\(\(\) => setFocusClaim\(true\)\)/,
+    actual: 'package com.charmiptv.app\nimport expo.modules.splashscreen.SplashScreenManager\n\nimport android.os.Build\nimport android.os.Bundle\nimport android.os.Handler\nimport android.os.Looper\nimport android.view.ViewConfiguration\nimport android.view.WindowManager\n\n...',
+    expected: /event\.action == android\.view\.KeyEvent\.ACTION_DOWN && event\.repeatCount > 0 && emittedLongPressKeyCode != event\.keyCode/,
     operator: 'match',
     diff: 'simple'
   }
