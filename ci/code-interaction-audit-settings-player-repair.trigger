@@ -1,1 +1,1 @@
-settings-player-lifecycle-cycle-5
+settings-player-lifecycle-cycle-7
