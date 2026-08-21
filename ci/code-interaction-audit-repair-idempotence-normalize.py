@@ -4,6 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PLAYER = ROOT / "frontend/app/player.tsx"
 CALIBRATION = ROOT / "frontend/src/tvCalibration.tsx"
+QUICK_ACTIONS = ROOT / "frontend/src/components/TvQuickActionsOverlay.tsx"
 
 # Mandatory audit cycles rerun the repair scripts. A rerun must converge on the
 # same source, never accumulate a second state/ref owner.
@@ -34,5 +35,23 @@ if start >= 0:
         raise SystemExit("stale local More focus effect found without a safe end boundary")
     player = player[:start] + player[end:]
 PLAYER.write_text(player, encoding="utf-8")
+
+# The OSD repair's Diagnostics insertion anchor is intentionally adjacent to
+# Playback compatibility. On repeated audit cycles the old two-line anchor can
+# still exist inside the repaired form, so collapse duplicate command rows back
+# to one. One OSD action must map to one semantic player command.
+quick = QUICK_ACTIONS.read_text(encoding="utf-8")
+diag_line = '                <Action icon="bug-outline" label="Diagnostics" value="Save player report" onPress={() => runPlayerCommand("SAVE_DIAGNOSTICS")} />\n'
+if quick.count(diag_line) > 1:
+    seen = False
+    kept = []
+    for line in quick.splitlines(keepends=True):
+        if line == diag_line:
+            if seen:
+                continue
+            seen = True
+        kept.append(line)
+    quick = "".join(kept)
+QUICK_ACTIONS.write_text(quick, encoding="utf-8")
 
 print("Repair idempotence normalization complete")
