@@ -52,6 +52,9 @@ jobs:
       - name: Apply EPG schedule RAM isolation repair
         run: python3 ci/code-interaction-audit-epg-schedule-repair.py
 
+      - name: Align regression tests with repaired ownership contracts
+        run: python3 ci/code-interaction-audit-test-contract-repair.py
+
       - name: Run complete settings lifecycle scan
         run: python3 ci/code-interaction-audit-settings-lifecycle-scan.py
 
