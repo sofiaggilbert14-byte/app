@@ -1,1 +1,1 @@
-2026-08-20 guide action handoff audit run 1
+2026-08-21 rc5 guide action handoff audit run 2
