@@ -1,0 +1,3 @@
+CharmIPTV v2.1.0-rc.5 final sideload build
+Verified repair parent: cc28423dbe8e01fcf3b3d3f9d6434f53096a3668
+Focus, Quick Actions, bounded HTTP M3U source recovery, and workflow cleanup included.
