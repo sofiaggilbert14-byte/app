@@ -182,8 +182,7 @@ jobs:
             frontend/src/components/TvQuickActionsOverlay.tsx \
             frontend/src/components/StreamPlayer.tsx \
             frontend/app/player.tsx \
-            frontend/patches/expo-video+3.0.16.patch \
-            ci/code-interaction-audit-player-freeze-report.txt
+            frontend/patches/expo-video+3.0.16.patch
           if git diff --cached --quiet; then
             echo "No repair source changes needed"
             exit 0
