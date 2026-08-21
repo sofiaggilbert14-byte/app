@@ -1,1 +1,2 @@
-2026-08-21 whole-app lifecycle rescan after preview isolation
+2026-08-21 corrected lifecycle rescan after preview isolation
+pass=2
