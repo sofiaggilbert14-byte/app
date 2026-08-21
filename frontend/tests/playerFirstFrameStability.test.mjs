@@ -27,8 +27,9 @@ test("Media3 keeps bounded startup and explicit post-playback buffering recovery
   const player = await source("src/components/StreamPlayer.tsx");
   assert.match(player, /FULLSCREEN_START_TIMEOUT_MS = 12_000/);
   assert.match(player, /BUFFERING_RESYNC_MS = 5000/);
-  assert.match(player, /BUFFERING_FAIL_MS = 22000/);
+  assert.match(player, /BUFFERING_FAIL_MS = 12_000/);
   assert.match(player, /MAX_SILENT_BUFFERING_RESYNCS = 1/);
+  assert.match(player, /RESYNC_REARM_STABLE_MS = 30_000/);
   assert.match(player, /if \(bufferingSince == null\) return/);
   assert.match(player, /const bufferingFor = now - bufferingSince/);
   assert.doesNotMatch(player, /MEDIA3_FROZEN_CLOCK_MS|const frozenReadyClock =/);
