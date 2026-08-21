@@ -52,8 +52,14 @@ jobs:
       - name: Apply EPG schedule RAM isolation repair
         run: python3 ci/code-interaction-audit-epg-schedule-repair.py
 
+      - name: Normalize repeated repair ownership artifacts
+        run: python3 ci/code-interaction-audit-repair-idempotence-normalize.py
+
       - name: Align regression tests with repaired ownership contracts
         run: python3 ci/code-interaction-audit-test-contract-repair.py
+
+      - name: Verify repair convergence and one-owner state
+        run: python3 ci/code-interaction-audit-repair-idempotence-scan.py
 
       - name: Run complete settings lifecycle scan
         run: python3 ci/code-interaction-audit-settings-lifecycle-scan.py
@@ -107,6 +113,7 @@ jobs:
           git config user.name "charm-audit-bot"
           git config user.email "charm-audit-bot@users.noreply.github.com"
           git add frontend \
+            ci/code-interaction-audit-repair-idempotence-report.txt \
             ci/code-interaction-audit-settings-lifecycle-report.txt \
             ci/code-interaction-audit-setting-option-inventory.txt \
             ci/code-interaction-audit-epg-schedule-lifecycle-report.txt \
