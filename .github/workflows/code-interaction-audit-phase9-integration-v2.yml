@@ -88,10 +88,6 @@ jobs:
       - name: Commit verified Phase 9 repair
         shell: bash
         run: |
-          if git diff --quiet; then
-            echo "No changes needed"
-            exit 0
-          fi
           git config user.name "Charm Interaction Audit Bot"
           git config user.email "actions@users.noreply.github.com"
           git add \
@@ -100,7 +96,10 @@ jobs:
             frontend/android/app/src/main/java/com/charmiptv/app/NativeGuideView.kt \
             frontend/tests/groupTabsScreenFit.test.mjs \
             frontend/tests/guideLiveClock.test.mjs \
-            ci/code-interaction-audit-settings-lifecycle-scan.py \
-            .github/workflows/code-interaction-audit-final-sideload.yml
+            ci/code-interaction-audit-settings-lifecycle-scan.py
+          if git diff --cached --quiet; then
+            echo "No production changes needed"
+            exit 0
+          fi
           git commit -m "fix: integrate Phase 9 guide EPG focus and live timeline"
           git push origin HEAD:agent/code-interaction-audit
