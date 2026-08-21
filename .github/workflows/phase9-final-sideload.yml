@@ -27,7 +27,7 @@ jobs:
       CMAKE_BUILD_PARALLEL_LEVEL: "1"
       EXPO_PUBLIC_M3U_URL: ${{ secrets.M3U_URL || vars.EXPO_PUBLIC_M3U_URL }}
       EXPO_PUBLIC_EPG_URL: ${{ secrets.EPG_URL || vars.EXPO_PUBLIC_EPG_URL }}
-      EXPO_PUBLIC_GUIDE_WINDOW_HOURS: ${{ vars.EXPO_PUBLIC_GUIDE_WINDOW_HOURS || '24' }}
+      EXPO_PUBLIC_GUIDE_WINDOW_HOURS: "24"
 
     steps:
       - name: Checkout exact verified repair head
@@ -40,7 +40,7 @@ jobs:
         working-directory: .
         shell: bash
         run: |
-          git diff --exit-code origin/agent/code-interaction-audit-final-sideload-trigger-v9 -- \
+          git diff --exit-code 061d5b073d5f9c721b9362ef67d4a02dd05637f7 -- \
             frontend/src/source.native.ts \
             frontend/src/nativeEpg.ts \
             frontend/android/app/src/main/java/com/charmiptv/app/EpgNativeModule.kt
