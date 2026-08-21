@@ -202,9 +202,10 @@ test("Media3 watchdog recovers real buffering without clock-only decoder reloads
   assert.doesNotMatch(player, /MEDIA3_FROZEN_CLOCK_MS|const frozenReadyClock =/);
   assert.match(player, /if \(bufferingSince == null\) return/);
   assert.match(player, /const bufferingFor = now - bufferingSince/);
-  assert.match(player, /silentResyncCountRef\.current = 0;[\s\S]{0,100}bufferingSinceRef\.current = null/);
+  assert.match(player, /stableProgressSinceRef/);
   assert.doesNotMatch(player, /const stalledReady =/);
   assert.match(player, /const BUFFERING_RESYNC_MS = 5000/);
-  assert.match(player, /const BUFFERING_FAIL_MS = 22000/);
+  assert.match(player, /const BUFFERING_FAIL_MS = 12_000/);
   assert.match(player, /MAX_SILENT_BUFFERING_RESYNCS = 1/);
+  assert.match(player, /const RESYNC_REARM_STABLE_MS = 30_000/);
 });
