@@ -1,4 +1,4 @@
-# trigger: deep repair cycle 4
+# trigger: deep repair cycle 5
 name: TiViMate Deep Player Quick Actions Repair
 
 on:
@@ -8,6 +8,7 @@ on:
     paths:
       - ci/tivimate-deep-player-quickactions-repair.py
       - ci/tivimate-deep-player-quickactions-repair-v2.py
+      - ci/tivimate-whole-repo-player-interaction-scan.py
       - .github/workflows/tivimate-deep-player-quickactions-repair.yml
 
 permissions:
@@ -101,6 +102,9 @@ jobs:
 
       - name: Whole app RAM cache lifecycle scan
         run: python ci/code-interaction-audit-lifecycle-scan.py
+
+      - name: Whole repository player interaction scan
+        run: python ci/tivimate-whole-repo-player-interaction-scan.py
 
       - name: Settings Guide EPG lifecycle scan
         run: python ci/code-interaction-audit-settings-lifecycle-scan.py
