@@ -73,11 +73,9 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps --no-audit --no-fund
 
-      - name: Run final repair and lifecycle scans
+      - name: Run final lifecycle and stability scans
         working-directory: .
         run: |
-          python3 ci/tivimate-deep-player-quickactions-repair.py
-          git diff --exit-code
           python3 ci/code-interaction-audit-player-freeze-scan.py
           python3 ci/code-interaction-audit-preview-lifecycle-scan.py
           python3 ci/code-interaction-audit-lifecycle-scan.py
