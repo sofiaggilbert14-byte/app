@@ -14,6 +14,7 @@ handoff = read("src/utils/openFullscreenPlayer.ts")
 session = read("src/core/playbackSession.ts")
 player = read("app/player.tsx")
 scheduler = read("src/components/SourceRefreshScheduler.tsx")
+quick_actions = read("src/components/TvQuickActionsOverlay.tsx")
 
 # Preview is best-effort and must never teach/poison fullscreen health.
 if 'if (role === "fullscreen") rememberSuccessfulStreamEngine(engineMemoryKey, engine);' not in stream:
@@ -96,6 +97,21 @@ for required in (
 ):
     if required not in scheduler:
         critical.append(f"background source lifecycle contract missing: {required}")
+
+# Quick Actions is a temporary modal owner. Route replacement must close it, and
+# stale modal cleanup must never overwrite a player/Guide/drawer that already
+# claimed the remote. This mirrors the same owner-safe teardown used elsewhere.
+for required in (
+    'resetRemoteContextIfOwned("modal", restore)',
+    'const openPathRef = useRef<string | null>(null)',
+    'openPathRef.current = pathname || ""',
+    'if (openedPath == null || openedPath === (pathname || "")) return;',
+    'close();',
+):
+    if required not in quick_actions:
+        critical.append(f"Quick Actions owner lifecycle missing: {required}")
+if 'setRemoteContext(pathname?.startsWith("/player")' in quick_actions:
+    critical.append("Quick Actions still performs unconditional route-owner restoration")
 
 report = Path("ci/code-interaction-audit-preview-lifecycle-report.txt")
 lines = [
