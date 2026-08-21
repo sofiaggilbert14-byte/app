@@ -32,13 +32,16 @@ if 'if (mode === "preview" || paused || blocked || !mediaReady)' in stream:
 for required in (
     "const VLC_FROZEN_PROGRESS_MS = 15_000",
     "const VLC_BUFFERING_FAIL_MS = 22_000",
-    "const MEDIA3_FROZEN_CLOCK_MS = 9000",
+    "if (bufferingSince == null) return;",
     "const BUFFERING_RESYNC_MS = 5000",
     "const BUFFERING_FAIL_MS = 22000",
     "MAX_SILENT_BUFFERING_RESYNCS = 1",
 ):
     if required not in stream:
         critical.append(f"missing bounded player watchdog contract: {required}")
+
+if "MEDIA3_FROZEN_CLOCK_MS" in stream or "const frozenReadyClock =" in stream:
+    critical.append("Media3 clock-silence-only decoder reload is enabled")
 
 # Preview memory/network footprint stays below fullscreen and muted audio cannot
 # steal Android AUDIOFOCUS from the real player.

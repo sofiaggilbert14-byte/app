@@ -67,8 +67,10 @@ if 'if (role === "fullscreen") rememberSuccessfulStreamEngine(engineMemoryKey, e
     critical.append("preview can write fullscreen successful-engine memory")
 if 'if (!uri || role === "preview") return;' not in stream:
     critical.append("preview failures can poison fullscreen circuit state")
-if 'const MEDIA3_FROZEN_CLOCK_MS = 9000' not in stream or 'MAX_SILENT_BUFFERING_RESYNCS = 2' not in stream:
-    critical.append("Media3 frozen-clock watchdog/resync budget missing")
+if 'if (bufferingSince == null) return;' not in stream or 'MAX_SILENT_BUFFERING_RESYNCS = 1' not in stream:
+    critical.append("Media3 explicit-buffering watchdog/resync budget missing")
+if "MEDIA3_FROZEN_CLOCK_MS" in stream or "const frozenReadyClock =" in stream:
+    critical.append("Media3 clock-silence-only decoder reload is enabled")
 if 'const VLC_FROZEN_PROGRESS_MS = 15_000' not in stream or 'onStopped={fail}' not in stream:
     critical.append("VLC frozen-progress/stop recovery missing")
 if 'mode === "preview" ? "textureView" : "surfaceView"' not in stream:

@@ -74,6 +74,13 @@ for token in (
     if token not in stream:
         critical.append(f"release-before-error contract missing: {token.splitlines()[0]}")
 
+# Live IPTV clock silence is not proof of a frozen decoder. Only an explicit
+# post-playback loading/buffering state may arm source replacement.
+if 'if (bufferingSince == null) return;' not in stream:
+    critical.append("Media3 explicit-buffering recovery gate missing")
+if "MEDIA3_FROZEN_CLOCK_MS" in stream or "const frozenReadyClock =" in stream:
+    critical.append("Media3 clock-only reload can cause pause/reload/freeze cascades")
+
 # One in-engine Media3 resync only. Outer PlayerScreen owns subsequent remounts.
 if "const MAX_SILENT_BUFFERING_RESYNCS = 1;" not in stream:
     critical.append("Media3 has more than one nested silent re-prepare budget")
@@ -128,8 +135,8 @@ try:
         text=True,
         stderr=subprocess.DEVNULL,
     )
-    if "const MAX_SILENT_BUFFERING_RESYNCS = 2;" in main_stream:
-        notes.append("main still has two nested Media3 silent resyncs; do not back-port that recovery stack")
+    if "MEDIA3_FROZEN_CLOCK_MS" in main_stream or "const frozenReadyClock =" in main_stream:
+        notes.append("main still allows clock-silence-only Media3 reloads; do not back-port that recovery gate")
     if 'if (fallbackUsed || forceVlc || forceMedia3)' not in main_stream:
         notes.append("main startup-timeout path does not honor forced engine preference")
     if 'hardStop();\n      recordFailure(sessionRole, engine, uri, "stream-error");' not in main_stream:

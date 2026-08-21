@@ -783,7 +783,8 @@ export default function PlayerScreen() {
             key={`play-${retryToken}`}
             uri={channel?.url || ""}
             channelKey={channelId}
-            sessionRole="fullscreen"
+            mode="full"
+          sessionRole="fullscreen"
             audioTrack={audioTrackId}
             textTrack={textTrackId}
             paused={playbackPaused}

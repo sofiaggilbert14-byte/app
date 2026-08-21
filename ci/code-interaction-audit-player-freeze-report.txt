@@ -1,0 +1,10 @@
+CharmIPTV repo-wide player/decoder/codec bleed scan
+critical_findings=0
+main_reference_notes=2
+
+CRITICAL
+none
+
+MAIN_REFERENCE_NOTES
+main startup-timeout path does not honor forced engine preference
+main does not consistently release Media3 before fatal error publication

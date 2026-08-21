@@ -15,6 +15,7 @@ import {
 import {
   beginSession,
   isSessionCurrent,
+  pauseSessionDecoders,
   registerSessionStop,
   setSessionPhase,
   type SessionFailReason,
@@ -77,9 +78,8 @@ const SILENT_AUDIO_GRACE_MS = 2200;
 // BUFFERING/loading state arms the watchdog. A silent internal re-prepare gets
 // first chance before the parent retry/failure machinery is notified.
 const BUFFERING_RESYNC_MS = 5000;
-const MEDIA3_FROZEN_CLOCK_MS = 9000;
 const BUFFERING_FAIL_MS = 22000;
-const MAX_SILENT_BUFFERING_RESYNCS = 2;
+const MAX_SILENT_BUFFERING_RESYNCS = 1;
 const VLC_FROZEN_PROGRESS_MS = 15_000;
 const VLC_BUFFERING_FAIL_MS = 22_000;
 
@@ -400,11 +400,9 @@ function VlcStream({
   const fail = useCallback(() => {
     if (tearingDownRef.current || !activeRef.current) return;
     if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
+    hardStop();
     recordFailure(sessionRole, engine, uri, "stream-error");
     if (isCircuitOpen(sessionRole, engine, uri)) {
-      // Stop LibVLC before unmounting the native view — otherwise blocked→null
-      // leaks a running decoder until a later remount.
-      hardStop();
       setBlocked(true);
       emit("loading", "circuit-open");
     } else {
@@ -902,6 +900,7 @@ function ExpoStream({
         }
         emit("loading");
       } else if (error || status === "error") {
+        hardStop();
         recordFailure(sessionRole, engine, uri, "stream-error");
         if (isCircuitOpen(sessionRole, engine, uri)) {
           setBlocked(true);
@@ -912,7 +911,7 @@ function ExpoStream({
       }
     });
     return () => sub.remove();
-  }, [blocked, emit, engine, player, reportAndSelectMedia3Tracks, sessionGeneration, sessionRole, setBlocked, uri]);
+  }, [blocked, emit, engine, hardStop, player, reportAndSelectMedia3Tracks, sessionGeneration, sessionRole, setBlocked, uri]);
 
   useEffect(() => {
     const progressSub = player.addListener("timeUpdate", ({ currentTime }) => {
@@ -951,20 +950,13 @@ function ExpoStream({
         bufferingSinceRef.current = null;
       }
       const bufferingSince = bufferingSinceRef.current;
-      // Media3 may wedge while still reporting readyToPlay. Poll its actual
-      // playback clock directly; once this fullscreen decoder has genuinely played,
-      // a stale clock is authoritative even if Media3's playing flag also dropped.
-      // This keeps recovery independent of sparse JS timeUpdate delivery.
-      const frozenReadyClock =
-        bufferingSince == null &&
-        hasPlayedRef.current &&
-        mediaReady &&
-        now - lastPlaybackAdvanceAtRef.current >= MEDIA3_FROZEN_CLOCK_MS;
-      if (bufferingSince == null && !frozenReadyClock) return;
-      const bufferingFor = bufferingSince != null
-        ? now - bufferingSince
-        : now - lastPlaybackAdvanceAtRef.current;
-      if (bufferingFor < (bufferingSince != null ? BUFFERING_RESYNC_MS : MEDIA3_FROZEN_CLOCK_MS)) return;
+      // TiViMate-style ownership: only an explicit post-playback Media3
+      // loading/buffering state may tear down/reprepare this live decoder.
+      // Live IPTV clocks can pause, jump or emit sparse JS time updates while
+      // video is healthy; clock silence alone must never reload the source.
+      if (bufferingSince == null) return;
+      const bufferingFor = now - bufferingSince;
+      if (bufferingFor < BUFFERING_RESYNC_MS) return;
 
       if (
         silentResyncCountRef.current < MAX_SILENT_BUFFERING_RESYNCS &&
@@ -993,6 +985,7 @@ function ExpoStream({
 
       if (bufferingFor < BUFFERING_FAIL_MS) return;
       bufferingSinceRef.current = null;
+      hardStop();
       recordFailure(sessionRole, engine, uri, "stream-error");
       emit("error", "stream-error");
     }, 1000);
@@ -1000,7 +993,7 @@ function ExpoStream({
       progressSub.remove();
       clearInterval(watchdog);
     };
-  }, [blocked, emit, engine, headers, kind, mediaReady, mode, paused, player, sessionGeneration, sessionRole, uri]);
+  }, [blocked, emit, engine, hardStop, headers, kind, mediaReady, mode, paused, player, sessionGeneration, sessionRole, uri]);
 
   useEffect(() => {
     const onTracksChanged = () => {
@@ -1032,6 +1025,7 @@ function ExpoStream({
       if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
       markAudio();
       if (sawSupportedAudio) return;
+      hardStop();
       recordAudioDiagnostics({
         engine: "media3",
         role: sessionRole,
@@ -1056,7 +1050,7 @@ function ExpoStream({
         trackSub.remove();
       } catch {}
     };
-  }, [blocked, emit, kind, mediaReady, mode, player, reportAndSelectMedia3Tracks, sessionGeneration, sessionRole, uri]);
+  }, [blocked, emit, hardStop, kind, mediaReady, mode, player, reportAndSelectMedia3Tracks, sessionGeneration, sessionRole, uri]);
 
   if (blocked) return null;
 
@@ -1173,13 +1167,15 @@ export function StreamPlayer({
       // The one allowed alternate engine still needs a bounded startup. If it
       // never reaches playing, surface an error so PlayerScreen can perform its
       // full decoder remount/backoff instead of staying on a permanent spinner.
-      if (fallbackUsed) {
+      if (fallbackUsed || forceVlc || forceMedia3) {
+        pauseSessionDecoders(role);
         setSessionPhase(role, sessionGeneration, "failed", "start-timeout");
         setStatus("error", "start-timeout");
         return;
       }
       const alternate = alternateEngine(engine, vlcAvailable);
       if (!alternate) {
+        pauseSessionDecoders(role);
         setSessionPhase(role, sessionGeneration, "failed", "start-timeout");
         setStatus("error", "start-timeout");
         return;
@@ -1190,7 +1186,7 @@ export function StreamPlayer({
       setStatus("loading", "start-timeout");
     }, startTimeoutMs);
     return () => clearTimeout(timer);
-  }, [engine, fallbackUsed, playbackFocused, role, sessionGeneration, setStatus, startTimeoutMs, uri]);
+  }, [engine, fallbackUsed, forceMedia3, forceVlc, playbackFocused, role, sessionGeneration, setStatus, startTimeoutMs, uri]);
 
   const handleStatus = useCallback(
     (status: StreamStatus, reason?: SessionFailReason | null) => {
