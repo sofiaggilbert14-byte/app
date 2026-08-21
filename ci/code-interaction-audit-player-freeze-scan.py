@@ -22,6 +22,8 @@ scheduler = read("src/components/SourceRefreshScheduler.tsx")
 # expo-video or LibVLC. Any other direct mount can overlap preview/fullscreen.
 for path in ROOT.rglob("*.ts*"):
     rel = path.relative_to(ROOT).as_posix()
+    if any(part in {"node_modules", "build", ".gradle", ".expo", "dist"} for part in path.parts):
+        continue
     text = path.read_text(encoding="utf-8", errors="replace")
     if rel == "src/components/StreamPlayer.tsx":
         continue
@@ -95,8 +97,20 @@ if "STREAM_RETRY_DELAYS_MS = [1000, 2000, 4000]" not in player:
     critical.append("fullscreen retry backoff contract changed unexpectedly")
 if 'if (status === "playing") {\n      setRetryAttempt(0);' in player:
     critical.append("brief PLAYING state immediately resets outer retry budget")
-if 'if (failReason === "circuit-open" || isFullscreenCircuitOpen(channel?.url)) return;' not in player:
+if 'if (failReason === "circuit-open" || isFullscreenCircuitOpen(streamUri)) return;' not in player:
     critical.append("auto retry can storm a circuit-open decoder")
+
+# Expiring provider URLs get one playlist-only source recheck after local
+# decoder retries are exhausted. The decoder must be released first, and EPG
+# parsing must remain outside this recovery path.
+for token in (
+    "sourceRecheckAttemptedRef.current",
+    'pauseSessionDecoders("fullscreen")',
+    "refreshPlaybackChannel(logicalChannelId)",
+    "setRecoveryUri(freshUri)",
+):
+    if token not in player:
+        critical.append(f"bounded provider source recheck missing: {token}")
 
 # Forced engine settings must also control startup-timeout recovery.
 if "if (fallbackUsed || forceVlc || forceMedia3)" not in stream:

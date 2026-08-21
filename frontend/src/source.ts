@@ -1121,6 +1121,14 @@ export async function refreshPlaylistOnly(): Promise<SourceStatus> {
   return refreshSource(true);
 }
 
+/** Web fallback for the shared bounded playback source-recheck contract. */
+export async function refreshPlaybackChannel(channelId: string): Promise<Channel | null> {
+  const id = String(channelId || "").trim();
+  if (!id) return null;
+  await refreshPlaylistOnly();
+  return MEM?.channels.find((channel) => channel.id === id) || null;
+}
+
 export function sourceStatus(): SourceStatus {
   const channels = MEM?.channels || [];
   const withEpg = MEM?.epgChannelCount ||

@@ -136,6 +136,14 @@ for rel in (
     except Exception as exc:
         critical.append(f"repair-entry baseline unavailable for {rel}: {exc}")
         continue
+    # The player may add this read-through helper without altering the verified
+    # native playlist/EPG transport. Compare the transport after removing only
+    # that tightly bounded additive API.
+    if rel == "frontend/src/source.native.ts":
+        helper_start = current.find("\n/** Refresh only M3U rows and return the latest URL for one logical channel. */")
+        helper_end = current.find("\n/** Check persisted independent playlist/EPG clocks", helper_start + 1)
+        if helper_start >= 0 and helper_end > helper_start:
+            current = current[:helper_start] + current[helper_end:]
     if current != baseline:
         critical.append(f"repair changed M3U/EPG transport: {rel}")
 

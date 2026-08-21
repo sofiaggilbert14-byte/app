@@ -44,6 +44,7 @@ import {
 import { pickDefaultSubtitleTrack, useSubtitlePreferences } from "@/src/core/subtitlePreferences";
 import { pickPreferredAudioTrack, useAudioTrackPreferences } from "@/src/core/audioTrackPreferences";
 import { clearStreamFailure, noteStreamFailure } from "@/src/core/streamFailureRegistry";
+import { refreshPlaybackChannel } from "@/src/source";
 import * as FileSystem from "expo-file-system/legacy";
 import type { Channel } from "@/src/api";
 
@@ -108,6 +109,7 @@ export default function PlayerScreen() {
   const [playerOverlay, setPlayerOverlay] = useState<"channels" | "tracks" | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [retryAttempt, setRetryAttempt] = useState(0);
+  const [recoveryUri, setRecoveryUri] = useState<string | null>(null);
   const [playerNow, setPlayerNow] = useState(() => new Date());
   // Decoder is disarmed while rapid Next/Prev or strip surfing — prevents VLC pile-up / audio leaks.
   const [decoderArmed, setDecoderArmed] = useState(true);
@@ -159,6 +161,7 @@ export default function PlayerScreen() {
   const subtitleDefaultLanguageRef = useRef(subtitleDefaultLanguage);
   const subtitleAutoAppliedRef = useRef<string | null>(null);
   const audioAutoAppliedRef = useRef<string | null>(null);
+  const sourceRecheckAttemptedRef = useRef(false);
 
   const isTV = Platform.OS !== "web" && Platform.isTV;
   useEffect(() => {
@@ -181,6 +184,7 @@ export default function PlayerScreen() {
     () => (channelMeta ? { ...channelMeta, programs: channelPrograms } : undefined),
     [channelMeta, channelPrograms],
   );
+  const streamUri = recoveryUri || channel?.url || "";
   // Native source/cache channels are already name-sorted and playable. Avoid
   // cloning/sorting several 6k+ arrays while the fullscreen decoder is starting.
   const streamChannels = channels;
@@ -242,9 +246,14 @@ export default function PlayerScreen() {
     setTracksOpen(false);
   }, [channelId, retryToken, setTracksOpen]);
 
+  useEffect(() => {
+    setRecoveryUri(null);
+    sourceRecheckAttemptedRef.current = false;
+  }, [channelId]);
+
   const { current, next } = nowNext(channel?.programs, playerNow);
   const progress = current ? progressPct(current, playerNow) : 0;
-  const hasStream = !!channel?.url;
+  const hasStream = !!streamUri;
   const programDescription = current?.desc || (next ? `Next: ${next.title}` : "Live television");
   const programDescriptionKey = `${channelId}:${current?.start || ""}:${current?.title || ""}`;
 
@@ -445,7 +454,7 @@ export default function PlayerScreen() {
     const generation = generationRef.current;
     // Only a deliberate Retry button clears the breaker. Auto retry must honor
     // accumulated failures or a bad source remounts native decoders forever.
-    if (clearCircuit) clearFullscreenCircuit(channel?.url);
+    if (clearCircuit) clearFullscreenCircuit(streamUri);
     pauseSessionDecoders("fullscreen");
     // Force a real native-view remount. Keeping a stopped VLC view mounted with
     // the same source is a black-screen dead end on Fire TV.
@@ -458,7 +467,7 @@ export default function PlayerScreen() {
     zapTimer.current = setTimeout(() => {
       if (generation === generationRef.current) setDecoderArmed(true);
     }, DECODER_RESTART_SETTLE_MS);
-  }, [channel?.name, channel?.url, hasStream, showNotice]);
+  }, [channel?.name, hasStream, showNotice, streamUri]);
 
   const retryNow = useCallback(() => {
     setRetryAttempt(0);
@@ -522,6 +531,7 @@ export default function PlayerScreen() {
       stableRetryResetTimer.current = setTimeout(() => {
         if (channelIdRef.current !== stableChannelId) return;
         setRetryAttempt(0);
+        sourceRecheckAttemptedRef.current = false;
       }, STABLE_RETRY_RESET_MS);
       stableHistoryTimer.current = setTimeout(() => {
         if (channelIdRef.current !== stableChannelId) return;
@@ -547,7 +557,7 @@ export default function PlayerScreen() {
     if (retryAttempt >= MAX_AUTO_STREAM_RETRIES) return;
     // Circuit-open / cooldown: remounting only storms native decoders. Wait for
     // the deliberate Retry button (which clears the breaker).
-    if (failReason === "circuit-open" || isFullscreenCircuitOpen(channel?.url)) return;
+    if (failReason === "circuit-open" || isFullscreenCircuitOpen(streamUri)) return;
     if (retryTimer.current) clearTimeout(retryTimer.current);
     const delay = STREAM_RETRY_DELAYS_MS[Math.min(retryAttempt, STREAM_RETRY_DELAYS_MS.length - 1)];
     retryTimer.current = setTimeout(() => restartStream(false), delay);
@@ -556,13 +566,48 @@ export default function PlayerScreen() {
     };
   }, [
     autoRetryStreams,
-    channel?.url,
+    streamUri,
     failReason,
     hasStream,
     restartStream,
     retryAttempt,
     status,
   ]);
+
+  useEffect(() => {
+    if (!autoRetryStreams || !hasStream || status !== "error") return;
+    if (retryAttempt < MAX_AUTO_STREAM_RETRIES && failReason !== "circuit-open") return;
+    if (sourceRecheckAttemptedRef.current) return;
+    sourceRecheckAttemptedRef.current = true;
+    const generation = generationRef.current;
+    const logicalChannelId = channelIdRef.current;
+    const failedUri = streamUri;
+    pauseSessionDecoders("fullscreen");
+    setDecoderArmed(false);
+    showNotice(`Rechecking ${channel?.name || "stream"} source`);
+    void refreshPlaybackChannel(logicalChannelId)
+      .then((fresh) => {
+        if (generation !== generationRef.current || channelIdRef.current !== logicalChannelId) return;
+        const freshUri = String(fresh?.url || "").trim();
+        if (!freshUri) throw new Error("Channel is no longer present in the playlist");
+        clearFullscreenCircuit(failedUri);
+        clearFullscreenCircuit(freshUri);
+        setRecoveryUri(freshUri);
+        setRetryAttempt(0);
+        setFailReason(null);
+        setStatus("loading");
+        setRetryToken((value) => value + 1);
+        if (zapTimer.current) clearTimeout(zapTimer.current);
+        zapTimer.current = setTimeout(() => {
+          if (generation === generationRef.current) setDecoderArmed(true);
+        }, DECODER_RESTART_SETTLE_MS);
+      })
+      .catch(() => {
+        if (generation !== generationRef.current) return;
+        setDecoderArmed(false);
+        showNotice("Source recheck failed — use Retry Now");
+      });
+  }, [autoRetryStreams, channel?.name, failReason, hasStream, retryAttempt, showNotice, status, streamUri]);
 
   useEffect(() => {
     if (!isTV) return;
@@ -789,7 +834,7 @@ export default function PlayerScreen() {
         >
           <StreamPlayer
             key={`play-${retryToken}`}
-            uri={channel?.url || ""}
+            uri={streamUri}
             channelKey={channelId}
             mode="full"
           sessionRole="fullscreen"

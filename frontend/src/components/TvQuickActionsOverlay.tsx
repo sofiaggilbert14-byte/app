@@ -39,6 +39,7 @@ import { fingerprintStreamUri, getLastAudioDiagnostics } from "@/src/core/audioD
 import { usePlayerEnginePreference, type PlayerEnginePreference } from "@/src/playerEnginePreference";
 import { usePlaybackBufferProfile, type PlaybackBufferProfile } from "@/src/core/playbackBufferProfile";
 import type { Program } from "@/src/api";
+import { reminderKey } from "@/src/utils/time";
 
 type Mode = "main" | "epg-source" | "epg-channel";
 type SourceChoice = { id: string; name: string; url: string; enabled: boolean; legacy: boolean };
@@ -63,7 +64,8 @@ export function TvQuickActionsOverlay() {
     toggleFavorite,
     sleepTimerMinutes,
     setSleepTimerMinutes,
-    openProgram,
+    reminders,
+    toggleReminder,
   } = useStore();
   const customize = useChannelCustomize();
   const primaryEpg = useEpgSourcePreferences();
@@ -152,7 +154,7 @@ export function TvQuickActionsOverlay() {
     setOpen(true);
     if (nextContext === "guide") setGuideNavigationActive(false);
     setRemoteContext("modal");
-  }), [channelById, openProgram, pathname, resolvePlayerChannelId]);
+  }), [channelById, pathname, resolvePlayerChannelId]);
 
   useEffect(() => () => {
     DeviceEventEmitter.emit("CharmQuickActionsVisibility", false);
@@ -332,12 +334,21 @@ export function TvQuickActionsOverlay() {
     openFullscreenPlayer(router, channel.id, { returnToGuide: true });
   }, [channel, close, router]);
 
-  const openProgramDetails = useCallback(() => {
-    if (!channel || !guideProgram) return;
-    const program = guideProgram;
-    close();
-    requestAnimationFrame(() => openProgram(program, channel));
-  }, [channel, close, guideProgram, openProgram]);
+  const reminded = !!(channel && guideProgram && reminders.some(
+    (item) => item.key === reminderKey(channel.id, guideProgram.start),
+  ));
+
+  const toggleSelectedReminder = useCallback(() => {
+    if (!channel || !guideProgram || busy) return;
+    setBusy(true);
+    setStatus(reminded ? "Removing reminder…" : "Setting reminder…");
+    void toggleReminder(guideProgram, channel)
+      .then((result) => {
+        setStatus(result === "added" ? "Reminder set." : result === "removed" ? "Reminder removed." : "Notifications are required for reminders.");
+      })
+      .catch(() => setStatus("Could not update reminder."))
+      .finally(() => setBusy(false));
+  }, [busy, channel, guideProgram, reminded, toggleReminder]);
 
   const play = useCallback(() => {
     if (!channel) return;
@@ -377,7 +388,7 @@ export function TvQuickActionsOverlay() {
             {guideProgram ? (
               <>
                 <Action buttonRef={firstActionRef} preferredFocus={focusClaim} icon="play" label="Watch channel now" value={guideProgram.title} onPress={watchSelectedProgram} />
-                <Action icon="information-circle-outline" label="Program details / reminder" onPress={openProgramDetails} />
+                <Action icon={reminded ? "notifications" : "notifications-outline"} label={reminded ? "Cancel reminder" : "Set reminder"} onPress={toggleSelectedReminder} disabled={busy} />
                 <Action icon={favoriteSet.has(channel.id) ? "heart" : "heart-outline"} label={favoriteSet.has(channel.id) ? "Remove Favorite" : "Add Favorite"} onPress={favorite} />
               </>
             ) : (

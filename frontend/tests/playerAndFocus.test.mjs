@@ -48,7 +48,8 @@ test("drawer edge is a typed remote owner and stale blur cleanup cannot clobber 
   assert.match(remote, /export function resetRemoteContextIfOwned/);
   assert.match(remote, /if \(remoteContextOwner !== expected\) return/);
   assert.match(button, /setRemoteContext\("drawer_edge"\)/);
-  assert.match(button, /resetRemoteContextIfOwned\("drawer_edge"\)/);
+  assert.match(button, /pathname\?\.startsWith\("\/guide"\)[\s\S]*?"guide"/);
+  assert.match(button, /resetRemoteContextIfOwned\("drawer_edge", fallback\)/);
   assert.doesNotMatch(button, /return \(\) => \{[\s\S]{0,120}setRemoteContext\("default"\)/);
   assert.match(activity, /context == "drawer_edge" && boundaryKey == "LEFT"/);
 });
@@ -127,8 +128,9 @@ test("Guide long Select is exclusively contextual Quick Actions, never the old F
   assert.match(activity, /emitRemoteEvent\("TvRemoteQuickActions", owner\)/);
   assert.match(overlay, /guideSelection\?\.surface === "program" && guideSelection\.program/);
   assert.match(overlay, /PROGRAM QUICK ACTIONS/);
-  assert.match(overlay, /Program details \/ reminder/);
-  assert.doesNotMatch(overlay, /guideSelection\.program\) \{\s*openProgram/);
+  assert.match(overlay, /Watch channel now/);
+  assert.match(overlay, /reminded \? "Cancel reminder" : "Set reminder"/);
+  assert.doesNotMatch(overlay, /openProgram\(/);
   assert.match(modal, /trapFocusUp trapFocusDown trapFocusLeft trapFocusRight/);
 });
 
@@ -177,6 +179,20 @@ test("Media3 recovery only reparses a real post-playback buffering state", async
   assert.match(stream, /RESYNC_REARM_STABLE_MS = 30_000/);
 });
 
+test("fullscreen exhausts local retries before one playlist-only provider URL recheck", async () => {
+  const [player, sourceNative] = await Promise.all([
+    source("app/player.tsx"),
+    source("src/source.native.ts"),
+  ]);
+  assert.match(player, /retryAttempt < MAX_AUTO_STREAM_RETRIES/);
+  assert.match(player, /sourceRecheckAttemptedRef\.current = true/);
+  assert.match(player, /pauseSessionDecoders\("fullscreen"\)[\s\S]*refreshPlaybackChannel\(logicalChannelId\)/);
+  assert.match(player, /setRecoveryUri\(freshUri\)/);
+  assert.match(player, /sourceRecheckAttemptedRef\.current = false[\s\S]*STABLE_RETRY_RESET_MS/);
+  assert.match(sourceNative, /refreshPlaybackChannel[\s\S]*await refreshPlaylistOnly\(\)/);
+  assert.doesNotMatch(sourceNative.match(/export async function refreshPlaybackChannel[\s\S]*?\n\}/)?.[0] || "", /refreshEpgOnly|loadGuide/);
+});
+
 test("long Select consumes release and short Select is reinjected only after classification", async () => {
   const [activity, overlay] = await Promise.all([
     source("android/app/src/main/java/com/charmiptv/app/MainActivity.kt"),
@@ -188,6 +204,7 @@ test("long Select consumes release and short Select is reinjected only after cla
   assert.match(activity, /super\.dispatchKeyEvent\(up\)/);
   assert.doesNotMatch(activity, /consumedLongSelect/);
   assert.match(overlay, /PROGRAM QUICK ACTIONS/);
-  assert.match(overlay, /Program details \/ reminder/);
-  assert.doesNotMatch(overlay, /guideSelection\.program\) \{\s*openProgram/);
+  assert.match(overlay, /Watch channel now/);
+  assert.match(overlay, /toggleSelectedReminder/);
+  assert.doesNotMatch(overlay, /openProgram\(/);
 });
