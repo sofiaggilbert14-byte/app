@@ -3,6 +3,9 @@ import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.view.ViewConfiguration
 import android.view.WindowManager
 
 import com.facebook.react.ReactActivity
@@ -17,6 +20,22 @@ class MainActivity : ReactActivity() {
   private var lastAcceptedDirectionalRepeatAt = 0L
   private var lastAcceptedDirectionalKeyCode = -1
   private var emittedLongPressKeyCode = -1
+  private val selectHoldHandler = Handler(Looper.getMainLooper())
+  private var selectHoldKeyCode = -1
+  private var selectHoldContext: String? = null
+  private var selectLongTriggered = false
+  private val selectLongPressRunnable = Runnable {
+    val owner = selectHoldContext
+    if (
+      selectHoldKeyCode != -1 &&
+        !selectLongTriggered &&
+        (owner == "guide" || owner == "player") &&
+        TvRemoteModule.remoteContext == owner
+    ) {
+      selectLongTriggered = true
+      emitRemoteEvent("TvRemoteQuickActions", owner)
+    }
+  }
 
   override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
     // TiViMate-style central action router: hardware media/channel buttons are
@@ -39,56 +58,108 @@ class MainActivity : ReactActivity() {
       }
     }
 
-    // One semantic long-press event per physical hold. Long OK/Select is now a
-    // dedicated contextual quick-actions route, not a Favorite shortcut. This
-    // prevents old Guide/player long-select listeners from firing underneath
-    // the overlay while preserving Long Down/Back behavior.
-    if (event.action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount > 0 && emittedLongPressKeyCode != event.keyCode) {
-      val selectKey =
-        event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER ||
-          event.keyCode == android.view.KeyEvent.KEYCODE_ENTER ||
-          event.keyCode == android.view.KeyEvent.KEYCODE_NUMPAD_ENTER ||
-          event.keyCode == android.view.KeyEvent.KEYCODE_BUTTON_A
-      val context = TvRemoteModule.remoteContext
-      if (selectKey && (context == "guide" || context == "player")) {
-        emittedLongPressKeyCode = event.keyCode
-        emitRemoteEvent("TvRemoteQuickActions", context)
-      } else {
-        val longKey = when (event.keyCode) {
-          android.view.KeyEvent.KEYCODE_DPAD_DOWN -> "DOWN"
-          android.view.KeyEvent.KEYCODE_BACK -> "BACK"
-          else -> null
-        }
-        if (longKey != null) {
-          emittedLongPressKeyCode = event.keyCode
-          emitRemoteEvent("TvRemoteLongPress", longKey)
-        }
-      }
-    } else if (event.action == android.view.KeyEvent.ACTION_UP && event.keyCode == emittedLongPressKeyCode) {
-      val consumedLongSelect =
-        event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER ||
-          event.keyCode == android.view.KeyEvent.KEYCODE_ENTER ||
-          event.keyCode == android.view.KeyEvent.KEYCODE_NUMPAD_ENTER ||
-          event.keyCode == android.view.KeyEvent.KEYCODE_BUTTON_A
-      emittedLongPressKeyCode = -1
-      if (consumedLongSelect) return true
-    }
-
-    // Once held OK/Select becomes Quick Actions, suppress every remaining repeat
-    // for the same physical hold in both Guide and Player. The overlay is the
-    // sole focus/input owner until release, matching TiViMate's window router.
+    // TiViMate-style window action router: classify OK/Select once per physical
+    // hold at the Activity boundary. Fire TV remotes do not all emit repeatCount
+    // events, so repeat-based long-press detection can fall through as a short
+    // Guide click and open ProgramModal/Watch Now underneath Quick Actions.
     val selectKey =
       event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER ||
         event.keyCode == android.view.KeyEvent.KEYCODE_ENTER ||
         event.keyCode == android.view.KeyEvent.KEYCODE_NUMPAD_ENTER ||
         event.keyCode == android.view.KeyEvent.KEYCODE_BUTTON_A
+    if (selectKey && !TvRemoteModule.pointerActive) {
+      val context = TvRemoteModule.remoteContext
+      if (
+        event.action == android.view.KeyEvent.ACTION_DOWN &&
+          selectHoldKeyCode == -1 &&
+          (context == "guide" || context == "player")
+      ) {
+        selectHoldKeyCode = event.keyCode
+        selectHoldContext = context
+        selectLongTriggered = false
+        selectHoldHandler.removeCallbacks(selectLongPressRunnable)
+        selectHoldHandler.postDelayed(
+          selectLongPressRunnable,
+          ViewConfiguration.getLongPressTimeout().toLong(),
+        )
+        // Do not let the child view see the initial DOWN until the hold is
+        // classified. That is what prevents Watch Now / normal click bleed.
+        return true
+      }
+      if (selectHoldKeyCode == event.keyCode) {
+        if (event.action == android.view.KeyEvent.ACTION_DOWN) {
+          // Consume vendor repeat events too; the timer is the sole classifier.
+          return true
+        }
+        if (event.action == android.view.KeyEvent.ACTION_UP) {
+          selectHoldHandler.removeCallbacks(selectLongPressRunnable)
+          val owner = selectHoldContext
+          val wasLong = selectLongTriggered
+          selectHoldKeyCode = -1
+          selectHoldContext = null
+          selectLongTriggered = false
+          if (wasLong) return true
+          // A route/modal transition during the hold owns the release. Never
+          // replay a short click into a different surface.
+          if (owner == null || TvRemoteModule.remoteContext != owner) return true
+
+          if (owner == "player") emitRemoteEvent("TvRemoteKey", "SELECT")
+
+          // Re-inject one clean short click below this Activity override. Guide
+          // gets a normal NativeGuideView DOWN/UP pair; Player controls retain
+          // normal Android Pressable activation while JS gets one semantic key.
+          val down = android.view.KeyEvent(
+            event.downTime,
+            event.eventTime,
+            android.view.KeyEvent.ACTION_DOWN,
+            event.keyCode,
+            0,
+            event.metaState,
+            event.deviceId,
+            event.scanCode,
+            event.flags,
+            event.source,
+          )
+          val up = android.view.KeyEvent(
+            event.downTime,
+            event.eventTime,
+            android.view.KeyEvent.ACTION_UP,
+            event.keyCode,
+            0,
+            event.metaState,
+            event.deviceId,
+            event.scanCode,
+            event.flags,
+            event.source,
+          )
+          super.dispatchKeyEvent(down)
+          super.dispatchKeyEvent(up)
+          return true
+        }
+      }
+    }
+
+    // Generic long Down/Back remains repeat-driven because those actions are
+    // repeat/navigation semantics, not click-vs-hold classification.
     if (
       event.action == android.view.KeyEvent.ACTION_DOWN &&
         event.repeatCount > 0 &&
-        selectKey &&
-        emittedLongPressKeyCode == event.keyCode
+        emittedLongPressKeyCode != event.keyCode
     ) {
-      return true
+      val longKey = when (event.keyCode) {
+        android.view.KeyEvent.KEYCODE_DPAD_DOWN -> "DOWN"
+        android.view.KeyEvent.KEYCODE_BACK -> "BACK"
+        else -> null
+      }
+      if (longKey != null) {
+        emittedLongPressKeyCode = event.keyCode
+        emitRemoteEvent("TvRemoteLongPress", longKey)
+      }
+    } else if (
+      event.action == android.view.KeyEvent.ACTION_UP &&
+        event.keyCode == emittedLongPressKeyCode
+    ) {
+      emittedLongPressKeyCode = -1
     }
 
     // Phase 9 remote ownership. Drawers own only their boundary transitions;
@@ -227,6 +298,10 @@ class MainActivity : ReactActivity() {
   override fun getMainComponentName(): String = "main"
 
   override fun onDestroy() {
+    selectHoldHandler.removeCallbacks(selectLongPressRunnable)
+    selectHoldKeyCode = -1
+    selectHoldContext = null
+    selectLongTriggered = false
     // Static remote flags must never survive an Activity/bridge teardown.
     // A stale pointer flag consumes every D-pad key before Android focus sees it.
     TvRemoteModule.pointerActive = false

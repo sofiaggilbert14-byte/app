@@ -51,7 +51,8 @@ const CHANNEL_PREVIEW_DELAY_MS = 650;
 const CHANNEL_ZAP_SETTLE_MS = 850;
 const DECODER_RESTART_SETTLE_MS = 120;
 const STREAM_RETRY_DELAYS_MS = [1000, 2000, 4000] as const;
-const MAX_AUTO_STREAM_RETRIES = 4;
+const MAX_AUTO_STREAM_RETRIES = 3;
+const STABLE_RETRY_RESET_MS = 30_000;
 const SWITCH_NOTICE_MS = 1800;
 const STABLE_HISTORY_DELAY_MS = 5000;
 type PlayerViewMode = "fit" | "fill" | "zoom" | "stretch";
@@ -137,6 +138,7 @@ export default function PlayerScreen() {
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stableHistoryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stableRetryResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const controlsRef = useRef(true);
   const channelsOpenRef = useRef(false);
   const generationRef = useRef(0);
@@ -488,6 +490,7 @@ export default function PlayerScreen() {
       if (zapTimer.current) clearTimeout(zapTimer.current);
       if (retryTimer.current) clearTimeout(retryTimer.current);
       if (stableHistoryTimer.current) clearTimeout(stableHistoryTimer.current);
+      if (stableRetryResetTimer.current) clearTimeout(stableRetryResetTimer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional cold-mount/retry only
   }, [retryToken]);
@@ -512,17 +515,22 @@ export default function PlayerScreen() {
 
   useEffect(() => {
     if (status === "playing") {
-      setRetryAttempt(0);
       if (controlsRef.current) scheduleHide();
       if (stableHistoryTimer.current) clearTimeout(stableHistoryTimer.current);
+      if (stableRetryResetTimer.current) clearTimeout(stableRetryResetTimer.current);
       const stableChannelId = channelIdRef.current;
+      stableRetryResetTimer.current = setTimeout(() => {
+        if (channelIdRef.current !== stableChannelId) return;
+        setRetryAttempt(0);
+      }, STABLE_RETRY_RESET_MS);
       stableHistoryTimer.current = setTimeout(() => {
-        if (status !== "playing" || channelIdRef.current !== stableChannelId) return;
+        if (channelIdRef.current !== stableChannelId) return;
         const stableChannel = channelById(stableChannelId);
         if (stableChannel) addRecent(stableChannel);
       }, STABLE_HISTORY_DELAY_MS);
       return () => {
         if (stableHistoryTimer.current) clearTimeout(stableHistoryTimer.current);
+        if (stableRetryResetTimer.current) clearTimeout(stableRetryResetTimer.current);
       };
     }
   }, [addRecent, channelById, scheduleHide, status]);

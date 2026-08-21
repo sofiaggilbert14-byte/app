@@ -14,6 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useStore } from "@/src/store";
 import { FocusGuide } from "@/src/components/TVFocusGuideView";
+import { requestNativeFocus } from "@/src/utils/tvFocus";
 import { fonts, radius, tvColors } from "@/src/theme";
 import { addTvQuickActionsListener, emitPlayerQuickCommand, resetRemoteContextIfOwned, setGuideNavigationActive, setRemoteContext, type PlayerQuickCommand, type TvQuickActionsContext } from "@/src/utils/tvRemote";
 import { getGuideSelection } from "@/src/core/guideSelectionStore";
@@ -85,6 +86,7 @@ export function TvQuickActionsOverlay() {
   const [focusClaim, setFocusClaim] = useState(false);
   const queryGeneration = useRef(0);
   const openPathRef = useRef<string | null>(null);
+  const firstActionRef = useRef<any>(null);
 
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
   const hiddenSet = useMemo(() => new Set(customize.hiddenIds), [customize.hiddenIds]);
@@ -168,8 +170,17 @@ export function TvQuickActionsOverlay() {
   useEffect(() => {
     if (!open) return;
     setFocusClaim(false);
-    const frame = requestAnimationFrame(() => setFocusClaim(true));
-    return () => cancelAnimationFrame(frame);
+    let focusFrame: number | null = null;
+    const frame = requestAnimationFrame(() => {
+      setFocusClaim(true);
+      if (mode === "main") {
+        focusFrame = requestAnimationFrame(() => requestNativeFocus(firstActionRef.current));
+      }
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      if (focusFrame != null) cancelAnimationFrame(focusFrame);
+    };
   }, [open, mode, sourceChoice?.id]);
 
   useEffect(() => {
@@ -365,13 +376,13 @@ export function TvQuickActionsOverlay() {
           <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
             {guideProgram ? (
               <>
-                <Action preferredFocus={focusClaim} icon="play" label="Watch channel now" value={guideProgram.title} onPress={watchSelectedProgram} />
+                <Action buttonRef={firstActionRef} preferredFocus={focusClaim} icon="play" label="Watch channel now" value={guideProgram.title} onPress={watchSelectedProgram} />
                 <Action icon="information-circle-outline" label="Program details / reminder" onPress={openProgramDetails} />
                 <Action icon={favoriteSet.has(channel.id) ? "heart" : "heart-outline"} label={favoriteSet.has(channel.id) ? "Remove Favorite" : "Add Favorite"} onPress={favorite} />
               </>
             ) : (
               <>
-                <Action preferredFocus={focusClaim} icon={context === "guide" ? "play" : "heart-outline"} label={context === "guide" ? "Play channel" : (favoriteSet.has(channel.id) ? "Remove Favorite" : "Add Favorite")} onPress={context === "guide" ? play : favorite} />
+                <Action buttonRef={firstActionRef} preferredFocus={focusClaim} icon={context === "guide" ? "play" : "heart-outline"} label={context === "guide" ? "Play channel" : (favoriteSet.has(channel.id) ? "Remove Favorite" : "Add Favorite")} onPress={context === "guide" ? play : favorite} />
                 {context === "guide" ? <Action icon={favoriteSet.has(channel.id) ? "heart" : "heart-outline"} label={favoriteSet.has(channel.id) ? "Remove Favorite" : "Add Favorite"} onPress={favorite} /> : null}
               </>
             )}
@@ -452,6 +463,7 @@ function Action({
   onPress,
   disabled = false,
   preferredFocus = false,
+  buttonRef,
 }: {
   icon: React.ComponentProps<typeof Ionicons>["name"];
   label: string;
@@ -459,9 +471,11 @@ function Action({
   onPress: () => void;
   disabled?: boolean;
   preferredFocus?: boolean;
+  buttonRef?: React.Ref<any>;
 }) {
   return (
     <Pressable
+      ref={buttonRef}
       disabled={disabled}
       hasTVPreferredFocus={preferredFocus}
       onPress={onPress}

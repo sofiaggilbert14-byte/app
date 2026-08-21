@@ -78,10 +78,11 @@ const SILENT_AUDIO_GRACE_MS = 2200;
 // BUFFERING/loading state arms the watchdog. A silent internal re-prepare gets
 // first chance before the parent retry/failure machinery is notified.
 const BUFFERING_RESYNC_MS = 5000;
-const BUFFERING_FAIL_MS = 22000;
+const BUFFERING_FAIL_MS = 12_000;
 const MAX_SILENT_BUFFERING_RESYNCS = 1;
-const VLC_FROZEN_PROGRESS_MS = 15_000;
-const VLC_BUFFERING_FAIL_MS = 22_000;
+const RESYNC_REARM_STABLE_MS = 30_000;
+const VLC_FROZEN_PROGRESS_MS = 8_000;
+const VLC_BUFFERING_FAIL_MS = 12_000;
 
 function pruneFailureMap(now = Date.now()) {
   for (const [key, state] of failureStateByKey) {
@@ -525,10 +526,9 @@ function ExpoStream({
   const replaceQueueRef = useRef<Promise<void>>(Promise.resolve());
   const tracksCallbackRef = useRef(onTracksAvailable);
   const lastPlaybackTimeRef = useRef(-1);
-  const lastPlaybackAdvanceAtRef = useRef(Date.now());
-  const hasAdvancedPlaybackRef = useRef(false);
   const hasPlayedRef = useRef(false);
   const bufferingSinceRef = useRef<number | null>(null);
+  const stableProgressSinceRef = useRef<number | null>(null);
   const silentResyncCountRef = useRef(0);
   const silentResyncInFlightRef = useRef(false);
   tracksCallbackRef.current = onTracksAvailable;
@@ -792,8 +792,8 @@ function ExpoStream({
     tearingDownRef.current = false;
     setMediaReady(false);
     hasPlayedRef.current = false;
-    hasAdvancedPlaybackRef.current = false;
     bufferingSinceRef.current = null;
+    stableProgressSinceRef.current = null;
     silentResyncCountRef.current = 0;
     silentResyncInFlightRef.current = false;
     emit("loading");
@@ -882,8 +882,11 @@ function ExpoStream({
       if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
       if (status === "readyToPlay") {
         lastPlaybackTimeRef.current = player.currentTime;
-        lastPlaybackAdvanceAtRef.current = Date.now();
-        bufferingSinceRef.current = null;
+        // Startup READY is handled by the wrapper timeout. After real
+        // playback has begun, keep an existing rebuffer timestamp armed
+        // until the playback clock advances; READY-with-no-frame must
+        // never cancel freeze recovery.
+        if (!hasPlayedRef.current) bufferingSinceRef.current = null;
         // readyToPlay means Media3 prepared the stream, not that hardware has
         // actually rendered/advanced it. Keep the wrapper startup timeout alive
         // until the first real playback-clock advance proves the decoder is live.
@@ -897,6 +900,7 @@ function ExpoStream({
         // rebuffer after actual playback arms freeze recovery.
         if (hasPlayedRef.current && bufferingSinceRef.current == null) {
           bufferingSinceRef.current = Date.now();
+          stableProgressSinceRef.current = null;
         }
         emit("loading");
       } else if (error || status === "error") {
@@ -919,12 +923,14 @@ function ExpoStream({
       if (currentTime > lastPlaybackTimeRef.current + 0.05) {
         const firstProgress = !hasPlayedRef.current;
         lastPlaybackTimeRef.current = currentTime;
-        lastPlaybackAdvanceAtRef.current = Date.now();
         hasPlayedRef.current = true;
-        hasAdvancedPlaybackRef.current = true;
         // Real clock progress proves startup/recovery succeeded. Only now reset
         // the bounded recovery budget and publish stable playback to the parent.
-        silentResyncCountRef.current = 0;
+        const progressNow = Date.now();
+        if (stableProgressSinceRef.current == null) stableProgressSinceRef.current = progressNow;
+        if (progressNow - stableProgressSinceRef.current >= RESYNC_REARM_STABLE_MS) {
+          silentResyncCountRef.current = 0;
+        }
         bufferingSinceRef.current = null;
         if (firstProgress && isSessionCurrent(sessionRole, sessionGeneration)) {
           recordStablePlayback(sessionRole, engine, uri);
@@ -936,7 +942,6 @@ function ExpoStream({
       return () => progressSub.remove();
     }
     lastPlaybackTimeRef.current = player.currentTime;
-    lastPlaybackAdvanceAtRef.current = Date.now();
     const watchdog = setInterval(() => {
       if (!mountedRef.current || tearingDownRef.current || paused || blocked) return;
       if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
@@ -944,9 +949,10 @@ function ExpoStream({
       const observedPlaybackTime = Number(player.currentTime);
       if (Number.isFinite(observedPlaybackTime) && observedPlaybackTime > lastPlaybackTimeRef.current + 0.05) {
         lastPlaybackTimeRef.current = observedPlaybackTime;
-        lastPlaybackAdvanceAtRef.current = now;
-        hasAdvancedPlaybackRef.current = true;
-        silentResyncCountRef.current = 0;
+        if (stableProgressSinceRef.current == null) stableProgressSinceRef.current = now;
+        if (now - stableProgressSinceRef.current >= RESYNC_REARM_STABLE_MS) {
+          silentResyncCountRef.current = 0;
+        }
         bufferingSinceRef.current = null;
       }
       const bufferingSince = bufferingSinceRef.current;
@@ -964,10 +970,9 @@ function ExpoStream({
       ) {
         silentResyncCountRef.current += 1;
         silentResyncInFlightRef.current = true;
-        // Re-arm only after the replacement clock advances; otherwise a frozen
-        // readyToPlay state would immediately retrigger before Media3 settles.
-        hasAdvancedPlaybackRef.current = false;
-        lastPlaybackAdvanceAtRef.current = Date.now();
+        // One reprepare owns this unstable episode. A brief frame/clock
+        // recovery cannot immediately buy another source reload.
+        stableProgressSinceRef.current = null;
         bufferingSinceRef.current = Date.now();
         const contentType = media3ContentType(kind);
         replaceQueueRef.current = replaceQueueRef.current
