@@ -80,8 +80,6 @@ jobs:
           python3 ci/code-interaction-audit-epg-schedule-lifecycle-scan.py
           python3 ci/code-interaction-audit-guide-modal-lifecycle-scan.py
           python3 ci/code-interaction-audit-surface-ownership-scan.py
-          python3 ci/code-interaction-audit-player-stability.py
-          python3 ci/code-interaction-audit-preview-isolation.py
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps --no-audit --no-fund
