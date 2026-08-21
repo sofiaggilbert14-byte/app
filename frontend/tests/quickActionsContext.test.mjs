@@ -74,7 +74,8 @@ test("Guide quick-action overlays explicitly take TV focus from the native Guide
     source("src/components/ProgramModal.tsx"),
   ]);
   assert.match(overlay, /const \[focusClaim, setFocusClaim\] = useState\(false\)/);
-  assert.match(overlay, /requestAnimationFrame\(\(\) => setFocusClaim\(true\)\)/);
+  assert.match(overlay, /const firstActionRef = useRef<any>\(null\)/);
+  assert.match(overlay, /focusFrame = requestAnimationFrame\(\(\) => requestNativeFocus\(firstActionRef\.current\)\)/);
   assert.match(overlay, /preferredFocus=\{focusClaim\}/);
   assert.match(overlay, /hasTVPreferredFocus=\{preferredFocus\}/);
   assert.match(modal, /const \[focusClaim, setFocusClaim\] = React\.useState\(false\)/);
