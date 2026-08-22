@@ -8,7 +8,6 @@ import {
   getPlaybackOwnershipRevision,
   isPreviewPlaybackAllowed,
   isSessionCurrent,
-  registerSessionStop,
   setNativePlaybackPauseHandler,
   setNativePlaybackReleaseHandler,
   setSessionPhase,
@@ -259,12 +258,11 @@ export function StreamPlayer({
 
   useEffect(() => {
     if (!generation || !playbackFocused) return;
-    const stop = role === "preview" ? releasePreviewMedia3 : releaseFullscreenMedia3;
-    const unregister = registerSessionStop(role, generation, stop);
     void load(false);
     return () => {
-      unregister();
       clearTimers();
+      // Preview is ephemeral. Fullscreen release is owned only by stopSession so
+      // normal channel/view remounts cannot accidentally destroy the singleton.
       if (role === "preview") void releasePreviewMedia3();
     };
   }, [clearTimers, generation, load, playbackFocused, role]);
