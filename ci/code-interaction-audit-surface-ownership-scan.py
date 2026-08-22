@@ -93,11 +93,13 @@ for required in (
 # yields to Guide/player foreground ownership.
 for required in (
     'if (!playbackFocused || !uri || !sessionGeneration) return null;',
-    'mode === "preview" ? "textureView" : "surfaceView"',
-    'if (role === "fullscreen") rememberSuccessfulStreamEngine(engineMemoryKey, engine);',
+    'surfaceType={Platform.OS === "android" ? "textureView" : undefined}',
 ):
     if required not in stream:
         critical.append(f"StreamPlayer ownership invariant missing: {required}")
+for obsolete in ("getRememberedStreamEngine", "rememberSuccessfulStreamEngine", "engineMemoryKey"):
+    if obsolete in stream:
+        critical.append(f"stale engine memory can override format routing: {obsolete}")
 for required in (
     'pauseSessionDecoders("fullscreen")',
     'setDecoderArmed(false)',

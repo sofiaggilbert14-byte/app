@@ -133,9 +133,9 @@ test("player recovery is bounded and history waits for stable playback", async (
   assert.match(stream, /RESYNC_REARM_STABLE_MS = 30_000/);
   assert.match(stream, /if \(bufferingSince == null\) return/);
   assert.doesNotMatch(stream, /MEDIA3_FROZEN_CLOCK_MS|const frozenReadyClock =/);
-  assert.match(patch, /ConnectionPool\(15, 5, TimeUnit\.MINUTES\)/);
-  assert.match(patch, /readTimeout\(5, TimeUnit\.SECONDS\)/);
-  assert.match(patch, /writeTimeout\(5, TimeUnit\.SECONDS\)/);
+  assert.doesNotMatch(patch, /CharmPlayerHttpPool|ConnectionPool|Dispatcher/);
+  assert.doesNotMatch(patch, /connectTimeout|readTimeout|writeTimeout/);
+  assert.doesNotMatch(patch, /VideoPlayerLoadControl\.kt|bufferForPlaybackAfterRebufferMs/);
   assert.doesNotMatch(player, /refreshPlaylistOnly\(\)/);
   assert.match(nativeSource, /export async function refreshPlaylistOnly/);
   assert.doesNotMatch(nativeSource.match(/export async function refreshPlaylistOnly[\s\S]*?\n}\n/)?.[0] || "", /refreshNativeEpg/);

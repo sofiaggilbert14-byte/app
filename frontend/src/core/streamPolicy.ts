@@ -70,16 +70,14 @@ export function parsePipeHeaders(rawUri: string): { uri: string; headers: Record
 }
 
 /**
- * Media3 remains the preferred engine for the stream families it can natively
- * own well on Android TV. Contribution protocols that are not part of the
- * installed Media3 stack go directly to VLC when it is available, matching the
- * known-good RC.1 behavior and avoiding a guaranteed failed decoder/network
- * attempt before fallback. If VLC is unavailable, StreamPlayer's normal
- * alternate-engine handling can still try Media3 as a last resort.
+ * Preserve the verified RC.1 routing contract. Extensionless HTTP IPTV URLs
+ * are commonly raw MPEG-TS endpoints, so an unknown suffix must not be forced
+ * through Media3's ProgressiveMediaSource. VLC probes those inputs instead.
+ * Explicit HLS/DASH/file containers retain the Media3 path.
  */
 export function preferredEngine(kind: StreamKind): Engine {
-  if (kind === "rtmp" || kind === "srt" || kind === "webrtc") return "vlc";
-  return "media3";
+  if (kind === "hls" || kind === "dash" || kind === "progressive") return "media3";
+  return "vlc";
 }
 
 export function alternateEngine(engine: Engine, vlcAvailable: boolean): Engine | null {

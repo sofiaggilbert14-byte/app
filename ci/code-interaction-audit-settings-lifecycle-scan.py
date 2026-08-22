@@ -164,7 +164,7 @@ for required in (
     if required not in player:
         critical.append(f"player controlled decoder rebuild contract missing: {required}")
 for required in (
-    'sessionRole="fullscreen"', 'mode === "preview" ? "textureView" : "surfaceView"',
+    'sessionRole="fullscreen"', 'surfaceType={Platform.OS === "android" ? "textureView" : undefined}',
     'if (!playbackFocused || !uri || !sessionGeneration) return null;',
 ):
     if required not in player + "\n" + stream:

@@ -99,11 +99,13 @@ test("fullscreen stop does not tear down a later preview session", () => {
   assert.equal(isSessionCurrent("preview", previewGen), false);
 });
 
-test("default engine selection prefers Media3 for HLS and TS with VLC fallback", () => {
+test("default engine selection preserves RC.1 format ownership", () => {
   assert.equal(detectStreamKind("https://x/live.m3u8"), "hls");
   assert.equal(preferredEngine("hls"), "media3");
   assert.equal(detectStreamKind("https://x/live.ts"), "transport");
-  assert.equal(preferredEngine("transport"), "media3");
+  assert.equal(preferredEngine("transport"), "vlc");
+  assert.equal(detectStreamKind("http://provider.example/live/user/pass/1234"), "unknown");
+  assert.equal(preferredEngine("unknown"), "vlc");
   assert.equal(alternateEngine("media3", true), "vlc");
   assert.equal(alternateEngine("media3", false), null);
 });
@@ -152,7 +154,7 @@ test("StreamPlayer and player route use role-scoped session teardown", async () 
   assert.match(playerComp, /mode === "preview"/);
   assert.match(playerComp, /mediaOptions/);
   assert.match(playerComp, /onStatusRef\.current/);
-  assert.match(playerComp, /mode === "preview" \? "textureView" : "surfaceView"/);
+  assert.match(playerComp, /surfaceType=\{Platform\.OS === "android" \? "textureView" : undefined\}/);
   assert.match(playerComp, /player\.muted = muted/);
   assert.match(playerRoute, /onStatus=\{handleStreamStatus\}/);
   assert.doesNotMatch(playerRoute, /onStatus=\{\(next, reason\) =>/);

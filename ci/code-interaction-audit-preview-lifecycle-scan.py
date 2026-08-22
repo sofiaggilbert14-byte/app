@@ -16,9 +16,10 @@ player = read("app/player.tsx")
 scheduler = read("src/components/SourceRefreshScheduler.tsx")
 quick_actions = read("src/components/TvQuickActionsOverlay.tsx")
 
-# Preview is best-effort and must never teach/poison fullscreen health.
-if 'if (role === "fullscreen") rememberSuccessfulStreamEngine(engineMemoryKey, engine);' not in stream:
-    critical.append("preview can rewrite fullscreen successful-engine memory")
+# Preview is best-effort and no stale engine memory may override format routing.
+for obsolete in ("getRememberedStreamEngine", "rememberSuccessfulStreamEngine", "engineMemoryKey"):
+    if obsolete in stream:
+        critical.append(f"stale engine memory can override format routing: {obsolete}")
 if 'if (!uri || role === "preview") return;' not in stream:
     critical.append("preview failures can open fullscreen circuit state")
 if "noteStreamFailure" in guide or "clearStreamFailure" in guide:
@@ -50,10 +51,11 @@ if "MEDIA3_FROZEN_CLOCK_MS" in stream or "const frozenReadyClock =" in stream:
 for required in (
     'const networkCaching = mode === "preview" ? 1000 : fullMs',
     'const liveCaching = mode === "preview" ? 1000 : fullMs',
-    'const fileCaching = mode === "preview" ? 700 : Math.round(fullMs * 0.62)',
+    'const fileCaching = mode === "preview"',
+    '? 700',
     'maxBufferBytes: Math.min(12 * 1024 * 1024, coordinatedCacheBudget)',
     'player.audioMixingMode = mode === "preview" ? "mixWithOthers" : "doNotMix"',
-    'mode === "preview" ? "textureView" : "surfaceView"',
+    'surfaceType={Platform.OS === "android" ? "textureView" : undefined}',
 ):
     if required not in stream:
         critical.append(f"preview RAM/audio/surface isolation missing: {required}")

@@ -12,7 +12,7 @@ import { evaluateDrawerBack } from "../src/core/drawerNavigationPolicy.ts";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const source = (path) => readFile(join(root, path), "utf8");
 
-test("stream classification keeps IPTV Media3-first and routes unsupported contribution protocols to VLC", () => {
+test("stream classification preserves RC.1 probing for raw and extensionless IPTV", () => {
   assert.equal(detectStreamKind("https://x/live.m3u8?token=1"), "hls");
   assert.equal(detectStreamKind("https://x/manifest.mpd"), "dash");
   assert.equal(detectStreamKind("https://cdn/hls/playlist.m3u8"), "hls");
@@ -20,11 +20,13 @@ test("stream classification keeps IPTV Media3-first and routes unsupported contr
   assert.equal(detectStreamKind("rtsp://x/live"), "rtsp");
   assert.equal(preferredEngine("hls"), "media3");
   assert.equal(preferredEngine("dash"), "media3");
-  assert.equal(preferredEngine("transport"), "media3");
+  assert.equal(detectStreamKind("http://provider.example/live/user/pass/1234"), "unknown");
+  assert.equal(preferredEngine("transport"), "vlc");
+  assert.equal(preferredEngine("unknown"), "vlc");
   assert.equal(preferredEngine("srt"), "vlc");
   assert.equal(preferredEngine("rtmp"), "vlc");
   assert.equal(preferredEngine("webrtc"), "vlc");
-  assert.equal(preferredEngine("rtsp"), "media3");
+  assert.equal(preferredEngine("rtsp"), "vlc");
   assert.equal(alternateEngine("media3", true), "vlc");
   assert.equal(alternateEngine("media3", false), null);
   assert.equal(alternateEngine("vlc", false), "media3");

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-test("player remounts engines for compatibility changes and adapts buffers to device memory", async () => {
+test("player remounts for compatibility changes while balanced keeps RC.1 buffers", async () => {
   const source = await readFile(join(root, "src/components/StreamPlayer.tsx"), "utf8");
   assert.match(source, /vlcEngineKey/);
   assert.match(source, /media3EngineKey/);
@@ -20,9 +20,12 @@ test("player remounts engines for compatibility changes and adapts buffers to de
   assert.match(source, /\$\{role\}:\$\{uri\}:\$\{initialEngine\}:\$\{appliedCompatKeyRef\.current\}/);
   // Preview freezes compat keys while Guide is unfocused (Tabs keep-alive).
   assert.match(source, /role !== "preview" \|\| isFocused/);
-  // Fullscreen buffers scale down on low-RAM devices; preview stays tightly bounded.
+  // Optional profiles scale down on low-RAM devices; balanced stays on the
+  // real-device RC.1 control while preview remains tightly bounded.
   assert.match(source, /shouldUseLowRamTuning/);
-  assert.match(source, /lowRam \? 28 : 48/);
+  assert.match(source, /preferredForwardBufferDuration: 3/);
+  assert.match(source, /maxBufferBytes: 48 \* 1024 \* 1024/);
+  assert.match(source, /profile === "balanced"\s*\? full\.maxBufferBytes/);
   assert.match(source, /coordinatedCacheBudget/);
   assert.match(source, /Math\.min\(12 \* 1024 \* 1024, coordinatedCacheBudget\)/);
   assert.match(source, /if \(media3Audio === "ffmpeg"\) return selectedAudio != null/);

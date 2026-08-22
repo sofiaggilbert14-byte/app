@@ -281,23 +281,6 @@ index 0cdcc0b..ed948c3 100644
 +    private const val TAG = "CharmIPTVAudio"
    }
  }
-diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerLoadControl.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerLoadControl.kt
-index 4ffe72b..3590912 100644
---- a/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerLoadControl.kt
-+++ b/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerLoadControl.kt
-@@ -50,7 +50,11 @@ class VideoPlayerLoadControl : DefaultLoadControl() {
-       (bufferOptions.minBufferForPlayback * 1000).toLong()
-     }
-     bufferForPlaybackMs = safeBufferForPlayback
--    bufferForPlaybackAfterRebufferMs = safeBufferForPlayback
-+    // Live IPTV should start quickly, but after a network dip require at least
-+    // one second before resuming so we do not bounce straight back into BUFFERING.
-+    // This mirrors the TiviMate-style 500ms start / 1000ms rebuffer split while
-+    // preserving larger user-selected startup thresholds.
-+    bufferForPlaybackAfterRebufferMs = maxOf(1_000L, safeBufferForPlayback)
- 
-     updateAllocator()
-   }
 diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/records/Tracks.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/records/Tracks.kt
 index 20dcbb7..3a0fbe0 100644
 --- a/node_modules/expo-video/android/src/main/java/expo/modules/video/records/Tracks.kt
@@ -349,10 +332,10 @@ index 20dcbb7..3a0fbe0 100644
      }
    }
 diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/DataSourceUtils.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/DataSourceUtils.kt
-index 7e213f7..efcca31 100644
+index 7e213f7..13bd7aa 100644
 --- a/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/DataSourceUtils.kt
 +++ b/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/DataSourceUtils.kt
-@@ -10,9 +10,30 @@ import androidx.media3.datasource.DefaultDataSource
+@@ -10,8 +10,11 @@ import androidx.media3.datasource.DefaultDataSource
  import androidx.media3.datasource.cache.CacheDataSource
  import androidx.media3.datasource.okhttp.OkHttpDataSource
  import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -361,38 +344,10 @@ index 7e213f7..efcca31 100644
  import expo.modules.video.records.VideoSource
 +import expo.modules.video.enums.ContentType
 +import expo.modules.video.HlsAudioRecoveryPlaylistParserFactory
-+import okhttp3.ConnectionPool
-+import okhttp3.Dispatcher
  import okhttp3.OkHttpClient
-+import java.util.concurrent.TimeUnit
-+
-+private object CharmPlayerHttpPool {
-+  private val dispatcher = Dispatcher().apply {
-+    maxRequests = 32
-+    maxRequestsPerHost = 8
-+  }
-+  val client: OkHttpClient = OkHttpClient.Builder()
-+    .dispatcher(dispatcher)
-+    .connectionPool(ConnectionPool(15, 5, TimeUnit.MINUTES))
-+    .connectTimeout(5, TimeUnit.SECONDS)
-+    .readTimeout(5, TimeUnit.SECONDS)
-+    .writeTimeout(5, TimeUnit.SECONDS)
-+    .retryOnConnectionFailure(true)
-+    .build()
-+}
  
  @OptIn(UnstableApi::class)
- fun buildBaseDataSourceFactory(context: Context, videoSource: VideoSource): DataSource.Factory {
-@@ -25,7 +46,7 @@ fun buildBaseDataSourceFactory(context: Context, videoSource: VideoSource): Data
- 
- @OptIn(UnstableApi::class)
- fun buildOkHttpDataSourceFactory(context: Context, videoSource: VideoSource): OkHttpDataSource.Factory {
--  val client = OkHttpClient.Builder().build()
-+  val client = CharmPlayerHttpPool.client
- 
-   // If the application name has ANY non-ASCII characters, we need to strip them out. This is because using non-ASCII characters
-   // in the User-Agent header can cause issues with getting the media to play.
-@@ -63,8 +84,18 @@ fun buildExpoVideoMediaSource(context: Context, videoSource: VideoSource): Media
+@@ -63,8 +66,18 @@ fun buildExpoVideoMediaSource(context: Context, videoSource: VideoSource): Media
    } else {
      buildBaseDataSourceFactory(context, videoSource)
    }

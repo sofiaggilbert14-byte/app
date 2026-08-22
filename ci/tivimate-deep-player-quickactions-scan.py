@@ -12,6 +12,7 @@ def read(rel: str) -> str:
 main = read("android/app/src/main/java/com/charmiptv/app/MainActivity.kt")
 qa = read("src/components/TvQuickActionsOverlay.tsx")
 stream = read("src/components/StreamPlayer.tsx")
+policy = read("src/core/streamPolicy.ts")
 player = read("app/player.tsx")
 patch = read("patches/expo-video+3.0.16.patch")
 
@@ -65,8 +66,6 @@ for obsolete in (
     "VLC_FROZEN_PROGRESS_MS",
     "vlcLastProgressAtRef",
     "vlcProgressSeenRef",
-    "--clock-jitter=0",
-    "--clock-synchro=0",
 ):
     if obsolete in stream:
         critical.append(f"VLC false-freeze override remains: {obsolete}")
@@ -85,17 +84,38 @@ for token in (
 if 'if (status === "playing") {\n      setRetryAttempt(0);' in player:
     critical.append("PlayerScreen immediately resets retry budget on PLAYING")
 
-# Shared Media3 pooled sockets fail dead provider reads/writes promptly so the
-# single recovery owner can act; old long read/write timeouts must not return.
+# RC.1 transport/routing is the real-device control. Extensionless/raw IPTV is
+# probed by VLC; a stale engine-memory entry cannot force it back to Media3.
 for token in (
-    "+    .connectTimeout(5, TimeUnit.SECONDS)",
-    "+    .readTimeout(5, TimeUnit.SECONDS)",
-    "+    .writeTimeout(5, TimeUnit.SECONDS)",
+    'if (kind === "hls" || kind === "dash" || kind === "progressive") return "media3";',
+    'return "vlc";',
 ):
-    if token not in patch:
-        critical.append(f"Media3 socket failover contract missing: {token}")
-if ".readTimeout(30, TimeUnit.SECONDS)" in patch or ".writeTimeout(15, TimeUnit.SECONDS)" in patch:
-    critical.append("stale long Media3 socket timeout remains")
+    if token not in policy:
+        critical.append(f"RC.1 stream routing contract missing: {token}")
+for obsolete in ("getRememberedStreamEngine", "rememberSuccessfulStreamEngine", "engineMemoryKey"):
+    if obsolete in stream:
+        critical.append(f"stale engine memory can override format routing: {obsolete}")
+for required in (
+    '--clock-jitter=0',
+    '--clock-synchro=0',
+    'const bufferRate = Number(info?.bufferRate)',
+    'bufferRate >= 99.9',
+    'surfaceType={Platform.OS === "android" ? "textureView" : undefined}',
+):
+    if required not in stream:
+        critical.append(f"RC.1 VLC/render contract missing: {required}")
+for obsolete in (
+    "CharmPlayerHttpPool",
+    "ConnectionPool",
+    "Dispatcher",
+    "connectTimeout",
+    "readTimeout",
+    "writeTimeout",
+    "VideoPlayerLoadControl.kt",
+    "bufferForPlaybackAfterRebufferMs",
+):
+    if obsolete in patch:
+        critical.append(f"post-RC.1 Media3 transport override remains: {obsolete}")
 
 print("CharmIPTV TiViMate deep player + Quick Actions static scan")
 print(f"critical_findings={len(critical)}")

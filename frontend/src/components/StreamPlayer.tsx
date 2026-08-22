@@ -26,10 +26,6 @@ import {
   recordAudioDiagnostics,
 } from "@/src/core/audioDiagnostics";
 import {
-  getRememberedStreamEngine,
-  rememberSuccessfulStreamEngine,
-} from "@/src/core/streamEngineMemory";
-import {
   usePlaybackBufferProfile,
   type PlaybackBufferProfile,
 } from "@/src/core/playbackBufferProfile";
@@ -215,7 +211,7 @@ const VLCPlayer: any = vlcAvailable
 
 type Props = {
   uri: string;
-  /** Stable channel id for bounded successful-engine memory (URI tokens rotate). */
+  /** Stable channel id for per-channel audio-track preferences (URI tokens rotate). */
   channelKey?: string;
   onStatus: (s: StreamStatus, reason?: SessionFailReason | null) => void;
   style?: StyleProp<ViewStyle>;
@@ -313,17 +309,23 @@ function VlcStream({
   const deviceMemory = useDeviceMemoryProfile();
   const lowRam = shouldUseLowRamTuning(deviceMemory);
   const initOptions = useMemo(() => {
-    const requestedMs = bufferProfile === "low_latency" ? 1200 : bufferProfile === "stable" ? 5200 : 3000;
-    const fullMs = lowRam ? Math.min(requestedMs, 3000) : requestedMs;
+    // Balanced is the exact RC.1 value that was stable on the target provider.
+    // Keep the optional profiles bounded without changing the default path.
+    const requestedMs = bufferProfile === "low_latency" ? 1200 : bufferProfile === "stable" ? 3200 : 1800;
+    const fullMs = lowRam && bufferProfile === "stable" ? Math.min(requestedMs, 3000) : requestedMs;
     const networkCaching = mode === "preview" ? 1000 : fullMs;
     const liveCaching = mode === "preview" ? 1000 : fullMs;
-    const fileCaching = mode === "preview" ? 700 : Math.round(fullMs * 0.62);
+    const fileCaching = mode === "preview"
+      ? 700
+      : bufferProfile === "balanced" ? 1100 : Math.round(fullMs * 0.62);
     const audioOutput = playerCompat.vlcAudioOutput;
     const hardwareDecode = playerCompat.vlcHardwareDecode;
     const options = [
       `--network-caching=${networkCaching}`,
       `--live-caching=${liveCaching}`,
       `--file-caching=${fileCaching}`,
+      "--clock-jitter=0",
+      "--clock-synchro=0",
       "--http-reconnect",
       "--adaptive-logic=rate",
       `--http-user-agent=${userAgent}`,
@@ -455,8 +457,16 @@ function VlcStream({
         onTracksAvailable?.({ audio, text });
       }}
       onOpen={() => activeRef.current && !tearingDownRef.current && emit("loading")}
-      onBuffering={() => {
+      onBuffering={(info: any) => {
         if (!activeRef.current || tearingDownRef.current) return;
+        // LibVLC emits Buffering events for the whole 0..100 progression. A
+        // 100% event means buffering completed; treating it as the start of a
+        // stall creates a false 12-second failure even while video is healthy.
+        const bufferRate = Number(info?.bufferRate);
+        if (Number.isFinite(bufferRate) && bufferRate >= 99.9) {
+          vlcBufferingSinceRef.current = null;
+          return;
+        }
         if (vlcHasPlayedRef.current && vlcBufferingSinceRef.current == null) {
           vlcBufferingSinceRef.current = Date.now();
         }
@@ -536,12 +546,19 @@ function ExpoStream({
         ? {
             preferredForwardBufferDuration: lowRam ? 1.8 : (media3Audio === "ffmpeg" ? 2.8 : 2.2),
             maxBufferBytes: (lowRam ? 20 : (media3Audio === "ffmpeg" ? 40 : 32)) * 1024 * 1024,
+            minBufferForPlayback: 0.5,
           }
         : profile === "stable"
-          ? { preferredForwardBufferDuration: lowRam ? 5 : 10, maxBufferBytes: (lowRam ? 32 : 64) * 1024 * 1024 }
+          ? {
+              preferredForwardBufferDuration: lowRam ? 5 : 6,
+              maxBufferBytes: (lowRam ? 32 : 48) * 1024 * 1024,
+              minBufferForPlayback: 1.0,
+            }
           : {
-              preferredForwardBufferDuration: lowRam ? 3.5 : (media3Audio === "ffmpeg" ? 6 : 5),
-              maxBufferBytes: (lowRam ? 28 : 48) * 1024 * 1024,
+              // Exact RC.1 fullscreen buffer contract. In particular, do not
+              // shrink the allocator for a low-RAM classification after start.
+              preferredForwardBufferDuration: 3,
+              maxBufferBytes: 48 * 1024 * 1024,
             };
       const coordinatedCacheBudget = Math.max(
         8 * 1024 * 1024,
@@ -550,17 +567,16 @@ function ExpoStream({
           deviceMemory?.vodCacheBytes || Number.MAX_SAFE_INTEGER,
         ),
       );
-      const minBufferForPlayback = profile === "low_latency" ? 0.5 : profile === "stable" ? 1.0 : 0.75;
       player.bufferOptions = mode === "preview"
         ? {
             preferredForwardBufferDuration: 1.2,
-            minBufferForPlayback: 0.5,
             maxBufferBytes: Math.min(12 * 1024 * 1024, coordinatedCacheBudget),
           }
         : {
             ...full,
-            minBufferForPlayback,
-            maxBufferBytes: Math.min(full.maxBufferBytes, coordinatedCacheBudget),
+            maxBufferBytes: profile === "balanced"
+              ? full.maxBufferBytes
+              : Math.min(full.maxBufferBytes, coordinatedCacheBudget),
           };
     } catch {
       /* older native builds may ignore bufferOptions */
@@ -1037,8 +1053,10 @@ function ExpoStream({
       style={style}
       player={player}
       contentFit={scaleMode === "zoom" ? "cover" : scaleMode === "stretch" ? "fill" : "contain"}
-      // Keep preview compositable above the Guide; fullscreen gets the cheaper hardware SurfaceView.
-      surfaceType={Platform.OS === "android" ? (mode === "preview" ? "textureView" : "surfaceView") : undefined}
+      // RC.1 used TextureView for both modes. Besides compositing preview, this
+      // keeps the rendered surface observable by the app lifecycle; a stalled
+      // SurfaceView can leave a frozen picture while the media clock advances.
+      surfaceType={Platform.OS === "android" ? "textureView" : undefined}
       nativeControls={false}
       useExoShutter
     />
@@ -1084,16 +1102,13 @@ export function StreamPlayer({
 
   const setStatus = useStatusTracker(onStatus, `${role}:${uri}`);
   const cleanUri = useMemo(() => parsePipeHeaders(uri).uri, [uri]);
-  const engineMemoryKey = channelKey || cleanUri;
   const kind = useMemo(() => detectStreamKind(cleanUri), [cleanUri]);
   const initialEngine = useMemo(() => {
     if (forceVlc) return "vlc" as Engine;
     if (forceMedia3) return "media3" as Engine;
-    const remembered = getRememberedStreamEngine(engineMemoryKey);
-    if (remembered === "media3" || (remembered === "vlc" && vlcAvailable)) return remembered;
     const preferred = preferredEngine(kind);
     return preferred === "vlc" && !vlcAvailable ? "media3" : preferred;
-  }, [engineMemoryKey, forceMedia3, forceVlc, kind]);
+  }, [forceMedia3, forceVlc, kind]);
   const [engine, setEngine] = useState<Engine>(initialEngine);
   const [fallbackUsed, setFallbackUsed] = useState(false);
   const stableRef = useRef(false);
@@ -1173,7 +1188,6 @@ export function StreamPlayer({
       if (status === "playing") {
         if (role === "fullscreen") setNativePlaybackStarting(false);
         stableRef.current = true;
-        if (role === "fullscreen") rememberSuccessfulStreamEngine(engineMemoryKey, engine);
         setSessionPhase(role, sessionGeneration, "playing");
         setStatus("playing");
         return;
@@ -1213,7 +1227,6 @@ export function StreamPlayer({
     },
     [
       engine,
-      engineMemoryKey,
       fallbackUsed,
       forceMedia3,
       forceVlc,

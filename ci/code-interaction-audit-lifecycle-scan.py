@@ -63,8 +63,9 @@ for path in files:
 # TiViMate-style player/preview ownership invariants.
 stream_path = ROOT / "src/components/StreamPlayer.tsx"
 stream = text(stream_path)
-if 'if (role === "fullscreen") rememberSuccessfulStreamEngine(engineMemoryKey, engine);' not in stream:
-    critical.append("preview can write fullscreen successful-engine memory")
+for obsolete in ("getRememberedStreamEngine", "rememberSuccessfulStreamEngine", "engineMemoryKey"):
+    if obsolete in stream:
+        critical.append(f"stale engine memory can override format routing: {obsolete}")
 if 'if (!uri || role === "preview") return;' not in stream:
     critical.append("preview failures can poison fullscreen circuit state")
 if 'if (bufferingSince == null) return;' not in stream or 'MAX_SILENT_BUFFERING_RESYNCS = 1' not in stream:
@@ -79,8 +80,8 @@ if (
     or 'onStopped={fail}' not in stream
 ):
     critical.append("VLC frozen-progress/stop recovery missing")
-if 'mode === "preview" ? "textureView" : "surfaceView"' not in stream:
-    critical.append("preview/fullscreen Android surface ownership split missing")
+if 'surfaceType={Platform.OS === "android" ? "textureView" : undefined}' not in stream:
+    critical.append("RC.1 Android TextureView ownership missing")
 if 'if (!playbackFocused || !uri || !sessionGeneration) return null;' not in stream:
     critical.append("player does not fully disarm while route/app is inactive")
 

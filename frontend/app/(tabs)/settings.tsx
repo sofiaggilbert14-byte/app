@@ -522,7 +522,7 @@ function SettingsScreenContent() {
                   label="Video player"
                   value={playerEnginePreference}
                   options={[
-                    { label: "Expo / Media3 (Default)", value: "default" },
+                    { label: "Automatic (format-aware)", value: "default" },
                     { label: "Expo / Media3 only", value: "media3" },
                     { label: "VLC", value: "vlc" },
                   ]}
@@ -569,7 +569,7 @@ function SettingsScreenContent() {
                   onChange={setSleepTimerMinutes}
                 />
                 <Text style={styles.help}>
-                  Media3 exposes audio/CC tracks and uses the Android TV codec path. Choose Media3 to keep one player engine; VLC remains an optional compatibility mode.
+                  Automatic uses Media3 for explicit HLS, DASH, and media files, and VLC probing for raw or extensionless IPTV links. Force one engine only for provider-specific troubleshooting.
                 </Text>
                 <View style={styles.divider} />
                 <Text style={styles.settingLabel}>Audio / CC</Text>
