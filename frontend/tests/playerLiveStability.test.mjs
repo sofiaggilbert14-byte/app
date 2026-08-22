@@ -122,9 +122,9 @@ test("late stable-stream failure clears the stable gate and bounds fallback star
 
 test("fullscreen channel zaps pause one decoder, settle once, and preserve Previous channel", async () => {
   const player = await source("app/player.tsx");
-  assert.match(player, /pauseSessionDecoders\("fullscreen"\)/);
+  assert.match(player, /const release = pauseSessionDecoders\("fullscreen"\);/);
   assert.match(player, /setDecoderArmed\(false\)/);
-  assert.match(player, /armDecoderAfterSettle\(CHANNEL_ZAP_SETTLE_MS\)/);
+  assert.match(player, /armDecoderAfterSettle\(CHANNEL_ZAP_SETTLE_MS, release\)/);
   assert.match(player, /if \(pendingChannelIdRef\.current !== id\) return/);
   assert.match(player, /rapidStripUntilRef/);
   assert.match(player, /const previous = channelIdRef\.current/);
@@ -134,9 +134,10 @@ test("fullscreen channel zaps pause one decoder, settle once, and preserve Previ
 test("retry and immediate channel remounts wait for native decoder release", async () => {
   const player = await source("app/player.tsx");
   assert.match(player, /const DECODER_RESTART_SETTLE_MS = 120/);
-  assert.match(player, /if \(opts\?\.immediate\) \{[\s\S]*?setDecoderArmed\(false\);[\s\S]*?armDecoderAfterSettle\(DECODER_RESTART_SETTLE_MS\)/);
-  assert.match(player, /zapTimer\.current = setTimeout\(\(\) => \{\s*if \(generation === generationRef\.current\) setDecoderArmed\(true\);\s*\}, DECODER_RESTART_SETTLE_MS\)/);
+  assert.match(player, /if \(opts\?\.immediate\) \{[\s\S]*?const release = pauseSessionDecoders\("fullscreen"\);[\s\S]*?armDecoderAfterSettle\(DECODER_RESTART_SETTLE_MS, release\)/);
   const restart = player.match(/const restartStream = useCallback\([\s\S]*?\n  \}, \[channel\?\.name/)?.[0] || "";
+  assert.match(restart, /const release = pauseSessionDecoders\("fullscreen"\);/);
+  assert.match(restart, /void release\.catch\(\(\) => undefined\)\.then\(\(\) => \{[\s\S]*?setDecoderArmed\(true\)/);
   assert.doesNotMatch(restart, /requestAnimationFrame/);
 });
 
