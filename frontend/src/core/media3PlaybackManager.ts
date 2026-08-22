@@ -35,18 +35,14 @@ export async function loadMedia3Source(
   source: VideoSource,
 ): Promise<VideoPlayer> {
   const instance = claimMedia3Playback(role);
-  if (activeSourceKey !== sourceKey) {
-    activeSourceKey = sourceKey;
-    await instance.replaceAsync(source);
-  }
+  // An explicit load is authoritative. This intentionally re-prepares even when
+  // the URL is unchanged so Retry/rebuffer recovery cannot become a no-op merely
+  // because the singleton player survived a React surface remount.
+  activeSourceKey = sourceKey;
+  await instance.replaceAsync(source);
   return instance;
 }
 
-/**
- * Preview must be completely empty before fullscreen claims the hardware path.
- * Keep the VideoPlayer object alive so the Media3/OkHttp stack can remain warm,
- * but clear the MediaItem so the preview decoder/socket/surface are released.
- */
 export async function releasePreviewMedia3(): Promise<void> {
   if (!player || released) {
     if (activeRole === "preview") activeRole = null;
@@ -60,7 +56,6 @@ export async function releasePreviewMedia3(): Promise<void> {
   activeSourceKey = "";
 }
 
-/** Full deterministic shutdown used when leaving fullscreen/backgrounding. */
 export async function releaseFullscreenMedia3(): Promise<void> {
   if (!player || released) {
     if (activeRole === "fullscreen") activeRole = null;
@@ -73,7 +68,6 @@ export async function releaseFullscreenMedia3(): Promise<void> {
   activeSourceKey = "";
 }
 
-/** Process-wide emergency release. The next request lazily creates a fresh player. */
 export function destroyMedia3Player(): void {
   if (!player || released) return;
   try { player.pause(); } catch {}
