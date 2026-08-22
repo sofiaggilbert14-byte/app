@@ -64,11 +64,23 @@ object NativePlaybackManager {
     fun onTracks(audio: List<AudioTrackInfo>, subtitles: List<SubtitleTrackInfo>)
   }
 
-  private const val MIN_BUFFER_MS = 10_000
-  private const val MAX_BUFFER_MS = 30_000
-  private const val PLAYBACK_BUFFER_MS = 2_500
-  private const val REBUFFER_BUFFER_MS = 5_000
-  private const val TARGET_BUFFER_BYTES = 12 * 1024 * 1024
+  // Two buffer profiles instead of one flat set of constants. Low-RAM boxes
+  // (common cheap Android TV sticks/firesticks) get the old conservative
+  // numbers; normal devices get deeper buffering for high-bitrate/4K
+  // content. CharmMemoryCoordinator already detects low-RAM at startup for
+  // EPG/image caches — the player was the one thing not consulting it.
+  private const val MIN_BUFFER_MS_LOW_RAM = 10_000
+  private const val MAX_BUFFER_MS_LOW_RAM = 30_000
+  private const val PLAYBACK_BUFFER_MS_LOW_RAM = 2_500
+  private const val REBUFFER_BUFFER_MS_LOW_RAM = 5_000
+  private const val TARGET_BUFFER_BYTES_LOW_RAM = 16 * 1024 * 1024
+
+  private const val MIN_BUFFER_MS_NORMAL = 15_000
+  private const val MAX_BUFFER_MS_NORMAL = 60_000
+  private const val PLAYBACK_BUFFER_MS_NORMAL = 3_000
+  private const val REBUFFER_BUFFER_MS_NORMAL = 5_000
+  private const val TARGET_BUFFER_BYTES_NORMAL = 48 * 1024 * 1024
+
   private const val HUNG_BUFFER_REPREPARE_MS = 5_000L
   private const val STABLE_REARM_MS = 30_000L
   private const val MAX_AUTO_RECOVERIES = 4
@@ -303,9 +315,15 @@ object NativePlaybackManager {
   private fun ensurePlayer(): ExoPlayer {
     player?.let { return it }
     val context = activity ?: throw IllegalStateException("Playback surface is not attached")
+    val lowRam = CharmMemoryCoordinator.budgets().lowRam
     val loadControl = DefaultLoadControl.Builder()
-      .setBufferDurationsMs(MIN_BUFFER_MS, MAX_BUFFER_MS, PLAYBACK_BUFFER_MS, REBUFFER_BUFFER_MS)
-      .setTargetBufferBytes(TARGET_BUFFER_BYTES)
+      .setBufferDurationsMs(
+        if (lowRam) MIN_BUFFER_MS_LOW_RAM else MIN_BUFFER_MS_NORMAL,
+        if (lowRam) MAX_BUFFER_MS_LOW_RAM else MAX_BUFFER_MS_NORMAL,
+        if (lowRam) PLAYBACK_BUFFER_MS_LOW_RAM else PLAYBACK_BUFFER_MS_NORMAL,
+        if (lowRam) REBUFFER_BUFFER_MS_LOW_RAM else REBUFFER_BUFFER_MS_NORMAL,
+      )
+      .setTargetBufferBytes(if (lowRam) TARGET_BUFFER_BYTES_LOW_RAM else TARGET_BUFFER_BYTES_NORMAL)
       .setPrioritizeTimeOverSizeThresholds(true)
       .build()
     val renderers = DefaultRenderersFactory(context)
