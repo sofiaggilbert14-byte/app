@@ -50,20 +50,9 @@ class NativePlaybackModule(
     NativePlaybackManager.setFullscreenViewport()
   }
 
-  @ReactMethod
-  fun pause() {
-    NativePlaybackManager.pause()
-  }
-
-  @ReactMethod
-  fun resume() {
-    NativePlaybackManager.resume()
-  }
-
-  @ReactMethod
-  fun setMuted(muted: Boolean) {
-    NativePlaybackManager.setMuted(muted)
-  }
+  @ReactMethod fun pause() { NativePlaybackManager.pause() }
+  @ReactMethod fun resume() { NativePlaybackManager.resume() }
+  @ReactMethod fun setMuted(muted: Boolean) { NativePlaybackManager.setMuted(muted) }
 
   @ReactMethod
   fun selectAudio(groupIndex: Double, trackIndex: Double) {
@@ -85,10 +74,7 @@ class NativePlaybackModule(
     NativePlaybackManager.selectSubtitle(null, null, language)
   }
 
-  @ReactMethod
-  fun subtitlesOff() {
-    NativePlaybackManager.selectSubtitle(null, null, null)
-  }
+  @ReactMethod fun subtitlesOff() { NativePlaybackManager.selectSubtitle(null, null, null) }
 
   @ReactMethod
   fun stopPreview(promise: Promise) {
@@ -111,6 +97,7 @@ class NativePlaybackModule(
 
   override fun onState(state: String, reason: String?) {
     val event = Arguments.createMap().apply {
+      putString("owner", NativePlaybackManager.currentOwner().name.lowercase())
       putString("state", state)
       if (reason != null) putString("reason", reason)
     }
@@ -144,6 +131,7 @@ class NativePlaybackModule(
       })
     }
     emit("NativePlaybackTracks", Arguments.createMap().apply {
+      putString("owner", NativePlaybackManager.currentOwner().name.lowercase())
       putArray("audio", audioArray)
       putArray("text", textArray)
     })
@@ -173,7 +161,6 @@ class NativePlaybackModule(
     return out
   }
 
-  // Required for NativeEventEmitter.
   @ReactMethod fun addListener(eventName: String) {}
   @ReactMethod fun removeListeners(count: Int) {}
 }
