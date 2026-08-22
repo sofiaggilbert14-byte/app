@@ -3,22 +3,16 @@ name: Phase 9 Final Sideload APK
 on:
   push:
     branches:
-      - agent/phase9-tivimate-scan-repair
+      - agent/tivimate-deep-player-quickactions-repair
     paths:
-      - ".github/workflows/phase9-final-sideload.yml"
       - "ci/phase9-final-sideload-trigger.txt"
-  pull_request:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/phase9-final-sideload.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: phase9-final-sideload-${{ github.ref }}
+  group: phase9-final-sideload-verified-head
   cancel-in-progress: false
 
 jobs:
@@ -33,11 +27,29 @@ jobs:
       CMAKE_BUILD_PARALLEL_LEVEL: "1"
       EXPO_PUBLIC_M3U_URL: ${{ secrets.M3U_URL || vars.EXPO_PUBLIC_M3U_URL }}
       EXPO_PUBLIC_EPG_URL: ${{ secrets.EPG_URL || vars.EXPO_PUBLIC_EPG_URL }}
-      EXPO_PUBLIC_GUIDE_WINDOW_HOURS: ${{ vars.EXPO_PUBLIC_GUIDE_WINDOW_HOURS || '12' }}
+      EXPO_PUBLIC_GUIDE_WINDOW_HOURS: "24"
 
     steps:
-      - name: Checkout exact Phase 9 head
+      - name: Checkout exact verified repair head
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: agent/tivimate-deep-player-quickactions-repair
+          fetch-depth: 0
+
+      - name: Guard repair-entry M3U and EPG transport baseline
+        working-directory: .
+        shell: bash
+        run: |
+          # This scanner compares the immutable native transport baseline while
+          # allowing only the additive, playlist-only playback URL lookup API.
+          python3 ci/tivimate-whole-repo-player-interaction-scan.py
+
+      - name: Verify 24-hour guide contract
+        working-directory: .
+        shell: bash
+        run: |
+          grep -F 'readGuideWindowHours(process.env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 24)' frontend/src/store.tsx
+          test "${EXPO_PUBLIC_GUIDE_WINDOW_HOURS}" = "24" || { echo "Final APK must use a 24-hour guide window"; exit 1; }
 
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -66,8 +78,24 @@ jobs:
         run: |
           test -n "${EXPO_PUBLIC_M3U_URL}" || { echo "M3U source is missing"; exit 1; }
           test -n "${EXPO_PUBLIC_EPG_URL}" || { echo "EPG source is missing"; exit 1; }
+          case "${EXPO_PUBLIC_M3U_URL}" in http://*|https://*) ;; *) echo "M3U source must be HTTP/HTTPS"; exit 1 ;; esac
+          case "${EXPO_PUBLIC_EPG_URL}" in http://*|https://*) ;; *) echo "EPG source must be HTTP/HTTPS"; exit 1 ;; esac
           echo "M3U and EPG build inputs are configured."
           echo "Guide default: ${EXPO_PUBLIC_GUIDE_WINDOW_HOURS} hours"
+
+      - name: Run final lifecycle and stability scans
+        working-directory: .
+        run: |
+          python3 ci/tivimate-deep-player-quickactions-scan.py
+          python3 ci/code-interaction-audit-player-freeze-scan.py
+          python3 ci/code-interaction-audit-preview-lifecycle-scan.py
+          python3 ci/code-interaction-audit-lifecycle-scan.py
+          python3 ci/tivimate-whole-repo-player-interaction-scan.py
+          python3 ci/code-interaction-audit-settings-lifecycle-scan.py
+          python3 ci/code-interaction-audit-epg-schedule-lifecycle-scan.py
+          python3 ci/code-interaction-audit-guide-modal-lifecycle-scan.py
+          python3 ci/code-interaction-audit-surface-ownership-scan.py
+          python3 ci/code-interaction-audit-osd-lifecycle-scan.py
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps --no-audit --no-fund
@@ -84,8 +112,8 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Lint
-        run: npm run lint
+      - name: Lint with zero warnings
+        run: npm run lint -- --max-warnings=0
 
       - name: Build pinned LGPL FFmpeg audio extension
         run: |
@@ -118,21 +146,23 @@ jobs:
           APK="android/app/build/outputs/apk/sideload/app-sideload.apk"
           test -f "$APK"
           unzip -l "$APK" | grep -Eq "(assets/index\.android\.bundle|assets/.*\.bundle)"
-          unzip -l "$APK" | grep -q "lib/armeabi-v7a/"
-          unzip -l "$APK" | grep -q "lib/arm64-v8a/"
-          unzip -l "$APK" | grep -Eq "lib/(armeabi-v7a|arm64-v8a)/.*ffmpeg"
+          unzip -l "$APK" | grep -q "resources.arsc"
+          unzip -l "$APK" | grep -q "lib/armeabi-v7a/libffmpegJNI.so"
+          unzip -l "$APK" | grep -q "lib/arm64-v8a/libffmpegJNI.so"
           mkdir -p artifacts
-          OUT="artifacts/CharmIPTV-2.1.0-rc.5-Phase9-Final-Universal-${GITHUB_RUN_NUMBER}.apk"
+          OUT="artifacts/CharmIPTV-2.1.0-rc.5-Verified-Universal-${GITHUB_RUN_NUMBER}.apk"
           cp "$APK" "$OUT"
           sha256sum "$OUT" > artifacts/SHA256SUMS.txt
+          printf 'verified_source_sha=%s\n' "$GITHUB_SHA" > artifacts/BUILD_INFO.txt
 
       - name: Upload final sideload APK
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: CharmIPTV-2.1.0-rc.5-Phase9-Final-Universal-${{ github.run_number }}
+          name: CharmIPTV-2.1.0-rc.5-Verified-Universal-${{ github.run_number }}
           path: |
-            frontend/artifacts/CharmIPTV-2.1.0-rc.5-Phase9-Final-Universal-${{ github.run_number }}.apk
+            frontend/artifacts/CharmIPTV-2.1.0-rc.5-Verified-Universal-${{ github.run_number }}.apk
             frontend/artifacts/SHA256SUMS.txt
+            frontend/artifacts/BUILD_INFO.txt
           if-no-files-found: error
           retention-days: 14
           compression-level: 0

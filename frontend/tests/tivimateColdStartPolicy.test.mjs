@@ -124,13 +124,13 @@ test("legacy cleanup preserves the channel cache until native migration can prom
   assert.match(coldStart, /await persistMeta\(MEM\)/);
 });
 
-test("Guide defaults to 12 hours while saved user choices remain supported", async () => {
+test("Guide defaults to 24 hours while saved user choices remain supported", async () => {
   const [env, store] = await Promise.all([
     source(".env"),
     source("src/store.tsx"),
   ]);
-  assert.match(env, /^EXPO_PUBLIC_GUIDE_WINDOW_HOURS=12$/m);
-  assert.match(store, /readGuideWindowHours\(process\.env\.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 12\)/);
+  assert.match(env, /^EXPO_PUBLIC_GUIDE_WINDOW_HOURS=24$/m);
+  assert.match(store, /readGuideWindowHours\(process\.env\.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 24\)/);
   assert.match(store, /type GuideWindowHours = 6 \| 8 \| 12 \| 24/);
   assert.match(store, /storage\.getItem<number>\(GUIDE_WINDOW_HOURS_KEY, DEFAULT_GUIDE_WINDOW_HOURS\)/);
   assert.match(store, /if \(n === 6 \|\| n === 8 \|\| n === 12 \|\| n === 24\) return n/);

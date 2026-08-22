@@ -11,6 +11,11 @@ MODULE="$ROOT/android/ffmpeg-audio/src/main"
 FFMPEG_DIR="$MODULE/jni/ffmpeg"
 ANDROID_API="${CHARM_FFMPEG_ANDROID_API:-26}"
 NDK_PATH="${ANDROID_NDK_HOME:-${ANDROID_HOME:-}/ndk/27.1.12297006}"
+HOST_PLATFORM="linux-x86_64"
+case "$(uname -s)" in
+  Darwin*) HOST_PLATFORM="darwin-x86_64" ;;
+  MINGW*|MSYS*|CYGWIN*) HOST_PLATFORM="windows-x86_64" ;;
+esac
 
 if [[ ! -d "$NDK_PATH" ]]; then
   echo "Android NDK not found: $NDK_PATH" >&2
@@ -40,6 +45,6 @@ fi
 "$MODULE/jni/build_ffmpeg.sh" \
   "$MODULE" \
   "$NDK_PATH" \
-  "linux-x86_64" \
+  "$HOST_PLATFORM" \
   "$ANDROID_API" \
   "${DECODERS[@]}"

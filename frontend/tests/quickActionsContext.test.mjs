@@ -19,9 +19,10 @@ test("Guide long Select routes channel rail and programme cells contextually", a
   assert.match(overlay, /const guideSelection = nextContext === "guide" \? getGuideSelection\(\) : null/);
   assert.match(overlay, /guideSelection\?\.surface === "program" && guideSelection\.program/);
   assert.match(overlay, /PROGRAM QUICK ACTIONS/);
-  assert.match(overlay, /Program details \/ reminder/);
+  assert.match(overlay, /Watch channel now/);
+  assert.match(overlay, /reminded \? "Cancel reminder" : "Set reminder"/);
   assert.match(overlay, /setGuideProgram\(/);
-  assert.doesNotMatch(overlay, /guideSelection\.program\) \{\s*openProgram/);
+  assert.doesNotMatch(overlay, /openProgram\(/);
   assert.match(overlay, /setChannelId\(id\)/);
   assert.match(overlay, /setGuideProgram\([\s\S]{0,240}guideSelection\.program/);
   assert.match(overlay, /setOpen\(true\)[\s\S]{0,100}setRemoteContext\("modal"\)/);
@@ -74,7 +75,8 @@ test("Guide quick-action overlays explicitly take TV focus from the native Guide
     source("src/components/ProgramModal.tsx"),
   ]);
   assert.match(overlay, /const \[focusClaim, setFocusClaim\] = useState\(false\)/);
-  assert.match(overlay, /requestAnimationFrame\(\(\) => setFocusClaim\(true\)\)/);
+  assert.match(overlay, /const firstActionRef = useRef<any>\(null\)/);
+  assert.match(overlay, /focusFrame = requestAnimationFrame\(\(\) => requestNativeFocus\(firstActionRef\.current\)\)/);
   assert.match(overlay, /preferredFocus=\{focusClaim\}/);
   assert.match(overlay, /hasTVPreferredFocus=\{preferredFocus\}/);
   assert.match(modal, /const \[focusClaim, setFocusClaim\] = React\.useState\(false\)/);

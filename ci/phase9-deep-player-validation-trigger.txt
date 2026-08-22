@@ -1,0 +1,5 @@
+CharmIPTV v2.1.0-rc.5 exclusive live-preview decoder validation cycle 2
+Repair source: 383687fa53d76e1e9e60ff7df56b0094700068e0
+Cycle 1 green: https://github.com/floydleroybuchanan-collab/app/actions/runs/32545616921
+Player default: VLC with device video codecs, stable buffer, stereo output
+Validation-only; APK packaging disabled.

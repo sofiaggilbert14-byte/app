@@ -1164,6 +1164,14 @@ export async function refreshPlaylistOnly(): Promise<SourceStatus> {
   }
 }
 
+/** Refresh only M3U rows and return the latest URL for one logical channel. */
+export async function refreshPlaybackChannel(channelId: string): Promise<Channel | null> {
+  const id = String(channelId || "").trim();
+  if (!id) return null;
+  await refreshPlaylistOnly();
+  return MEM?.channels.find((channel) => channel.id === id) || null;
+}
+
 /** Check persisted independent playlist/EPG clocks and refresh only what is due. */
 export async function refreshSourcesIfDue(): Promise<SourceStatus> {
   if (refreshPromise) {

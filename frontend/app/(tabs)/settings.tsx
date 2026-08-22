@@ -64,6 +64,7 @@ import { PREFERRED_AUDIO_LANGUAGE_OPTIONS } from "@/src/core/preferredAudioLangu
 import {
   usePlayerCompatibilityPreferences,
   type Media3AudioMode,
+  type VideoDecoderMode,
   type VlcAudioOutput,
 } from "@/src/core/playerCompatibilityPreferences";
 import {
@@ -522,12 +523,24 @@ function SettingsScreenContent() {
                   label="Video player"
                   value={playerEnginePreference}
                   options={[
-                    { label: "Expo / Media3 (Default)", value: "default" },
+                    { label: "Automatic (format-aware)", value: "default" },
                     { label: "Expo / Media3 only", value: "media3" },
                     { label: "VLC", value: "vlc" },
                   ]}
                   onChange={setPlayerEnginePreference}
                 />
+                <ChoiceRow<VideoDecoderMode>
+                  label="Video decoder"
+                  value={playerCompat.videoDecoderMode}
+                  options={[
+                    { label: "Device codecs", value: "device" },
+                    { label: "Software (VLC)", value: "software" },
+                  ]}
+                  onChange={playerCompat.setVideoDecoderMode}
+                />
+                <Text style={styles.help}>
+                  Device codecs use the TV box hardware decoder. Software mode routes video through VLC&apos;s software decoder; use it only for channels that fail on the device decoder.
+                </Text>
                 <ChoiceRow<PlayerControlsTimeoutMs>
                   label="Controls timeout"
                   value={playerControlsTimeoutMs}
@@ -569,7 +582,7 @@ function SettingsScreenContent() {
                   onChange={setSleepTimerMinutes}
                 />
                 <Text style={styles.help}>
-                  Media3 exposes audio/CC tracks and uses the Android TV codec path. Choose Media3 to keep one player engine; VLC remains an optional compatibility mode.
+                  Automatic uses Media3 for explicit HLS, DASH, and media files, and VLC probing for raw or extensionless IPTV links. Force one engine only for provider-specific troubleshooting.
                 </Text>
                 <View style={styles.divider} />
                 <Text style={styles.settingLabel}>Audio / CC</Text>
@@ -594,12 +607,12 @@ function SettingsScreenContent() {
                 <View style={styles.divider} />
                 <Text style={styles.settingLabel}>Media3</Text>
                 <ChoiceRow<Media3AudioMode>
-                  label="Media3 audio mode"
+                  label="Audio decoder"
                   value={playerCompat.media3AudioMode}
                   options={[
-                    { label: "Auto", value: "auto" },
                     { label: "Device codecs", value: "device" },
-                    { label: "FFmpeg extension", value: "ffmpeg" },
+                    { label: "Automatic fallback", value: "auto" },
+                    { label: "FFmpeg compatibility", value: "ffmpeg" },
                   ]}
                   onChange={playerCompat.setMedia3AudioMode}
                 />
@@ -625,14 +638,6 @@ function SettingsScreenContent() {
                 />
                 <Text style={styles.help}>
                   Stereo / 2-channel forces a downmix. Changing VLC or Media3 audio options remounts the active player so the new setting applies immediately.
-                </Text>
-                <ToggleRow
-                  label="VLC hardware decode"
-                  value={playerCompat.vlcHardwareDecode}
-                  onChange={playerCompat.setVlcHardwareDecode}
-                />
-                <Text style={styles.help}>
-                  Hardware decode is faster on most Fire TV / Android TV boxes. Turn it off only if a specific channel fails on VLC.
                 </Text>
                 <View style={styles.divider} />
                 <Text style={styles.settingLabel}>Subtitles (CC)</Text>

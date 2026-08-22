@@ -68,7 +68,7 @@ import { openFullscreenPlayer } from "@/src/utils/openFullscreenPlayer";
 import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
 import type { StreamStatus } from "@/src/components/StreamPlayer";
 import { subscribeAndroidMemoryPressure } from "@/src/utils/androidMemoryPressure";
-import { resetRemoteContextIfOwned, setGuideNavigationActive, setGuideRepeatInterval, setRemoteContext } from "@/src/utils/tvRemote";
+import { emitTvQuickActions, resetRemoteContextIfOwned, setGuideNavigationActive, setGuideRepeatInterval, setRemoteContext } from "@/src/utils/tvRemote";
 import { focusGuidePreviewSurface } from "@/src/utils/guidePreviewFocus";
 
 // Session-only guide position survives the root player route unmounting tabs.
@@ -232,7 +232,6 @@ function PurpleGuideScreenContent() {
     hardRefresh,
     patchProgramsForChannelIds,
     addRecent,
-    openProgram,
     activeProgram,
     favorites,
     recent,
@@ -427,6 +426,10 @@ function PurpleGuideScreenContent() {
     }
 
     if (!quickActionsOpen && !activeProgram && !drawerOpen && !groupDrawerOpen) {
+      // Reassert both halves of Guide ownership. An edge control can temporarily
+      // claim the Activity router; merely re-enabling navigation left long OK
+      // classified under `default`, where it fell through to ProgramModal.
+      setRemoteContext("guide");
       setGuideNavigationActive(true);
     }
   }, [activeProgram, drawerOpen, groupDrawerOpen, isFocused, pinPromptGroup, quickActionsOpen]);
@@ -526,8 +529,12 @@ function PurpleGuideScreenContent() {
   const failedCount = failedStreamCount();
 
   const groupCounts = useMemo(
-    () =>
-      buildGroupCounts(channels, {
+    () => {
+      // The failure registry is module-owned. Reading its count here makes a
+      // failure-state render recompute this memo without pretending the EPG
+      // filter participates in group counts.
+      void failedCount;
+      return buildGroupCounts(channels, {
         favoriteSet,
         recentIds: recentIdSet,
         hasEpgMatch: hasOwnedEpgMatch,
@@ -535,8 +542,9 @@ function PurpleGuideScreenContent() {
         hiddenIds: hiddenIdSet,
         customGroups: customGuideGroups.byName,
         includeProviderGroups: showProviderGroups,
-      }),
-    [channels, favoriteSet, recentIdSet, hiddenIdSet, failedCount, epgGuideFilter, customGuideGroups.byName, showProviderGroups],
+      });
+    },
+    [channels, favoriteSet, recentIdSet, hasOwnedEpgMatch, hiddenIdSet, failedCount, customGuideGroups.byName, showProviderGroups],
   );
 
   const playlistGroups = useMemo(
@@ -829,10 +837,12 @@ function PurpleGuideScreenContent() {
     if (settled) armPreviewForChannel(channel);
   }, [armPreviewForChannel, group, jumpFilterBypassId]);
 
-  const openGuideProgram = useCallback((program: Program, channel: Channel) => {
-    modalOriginRef.current = { channelId: channel.id, programStart: program.start };
-    openProgram(program, channel);
-  }, [openProgram]);
+  const openGuideProgram = useCallback((_program: Program, _channel: Channel) => {
+    // The Guide has one action surface. Short OK and long OK now converge on
+    // Quick Actions instead of mounting ProgramModal with Watch Now focused.
+    // NativeGuideCanvas updates the synchronous selection snapshot first.
+    emitTvQuickActions("guide");
+  }, []);
 
   const play = useCallback(
     (channel: Channel) => {

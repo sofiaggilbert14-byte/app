@@ -22,6 +22,8 @@ scheduler = read("src/components/SourceRefreshScheduler.tsx")
 # expo-video or LibVLC. Any other direct mount can overlap preview/fullscreen.
 for path in ROOT.rglob("*.ts*"):
     rel = path.relative_to(ROOT).as_posix()
+    if any(part in {"node_modules", "build", ".gradle", ".expo", "dist"} for part in path.parts):
+        continue
     text = path.read_text(encoding="utf-8", errors="replace")
     if rel == "src/components/StreamPlayer.tsx":
         continue
@@ -47,12 +49,15 @@ for token in ('mode="full"', 'sessionRole="fullscreen"'):
         critical.append(f"fullscreen ownership missing {token}")
 
 # Preview -> fullscreen release must precede route creation.
-if handoff.find("stopPreviewForFullscreen();") < 0 or handoff.find("router.push(") < 0:
+if handoff.find("stopPreviewForFullscreen()") < 0 or handoff.find("router.push(") < 0:
     critical.append("preview/fullscreen handoff markers missing")
-elif handoff.find("stopPreviewForFullscreen();") > handoff.find("router.push("):
+elif handoff.find("stopPreviewForFullscreen()") > handoff.find("router.push("):
     critical.append("fullscreen route starts before preview decoder teardown")
-if "FULLSCREEN_HANDOFF_SETTLE_MS = 90" not in handoff:
+if "FULLSCREEN_HANDOFF_SETTLE_MS = 180" not in handoff or "PREVIEW_RELEASE_TIMEOUT_MS = 1200" not in handoff:
     critical.append("preview/fullscreen native release settle window missing")
+for token in ("Promise.race([", "stopPreviewForFullscreen()", "releasePlayer", "isPreviewPlaybackAllowed"):
+    if token not in (handoff + stream + session):
+        critical.append(f"preview native release acknowledgement missing: {token}")
 
 # Role scoped generations prevent stale callbacks from a released codec.
 for token in (
@@ -67,9 +72,9 @@ for token in (
 # Fatal native failures must stop the decoder BEFORE publishing error. This is
 # the key final-frozen-frame guard when retries are exhausted.
 for token in (
-    'hardStop();\n    recordFailure(sessionRole, engine, uri, "stream-error");',
-    'hardStop();\n      recordFailure(sessionRole, engine, uri, "stream-error");',
-    'if (sawSupportedAudio) return;\n      hardStop();',
+    'void hardStop();\n    recordFailure(sessionRole, engine, uri, "stream-error");',
+    'void hardStop();\n      recordFailure(sessionRole, engine, uri, "stream-error");',
+    'if (sawSupportedAudio) return;\n      void hardStop();',
 ):
     if token not in stream:
         critical.append(f"release-before-error contract missing: {token.splitlines()[0]}")
@@ -81,21 +86,40 @@ if 'if (bufferingSince == null) return;' not in stream:
 if "MEDIA3_FROZEN_CLOCK_MS" in stream or "const frozenReadyClock =" in stream:
     critical.append("Media3 clock-only reload can cause pause/reload/freeze cascades")
 
-# One in-engine Media3 resync only. Outer PlayerScreen owns subsequent remounts.
+# Exactly one in-engine Media3 resync per unstable episode. The outer fullscreen
+# owner gets one bounded 1s/2s/4s sequence and may only re-arm after 30s stable.
 if "const MAX_SILENT_BUFFERING_RESYNCS = 1;" not in stream:
     critical.append("Media3 has more than one nested silent re-prepare budget")
-if "const MAX_AUTO_STREAM_RETRIES = 4;" not in player:
-    critical.append("fullscreen outer retry budget is missing/became unbounded")
+if "const RESYNC_REARM_STABLE_MS = 30_000;" not in stream:
+    critical.append("Media3 unstable episode can re-arm before 30 seconds stable")
+if "const MAX_AUTO_STREAM_RETRIES = 3;" not in player:
+    critical.append("fullscreen outer retry budget is not exactly three attempts")
+if "const STABLE_RETRY_RESET_MS = 30_000;" not in player:
+    critical.append("fullscreen retry budget can re-arm before 30 seconds stable")
 if "STREAM_RETRY_DELAYS_MS = [1000, 2000, 4000]" not in player:
     critical.append("fullscreen retry backoff contract changed unexpectedly")
-if 'if (failReason === "circuit-open" || isFullscreenCircuitOpen(channel?.url)) return;' not in player:
+if 'if (status === "playing") {\n      setRetryAttempt(0);' in player:
+    critical.append("brief PLAYING state immediately resets outer retry budget")
+if 'if (failReason === "circuit-open" || isFullscreenCircuitOpen(streamUri)) return;' not in player:
     critical.append("auto retry can storm a circuit-open decoder")
+
+# Expiring provider URLs get one playlist-only source recheck after local
+# decoder retries are exhausted. The decoder must be released first, and EPG
+# parsing must remain outside this recovery path.
+for token in (
+    "sourceRecheckAttemptedRef.current",
+    'pauseSessionDecoders("fullscreen")',
+    "refreshPlaybackChannel(logicalChannelId)",
+    "setRecoveryUri(freshUri)",
+):
+    if token not in player:
+        critical.append(f"bounded provider source recheck missing: {token}")
 
 # Forced engine settings must also control startup-timeout recovery.
 if "if (fallbackUsed || forceVlc || forceMedia3)" not in stream:
     critical.append("forced Media3/VLC can be ignored by startup-timeout fallback")
-if "pauseSessionDecoders(role);" not in stream:
-    critical.append("terminal startup timeout does not release native decoder")
+if "pauseSessionDecoders(role).then(() => {" not in stream or "engineSwapInFlightRef" not in stream:
+    critical.append("startup timeout/fallback does not await exclusive native decoder release")
 
 # Route/app focus and settings changes cannot leave hidden decoders alive.
 for token in (

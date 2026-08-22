@@ -35,8 +35,8 @@ def patch_engine(text: str) -> str:
         )
     text = replace_once(
         text,
-        '''    const stored = await storage.getItem<PlayerEnginePreference>(PLAYER_ENGINE_KEY, "default");\n    cachedPreference = stored === "vlc" || stored === "media3" ? stored : "default";\n    loaded = true;\n    return cachedPreference;''',
-        '''    const stored = await storage.getItem<PlayerEnginePreference>(PLAYER_ENGINE_KEY, "default");\n    const next = stored === "vlc" || stored === "media3" ? stored : "default";\n    if (loaded || loadEpoch !== mutationEpoch) return cachedPreference;\n    cachedPreference = next;\n    loaded = true;\n    return cachedPreference;''',
+        '''    const stored = await storage.getItem<PlayerEnginePreference>(PLAYER_ENGINE_KEY, "vlc");\n    cachedPreference = stored === "vlc" || stored === "media3" ? stored : "default";\n    loaded = true;\n    return cachedPreference;''',
+        '''    const stored = await storage.getItem<PlayerEnginePreference>(PLAYER_ENGINE_KEY, "vlc");\n    const next = stored === "vlc" || stored === "media3" ? stored : "default";\n    if (loaded || loadEpoch !== mutationEpoch) return cachedPreference;\n    cachedPreference = next;\n    loaded = true;\n    return cachedPreference;''',
         "engine stale hydration guard",
     )
     if "export async function setPlayerEnginePreference(value: PlayerEnginePreference): Promise<void> {\n  mutationEpoch += 1;" not in text:
@@ -61,8 +61,8 @@ def patch_buffer(text: str) -> str:
     if "const loadEpoch = mutationEpoch;" not in text:
         text = replace_once(
             text,
-            "  if (loadPromise) return loadPromise;\n  loadPromise = storage.getItem<PlaybackBufferProfile>(KEY, \"balanced\")",
-            "  if (loadPromise) return loadPromise;\n  const loadEpoch = mutationEpoch;\n  loadPromise = storage.getItem<PlaybackBufferProfile>(KEY, \"balanced\")",
+            "  if (loadPromise) return loadPromise;\n  loadPromise = storage.getItem<PlaybackBufferProfile>(KEY, \"stable\")",
+            "  if (loadPromise) return loadPromise;\n  const loadEpoch = mutationEpoch;\n  loadPromise = storage.getItem<PlaybackBufferProfile>(KEY, \"stable\")",
             "buffer load epoch",
         )
     text = replace_once(
@@ -101,13 +101,14 @@ def patch_compat(text: str) -> str:
     text = replace_once(
         text,
         '''    cached = {\n      silentAudioFallback: silent !== false,\n      vlcAudioOutput: normalizeVlcAudio(vlcAudio),\n      vlcHardwareDecode: vlcHw !== false,\n      media3AudioMode: normalizeMedia3Audio(media3Audio),\n      media3Tunneling: !!media3Tunnel,\n    };\n    loaded = true;\n    return cached;''',
-        '''    const next: Snapshot = {\n      silentAudioFallback: silent !== false,\n      vlcAudioOutput: normalizeVlcAudio(vlcAudio),\n      vlcHardwareDecode: vlcHw !== false,\n      media3AudioMode: normalizeMedia3Audio(media3Audio),\n      media3Tunneling: !!media3Tunnel,\n    };\n    if (loaded || loadEpoch !== mutationEpoch) return cached;\n    cached = next;\n    loaded = true;\n    return cached;''',
+        '''    const resolvedVideoDecoder = normalizeVideoDecoder(videoDecoder, vlcHw !== false);\n    const next: Snapshot = {\n      silentAudioFallback: silent !== false,\n      vlcAudioOutput: normalizeVlcAudio(vlcAudio),\n      vlcHardwareDecode: resolvedVideoDecoder === "device",\n      videoDecoderMode: resolvedVideoDecoder,\n      media3AudioMode: normalizeMedia3Audio(media3Audio),\n      media3Tunneling: !!media3Tunnel,\n    };\n    if (loaded || loadEpoch !== mutationEpoch) return cached;\n    cached = next;\n    loaded = true;\n    return cached;''',
         "compat stale hydration guard",
     )
     setters = [
         "setSilentAudioFallback: useCallback((next: boolean) => {",
         "setVlcAudioOutput: useCallback((next: VlcAudioOutput) => {",
         "setVlcHardwareDecode: useCallback((next: boolean) => {",
+        "setVideoDecoderMode: useCallback((next: VideoDecoderMode) => {",
         "setMedia3AudioMode: useCallback((next: Media3AudioMode) => {",
         "setMedia3Tunneling: useCallback((next: boolean) => {",
     ]

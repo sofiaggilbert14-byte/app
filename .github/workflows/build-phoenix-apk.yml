@@ -1,12 +1,13 @@
 name: Build CharmIPTV perf universal APK
 
-# Manual + dedicated branch only. Running this on every PR to main doubled hosted-runner
+# Manual + dedicated delivery branches only. Running this on every PR to main doubled hosted-runner
 # demand alongside Purple TV APK and made capacity incidents cancel all checks.
 on:
   workflow_dispatch:
   push:
     branches:
       - perf/opt-fix
+      - agent/tivimate-deep-player-quickactions-repair
     paths:
       - "frontend/**"
       - ".github/workflows/build-phoenix-apk.yml"
@@ -36,7 +37,7 @@ jobs:
       CI: "1"
 
     steps:
-      - name: Checkout perf/opt-fix
+      - name: Checkout player recovery branch
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Setup Node
@@ -102,15 +103,15 @@ jobs:
           unzip -l "$APK" | grep -q "lib/armeabi-v7a/"
           unzip -l "$APK" | grep -q "lib/arm64-v8a/"
           mkdir -p artifacts
-          cp "$APK" "artifacts/CharmIPTV-perf-opt-fix-Universal-${GITHUB_RUN_NUMBER}.apk"
-          sha256sum "artifacts/CharmIPTV-perf-opt-fix-Universal-${GITHUB_RUN_NUMBER}.apk" > artifacts/SHA256SUMS.txt
+          cp "$APK" "artifacts/CharmIPTV-player-recovery-Universal-${GITHUB_RUN_NUMBER}.apk"
+          sha256sum "artifacts/CharmIPTV-player-recovery-Universal-${GITHUB_RUN_NUMBER}.apk" > artifacts/SHA256SUMS.txt
 
       - name: Upload universal APK
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: CharmIPTV-perf-opt-fix-Universal-${{ github.run_number }}
+          name: CharmIPTV-player-recovery-Universal-${{ github.run_number }}
           path: |
-            frontend/artifacts/CharmIPTV-perf-opt-fix-Universal-${{ github.run_number }}.apk
+            frontend/artifacts/CharmIPTV-player-recovery-Universal-${{ github.run_number }}.apk
             frontend/artifacts/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14

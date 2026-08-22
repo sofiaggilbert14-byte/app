@@ -1,0 +1,260 @@
+    'const MAX_FAILURES_PER_WINDOW = 6;\n' +
+    '/** Fullscreen-only cooldown. Preview must never poison fullscreen. */\n' +
+    'const CIRCUIT_COOLDOWN_MS = 30_000;\n' +
+    'const FULLSCREEN_START_TIMEOUT_MS = 12_000;\n' +
+    'const PREVIEW_START_TIMEOUT_MS = 8_000;\n' +
+    '\n' +
+    'type FailureState = { failures: number[]; blockedUntil: number };\n' +
+    'const failureStateByKey = new Map<string, FailureState>();\n' +
+    'const MAX_FAILURE_KEYS = 64;\n' +
+    '\n' +
+    '/** Reasons that are expected during zap/recover — do not open the circuit. */\n' +
+    'const NON_CIRCUIT_REASONS = new Set<SessionFailReason>([\n' +
+    '  "start-timeout",\n' +
+    '  "engine-swap",\n' +
+    '  "circuit-open",\n' +
+    '  "silent-audio",\n' +
+    '  "user-stop",\n' +
+    '  "superseded",\n' +
+    ']);\n' +
+    '/** After Media3 reports playing, wait this long for audio tracks before VLC swap. */\n' +
+    'const SILENT_AUDIO_GRACE_MS = 2200;\n' +
+    '// TiviMate-style recovery adapted to Charm: only an actual post-playback\n' +
+    '// BUFFERING/loading state arms the watchdog. A silent internal re-prepare gets\n' +
+    '// first chance before the parent retry/failure machinery is notified.\n' +
+    'const BUFFERING_RESYNC_MS = 5000;\n' +
+    'const BUFFERING_FAIL_MS = 12_000;\n' +
+    'const MAX_SILENT_BUFFERING_RESYNCS = 1;\n' +
+    'const RESYNC_REARM_STABLE_MS = 30_000;\n' +
+    'const VLC_FROZEN_PROGRESS_MS = 8_000;\n' +
+    'const VLC_BUFFERING_FAIL_MS = 12_000;\n' +
+    '\n' +
+    'function pruneFailureMap(now = Date.now()) {\n' +
+    '  for (const [key, state] of failureStateByKey) {\n' +
+    '    state.failures = state.failures.filter((ts) => now - ts <= FAILURE_WINDOW_MS);\n' +
+    '    if (state.blockedUntil <= now && state.failures.length === 0) {\n' +
+    '      failureStateByKey.delete(key);\n' +
+    '    } else {\n' +
+    '      failureStateByKey.set(key, state);\n' +
+    '    }\n' +
+    '  }\n' +
+    '  while (failureStateByKey.size > MAX_FAILURE_KEYS) {\n' +
+    '    const oldest = failureStateByKey.keys().next().value;\n' +
+    '    if (!oldest) break;\n' +
+    '    failureStateByKey.delete(oldest);\n' +
+    '  }\n' +
+    '}\n' +
+    '\n' +
+    '/** Role-scoped so guide preview failures cannot black-hole fullscreen for the same URI. */\n' +
+    'function failureKey(role: SessionRole, engine: Engine, uri: string): string {\n' +
+    '  return `${role}:${engine}:${uri}`;\n' +
+    '}\n' +
+    '\n' +
+    'function getFailureState(role: SessionRole, engine: Engine, uri: string): FailureState {\n' +
+    '  const key = failureKey(role, engine, uri);\n' +
+    '  const now = Date.now();\n' +
+    '  const existing = failureStateByKey.get(key);\n' +
+    '  if (!existing) return { failures: [], blockedUntil: 0 };\n' +
+    '  existing.failures = existing.failures.filter((ts) => now - ts <= FAILURE_WINDOW_MS);\n' +
+    '  if (existing.blockedUntil <= now && existing.failures.length < MAX_FAILURES_PER_WINDOW) {\n' +
+    '    existing.blockedUntil = 0;\n' +
+    '  }\n' +
+    '  return existing;\n' +
+    '}\n' +
+    '\n' +
+    'function circuitRemainingMs(role: SessionRole, engine: Engine, uri: string): number {\n' +
+    '  return Math.max(0, getFailureState(role, engine, uri).blockedUntil - Date.now());\n' +
+    '}\n' +
+    '\n' +
+    'function isCircuitOpen(role: SessionRole, engine: Engine, uri: string): boolean {\n' +
+    '  if (role === "preview") return false;\n' +
+    '  return circuitRemainingMs(role, engine, uri) > 0;\n' +
+    '}\n' +
+    '\n' +
+    'function recordFailure(\n' +
+    '  role: SessionRole,\n' +
+    '  engine: Engine,\n' +
+    '  uri: string,\n' +
+    '  reason?: SessionFailReason | null,\n' +
+    '): void {\n' +
+    '  // Preview is best-effort — never open a circuit that blocks later fullscreen play.\n' +
+    '  if (!uri || role === "preview") return;\n' +
+    '  if (reason && NON_CIRCUIT_REASONS.has(reason)) return;\n' +
+    '  const now = Date.now();\n' +
+    '  const key = failureKey(role, engine, uri);\n' +
+    '  const state = getFailureState(role, engine, uri);\n' +
+    '  state.failures.push(now);\n' +
+    '  if (state.failures.length >= MAX_FAILURES_PER_WINDOW) state.blockedUntil = now + CIRCUIT_COOLDOWN_MS;\n' +
+    '  failureStateByKey.set(key, state);\n' +
+    '  pruneFailureMap(now);\n' +
+    '}\n' +
+    '\n' +
+    'function recordStablePlayback(role: SessionRole, engine: Engine, uri: string): void {\n' +
+    '  if (!uri || role === "preview") return;\n' +
+    '  const key = failureKey(role, engine, uri);\n' +
+    '  const state = getFailureState(role, engine, uri);\n' +
+    '  state.failures = state.failures.slice(-2);\n' +
+    '  state.blockedUntil = 0;\n' +
+    '  failureStateByKey.set(key, state);\n' +
+    '}\n' +
+    '\n' +
+    '/** True while any fullscreen engine circuit is cooling down for this URI. */\n' +
+    'export function isFullscreenCircuitOpen(uri?: string): boolean {\n' +
+    '  if (!uri) return false;\n' +
+    '  const clean = parsePipeHeaders(uri).uri || uri;\n' +
+    '  return (\n' +
+    '    isCircuitOpen("fullscreen", "media3", uri) ||\n' +
+    '    isCircuitOpen("fullscreen", "vlc", uri) ||\n' +
+    '    (clean !== uri &&\n' +
+    '      (isCircuitOpen("fullscreen", "media3", clean) || isCircuitOpen("fullscreen", "vlc", clean)))\n' +
+    '  );\n' +
+    '}\n' +
+    '\n' +
+    '/** Explicit Retry / user recover — clear fullscreen circuit entries for this URI. */\n' +
+    'export function clearFullscreenCircuit(uri?: string): void {\n' +
+    '  if (!uri) {\n' +
+    '    for (const key of Array.from(failureStateByKey.keys())) {\n' +
+    '      if (key.startsWith("fullscreen:")) failureStateByKey.delete(key);\n' +
+    '    }\n' +
+    '    return;\n' +
+    '  }\n' +
+    '  // Circuit keys store the pipe-stripped URI; callers often pass the raw channel.url.\n' +
+    '  const clean = parsePipeHeaders(uri).uri || uri;\n' +
+    '  const needles = clean === uri ? [uri] : [uri, clean];\n' +
+    '  for (const key of Array.from(failureStateByKey.keys())) {\n' +
+    '    if (!key.startsWith("fullscreen:")) continue;\n' +
+    '    if (needles.some((needle) => key.endsWith(`:${needle}`))) {\n' +
+    '      failureStateByKey.delete(key);\n' +
+    '    }\n' +
+    '  }\n' +
+    '}\n' +
+    '\n' +
+    'function useStatusTracker(\n' +
+    '  onStatus: (status: StreamStatus, reason?: SessionFailReason | null) => void,\n' +
+    '  resetKey: string,\n' +
+    ') {\n' +
+    '  const lastRef = useRef<StreamStatus | null>(null);\n' +
+    '  const onStatusRef = useRef(onStatus);\n' +
+    '  onStatusRef.current = onStatus;\n' +
+    '\n' +
+    '  useEffect(() => {\n' +
+    '    lastRef.current = null;\n' +
+    '  }, [resetKey]);\n' +
+    '\n' +
+    '  return useCallback((status: StreamStatus, reason?: SessionFailReason | null) => {\n' +
+    '    if (lastRef.current === status && reason === undefined) return;\n' +
+    '    lastRef.current = status;\n' +
+    '    try {\n' +
+    '      onStatusRef.current(status, reason);\n' +
+    '    } catch (error) {\n' +
+    '      console.warn("CharmIPTV stream status listener failed", error);\n' +
+    '    }\n' +
+    '  }, []);\n' +
+    '}\n' +
+    '\n' +
+    'export const vlcAvailable = Platform.OS !== "web" && !!UIManager.getViewManagerConfig?.("RCTVLCPlayer");\n' +
+    '\n' +
+    'const VLCPlayer: any = vlcAvailable\n' +
+    '  // eslint-disable-next-line @typescript-eslint/no-require-imports -- native module must be lazy outside installed builds\n' +
+    '  ? require("react-native-vlc-media-player").VLCPlayer\n' +
+    '  : null;\n' +
+    '\n' +
+    'type Props = {\n' +
+    '  uri: string;\n' +
+    '  /** Stable channel id for bounded successful-engine memory (URI tokens rotate). */\n' +
+    '  channelKey?: string;\n' +
+    '  onStatus: (s: StreamStatus, reason?: SessionFailReason | null) => void;\n' +
+    '  style?: StyleProp<ViewStyle>;\n' +
+    '  mode?: "preview" | "full";\n' +
+    '  sessionRole?: SessionRole;\n' +
+    '  /** When true, Media3/VLC start muted (guide preview default). */\n' +
+    '  muted?: boolean;\n' +
+    '  audioTrack?: string | number;\n' +
+    '  textTrack?: string | number | null;\n' +
+    '  onTracksAvailable?: (tracks: {\n' +
+    '    audio: StreamTrack[];\n' +
+    '    text: StreamTrack[];\n' +
+    '  }) => void;\n' +
+    '  bufferProfile?: PlaybackBufferProfile;\n' +
+    '  paused?: boolean;\n' +
+    '  scaleMode?: PlayerScaleMode;\n' +
+    '};\n' +
+    '\n' +
+    'type EngineProps = Props & {\n' +
+    '  engine: Engine;\n' +
+    '  sessionRole: SessionRole;\n' +
+    '  sessionGeneration: number;\n' +
+    '};\n' +
+    '\n' +
+    'function useCircuitCooldown(\n' +
+    '  role: SessionRole,\n' +
+    '  engine: Engine,\n' +
+    '  uri: string,\n' +
+    '  setStatus: (s: StreamStatus, reason?: SessionFailReason | null) => void,\n' +
+    ') {\n' +
+    '  const [blocked, setBlocked] = useState(() => isCircuitOpen(role, engine, uri));\n' +
+    '\n' +
+    '  useEffect(() => {\n' +
+    '    setBlocked(isCircuitOpen(role, engine, uri));\n' +
+    '  }, [engine, role, uri]);\n' +
+    '\n' +
+    '  useEffect(() => {\n' +
+    '    if (role === "preview") {\n' +
+    '      setBlocked(false);\n' +
+    '      return;\n' +
+    '    }\n' +
+    '    const remaining = circuitRemainingMs(role, engine, uri);\n' +
+    '    if (!blocked) {\n' +
+    '      if (remaining > 0) setBlocked(true);\n' +
+    '      return;\n' +
+    '    }\n' +
+    '\n' +
+    '    if (remaining <= 0) {\n' +
+    '      // Cooldown finished — remount cleanly as loading (do not emit error/circuit-open,\n' +
+    '      // which stacked with auto-retry and left a false failed state).\n' +
+    '      setBlocked(false);\n' +
+    '      setStatus("loading");\n' +
+    '      return;\n' +
+    '    }\n' +
+    '\n' +
+    '    // Surface the cooldown as an error overlay instead of a silent black player.\n' +
+    '    setStatus("error", "circuit-open");\n' +
+    '    const timer = setTimeout(() => {\n' +
+    '      setBlocked(false);\n' +
+    '      setStatus("loading");\n' +
+    '    }, remaining + 25);\n' +
+    '    return () => clearTimeout(timer);\n' +
+    '  }, [blocked, engine, role, setStatus, uri]);\n' +
+    '\n' +
+    '  return { blocked, setBlocked };\n' +
+    '}\n' +
+    '\n' +
+    'function VlcStream({\n' +
+    '  uri: rawUri,\n' +
+    '  onStatus: setStatus,\n' +
+    '  style,\n' +
+    '  engine,\n' +
+    '  mode = "full",\n' +
+    '  sessionRole,\n' +
+    '  sessionGeneration,\n' +
+    '  muted = false,\n' +
+    '  audioTrack,\n' +
+    '  textTrack,\n' +
+    '  onTracksAvailable,\n' +
+    '  bufferProfile = "balanced",\n' +
+    '  paused = false,\n' +
+    '  scaleMode = "fit",\n' +
+    '}: EngineProps) {\n' +
+    '  const activeRef = useRef(true);\n' +
+    '  const tearingDownRef = useRef(fa'... 39451 more characters
+  
+      at TestContext.<anonymous> (file:///home/runner/work/app/app/frontend/tests/playbackSession.test.mjs:208:10)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";\nimport { AppState, Platform, UIManager, StyleProp, ViewStyle } from "react-native";\nimport { VideoView, useVideoPlayer } from "expo-video";\nimport { usePathname } from "expo-router";\nimport { useIsFocused } from "@react-navigation/native";\nimport { usePlayerEnginePreference } from "@/src/playerEnginePreference";\nimport {\n  alternateEngine,\n  detectStreamKind,\n  media3ContentType,\n...',
+    expected: /const BUFFERING_FAIL_MS = 22000/,
+    operator: 'match',
+    diff: 'simple'
+  }

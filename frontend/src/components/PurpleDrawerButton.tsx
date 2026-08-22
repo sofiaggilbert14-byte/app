@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { usePathname } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { usePurpleTvDrawer } from "@/src/components/PurpleTvShell";
 import { fonts, radius, tvColors } from "@/src/theme";
@@ -8,6 +9,7 @@ import { addTvKeyListener, resetRemoteContextIfOwned, setRemoteContext } from "@
 
 /** Consistent, explicit Drawer entry for full-bleed TV pages. */
 export function PurpleDrawerButton({ testID }: { testID: string }) {
+  const pathname = usePathname();
   const { openDrawer } = usePurpleTvDrawer();
   const [focused, setFocused] = useState(false);
   const open = useCallback(() => {
@@ -33,9 +35,14 @@ export function PurpleDrawerButton({ testID }: { testID: string }) {
       off();
       // Opening the drawer can install main_drawer before this button blurs.
       // Never let stale edge cleanup overwrite that newer focus owner.
-      resetRemoteContextIfOwned("drawer_edge");
+      const fallback = pathname?.startsWith("/guide")
+        ? "guide"
+        : pathname?.startsWith("/player")
+          ? "player"
+          : "default";
+      resetRemoteContextIfOwned("drawer_edge", fallback);
     };
-  }, [focused, open]);
+  }, [focused, open, pathname]);
 
   return (
     <Pressable

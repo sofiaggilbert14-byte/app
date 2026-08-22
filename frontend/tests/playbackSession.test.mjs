@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import {
   beginSession,
   getSessionPhase,
+  isPreviewPlaybackAllowed,
   isSessionCurrent,
   pauseSessionDecoders,
   registerSessionStop,
@@ -20,24 +21,23 @@ import { alternateEngine, detectStreamKind, preferredEngine } from "../src/core/
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const source = (path) => readFile(join(root, path), "utf8");
 
-test("playback session generations isolate preview from fullscreen", () => {
+test("fullscreen reservation releases preview before allocating its decoder", async () => {
   resetPlaybackSessionsForTests();
   const previewGen = beginSession("preview");
-  const fullGen = beginSession("fullscreen");
   assert.equal(isSessionCurrent("preview", previewGen), true);
-  assert.equal(isSessionCurrent("fullscreen", fullGen), true);
 
   let previewStopped = 0;
   let fullStopped = 0;
   registerSessionStop("preview", previewGen, () => {
     previewStopped += 1;
   });
+  await stopPreviewForFullscreen();
+  assert.equal(previewStopped, 1);
+  assert.equal(isPreviewPlaybackAllowed(), false);
+  const fullGen = beginSession("fullscreen");
   registerSessionStop("fullscreen", fullGen, () => {
     fullStopped += 1;
   });
-
-  stopPreviewForFullscreen();
-  assert.equal(previewStopped, 1);
   assert.equal(fullStopped, 0);
   assert.equal(isSessionCurrent("preview", previewGen), false);
   assert.equal(isSessionCurrent("fullscreen", fullGen), true);
@@ -84,26 +84,31 @@ test("begin/stop clear stale decoder callbacks after invoking them once", () => 
   assert.equal(stops, 1);
 });
 
-test("fullscreen stop does not tear down a later preview session", () => {
+test("preview cannot re-arm until fullscreen releases its reservation", async () => {
   resetPlaybackSessionsForTests();
   beginSession("fullscreen");
+  assert.equal(beginSession("preview"), 0);
+  assert.equal(isPreviewPlaybackAllowed(), false);
+  await stopFullscreenSession();
+  assert.equal(isPreviewPlaybackAllowed(), true);
   const previewGen = beginSession("preview");
   let previewStopped = 0;
   registerSessionStop("preview", previewGen, () => {
     previewStopped += 1;
   });
-  stopFullscreenSession();
   assert.equal(previewStopped, 0);
   assert.equal(isSessionCurrent("preview", previewGen), true);
-  stopAllPlaybackSessions();
+  await stopAllPlaybackSessions();
   assert.equal(isSessionCurrent("preview", previewGen), false);
 });
 
-test("default engine selection prefers Media3 for HLS and TS with VLC fallback", () => {
+test("default engine selection preserves RC.1 format ownership", () => {
   assert.equal(detectStreamKind("https://x/live.m3u8"), "hls");
   assert.equal(preferredEngine("hls"), "media3");
   assert.equal(detectStreamKind("https://x/live.ts"), "transport");
-  assert.equal(preferredEngine("transport"), "media3");
+  assert.equal(preferredEngine("transport"), "vlc");
+  assert.equal(detectStreamKind("http://provider.example/live/user/pass/1234"), "unknown");
+  assert.equal(preferredEngine("unknown"), "vlc");
   assert.equal(alternateEngine("media3", true), "vlc");
   assert.equal(alternateEngine("media3", false), null);
 });
@@ -152,7 +157,7 @@ test("StreamPlayer and player route use role-scoped session teardown", async () 
   assert.match(playerComp, /mode === "preview"/);
   assert.match(playerComp, /mediaOptions/);
   assert.match(playerComp, /onStatusRef\.current/);
-  assert.match(playerComp, /mode === "preview" \? "textureView" : "surfaceView"/);
+  assert.match(playerComp, /surfaceType=\{Platform\.OS === "android" \? "textureView" : undefined\}/);
   assert.match(playerComp, /player\.muted = muted/);
   assert.match(playerRoute, /onStatus=\{handleStreamStatus\}/);
   assert.doesNotMatch(playerRoute, /onStatus=\{\(next, reason\) =>/);
@@ -172,7 +177,11 @@ test("StreamPlayer and player route use role-scoped session teardown", async () 
     /if \(next === "error" \|\| reason === "silent-audio"\) \{\s*noteStreamFailure/,
   );
   assert.match(playerRoute, /restartStream\(false\)/);
-  assert.match(handoff, /FULLSCREEN_HANDOFF_SETTLE_MS = 90/);
+  assert.match(handoff, /FULLSCREEN_HANDOFF_SETTLE_MS = 180/);
+  assert.match(handoff, /PREVIEW_RELEASE_TIMEOUT_MS = 1200/);
+  assert.match(handoff, /Promise\.race\(\[/);
+  assert.match(playerComp, /isPreviewPlaybackAllowed/);
+  assert.match(playerComp, /releasePlayer/);
   assert.match(vlcPatch, /removeLifecycleEventListener/);
   assert.match(vlcPatch, /requestPlaybackAudioFocus/);
   assert.match(vlcPatch, /mMediaPlayer = null/);
@@ -202,9 +211,10 @@ test("Media3 watchdog recovers real buffering without clock-only decoder reloads
   assert.doesNotMatch(player, /MEDIA3_FROZEN_CLOCK_MS|const frozenReadyClock =/);
   assert.match(player, /if \(bufferingSince == null\) return/);
   assert.match(player, /const bufferingFor = now - bufferingSince/);
-  assert.match(player, /silentResyncCountRef\.current = 0;[\s\S]{0,100}bufferingSinceRef\.current = null/);
+  assert.match(player, /stableProgressSinceRef/);
   assert.doesNotMatch(player, /const stalledReady =/);
   assert.match(player, /const BUFFERING_RESYNC_MS = 5000/);
-  assert.match(player, /const BUFFERING_FAIL_MS = 22000/);
+  assert.match(player, /const BUFFERING_FAIL_MS = 12_000/);
   assert.match(player, /MAX_SILENT_BUFFERING_RESYNCS = 1/);
+  assert.match(player, /const RESYNC_REARM_STABLE_MS = 30_000/);
 });

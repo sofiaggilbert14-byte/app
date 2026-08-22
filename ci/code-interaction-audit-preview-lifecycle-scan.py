@@ -16,26 +16,29 @@ player = read("app/player.tsx")
 scheduler = read("src/components/SourceRefreshScheduler.tsx")
 quick_actions = read("src/components/TvQuickActionsOverlay.tsx")
 
-# Preview is best-effort and must never teach/poison fullscreen health.
-if 'if (role === "fullscreen") rememberSuccessfulStreamEngine(engineMemoryKey, engine);' not in stream:
-    critical.append("preview can rewrite fullscreen successful-engine memory")
+# Preview is best-effort and no stale engine memory may override format routing.
+for obsolete in ("getRememberedStreamEngine", "rememberSuccessfulStreamEngine", "engineMemoryKey"):
+    if obsolete in stream:
+        critical.append(f"stale engine memory can override format routing: {obsolete}")
 if 'if (!uri || role === "preview") return;' not in stream:
     critical.append("preview failures can open fullscreen circuit state")
 if "noteStreamFailure" in guide or "clearStreamFailure" in guide:
     critical.append("Guide preview can mutate fullscreen failed-stream registry")
 
-# A visible preview must self-release if its native decoder/socket freezes.
+# A visible preview must self-release if its native decoder/socket freezes. The
+# stricter deep repair uses an 8s VLC frozen-progress gate, 12s terminal buffering
+# gate, and exactly one Media3 reprepare per unstable episode.
 if 'if (mode === "preview" || paused || blocked) return;' in stream:
     critical.append("VLC preview is excluded from frozen-progress watchdog")
 if 'if (mode === "preview" || paused || blocked || !mediaReady)' in stream:
-    critical.append("Media3 preview is excluded from frozen-clock watchdog")
+    critical.append("Media3 preview is excluded from buffering watchdog")
 for required in (
-    "const VLC_FROZEN_PROGRESS_MS = 15_000",
-    "const VLC_BUFFERING_FAIL_MS = 22_000",
+    "const VLC_BUFFERING_FAIL_MS = 12_000",
     "if (bufferingSince == null) return;",
     "const BUFFERING_RESYNC_MS = 5000",
-    "const BUFFERING_FAIL_MS = 22000",
+    "const BUFFERING_FAIL_MS = 12_000",
     "MAX_SILENT_BUFFERING_RESYNCS = 1",
+    "const RESYNC_REARM_STABLE_MS = 30_000",
 ):
     if required not in stream:
         critical.append(f"missing bounded player watchdog contract: {required}")
@@ -48,10 +51,11 @@ if "MEDIA3_FROZEN_CLOCK_MS" in stream or "const frozenReadyClock =" in stream:
 for required in (
     'const networkCaching = mode === "preview" ? 1000 : fullMs',
     'const liveCaching = mode === "preview" ? 1000 : fullMs',
-    'const fileCaching = mode === "preview" ? 700 : Math.round(fullMs * 0.62)',
+    'const fileCaching = mode === "preview"',
+    '? 700',
     'maxBufferBytes: Math.min(12 * 1024 * 1024, coordinatedCacheBudget)',
     'player.audioMixingMode = mode === "preview" ? "mixWithOthers" : "doNotMix"',
-    'mode === "preview" ? "textureView" : "surfaceView"',
+    'surfaceType={Platform.OS === "android" ? "textureView" : undefined}',
 ):
     if required not in stream:
         critical.append(f"preview RAM/audio/surface isolation missing: {required}")
@@ -63,12 +67,20 @@ if 'const sub = AppState.addEventListener("change"' not in stream or 'return () 
     critical.append("player AppState listener lifecycle is incomplete")
 
 # Preview -> fullscreen must destroy preview first and leave a native codec release window.
-stop_at = handoff.find("stopPreviewForFullscreen();")
+stop_at = handoff.find("stopPreviewForFullscreen()")
 push_at = handoff.find("router.push(")
 if stop_at < 0 or push_at < 0 or stop_at > push_at:
     critical.append("fullscreen route can start before preview teardown")
-if "FULLSCREEN_HANDOFF_SETTLE_MS = 90" not in handoff:
+if "FULLSCREEN_HANDOFF_SETTLE_MS = 180" not in handoff or "PREVIEW_RELEASE_TIMEOUT_MS = 1200" not in handoff:
     critical.append("preview/fullscreen decoder settle window missing")
+for required in (
+    "isPreviewPlaybackAllowed",
+    "subscribePlaybackOwnership",
+    "releasePlayer",
+    "Promise.race([",
+):
+    if required not in (stream + session + handoff):
+        critical.append(f"preview/fullscreen exclusive release contract missing: {required}")
 if 'stopSession("preview", "superseded")' not in session:
     critical.append("preview session generation is not invalidated for fullscreen")
 
@@ -78,6 +90,8 @@ for required in (
     "DECODER_RESTART_SETTLE_MS = 120",
     "CHANNEL_ZAP_SETTLE_MS = 850",
     'stopFullscreenSession()',
+    "const MAX_AUTO_STREAM_RETRIES = 3",
+    "const STABLE_RETRY_RESET_MS = 30_000",
 ):
     if required not in player:
         critical.append(f"fullscreen decoder ownership contract missing: {required}")

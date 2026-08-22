@@ -1,0 +1,5 @@
+CharmIPTV v2.1.0-rc.5 verified exclusive-preview repair sideload build
+Repair source: 383687fa53d76e1e9e60ff7df56b0094700068e0
+Validation cycle 1 green: https://github.com/floydleroybuchanan-collab/app/actions/runs/32545616921
+Validation cycle 2 green: https://github.com/floydleroybuchanan-collab/app/actions/runs/32546213105
+Build universal sideload APK with HTTP support and both FFmpeg JNI ABIs.

@@ -91,7 +91,19 @@ index 8c7acdf..d8c5e61 100755
                  mMediaPlayer.play();
                  Log.i("do play:", true + "");
              }
-@@ -758,6 +774,10 @@ class ReactVlcPlayerView extends TextureView implements
+@@ -720,6 +736,11 @@ class ReactVlcPlayerView extends TextureView implements
+         mMediaPlayer.stop();
+     }
+
++    public void releasePlayerResources() {
++        stopPlayback();
++        eventEmitter.sendEvent(Arguments.createMap(), VideoEventEmitter.EVENT_ON_VIDEO_STOPPED);
++    }
++
+     private void handleCertificateDialog(Dialog.QuestionDialog dialog) {
+         String title = dialog.getTitle();
+         String text = dialog.getText();
+@@ -758,6 +779,10 @@ class ReactVlcPlayerView extends TextureView implements
          stopPlayback();
      }
  
@@ -114,17 +126,18 @@ index b935a4d..c6cf57c 100755
      }
  
      @Override
-@@ -179,7 +180,8 @@ public class ReactVlcPlayerViewManager extends SimpleViewManager<ReactVlcPlayerV
+@@ -179,7 +180,9 @@ public class ReactVlcPlayerViewManager extends SimpleViewManager<ReactVlcPlayerV
          return MapBuilder.of(
              "startRecording", 1,
              "stopRecording", 2,
 -            "snapshot", 3
 +            "snapshot", 3,
-+            "stopPlayer", 4
++            "stopPlayer", 4,
++            "releasePlayer", 5
          );
      }
  
-@@ -204,6 +206,10 @@ public class ReactVlcPlayerViewManager extends SimpleViewManager<ReactVlcPlayerV
+@@ -204,6 +207,14 @@ public class ReactVlcPlayerViewManager extends SimpleViewManager<ReactVlcPlayerV
                  }
                  break;
  
@@ -132,6 +145,29 @@ index b935a4d..c6cf57c 100755
 +                root.stopPlayer();
 +                break;
 +
++            case 5:
++                root.releasePlayerResources();
++                break;
++
              default:
                  break;
          }
+diff --git a/node_modules/react-native-vlc-media-player/VLCPlayer.js b/node_modules/react-native-vlc-media-player/VLCPlayer.js
+index 0973fd1..21e7a44 100644
+--- a/node_modules/react-native-vlc-media-player/VLCPlayer.js
++++ b/node_modules/react-native-vlc-media-player/VLCPlayer.js
+@@ -61,6 +61,14 @@ export default class VLCPlayer extends Component {
+     );
+   }
+
++  releasePlayer() {
++    UIManager.dispatchViewManagerCommand(
++      ReactNative.findNodeHandle(this),
++      UIManager.getViewManagerConfig('RCTVLCPlayer').Commands.releasePlayer,
++      []
++    );
++  }
++
+   snapshot(path) {
+     UIManager.dispatchViewManagerCommand(
+       ReactNative.findNodeHandle(this),

@@ -44,6 +44,7 @@ import {
 import { pickDefaultSubtitleTrack, useSubtitlePreferences } from "@/src/core/subtitlePreferences";
 import { pickPreferredAudioTrack, useAudioTrackPreferences } from "@/src/core/audioTrackPreferences";
 import { clearStreamFailure, noteStreamFailure } from "@/src/core/streamFailureRegistry";
+import { refreshPlaybackChannel } from "@/src/source";
 import * as FileSystem from "expo-file-system/legacy";
 import type { Channel } from "@/src/api";
 
@@ -51,7 +52,8 @@ const CHANNEL_PREVIEW_DELAY_MS = 650;
 const CHANNEL_ZAP_SETTLE_MS = 850;
 const DECODER_RESTART_SETTLE_MS = 120;
 const STREAM_RETRY_DELAYS_MS = [1000, 2000, 4000] as const;
-const MAX_AUTO_STREAM_RETRIES = 4;
+const MAX_AUTO_STREAM_RETRIES = 3;
+const STABLE_RETRY_RESET_MS = 30_000;
 const SWITCH_NOTICE_MS = 1800;
 const STABLE_HISTORY_DELAY_MS = 5000;
 type PlayerViewMode = "fit" | "fill" | "zoom" | "stretch";
@@ -107,6 +109,7 @@ export default function PlayerScreen() {
   const [playerOverlay, setPlayerOverlay] = useState<"channels" | "tracks" | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [retryAttempt, setRetryAttempt] = useState(0);
+  const [recoveryUri, setRecoveryUri] = useState<string | null>(null);
   const [playerNow, setPlayerNow] = useState(() => new Date());
   // Decoder is disarmed while rapid Next/Prev or strip surfing — prevents VLC pile-up / audio leaks.
   const [decoderArmed, setDecoderArmed] = useState(true);
@@ -137,6 +140,7 @@ export default function PlayerScreen() {
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stableHistoryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stableRetryResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const controlsRef = useRef(true);
   const channelsOpenRef = useRef(false);
   const generationRef = useRef(0);
@@ -157,6 +161,7 @@ export default function PlayerScreen() {
   const subtitleDefaultLanguageRef = useRef(subtitleDefaultLanguage);
   const subtitleAutoAppliedRef = useRef<string | null>(null);
   const audioAutoAppliedRef = useRef<string | null>(null);
+  const sourceRecheckAttemptedRef = useRef(false);
 
   const isTV = Platform.OS !== "web" && Platform.isTV;
   useEffect(() => {
@@ -179,6 +184,7 @@ export default function PlayerScreen() {
     () => (channelMeta ? { ...channelMeta, programs: channelPrograms } : undefined),
     [channelMeta, channelPrograms],
   );
+  const streamUri = recoveryUri || channel?.url || "";
   // Native source/cache channels are already name-sorted and playable. Avoid
   // cloning/sorting several 6k+ arrays while the fullscreen decoder is starting.
   const streamChannels = channels;
@@ -240,9 +246,14 @@ export default function PlayerScreen() {
     setTracksOpen(false);
   }, [channelId, retryToken, setTracksOpen]);
 
+  useEffect(() => {
+    setRecoveryUri(null);
+    sourceRecheckAttemptedRef.current = false;
+  }, [channelId]);
+
   const { current, next } = nowNext(channel?.programs, playerNow);
   const progress = current ? progressPct(current, playerNow) : 0;
-  const hasStream = !!channel?.url;
+  const hasStream = !!streamUri;
   const programDescription = current?.desc || (next ? `Next: ${next.title}` : "Live television");
   const programDescriptionKey = `${channelId}:${current?.start || ""}:${current?.title || ""}`;
 
@@ -284,26 +295,36 @@ export default function PlayerScreen() {
     }
   }, [hasStream, isTV, scheduleHide, status]);
 
-  const armDecoderAfterSettle = useCallback((delayMs: number) => {
-    if (zapTimer.current) clearTimeout(zapTimer.current);
-    zapTimer.current = setTimeout(() => {
-      // Commit pending channel and remount a single decoder only after surfing settles.
-      const pending = pendingChannelIdRef.current;
-      // Strip focus updates the visible channel before its decoder is armed.
-      // Preserve the actually tuned channel at commit time so Previous channel
-      // remains correct after a debounced strip-based zap. Next/Prev already
-      // updates this history earlier, so the equality guard keeps that path intact.
-      const previous = channelIdRef.current;
-      if (previous && previous !== pending) previousChannelIdRef.current = previous;
-      channelIdRef.current = pending;
-      setChannelId(pending);
-      setRetryAttempt(0);
-      setStatus("loading");
-      setFailReason(null);
-      setPlaybackPaused(false);
-      setDecoderArmed(true);
-      setRetryToken((value) => value + 1);
-    }, delayMs);
+  const armDecoderAfterSettle = useCallback((
+    delayMs: number,
+    release: Promise<void> = Promise.resolve(),
+  ) => {
+    const generation = generationRef.current;
+    // A bounded delay is still useful for surface settlement, but it starts only
+    // after the old native decoder acknowledges its own release.
+    void release.catch(() => undefined).then(() => {
+      if (generation !== generationRef.current) return;
+      if (zapTimer.current) clearTimeout(zapTimer.current);
+      zapTimer.current = setTimeout(() => {
+        if (generation !== generationRef.current) return;
+        // Commit pending channel and remount a single decoder only after surfing settles.
+        const pending = pendingChannelIdRef.current;
+        // Strip focus updates the visible channel before its decoder is armed.
+        // Preserve the actually tuned channel at commit time so Previous channel
+        // remains correct after a debounced strip-based zap. Next/Prev already
+        // updates this history earlier, so the equality guard keeps that path intact.
+        const previous = channelIdRef.current;
+        if (previous && previous !== pending) previousChannelIdRef.current = previous;
+        channelIdRef.current = pending;
+        setChannelId(pending);
+        setRetryAttempt(0);
+        setStatus("loading");
+        setFailReason(null);
+        setPlaybackPaused(false);
+        setDecoderArmed(true);
+        setRetryToken((value) => value + 1);
+      }, delayMs);
+    });
   }, []);
 
   const changeChannel = useCallback((id: string, haptic = false, opts?: { immediate?: boolean }) => {
@@ -332,16 +353,16 @@ export default function PlayerScreen() {
     if (opts?.immediate) {
       // Native Media3 release is asynchronous. Disarm before the remount and
       // give the old codec the same bounded handoff window used elsewhere.
-      pauseSessionDecoders("fullscreen");
+      const release = pauseSessionDecoders("fullscreen");
       setDecoderArmed(false);
-      armDecoderAfterSettle(DECODER_RESTART_SETTLE_MS);
+      armDecoderAfterSettle(DECODER_RESTART_SETTLE_MS, release);
       return;
     }
 
     // Tear down the live fullscreen decoder before swapping — rapid Next/Prev was orphaning VLC audio.
-    pauseSessionDecoders("fullscreen");
+    const release = pauseSessionDecoders("fullscreen");
     setDecoderArmed(false);
-    armDecoderAfterSettle(CHANNEL_ZAP_SETTLE_MS);
+    armDecoderAfterSettle(CHANNEL_ZAP_SETTLE_MS, release);
   }, [armDecoderAfterSettle, channelById, revealControls, showNotice]);
 
   const previewChannel = useCallback((id: string) => {
@@ -360,7 +381,7 @@ export default function PlayerScreen() {
       if (stableHistoryTimer.current) clearTimeout(stableHistoryTimer.current);
       showNotice(`Switching to ${target.name}`);
     }
-    pauseSessionDecoders("fullscreen");
+    const release = pauseSessionDecoders("fullscreen");
     setDecoderArmed(false);
     revealControls({ claimChannelsFocus: false });
     const delay = nowTs < rapidStripUntilRef.current || rapid
@@ -373,12 +394,12 @@ export default function PlayerScreen() {
         previewTimer.current = setTimeout(() => {
           if (pendingChannelIdRef.current !== id) return;
           if (Date.now() < rapidStripUntilRef.current) return;
-          armDecoderAfterSettle(40);
+          armDecoderAfterSettle(40, release);
         }, remaining + 40);
         return;
       }
       if (pendingChannelIdRef.current !== id) return;
-      armDecoderAfterSettle(40);
+      armDecoderAfterSettle(40, release);
     }, delay);
   }, [armDecoderAfterSettle, channelById, revealControls, showNotice]);
 
@@ -440,11 +461,12 @@ export default function PlayerScreen() {
     if (!hasStream) return;
     if (retryTimer.current) clearTimeout(retryTimer.current);
     if (zapTimer.current) clearTimeout(zapTimer.current);
-    const generation = generationRef.current;
+    const generation = generationRef.current + 1;
+    generationRef.current = generation;
     // Only a deliberate Retry button clears the breaker. Auto retry must honor
     // accumulated failures or a bad source remounts native decoders forever.
-    if (clearCircuit) clearFullscreenCircuit(channel?.url);
-    pauseSessionDecoders("fullscreen");
+    if (clearCircuit) clearFullscreenCircuit(streamUri);
+    const release = pauseSessionDecoders("fullscreen");
     // Force a real native-view remount. Keeping a stopped VLC view mounted with
     // the same source is a black-screen dead end on Fire TV.
     setDecoderArmed(false);
@@ -452,11 +474,17 @@ export default function PlayerScreen() {
     setFailReason(null);
     setRetryAttempt((value) => value + 1);
     showNotice(`Reconnecting ${channel?.name || "stream"}`);
+    // Let the existing view unmount while its release promise is pending. The
+    // retry key is ready before release so its effect cleanup cannot clear the
+    // arm timer installed after the acknowledgement.
     setRetryToken((value) => value + 1);
-    zapTimer.current = setTimeout(() => {
-      if (generation === generationRef.current) setDecoderArmed(true);
-    }, DECODER_RESTART_SETTLE_MS);
-  }, [channel?.name, channel?.url, hasStream, showNotice]);
+    void release.catch(() => undefined).then(() => {
+      if (generation !== generationRef.current) return;
+      zapTimer.current = setTimeout(() => {
+        if (generation === generationRef.current) setDecoderArmed(true);
+      }, DECODER_RESTART_SETTLE_MS);
+    });
+  }, [channel?.name, hasStream, showNotice, streamUri]);
 
   const retryNow = useCallback(() => {
     setRetryAttempt(0);
@@ -488,6 +516,7 @@ export default function PlayerScreen() {
       if (zapTimer.current) clearTimeout(zapTimer.current);
       if (retryTimer.current) clearTimeout(retryTimer.current);
       if (stableHistoryTimer.current) clearTimeout(stableHistoryTimer.current);
+      if (stableRetryResetTimer.current) clearTimeout(stableRetryResetTimer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional cold-mount/retry only
   }, [retryToken]);
@@ -512,17 +541,23 @@ export default function PlayerScreen() {
 
   useEffect(() => {
     if (status === "playing") {
-      setRetryAttempt(0);
       if (controlsRef.current) scheduleHide();
       if (stableHistoryTimer.current) clearTimeout(stableHistoryTimer.current);
+      if (stableRetryResetTimer.current) clearTimeout(stableRetryResetTimer.current);
       const stableChannelId = channelIdRef.current;
+      stableRetryResetTimer.current = setTimeout(() => {
+        if (channelIdRef.current !== stableChannelId) return;
+        setRetryAttempt(0);
+        sourceRecheckAttemptedRef.current = false;
+      }, STABLE_RETRY_RESET_MS);
       stableHistoryTimer.current = setTimeout(() => {
-        if (status !== "playing" || channelIdRef.current !== stableChannelId) return;
+        if (channelIdRef.current !== stableChannelId) return;
         const stableChannel = channelById(stableChannelId);
         if (stableChannel) addRecent(stableChannel);
       }, STABLE_HISTORY_DELAY_MS);
       return () => {
         if (stableHistoryTimer.current) clearTimeout(stableHistoryTimer.current);
+        if (stableRetryResetTimer.current) clearTimeout(stableRetryResetTimer.current);
       };
     }
   }, [addRecent, channelById, scheduleHide, status]);
@@ -539,7 +574,7 @@ export default function PlayerScreen() {
     if (retryAttempt >= MAX_AUTO_STREAM_RETRIES) return;
     // Circuit-open / cooldown: remounting only storms native decoders. Wait for
     // the deliberate Retry button (which clears the breaker).
-    if (failReason === "circuit-open" || isFullscreenCircuitOpen(channel?.url)) return;
+    if (failReason === "circuit-open" || isFullscreenCircuitOpen(streamUri)) return;
     if (retryTimer.current) clearTimeout(retryTimer.current);
     const delay = STREAM_RETRY_DELAYS_MS[Math.min(retryAttempt, STREAM_RETRY_DELAYS_MS.length - 1)];
     retryTimer.current = setTimeout(() => restartStream(false), delay);
@@ -548,13 +583,49 @@ export default function PlayerScreen() {
     };
   }, [
     autoRetryStreams,
-    channel?.url,
+    streamUri,
     failReason,
     hasStream,
     restartStream,
     retryAttempt,
     status,
   ]);
+
+  useEffect(() => {
+    if (!autoRetryStreams || !hasStream || status !== "error") return;
+    if (retryAttempt < MAX_AUTO_STREAM_RETRIES && failReason !== "circuit-open") return;
+    if (sourceRecheckAttemptedRef.current) return;
+    sourceRecheckAttemptedRef.current = true;
+    const generation = generationRef.current;
+    const logicalChannelId = channelIdRef.current;
+    const failedUri = streamUri;
+    const release = pauseSessionDecoders("fullscreen");
+    setDecoderArmed(false);
+    showNotice(`Rechecking ${channel?.name || "stream"} source`);
+    void refreshPlaybackChannel(logicalChannelId)
+      .then(async (fresh) => {
+        await release.catch(() => undefined);
+        if (generation !== generationRef.current || channelIdRef.current !== logicalChannelId) return;
+        const freshUri = String(fresh?.url || "").trim();
+        if (!freshUri) throw new Error("Channel is no longer present in the playlist");
+        clearFullscreenCircuit(failedUri);
+        clearFullscreenCircuit(freshUri);
+        setRecoveryUri(freshUri);
+        setRetryAttempt(0);
+        setFailReason(null);
+        setStatus("loading");
+        setRetryToken((value) => value + 1);
+        if (zapTimer.current) clearTimeout(zapTimer.current);
+        zapTimer.current = setTimeout(() => {
+          if (generation === generationRef.current) setDecoderArmed(true);
+        }, DECODER_RESTART_SETTLE_MS);
+      })
+      .catch(() => {
+        if (generation !== generationRef.current) return;
+        setDecoderArmed(false);
+        showNotice("Source recheck failed — use Retry Now");
+      });
+  }, [autoRetryStreams, channel?.name, failReason, hasStream, retryAttempt, showNotice, status, streamUri]);
 
   useEffect(() => {
     if (!isTV) return;
@@ -752,16 +823,20 @@ export default function PlayerScreen() {
             // A render/native crash follows the same codec-release contract as
             // normal retries. Media3 replaceAsync(null) and LibVLC stop are not
             // instantaneous, so disarm before remounting the replacement view.
-            stopAllPlaybackSessions("crashed");
+            const release = stopAllPlaybackSessions("crashed");
             if (zapTimer.current) clearTimeout(zapTimer.current);
-            const generation = generationRef.current;
+            const generation = generationRef.current + 1;
+            generationRef.current = generation;
             setDecoderArmed(false);
             setStatus("loading");
             setFailReason(null);
             setRetryToken((value) => value + 1);
-            zapTimer.current = setTimeout(() => {
-              if (generation === generationRef.current) setDecoderArmed(true);
-            }, DECODER_RESTART_SETTLE_MS);
+            void release.catch(() => undefined).then(() => {
+              if (generation !== generationRef.current) return;
+              zapTimer.current = setTimeout(() => {
+                if (generation === generationRef.current) setDecoderArmed(true);
+              }, DECODER_RESTART_SETTLE_MS);
+            });
           }}
           fallback={(reset) => (
             <View style={styles.errorOverlay}>
@@ -781,7 +856,7 @@ export default function PlayerScreen() {
         >
           <StreamPlayer
             key={`play-${retryToken}`}
-            uri={channel?.url || ""}
+            uri={streamUri}
             channelKey={channelId}
             mode="full"
           sessionRole="fullscreen"

@@ -12,7 +12,7 @@ import { evaluateDrawerBack } from "../src/core/drawerNavigationPolicy.ts";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const source = (path) => readFile(join(root, path), "utf8");
 
-test("stream classification keeps IPTV Media3-first and routes unsupported contribution protocols to VLC", () => {
+test("stream classification preserves RC.1 probing for raw and extensionless IPTV", () => {
   assert.equal(detectStreamKind("https://x/live.m3u8?token=1"), "hls");
   assert.equal(detectStreamKind("https://x/manifest.mpd"), "dash");
   assert.equal(detectStreamKind("https://cdn/hls/playlist.m3u8"), "hls");
@@ -20,11 +20,13 @@ test("stream classification keeps IPTV Media3-first and routes unsupported contr
   assert.equal(detectStreamKind("rtsp://x/live"), "rtsp");
   assert.equal(preferredEngine("hls"), "media3");
   assert.equal(preferredEngine("dash"), "media3");
-  assert.equal(preferredEngine("transport"), "media3");
+  assert.equal(detectStreamKind("http://provider.example/live/user/pass/1234"), "unknown");
+  assert.equal(preferredEngine("transport"), "vlc");
+  assert.equal(preferredEngine("unknown"), "vlc");
   assert.equal(preferredEngine("srt"), "vlc");
   assert.equal(preferredEngine("rtmp"), "vlc");
   assert.equal(preferredEngine("webrtc"), "vlc");
-  assert.equal(preferredEngine("rtsp"), "media3");
+  assert.equal(preferredEngine("rtsp"), "vlc");
   assert.equal(alternateEngine("media3", true), "vlc");
   assert.equal(alternateEngine("media3", false), null);
   assert.equal(alternateEngine("vlc", false), "media3");
@@ -48,7 +50,8 @@ test("drawer edge is a typed remote owner and stale blur cleanup cannot clobber 
   assert.match(remote, /export function resetRemoteContextIfOwned/);
   assert.match(remote, /if \(remoteContextOwner !== expected\) return/);
   assert.match(button, /setRemoteContext\("drawer_edge"\)/);
-  assert.match(button, /resetRemoteContextIfOwned\("drawer_edge"\)/);
+  assert.match(button, /pathname\?\.startsWith\("\/guide"\)[\s\S]*?"guide"/);
+  assert.match(button, /resetRemoteContextIfOwned\("drawer_edge", fallback\)/);
   assert.doesNotMatch(button, /return \(\) => \{[\s\S]{0,120}setRemoteContext\("default"\)/);
   assert.match(activity, /context == "drawer_edge" && boundaryKey == "LEFT"/);
 });
@@ -122,11 +125,14 @@ test("Guide long Select is exclusively contextual Quick Actions, never the old F
   ]);
   assert.doesNotMatch(guide, /remoteShortcuts\.longSelect/);
   assert.doesNotMatch(guide, /addTvLongPressListener/);
-  assert.match(activity, /emitRemoteEvent\("TvRemoteQuickActions", context\)/);
+  assert.match(activity, /selectHoldHandler\.postDelayed/);
+  assert.match(activity, /ViewConfiguration\.getLongPressTimeout\(\)\.toLong\(\)/);
+  assert.match(activity, /emitRemoteEvent\("TvRemoteQuickActions", owner\)/);
   assert.match(overlay, /guideSelection\?\.surface === "program" && guideSelection\.program/);
   assert.match(overlay, /PROGRAM QUICK ACTIONS/);
-  assert.match(overlay, /Program details \/ reminder/);
-  assert.doesNotMatch(overlay, /guideSelection\.program\) \{\s*openProgram/);
+  assert.match(overlay, /Watch channel now/);
+  assert.match(overlay, /reminded \? "Cancel reminder" : "Set reminder"/);
+  assert.doesNotMatch(overlay, /openProgram\(/);
   assert.match(modal, /trapFocusUp trapFocusDown trapFocusLeft trapFocusRight/);
 });
 
@@ -170,17 +176,37 @@ test("Media3 recovery only reparses a real post-playback buffering state", async
   assert.match(stream, /const bufferingFor = now - bufferingSince/);
   assert.doesNotMatch(stream, /MEDIA3_FROZEN_CLOCK_MS|const frozenReadyClock =|const stalledReady =/);
   assert.match(stream, /const BUFFERING_RESYNC_MS = 5000/);
-  assert.match(stream, /const BUFFERING_FAIL_MS = 22000/);
+  assert.match(stream, /const BUFFERING_FAIL_MS = 12_000/);
   assert.match(stream, /MAX_SILENT_BUFFERING_RESYNCS = 1/);
+  assert.match(stream, /RESYNC_REARM_STABLE_MS = 30_000/);
 });
 
-test("long Select consumes release and program context stays in Quick Actions", async () => {
+test("fullscreen exhausts local retries before one playlist-only provider URL recheck", async () => {
+  const [player, sourceNative] = await Promise.all([
+    source("app/player.tsx"),
+    source("src/source.native.ts"),
+  ]);
+  assert.match(player, /retryAttempt < MAX_AUTO_STREAM_RETRIES/);
+  assert.match(player, /sourceRecheckAttemptedRef\.current = true/);
+  assert.match(player, /pauseSessionDecoders\("fullscreen"\)[\s\S]*refreshPlaybackChannel\(logicalChannelId\)/);
+  assert.match(player, /setRecoveryUri\(freshUri\)/);
+  assert.match(player, /sourceRecheckAttemptedRef\.current = false[\s\S]*STABLE_RETRY_RESET_MS/);
+  assert.match(sourceNative, /refreshPlaybackChannel[\s\S]*await refreshPlaylistOnly\(\)/);
+  assert.doesNotMatch(sourceNative.match(/export async function refreshPlaybackChannel[\s\S]*?\n\}/)?.[0] || "", /refreshEpgOnly|loadGuide/);
+});
+
+test("long Select consumes release and short Select is reinjected only after classification", async () => {
   const [activity, overlay] = await Promise.all([
     source("android/app/src/main/java/com/charmiptv/app/MainActivity.kt"),
     source("src/components/TvQuickActionsOverlay.tsx"),
   ]);
-  assert.match(activity, /if \(consumedLongSelect\) return true/);
+  assert.match(activity, /if \(wasLong\) return true/);
+  assert.match(activity, /if \(owner == null \|\| TvRemoteModule\.remoteContext != owner\) return true/);
+  assert.match(activity, /super\.dispatchKeyEvent\(down\)/);
+  assert.match(activity, /super\.dispatchKeyEvent\(up\)/);
+  assert.doesNotMatch(activity, /consumedLongSelect/);
   assert.match(overlay, /PROGRAM QUICK ACTIONS/);
-  assert.match(overlay, /Program details \/ reminder/);
-  assert.doesNotMatch(overlay, /guideSelection\.program\) \{\s*openProgram/);
+  assert.match(overlay, /Watch channel now/);
+  assert.match(overlay, /toggleSelectedReminder/);
+  assert.doesNotMatch(overlay, /openProgram\(/);
 });

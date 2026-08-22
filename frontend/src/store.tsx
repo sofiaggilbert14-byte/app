@@ -29,7 +29,7 @@ import { buildGuidePatchTiers, keepUsefulGuidePatch } from "@/src/core/guidePatc
 import { formatNativeEpgError } from "@/src/core/epgMatching";
 import { reminderKey, setTimeFormat24h } from "@/src/utils/time";
 import { subscribeAndroidMemoryPressure } from "@/src/utils/androidMemoryPressure";
-import { getSessionPhase } from "@/src/core/playbackSession";
+import { isPreviewPlaybackAllowed } from "@/src/core/playbackSession";
 import { clearChannelLogoMemory, setChannelLogoMemoryProfile } from "@/src/components/ChannelLogo";
 import { sanitizeFavoriteIds, toggleFavoriteId } from "@/src/utils/favoriteIds";
 import { pushRecentId, sanitizeRecentIds } from "@/src/utils/recentIds";
@@ -86,10 +86,12 @@ const SLEEP_TIMER_MINUTES_KEY = "gs_sleep_timer_minutes";
 const INSTANT_GUIDE_KEY = "gs_instant_guide";
 
 function fullscreenPlaybackOwnsDecoder(): boolean {
-  return getSessionPhase("fullscreen") !== "idle";
+  // A pending fullscreen reservation blocks background playlist/EPG work too,
+  // including the native-release handoff before the fullscreen route mounts.
+  return !isPreviewPlaybackAllowed();
 }
 
-const DEFAULT_GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 12);
+const DEFAULT_GUIDE_WINDOW_HOURS = readGuideWindowHours(process.env.EXPO_PUBLIC_GUIDE_WINDOW_HOURS, 24);
 
 function readGuideWindowHours(value: string | number | null | undefined, fallback: GuideWindowHours): GuideWindowHours {
   const n = Number(value || fallback);
@@ -274,10 +276,10 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     resolveStoredGuideLayout(null, Platform.isTV, Platform.OS),
   );
   const [guideDensity, setGuideDensityState] = useState<GuideDensity>("extra_compact");
-  const [safePreviewMode, setSafePreviewModeState] = useState<SafePreviewMode>("surf");
+  const [safePreviewMode, setSafePreviewModeState] = useState<SafePreviewMode>("delayed");
   const [channelNumbers, setChannelNumbersState] = useState(false);
   const [channelLogos, setChannelLogosState] = useState(true);
-  const [deviceLayoutMode, setDeviceLayoutModeState] = useState<DeviceLayoutMode>("auto");
+  const [deviceLayoutMode, setDeviceLayoutModeState] = useState<DeviceLayoutMode>("tv");
   const [playerControlsTimeoutMs, setPlayerControlsTimeoutMsState] = useState<PlayerControlsTimeoutMs>(8000);
   const [autoRetryStreams, setAutoRetryStreamsState] = useState(true);
   const [preferTvgIdOnly, setPreferTvgIdOnlyState] = useState(false);
@@ -885,13 +887,13 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
         if (!extraCompactDefaultApplied) void storage.setItem(GUIDE_DENSITY_KEY, "extra_compact");
       }
       if (!extraCompactDefaultApplied) void storage.setItem(EXTRA_COMPACT_DEFAULT_MIGRATION_KEY, true);
-      const storedSafePreviewMode = (await storage.getItem<SafePreviewMode>(SAFE_PREVIEW_MODE_KEY, "surf")) || "surf";
+      const storedSafePreviewMode = (await storage.getItem<SafePreviewMode>(SAFE_PREVIEW_MODE_KEY, "delayed")) || "delayed";
       if (!settingsTouchedRef.current.has(SAFE_PREVIEW_MODE_KEY)) setSafePreviewModeState(storedSafePreviewMode);
       const storedChannelNumbers = (await storage.getItem<boolean>(CHANNEL_NUMBERS_KEY, false)) || false;
       if (!settingsTouchedRef.current.has(CHANNEL_NUMBERS_KEY)) setChannelNumbersState(storedChannelNumbers);
       const storedChannelLogos = (await storage.getItem<boolean>(CHANNEL_LOGOS_KEY, true)) ?? true;
       if (!settingsTouchedRef.current.has(CHANNEL_LOGOS_KEY)) setChannelLogosState(storedChannelLogos);
-      const storedDeviceLayout = (await storage.getItem<DeviceLayoutMode>(DEVICE_LAYOUT_MODE_KEY, "auto")) || "auto";
+      const storedDeviceLayout = (await storage.getItem<DeviceLayoutMode>(DEVICE_LAYOUT_MODE_KEY, "tv")) || "tv";
       if (!settingsTouchedRef.current.has(DEVICE_LAYOUT_MODE_KEY)) setDeviceLayoutModeState(storedDeviceLayout);
       const storedPlayerTimeout = (await storage.getItem<PlayerControlsTimeoutMs>(PLAYER_TIMEOUT_KEY, 8000)) || 8000;
       if (!settingsTouchedRef.current.has(PLAYER_TIMEOUT_KEY)) setPlayerControlsTimeoutMsState(storedPlayerTimeout);

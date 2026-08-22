@@ -63,24 +63,46 @@ for path in files:
 # TiViMate-style player/preview ownership invariants.
 stream_path = ROOT / "src/components/StreamPlayer.tsx"
 stream = text(stream_path)
-if 'if (role === "fullscreen") rememberSuccessfulStreamEngine(engineMemoryKey, engine);' not in stream:
-    critical.append("preview can write fullscreen successful-engine memory")
+for obsolete in ("getRememberedStreamEngine", "rememberSuccessfulStreamEngine", "engineMemoryKey"):
+    if obsolete in stream:
+        critical.append(f"stale engine memory can override format routing: {obsolete}")
 if 'if (!uri || role === "preview") return;' not in stream:
     critical.append("preview failures can poison fullscreen circuit state")
 if 'if (bufferingSince == null) return;' not in stream or 'MAX_SILENT_BUFFERING_RESYNCS = 1' not in stream:
     critical.append("Media3 explicit-buffering watchdog/resync budget missing")
+if 'const RESYNC_REARM_STABLE_MS = 30_000' not in stream or 'const BUFFERING_FAIL_MS = 12_000' not in stream:
+    critical.append("Media3 unstable-episode rearm/buffering bound missing")
 if "MEDIA3_FROZEN_CLOCK_MS" in stream or "const frozenReadyClock =" in stream:
     critical.append("Media3 clock-silence-only decoder reload is enabled")
-if 'const VLC_FROZEN_PROGRESS_MS = 15_000' not in stream or 'onStopped={fail}' not in stream:
-    critical.append("VLC frozen-progress/stop recovery missing")
-if 'mode === "preview" ? "textureView" : "surfaceView"' not in stream:
-    critical.append("preview/fullscreen Android surface ownership split missing")
+if (
+    'const VLC_BUFFERING_FAIL_MS = 12_000' not in stream
+    or 'onStopped={() => {' not in stream
+    or 'releaseResolveRef.current?.();' not in stream
+    or 'fail();' not in stream
+):
+    critical.append("VLC buffering/stop/release recovery missing")
+if 'surfaceType={Platform.OS === "android" ? "textureView" : undefined}' not in stream:
+    critical.append("RC.1 Android TextureView ownership missing")
 if 'if (!playbackFocused || !uri || !sessionGeneration) return null;' not in stream:
     critical.append("player does not fully disarm while route/app is inactive")
 
+# Outer fullscreen recovery is bounded to one 1s/2s/4s sequence per unstable
+# episode, and a transient PLAYING callback cannot instantly buy another cycle.
+player_path = ROOT / "app/player.tsx"
+player = text(player_path)
+for required in (
+    'const STREAM_RETRY_DELAYS_MS = [1000, 2000, 4000] as const',
+    'const MAX_AUTO_STREAM_RETRIES = 3',
+    'const STABLE_RETRY_RESET_MS = 30_000',
+):
+    if required not in player:
+        critical.append(f"fullscreen bounded retry ownership missing: {required}")
+if 'if (status === "playing") {\n      setRetryAttempt(0);' in player:
+    critical.append("fullscreen retry budget resets on transient PLAYING")
+
 handoff_path = ROOT / "src/utils/openFullscreenPlayer.ts"
 handoff = text(handoff_path)
-stop_at = handoff.find("stopPreviewForFullscreen();")
+stop_at = handoff.find("stopPreviewForFullscreen()")
 push_at = handoff.find("router.push(")
 if stop_at < 0 or push_at < 0 or stop_at > push_at:
     critical.append("fullscreen route can open before preview teardown")
