@@ -92,11 +92,23 @@ jobs:
         run: |
           chmod +x scripts/build-media3-ffmpeg-audio.sh
           ./scripts/build-media3-ffmpeg-audio.sh
+      - name: Verify sideload source configuration
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_sideload }}
+        env:
+          CI: "1"
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx3g -Dorg.gradle.workers.max=1"
+          EXPO_PUBLIC_M3U_URL: ${{ secrets.M3U_URL || vars.EXPO_PUBLIC_M3U_URL }}
+          EXPO_PUBLIC_EPG_URL: ${{ secrets.EPG_URL || vars.EXPO_PUBLIC_EPG_URL }}
+        run: |
+          test -n "${EXPO_PUBLIC_M3U_URL}"
+          test -n "${EXPO_PUBLIC_EPG_URL}"
       - name: Assemble sideload APK
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_sideload }}
         env:
           CI: "1"
           GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx3g -Dorg.gradle.workers.max=1"
+          EXPO_PUBLIC_M3U_URL: ${{ secrets.M3U_URL || vars.EXPO_PUBLIC_M3U_URL }}
+          EXPO_PUBLIC_EPG_URL: ${{ secrets.EPG_URL || vars.EXPO_PUBLIC_EPG_URL }}
         run: |
           ./android/gradlew -p android :app:assembleSideload \
             --no-daemon --max-workers=1 --stacktrace

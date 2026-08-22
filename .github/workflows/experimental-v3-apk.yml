@@ -47,6 +47,14 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps --no-audit --no-fund
 
+      - name: Verify configured playlist and guide
+        env:
+          EXPO_PUBLIC_M3U_URL: ${{ secrets.M3U_URL || vars.EXPO_PUBLIC_M3U_URL }}
+          EXPO_PUBLIC_EPG_URL: ${{ secrets.EPG_URL || vars.EXPO_PUBLIC_EPG_URL }}
+        run: |
+          test -n "${EXPO_PUBLIC_M3U_URL}"
+          test -n "${EXPO_PUBLIC_EPG_URL}"
+
       - name: Make Gradle wrapper executable
         run: chmod +x android/gradlew
 
@@ -57,6 +65,8 @@ jobs:
         run: ./android/gradlew -p android assembleSideload --stacktrace
         env:
           CI: '1'
+          EXPO_PUBLIC_M3U_URL: ${{ secrets.M3U_URL || vars.EXPO_PUBLIC_M3U_URL }}
+          EXPO_PUBLIC_EPG_URL: ${{ secrets.EPG_URL || vars.EXPO_PUBLIC_EPG_URL }}
 
       - name: Verify embedded React Native bundle
         run: |
