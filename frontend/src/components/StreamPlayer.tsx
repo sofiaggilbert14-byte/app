@@ -19,6 +19,7 @@ import {
   loadMedia3Source,
   releaseFullscreenMedia3,
   releasePreviewMedia3,
+  suspendFullscreenMedia3,
 } from "@/src/core/media3PlaybackManager";
 import { shouldUseLowRamTuning, useDeviceMemoryProfile } from "@/src/core/deviceMemoryProfile";
 import {
@@ -233,7 +234,7 @@ export function StreamPlayer({
     if (!playbackFocused || !uri) {
       setGeneration(0);
       if (role === "preview") void releasePreviewMedia3();
-      else if (!appActive) void releaseFullscreenMedia3();
+      else if (!appActive) void suspendFullscreenMedia3();
       return;
     }
     const next = beginSession(role);
