@@ -2,11 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExtern
 import { AppState, Platform, StyleProp, ViewStyle } from "react-native";
 import { VideoView, type VideoSource } from "expo-video";
 import { useIsFocused } from "@react-navigation/native";
-import {
-  detectStreamKind,
-  media3ContentType,
-  parsePipeHeaders,
-} from "@/src/core/streamPolicy";
+import { detectStreamKind, media3ContentType, parsePipeHeaders } from "@/src/core/streamPolicy";
 import {
   beginSession,
   getPlaybackOwnershipRevision,
@@ -19,7 +15,7 @@ import {
   type SessionRole,
 } from "@/src/core/playbackSession";
 import {
-  claimMedia3Playback,
+  getMedia3Player,
   loadMedia3Source,
   releaseFullscreenMedia3,
   releasePreviewMedia3,
@@ -42,9 +38,9 @@ export type StreamTrack = {
   isSupported?: boolean;
 };
 
-// Compatibility exports kept so PlayerScreen can be migrated incrementally.
-// VLC/circuit breaking are intentionally gone from the new core.
-export const vlcAvailable = false;
+// Compatibility exports for the existing PlayerScreen API. `vlcAvailable` now
+// means the native Media3 path is available; the rebuilt core never instantiates VLC.
+export const vlcAvailable = Platform.OS !== "web";
 export function clearFullscreenCircuit(_uri?: string): void {}
 export function isFullscreenCircuitOpen(_uri?: string): boolean { return false; }
 
@@ -67,7 +63,6 @@ type Props = {
 const START_TIMEOUT_MS = 10_000;
 const REBUFFER_REPREPARE_MS = 5_000;
 const REBUFFER_FAIL_MS = 12_000;
-const RETRY_DELAYS_MS = [1000, 2000, 4000] as const;
 
 export function StreamPlayer({
   uri: rawUri,
@@ -93,11 +88,8 @@ export function StreamPlayer({
   const playbackFocused = isFocused && appActive && previewAllowed;
   const [generation, setGeneration] = useState(0);
   const stableRef = useRef(false);
-  const firstFrameRef = useRef(false);
   const bufferingSinceRef = useRef<number | null>(null);
   const reprepareUsedRef = useRef(false);
-  const retryRef = useRef(0);
-  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const watchdogRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const onStatusRef = useRef(onStatus);
@@ -106,7 +98,7 @@ export function StreamPlayer({
   const { uri, headers } = useMemo(() => parsePipeHeaders(rawUri), [rawUri]);
   const kind = useMemo(() => detectStreamKind(uri), [uri]);
   const contentType = useMemo(() => media3ContentType(kind), [kind]);
-  const player = useMemo(() => claimMedia3Playback(role), [role]);
+  const player = useMemo(() => getMedia3Player(), []);
   const deviceMemory = useDeviceMemoryProfile();
   const lowRam = shouldUseLowRamTuning(deviceMemory);
   const compat = usePlayerCompatibilityPreferences();
@@ -116,20 +108,23 @@ export function StreamPlayer({
     onStatusRef.current(status, reason);
   }, [generation, role]);
 
+  const fail = useCallback((reason: SessionFailReason = "stream-error") => {
+    if (!generation || !isSessionCurrent(role, generation)) return;
+    bufferingSinceRef.current = null;
+    setSessionPhase(role, generation, "failed", reason);
+    if (role === "fullscreen") setNativePlaybackStarting(false);
+    emit("error", reason);
+  }, [emit, generation, role]);
+
   const clearTimers = useCallback(() => {
-    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
     if (startTimerRef.current) clearTimeout(startTimerRef.current);
     if (watchdogRef.current) clearInterval(watchdogRef.current);
-    retryTimerRef.current = null;
     startTimerRef.current = null;
     watchdogRef.current = null;
   }, []);
 
   const applyBufferPolicy = useCallback(() => {
     try {
-      // Live TV only: tight forward buffer, no VOD-sized allocator. Expo 3.0.16
-      // exposes forward duration/byte caps; native LoadControl tuning can stay
-      // below this JS ceiling.
       player.bufferOptions = mode === "preview"
         ? {
             preferredForwardBufferDuration: 1.5,
@@ -164,7 +159,11 @@ export function StreamPlayer({
       });
 
       const requestedAudio = audioTrack == null
-        ? pickPreferredAudioTrack(mappedAudio as any, getRememberedChannelAudioTrack(channelKey), getPreferredAudioLanguage())
+        ? pickPreferredAudioTrack(
+            mappedAudio as any,
+            getRememberedChannelAudioTrack(channelKey),
+            getPreferredAudioLanguage(),
+          )
         : mappedAudio.find((track) => String(track.id) === String(audioTrack));
       if (requestedAudio) {
         const raw = audio.find((track: any) => String(track.id) === String(requestedAudio.id));
@@ -183,13 +182,11 @@ export function StreamPlayer({
     if (!uri || !playbackFocused || !generation || !isSessionCurrent(role, generation)) return;
     if (!isRecovery) {
       stableRef.current = false;
-      firstFrameRef.current = false;
       reprepareUsedRef.current = false;
-      retryRef.current = 0;
     }
     bufferingSinceRef.current = null;
     applyBufferPolicy();
-    emit("loading");
+    emit("loading", isRecovery ? "stream-error" : undefined);
     setSessionPhase(role, generation, isRecovery ? "recovering" : "preparing", isRecovery ? "stream-error" : null);
     const source: VideoSource = {
       uri,
@@ -207,14 +204,13 @@ export function StreamPlayer({
       publishTracks();
       if (paused) player.pause(); else player.play();
     } catch {
-      if (!isSessionCurrent(role, generation)) return;
-      emit("error", "stream-error");
-      setSessionPhase(role, generation, "failed", "stream-error");
+      fail("stream-error");
     }
   }, [
     applyBufferPolicy,
     contentType,
     emit,
+    fail,
     generation,
     headers,
     muted,
@@ -225,20 +221,6 @@ export function StreamPlayer({
     role,
     uri,
   ]);
-
-  const failOrRetry = useCallback(() => {
-    if (!generation || !isSessionCurrent(role, generation)) return;
-    if (retryRef.current >= RETRY_DELAYS_MS.length) {
-      setSessionPhase(role, generation, "failed", "stream-error");
-      emit("error", "stream-error");
-      return;
-    }
-    const delay = RETRY_DELAYS_MS[retryRef.current++];
-    setSessionPhase(role, generation, "recovering", "stream-error");
-    emit("loading", "stream-error");
-    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-    retryTimerRef.current = setTimeout(() => void load(true), delay);
-  }, [emit, generation, load, role]);
 
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
@@ -257,10 +239,8 @@ export function StreamPlayer({
     const next = beginSession(role);
     setGeneration(next);
     stableRef.current = false;
-    firstFrameRef.current = false;
     bufferingSinceRef.current = null;
     reprepareUsedRef.current = false;
-    retryRef.current = 0;
     if (role === "fullscreen") setNativePlaybackStarting(true);
   }, [appActive, playbackFocused, role, uri]);
 
@@ -272,9 +252,6 @@ export function StreamPlayer({
     return () => {
       unregister();
       clearTimers();
-      // Preview surfaces are ephemeral and must never survive Guide focus loss.
-      // Fullscreen Media3 intentionally survives temporary React unmounts during
-      // channel surfing; stopFullscreenSession owns the real release.
       if (role === "preview") void releasePreviewMedia3();
     };
   }, [clearTimers, generation, load, playbackFocused, role]);
@@ -282,14 +259,13 @@ export function StreamPlayer({
   useEffect(() => {
     if (!generation || !playbackFocused) return;
     startTimerRef.current = setTimeout(() => {
-      if (stableRef.current || !isSessionCurrent(role, generation)) return;
-      failOrRetry();
+      if (!stableRef.current && isSessionCurrent(role, generation)) fail("start-timeout");
     }, START_TIMEOUT_MS);
     return () => {
       if (startTimerRef.current) clearTimeout(startTimerRef.current);
       startTimerRef.current = null;
     };
-  }, [failOrRetry, generation, playbackFocused, role]);
+  }, [fail, generation, playbackFocused, role]);
 
   useEffect(() => {
     const statusSub = player.addListener("statusChange", ({ status, error }) => {
@@ -300,7 +276,7 @@ export function StreamPlayer({
       } else if (status === "readyToPlay") {
         publishTracks();
       } else if (error || status === "error") {
-        failOrRetry();
+        fail("stream-error");
       }
     });
     const audioSub = player.addListener("availableAudioTracksChange", publishTracks);
@@ -310,7 +286,7 @@ export function StreamPlayer({
       audioSub.remove();
       textSub.remove();
     };
-  }, [emit, failOrRetry, generation, player, publishTracks, role]);
+  }, [emit, fail, generation, player, publishTracks, role]);
 
   useEffect(() => {
     if (!generation || !playbackFocused || paused) return;
@@ -326,14 +302,14 @@ export function StreamPlayer({
       }
       if (elapsed >= REBUFFER_FAIL_MS) {
         bufferingSinceRef.current = null;
-        failOrRetry();
+        fail("stream-error");
       }
     }, 1000);
     return () => {
       if (watchdogRef.current) clearInterval(watchdogRef.current);
       watchdogRef.current = null;
     };
-  }, [failOrRetry, generation, load, paused, playbackFocused, role]);
+  }, [fail, generation, load, paused, playbackFocused, role]);
 
   useEffect(() => {
     try {
@@ -359,11 +335,9 @@ export function StreamPlayer({
       useExoShutter
       onFirstFrameRender={() => {
         if (!isSessionCurrent(role, generation)) return;
-        firstFrameRef.current = true;
         stableRef.current = true;
         bufferingSinceRef.current = null;
         reprepareUsedRef.current = false;
-        retryRef.current = 0;
         setSessionPhase(role, generation, "playing");
         if (role === "fullscreen") setNativePlaybackStarting(false);
         emit("playing");
