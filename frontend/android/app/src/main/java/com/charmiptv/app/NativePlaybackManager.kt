@@ -8,6 +8,7 @@ import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -100,12 +101,13 @@ object NativePlaybackManager {
 
   private val startupTimeout = Runnable {
     if (owner == Owner.NONE || firstFrameRendered) return@Runnable
-    listener?.onState("error", "start-timeout")
+    publishState("error", "start-timeout")
   }
 
   private val bufferingWatchdog = Runnable {
     val instance = player ?: return@Runnable
     if (!firstFrameRendered || instance.playbackState != Player.STATE_BUFFERING) return@Runnable
+    showDiagnostic("buffer-watchdog")
     recoverOnce(instance)
   }
 
@@ -179,7 +181,7 @@ object NativePlaybackManager {
       stableSinceMs = 0L
       httpDataSourceFactory.setDefaultRequestProperties(headers)
       if (!attachPlayerView(requestedOwner)) {
-        listener?.onState("error", "surface-unavailable")
+        publishState("error", "surface-unavailable")
         return@runOnMain
       }
       playerView?.visibility = View.VISIBLE
@@ -191,7 +193,7 @@ object NativePlaybackManager {
         "transport", "ts", MimeTypes.VIDEO_MP2T -> itemBuilder.setMimeType(MimeTypes.VIDEO_MP2T)
       }
       instance.setMediaItem(itemBuilder.build(), true)
-      listener?.onState("loading", null)
+      publishState("loading", null)
       instance.prepare()
       instance.playWhenReady = true
       armStartupTimeout()
@@ -269,6 +271,16 @@ object NativePlaybackManager {
 
   fun currentOwner(): Owner = owner
 
+  private fun publishState(state: String, reason: String? = null) {
+    listener?.onState(state, reason)
+    if (!reason.isNullOrBlank()) showDiagnostic("$state: $reason")
+  }
+
+  private fun showDiagnostic(message: String) {
+    val host = activity ?: return
+    Toast.makeText(host, "Media3 $message", Toast.LENGTH_LONG).show()
+  }
+
   private fun stopInternal(releasePlayer: Boolean) {
     main.removeCallbacks(startupTimeout)
     main.removeCallbacks(bufferingWatchdog)
@@ -326,13 +338,14 @@ object NativePlaybackManager {
                   main.removeCallbacks(bufferingWatchdog)
                   main.postDelayed(bufferingWatchdog, HUNG_BUFFER_REPREPARE_MS)
                 }
-                listener?.onState("loading", null)
+                publishState("loading", null)
               }
               Player.STATE_READY -> {
                 main.removeCallbacks(bufferingWatchdog)
+                if (firstFrameRendered && stableSinceMs == 0L) stableSinceMs = System.currentTimeMillis()
                 publishTracks(created.currentTracks)
               }
-              Player.STATE_ENDED -> listener?.onState("error", "stream-ended")
+              Player.STATE_ENDED -> publishState("error", "stream-ended")
               else -> Unit
             }
           }
@@ -343,12 +356,13 @@ object NativePlaybackManager {
             main.removeCallbacks(startupTimeout)
             main.removeCallbacks(bufferingWatchdog)
             main.removeCallbacks(delayedRecovery)
-            listener?.onState("playing", null)
+            publishState("playing", null)
           }
 
           override fun onPlayerError(error: PlaybackException) {
             main.removeCallbacks(startupTimeout)
             main.removeCallbacks(bufferingWatchdog)
+            showDiagnostic("player-error: ${error.errorCodeName}")
             // Media3 reaches this callback after a source read, segment, or
             // decoder failure. Use the same bounded native recovery as a long
             // buffering stall, with short backoff between repeated failures.
@@ -389,7 +403,7 @@ object NativePlaybackManager {
   private fun recoverOnce(instance: ExoPlayer): Boolean {
     if (owner == Owner.NONE || player !== instance) return false
     if (recoveryAttempts >= MAX_AUTO_RECOVERIES) {
-      listener?.onState("error", "stream-error")
+      publishState("error", "stream-error")
       return false
     }
 
@@ -398,7 +412,7 @@ object NativePlaybackManager {
     main.removeCallbacks(startupTimeout)
     main.removeCallbacks(bufferingWatchdog)
     main.removeCallbacks(delayedRecovery)
-    listener?.onState("loading", "native-reprepare")
+    publishState("loading", "native-reprepare")
 
     return if (delayMs == 0L) {
       performRecovery(instance)
@@ -416,7 +430,7 @@ object NativePlaybackManager {
       if (!firstFrameRendered) armStartupTimeout()
       true
     } catch (_: Throwable) {
-      listener?.onState("error", "stream-error")
+      publishState("error", "stream-error")
       false
     }
   }
