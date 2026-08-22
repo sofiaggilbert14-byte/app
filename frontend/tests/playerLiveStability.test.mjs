@@ -3,124 +3,47 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const source = (path) => readFile(join(root, path), "utf8");
 
-test("live TV core is a single Media3 path with serialized native ownership", async () => {
-  const [stream, manager] = await Promise.all([
-    source("src/components/StreamPlayer.tsx"),
-    source("src/core/media3PlaybackManager.ts"),
-  ]);
-  assert.match(stream, /VideoView/);
-  assert.match(stream, /loadMedia3Source/);
-  assert.doesNotMatch(stream, /VLCPlayer|react-native-vlc-media-player|setEngine\(|fallbackUsed|alternateEngine/);
-  assert.match(manager, /let nativeMutationTail: Promise<void> = Promise\.resolve\(\)/);
-  assert.match(manager, /function enqueueNativeMutation/);
-  assert.match(manager, /return enqueueNativeMutation\(async \(\) => \{/);
-  assert.match(manager, /activeRole = role/);
-  assert.match(manager, /await instance\.replaceAsync\(source\)/);
-  assert.match(manager, /activeRole !== "preview"/);
-  assert.match(manager, /activeRole !== "fullscreen"/);
+test("live TV core is one Activity-owned Media3 path", async () => {
+  const [stream, native, bridge] = await Promise.all([source("src/components/StreamPlayer.tsx"), source("android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt"), source("src/nativePlayback.ts")]);
+  assert.match(stream, /prepareNativeFullscreen/); assert.match(stream, /prepareNativePreview/); assert.doesNotMatch(stream, /VideoView|VLCPlayer|react-native-vlc-media-player|alternateEngine/);
+  assert.match(native, /object NativePlaybackManager/); assert.match(native, /private var player: ExoPlayer\? = null/); assert.match(native, /private var owner: Owner = Owner\.NONE/); assert.match(native, /if \(requestedOwner == Owner\.PREVIEW && owner == Owner\.FULLSCREEN\) return@runOnMain/); assert.match(bridge, /NativeModules\.NativePlayback/);
 });
 
-test("stale channel loads are invalidated before they can restart old playback", async () => {
-  const stream = await source("src/components/StreamPlayer.tsx");
-  assert.match(stream, /const loadRequestRef = useRef\(0\)/);
-  assert.match(stream, /const requestId = \+\+loadRequestRef\.current/);
-  assert.match(stream, /if \(requestId !== loadRequestRef\.current\) return/);
-  assert.match(stream, /loadRequestRef\.current \+= 1/);
-  assert.match(stream, /isSessionCurrent\(role, generation\)/);
+test("channel changes replace MediaItem on the same native ExoPlayer", async () => {
+  const native = await source("android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt");
+  assert.match(native, /player\?\.let \{ return it \}/); assert.match(native, /instance\.clearMediaItems\(\)/); assert.match(native, /instance\.setMediaItem\(itemBuilder\.build\(\), true\)/); assert.match(native, /instance\.prepare\(\)/);
 });
 
-test("Media3 startup and post-playback recovery are bounded", async () => {
-  const stream = await source("src/components/StreamPlayer.tsx");
-  assert.match(stream, /FULLSCREEN_START_TIMEOUT_MS = 12_000/);
-  assert.match(stream, /PREVIEW_START_TIMEOUT_MS = 8_000/);
-  assert.match(stream, /REBUFFER_REPREPARE_MS = 5_000/);
-  assert.match(stream, /REBUFFER_FAIL_MS = 12_000/);
-  assert.match(stream, /MAX_SILENT_BUFFERING_RESYNCS = 1/);
-  assert.match(stream, /RESYNC_REARM_STABLE_MS = 30_000/);
-  assert.match(stream, /silentResyncCountRef\.current < MAX_SILENT_BUFFERING_RESYNCS/);
-  assert.match(stream, /silentResyncCountRef\.current \+= 1/);
-  assert.match(stream, /void load\(true\)/);
-  assert.match(stream, /elapsed >= REBUFFER_FAIL_MS/);
-  assert.doesNotMatch(stream, /MEDIA3_FROZEN_CLOCK_MS|VLC_FROZEN_PROGRESS_MS|frozenReadyClock/);
+test("Media3 uses live-TV buffers and one native recovery watchdog", async () => {
+  const native = await source("android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt");
+  assert.match(native, /MIN_BUFFER_MS = 1_000/); assert.match(native, /MAX_BUFFER_MS = 2_500/); assert.match(native, /PLAYBACK_BUFFER_MS = 500/); assert.match(native, /REBUFFER_BUFFER_MS = 1_000/); assert.match(native, /TARGET_BUFFER_BYTES = 12 \* 1024 \* 1024/); assert.match(native, /HUNG_BUFFER_REPREPARE_MS = 5_000L/); assert.match(native, /if \(recoveryUsed\)/); assert.match(native, /instance\.prepare\(\)/);
 });
 
-test("retry budget only rearms after a stable 30-second playback window", async () => {
-  const stream = await source("src/components/StreamPlayer.tsx");
-  assert.match(stream, /stableSinceRef = useRef<number \| null>\(null\)/);
-  assert.match(stream, /stableSinceRef\.current = Date\.now\(\)/);
-  assert.match(stream, /now - stableSinceRef\.current >= RESYNC_REARM_STABLE_MS/);
-  assert.match(stream, /silentResyncCountRef\.current = 0/);
-  assert.doesNotMatch(stream, /lastPlaybackAdvanceAtRef|hasAdvancedPlaybackRef/);
+test("first frame is the stable-playing gate", async () => {
+  const native = await source("android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt");
+  const firstFrame = native.match(/override fun onRenderedFirstFrame\(\)[\s\S]*?\n\s*}/)?.[0] || ""; assert.match(firstFrame, /firstFrameRendered = true/); assert.match(firstFrame, /listener\?\.onState\("playing", null\)/);
 });
 
-test("first-frame ownership is the only stable-playing gate", async () => {
-  const stream = await source("src/components/StreamPlayer.tsx");
-  const firstFrame = stream.match(/onFirstFrameRender=\{\(\) => \{[\s\S]*?\n\s*\}\}/)?.[0] || "";
-  assert.match(firstFrame, /stableRef\.current = true/);
-  assert.match(firstFrame, /setSessionPhase\(role, generation, "playing"\)/);
-  assert.match(firstFrame, /emit\("playing"\)/);
-  const ready = stream.match(/else if \(status === "readyToPlay"\) \{[\s\S]*?\n\s*\} else if/)?.[0] || "";
-  assert.doesNotMatch(ready, /emit\("playing"\)|setSessionPhase\([^\n]*"playing"/);
+test("native PlayerView owns the SurfaceView beneath React UI", async () => {
+  const native = await source("android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt");
+  assert.match(native, /PlayerView\(activity\)/); assert.match(native, /frame\.addView\(video, fillParent\(\)\)/); assert.match(native, /frame\.addView\(reactRoot, fillParent\(\)\)/); assert.match(native, /setShutterBackgroundColor\(Color\.BLACK\)/);
 });
 
-test("fullscreen and preview use separate Android surfaces and bounded memory", async () => {
-  const stream = await source("src/components/StreamPlayer.tsx");
-  assert.match(stream, /mode === "preview" \? "textureView" : "surfaceView"/);
-  assert.match(stream, /preferredForwardBufferDuration: 1\.2/);
-  assert.match(stream, /maxBufferBytes: Math\.min\(\(lowRam \? 6 : 10\) \* 1024 \* 1024, coordinatedCacheBudget\)/);
-  assert.match(stream, /preferredForwardBufferDuration: lowRam \? 4 : 5/);
-  assert.match(stream, /maxBufferBytes: \(lowRam \? 20 : 32\) \* 1024 \* 1024/);
-  assert.match(stream, /Math\.min\(full\.maxBufferBytes, coordinatedCacheBudget\)/);
+test("audio and subtitles hot-apply through TrackSelectionParameters", async () => {
+  const native = await source("android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt");
+  assert.match(native, /trackSelectionParameters\.buildUpon\(\)/); assert.match(native, /TrackSelectionOverride/); assert.match(native, /clearOverridesOfType\(C\.TRACK_TYPE_AUDIO\)/); assert.match(native, /clearOverridesOfType\(C\.TRACK_TYPE_TEXT\)/);
 });
 
-test("subtitle selection hot-applies without replacing the stream", async () => {
-  const stream = await source("src/components/StreamPlayer.tsx");
-  const publish = stream.match(/const publishTracks = useCallback\(\(\) => \{[\s\S]*?\n\s*\}, \[/)?.[0] || "";
-  assert.match(publish, /player\.subtitleTrack = selectedText/);
-  assert.doesNotMatch(publish, /replaceAsync|loadMedia3Source|releaseFullscreenMedia3/);
+test("Guide preview cannot own playback while fullscreen owns native player", async () => {
+  const [stream, native, guide] = await Promise.all([source("src/components/StreamPlayer.tsx"), source("android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt"), source("app/(tabs)/guide.tsx")]);
+  assert.match(stream, /isPreviewPlaybackAllowed\(\)/); assert.match(native, /requestedOwner == Owner\.PREVIEW && owner == Owner\.FULLSCREEN/); assert.doesNotMatch(guide, /noteStreamFailure|clearStreamFailure/);
 });
 
-test("Guide preview cannot own playback while fullscreen owns the session", async () => {
-  const [stream, guide] = await Promise.all([
-    source("src/components/StreamPlayer.tsx"),
-    source("app/(tabs)/guide.tsx"),
-  ]);
-  assert.match(stream, /isPreviewPlaybackAllowed\(\)/);
-  assert.match(stream, /const previewAllowed = role !== "preview" \|\| isPreviewPlaybackAllowed\(\)/);
-  assert.match(stream, /role === "preview" \? releasePreviewMedia3\(\) : releaseFullscreenMedia3\(\)/);
-  assert.doesNotMatch(guide, /noteStreamFailure|clearStreamFailure/);
+test("fullscreen exit returns currently tuned channel to Guide", async () => {
+  const player = await source("app/player.tsx"); assert.match(player, /const currentChannelId = pendingChannelIdRef\.current \|\| channelIdRef\.current/); assert.match(player, /requestGuideJump\(\{ channelId: currentChannelId, group: "All" \}\)/); assert.match(player, /router\.replace\("\/guide" as any\)/);
 });
 
-test("fullscreen channel zaps pause one decoder, settle once, and preserve Previous channel", async () => {
-  const player = await source("app/player.tsx");
-  assert.match(player, /const release = pauseSessionDecoders\("fullscreen"\);/);
-  assert.match(player, /setDecoderArmed\(false\)/);
-  assert.match(player, /armDecoderAfterSettle\(CHANNEL_ZAP_SETTLE_MS, release\)/);
-  assert.match(player, /if \(pendingChannelIdRef\.current !== id\) return/);
-  assert.match(player, /rapidStripUntilRef/);
-  assert.match(player, /const previous = channelIdRef\.current/);
-  assert.match(player, /if \(previous && previous !== pending\) previousChannelIdRef\.current = previous/);
-});
-
-test("retry and immediate channel remounts wait for native decoder release", async () => {
-  const player = await source("app/player.tsx");
-  assert.match(player, /const DECODER_RESTART_SETTLE_MS = 120/);
-  assert.match(player, /pauseSessionDecoders\("fullscreen"\)/);
-  assert.match(player, /armDecoderAfterSettle\(DECODER_RESTART_SETTLE_MS, release\)/);
-});
-
-test("fullscreen exit returns the currently tuned channel to Guide instead of the launch channel", async () => {
-  const player = await source("app/player.tsx");
-  assert.match(player, /const currentChannelId = pendingChannelIdRef\.current \|\| channelIdRef\.current/);
-  assert.match(player, /requestGuideJump\(\{ channelId: currentChannelId, group: "All" \}\)/);
-  assert.match(player, /router\.replace\("\/guide" as any\)/);
-});
-
-test("Program Details Watch now preserves the Guide return anchor", async () => {
-  const modal = await source("src/components/ProgramModal.tsx");
-  assert.match(modal, /openFullscreenPlayer\(router, channel\.id, \{ returnToGuide: pathname\?\.startsWith\("\/guide"\) \}\)/);
-});
+test("Program Details Watch now preserves Guide return anchor", async () => { const modal = await source("src/components/ProgramModal.tsx"); assert.match(modal, /openFullscreenPlayer\(router, channel\.id, \{ returnToGuide: pathname\?\.startsWith\("\/guide"\) \}\)/); });
