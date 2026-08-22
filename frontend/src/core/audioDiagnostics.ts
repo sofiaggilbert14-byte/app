@@ -1,11 +1,11 @@
 /**
- * Per-stream Media3/VLC audio selection diagnostics.
+ * Per-stream Media3 audio selection diagnostics.
  * Keeps a bounded last-known snapshot for Settings export and logcat QA.
  * Never stores full stream URLs.
  */
 
 export type AudioDiagnosticsSnapshot = {
-  engine: "media3" | "vlc" | string;
+  engine: "media3" | string;
   role: "preview" | "fullscreen" | string;
   /** Short non-identifying stream fingerprint (kind + length + hash). */
   streamKey: string;

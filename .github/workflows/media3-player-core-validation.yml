@@ -1,0 +1,198 @@
+name: Media3 Player Core Validation
+
+on:
+  push:
+    branches:
+      - agent/media3-player-core-rebuild
+  pull_request:
+    branches:
+      - agent/tivimate-deep-player-quickactions-repair
+    paths:
+      - "frontend/**"
+      - ".github/workflows/media3-player-core-validation.yml"
+  workflow_dispatch:
+    inputs:
+      build_sideload:
+        description: Build the release-style sideload APK after validation
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: media3-player-core-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Setup JDK 17
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+      - name: Install Android compile SDK and pinned NDK
+        run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006"
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Verify native configuration
+        run: npm run verify:native-config
+      - name: Unit tests
+        run: npm test
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Verify Media3 rebuild invariants
+        run: |
+          grep -q 'object NativePlaybackManager' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'PlayerView' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'CharmMemoryCoordinator.budgets().lowRam' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'onRenderedFirstFrame' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'ConnectionPool(6, 5, TimeUnit.MINUTES)' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'HUNG_BUFFER_REPREPARE_MS = 5_000L' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'MIN_BUFFER_MS_LOW_RAM = 10_000' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'MAX_BUFFER_MS_LOW_RAM = 30_000' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'PLAYBACK_BUFFER_MS_LOW_RAM = 2_500' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'REBUFFER_BUFFER_MS_LOW_RAM = 5_000' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'MIN_BUFFER_MS_NORMAL = 15_000' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'MAX_BUFFER_MS_NORMAL = 60_000' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'PLAYBACK_BUFFER_MS_NORMAL = 3_000' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'REBUFFER_BUFFER_MS_NORMAL = 5_000' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'TARGET_BUFFER_BYTES_LOW_RAM = 16 \* 1024 \* 1024' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'TARGET_BUFFER_BYTES_NORMAL = 48 \* 1024 \* 1024' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'readTimeout(20, TimeUnit.SECONDS)' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'MAX_AUTO_RECOVERIES = 4' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'longArrayOf(0L, 1_000L, 3_000L, 6_000L)' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          test "$(grep -c 'removeCallbacks(delayedRecovery)' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt)" -ge 3
+          grep -q 'performRecovery' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'showDiagnostic' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'prepareNativeFullscreen' src/components/StreamPlayer.tsx
+          grep -q 'prepareNativePreview' src/components/StreamPlayer.tsx
+          ! grep -q 'VideoView\|createVideoPlayer\|VLCPlayer\|react-native-vlc-media-player' src/components/StreamPlayer.tsx
+      - name: Compile native Kotlin and Java
+        env:
+          CI: "1"
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx3g -Dorg.gradle.workers.max=1"
+        run: |
+          chmod +x android/gradlew
+          ./android/gradlew -p android \
+            :ffmpeg-audio:compileDebugJavaWithJavac \
+            :app:compileDebugKotlin \
+            :app:compileDebugJavaWithJavac \
+            --no-daemon --max-workers=1 --stacktrace
+
+  sideload:
+    if: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.build_sideload) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      CI: "1"
+      GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx5g -Dorg.gradle.workers.max=1"
+      CMAKE_BUILD_PARALLEL_LEVEL: "1"
+      EXPO_PUBLIC_M3U_URL: ${{ secrets.M3U_URL || vars.EXPO_PUBLIC_M3U_URL }}
+      EXPO_PUBLIC_EPG_URL: ${{ secrets.EPG_URL || vars.EXPO_PUBLIC_EPG_URL }}
+      EXPO_PUBLIC_GUIDE_WINDOW_HOURS: ${{ vars.EXPO_PUBLIC_GUIDE_WINDOW_HOURS || '6' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Setup JDK 17
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+      - name: Install Android native toolchain
+        run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006" "cmake;3.22.1"
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Verify native configuration
+        run: npm run verify:native-config
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Verify Media3 recovery invariants
+        run: |
+          grep -q 'MIN_BUFFER_MS_LOW_RAM = 10_000' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'MAX_BUFFER_MS_LOW_RAM = 30_000' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'PLAYBACK_BUFFER_MS_LOW_RAM = 2_500' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'REBUFFER_BUFFER_MS_LOW_RAM = 5_000' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'MIN_BUFFER_MS_NORMAL = 15_000' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'MAX_BUFFER_MS_NORMAL = 60_000' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'PLAYBACK_BUFFER_MS_NORMAL = 3_000' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'REBUFFER_BUFFER_MS_NORMAL = 5_000' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'TARGET_BUFFER_BYTES_LOW_RAM = 16 \* 1024 \* 1024' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'TARGET_BUFFER_BYTES_NORMAL = 48 \* 1024 \* 1024' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'readTimeout(20, TimeUnit.SECONDS)' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'MAX_AUTO_RECOVERIES = 4' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'longArrayOf(0L, 1_000L, 3_000L, 6_000L)' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'removeCallbacks(delayedRecovery)' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'performRecovery' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'showDiagnostic' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+      - name: Compile native Kotlin and Java
+        run: |
+          chmod +x android/gradlew
+          ./android/gradlew -p android \
+            :ffmpeg-audio:compileDebugJavaWithJavac \
+            :app:compileDebugKotlin \
+            :app:compileDebugJavaWithJavac \
+            --no-daemon --max-workers=1 --stacktrace
+      - name: Build LGPL Media3 FFmpeg audio libraries
+        run: |
+          chmod +x scripts/build-media3-ffmpeg-audio.sh
+          ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/27.1.12297006" ./scripts/build-media3-ffmpeg-audio.sh
+      - name: Verify sideload source configuration
+        run: |
+          test -n "${EXPO_PUBLIC_M3U_URL}"
+          test -n "${EXPO_PUBLIC_EPG_URL}"
+      - name: Assemble sideload APK
+        run: |
+          ./android/gradlew -p android :app:assembleSideload \
+            --no-daemon --max-workers=1 --stacktrace
+      - name: Verify APK
+        run: |
+          APK="android/app/build/outputs/apk/sideload/app-sideload.apk"
+          test -f "$APK"
+          unzip -l "$APK" | grep -Eq "(assets/index\.android\.bundle|assets/.*\.bundle)"
+          unzip -l "$APK" | grep -q "lib/armeabi-v7a/"
+          unzip -l "$APK" | grep -q "lib/arm64-v8a/"
+      - name: Upload sideload APK
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: charmiptv-media3-sideload-${{ github.sha }}
+          path: frontend/android/app/build/outputs/apk/sideload/app-sideload.apk
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0

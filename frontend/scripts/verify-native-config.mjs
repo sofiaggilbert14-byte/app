@@ -27,14 +27,14 @@ requireMatch(
   manifest.includes('android:usesCleartextTraffic="${allowCleartextStreams}"'),
   'AndroidManifest must use the allowCleartextStreams build placeholder',
 );
-requireMatch(buildProperties?.usesCleartextTraffic === false, 'Expo production config must default to HTTPS-only');
+requireMatch(buildProperties?.usesCleartextTraffic === true, 'Expo Android config must allow direct HTTP IPTV streams');
 requireMatch(
-  /defaultConfig\s*\{[\s\S]*?manifestPlaceholders\s*=\s*\[allowCleartextStreams:\s*['"]false['"]\]/.test(gradle),
-  'Gradle defaultConfig must disable cleartext traffic',
+  /defaultConfig\s*\{[\s\S]*?manifestPlaceholders\s*=\s*\[allowCleartextStreams:\s*['"]true['"]\]/.test(gradle),
+  'Gradle defaultConfig must allow provider HTTP stream compatibility',
 );
 requireMatch(
   /sideload\s*\{[\s\S]*?manifestPlaceholders\.allowCleartextStreams\s*=\s*['"]true['"]/.test(gradle),
-  'Sideload builds must explicitly opt in to provider HTTP compatibility',
+  'Sideload builds must allow provider HTTP compatibility',
 );
 requireMatch(
   !/jsc-android:[^'"\r\n]*\+/.test(gradle),

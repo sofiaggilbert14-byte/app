@@ -8,6 +8,7 @@ on:
     branches:
       - perf/opt-fix
       - agent/tivimate-deep-player-quickactions-repair
+      - agent/media3-player-core-rebuild
     paths:
       - "frontend/**"
       - ".github/workflows/build-phoenix-apk.yml"

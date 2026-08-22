@@ -50,12 +50,11 @@
           "backgroundColor": "#000000"
         }
       ],
-      "expo-video",
       [
         "expo-build-properties",
         {
           "android": {
-            "usesCleartextTraffic": false,
+            "usesCleartextTraffic": true,
             "minSdkVersion": 26
           }
         }
@@ -66,7 +65,6 @@
           "color": "#8B5CF6"
         }
       ],
-      "react-native-vlc-media-player",
       "expo-screen-orientation",
       "./plugins/withAndroidTv",
       "./plugins/withTvRemote",

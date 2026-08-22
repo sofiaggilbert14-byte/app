@@ -22,10 +22,6 @@ import {
 } from "@/src/store";
 import { sourceDiagnostics } from "@/src/source";
 import {
-  type PlayerEnginePreference,
-  usePlayerEnginePreference,
-} from "@/src/playerEnginePreference";
-import {
   type LongDownAction,
   type PlayerRemoteAction,
   useRemoteShortcutPreferences,
@@ -61,12 +57,6 @@ import { fonts, radius, tvColors } from "@/src/theme";
 import { useTvBackHandler } from "@/src/hooks/use-tv-back-to-guide";
 import { useAudioTrackPreferences } from "@/src/core/audioTrackPreferences";
 import { PREFERRED_AUDIO_LANGUAGE_OPTIONS } from "@/src/core/preferredAudioLanguages";
-import {
-  usePlayerCompatibilityPreferences,
-  type Media3AudioMode,
-  type VideoDecoderMode,
-  type VlcAudioOutput,
-} from "@/src/core/playerCompatibilityPreferences";
 import {
   getDeviceCodecCapabilities,
   type DeviceCodecCapabilities,
@@ -141,8 +131,6 @@ function SettingsScreenContent() {
     setDeviceLayoutMode,
     playerControlsTimeoutMs,
     setPlayerControlsTimeoutMs,
-    autoRetryStreams,
-    setAutoRetryStreams,
     preferTvgIdOnly,
     powerProfile,
     setPowerProfile,
@@ -159,7 +147,6 @@ function SettingsScreenContent() {
     sleepTimerMinutes,
     setSleepTimerMinutes,
   } = useStore();
-  const [playerEnginePreference, setPlayerEnginePreference] = usePlayerEnginePreference();
   const remoteShortcuts = useRemoteShortcutPreferences();
   const [playbackBufferProfile, setPlaybackBufferProfile] = usePlaybackBufferProfile();
   const channelCustomize = useChannelCustomize();
@@ -167,7 +154,6 @@ function SettingsScreenContent() {
   const parental = useParentalPin();
   const subtitles = useSubtitlePreferences();
   const audioPreferences = useAudioTrackPreferences();
-  const playerCompat = usePlayerCompatibilityPreferences();
   const latestAudio = getLastAudioDiagnostics();
   const [section, setSection] = useState<Section | null>(null);
   const [busy, setBusy] = useState(false);
@@ -519,27 +505,9 @@ function SettingsScreenContent() {
 
             {section === "player" ? (
               <SettingsCard title="Playback" icon="play-circle-outline">
-                <ChoiceRow<PlayerEnginePreference>
-                  label="Video player"
-                  value={playerEnginePreference}
-                  options={[
-                    { label: "Automatic (format-aware)", value: "default" },
-                    { label: "Expo / Media3 only", value: "media3" },
-                    { label: "VLC", value: "vlc" },
-                  ]}
-                  onChange={setPlayerEnginePreference}
-                />
-                <ChoiceRow<VideoDecoderMode>
-                  label="Video decoder"
-                  value={playerCompat.videoDecoderMode}
-                  options={[
-                    { label: "Device codecs", value: "device" },
-                    { label: "Software (VLC)", value: "software" },
-                  ]}
-                  onChange={playerCompat.setVideoDecoderMode}
-                />
+                <Text style={styles.settingLabel}>Media3 live TV</Text>
                 <Text style={styles.help}>
-                  Device codecs use the TV box hardware decoder. Software mode routes video through VLC&apos;s software decoder; use it only for channels that fail on the device decoder.
+                  Live TV uses one Android-owned Media3 player. It starts with supported hardware codecs and uses the installed Media3 audio fallback when available; no second engine is started automatically.
                 </Text>
                 <ChoiceRow<PlayerControlsTimeoutMs>
                   label="Controls timeout"
@@ -568,7 +536,6 @@ function SettingsScreenContent() {
                   ]}
                   onChange={setPlaybackBufferProfile}
                 />
-                <ToggleRow label="Auto retry streams" value={autoRetryStreams} onChange={setAutoRetryStreams} />
                 <ChoiceRow<SleepTimerMinutes>
                   label="Sleep timer"
                   value={sleepTimerMinutes}
@@ -581,13 +548,10 @@ function SettingsScreenContent() {
                   ]}
                   onChange={setSleepTimerMinutes}
                 />
-                <Text style={styles.help}>
-                  Automatic uses Media3 for explicit HLS, DASH, and media files, and VLC probing for raw or extensionless IPTV links. Force one engine only for provider-specific troubleshooting.
-                </Text>
                 <View style={styles.divider} />
                 <Text style={styles.settingLabel}>Audio / CC</Text>
                 <Text style={styles.help}>
-                  Preferred audio language auto-selects a matching track when Media3 or VLC exposes one.
+                  Preferred audio language auto-selects a matching native Media3 track.
                   The last working track is remembered per channel (up to 128). Use Audio/CC in the fullscreen player to pick a track manually.
                 </Text>
                 <ChoiceRow<string>
@@ -596,49 +560,6 @@ function SettingsScreenContent() {
                   options={PREFERRED_AUDIO_LANGUAGE_OPTIONS}
                   onChange={audioPreferences.setDefaultLanguage}
                 />
-                <ToggleRow
-                  label="Silent-audio fallback"
-                  value={playerCompat.silentAudioFallback}
-                  onChange={playerCompat.setSilentAudioFallback}
-                />
-                <Text style={styles.help}>
-                  When Media3 reports an unsupported or silent track, automatically try VLC compatibility mode (unless the engine is forced).
-                </Text>
-                <View style={styles.divider} />
-                <Text style={styles.settingLabel}>Media3</Text>
-                <ChoiceRow<Media3AudioMode>
-                  label="Audio decoder"
-                  value={playerCompat.media3AudioMode}
-                  options={[
-                    { label: "Device codecs", value: "device" },
-                    { label: "Automatic fallback", value: "auto" },
-                    { label: "FFmpeg compatibility", value: "ffmpeg" },
-                  ]}
-                  onChange={playerCompat.setMedia3AudioMode}
-                />
-                <ToggleRow
-                  label="Media3 tunneling"
-                  value={playerCompat.media3Tunneling}
-                  onChange={playerCompat.setMedia3Tunneling}
-                />
-                <Text style={styles.help}>
-                  Tunneling can reduce latency on some Android TV devices but may break audio on others. Leave off unless you are testing.
-                </Text>
-                <View style={styles.divider} />
-                <Text style={styles.settingLabel}>VLC</Text>
-                <ChoiceRow<VlcAudioOutput>
-                  label="VLC audio output"
-                  value={playerCompat.vlcAudioOutput}
-                  options={[
-                    { label: "Auto", value: "auto" },
-                    { label: "Stereo / 2-channel", value: "stereo" },
-                    { label: "Passthrough", value: "passthrough" },
-                  ]}
-                  onChange={playerCompat.setVlcAudioOutput}
-                />
-                <Text style={styles.help}>
-                  Stereo / 2-channel forces a downmix. Changing VLC or Media3 audio options remounts the active player so the new setting applies immediately.
-                </Text>
                 <View style={styles.divider} />
                 <Text style={styles.settingLabel}>Subtitles (CC)</Text>
                 <Text style={styles.help}>Default language auto-selects when tracks appear. Size/background are stored for Settings (native burn-in styling is not available yet).</Text>

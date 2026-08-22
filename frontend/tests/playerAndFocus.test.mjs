@@ -3,33 +3,23 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  alternateEngine, detectStreamKind, parsePipeHeaders, preferredEngine,
-} from "../src/core/streamPolicy.ts";
+import { detectStreamKind, parsePipeHeaders, preferredEngine } from "../src/core/streamPolicy.ts";
 import { evaluateDrawerBack } from "../src/core/drawerNavigationPolicy.ts";
 
 // Phase 9 Actions probe: harmless comment-only trigger.
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const source = (path) => readFile(join(root, path), "utf8");
 
-test("stream classification preserves RC.1 probing for raw and extensionless IPTV", () => {
+test("stream classification preserves probing while automatic playback remains Media3-only", () => {
   assert.equal(detectStreamKind("https://x/live.m3u8?token=1"), "hls");
   assert.equal(detectStreamKind("https://x/manifest.mpd"), "dash");
   assert.equal(detectStreamKind("https://cdn/hls/playlist.m3u8"), "hls");
   assert.equal(detectStreamKind("srt://contribute:9000"), "srt");
   assert.equal(detectStreamKind("rtsp://x/live"), "rtsp");
-  assert.equal(preferredEngine("hls"), "media3");
-  assert.equal(preferredEngine("dash"), "media3");
   assert.equal(detectStreamKind("http://provider.example/live/user/pass/1234"), "unknown");
-  assert.equal(preferredEngine("transport"), "vlc");
-  assert.equal(preferredEngine("unknown"), "vlc");
-  assert.equal(preferredEngine("srt"), "vlc");
-  assert.equal(preferredEngine("rtmp"), "vlc");
-  assert.equal(preferredEngine("webrtc"), "vlc");
-  assert.equal(preferredEngine("rtsp"), "vlc");
-  assert.equal(alternateEngine("media3", true), "vlc");
-  assert.equal(alternateEngine("media3", false), null);
-  assert.equal(alternateEngine("vlc", false), "media3");
+  for (const kind of ["hls", "dash", "progressive", "transport", "unknown", "srt", "rtmp", "webrtc", "rtsp"]) {
+    assert.equal(preferredEngine(kind), "media3");
+  }
 });
 
 test("pipe headers decode valid values and never throw on malformed percent encoding", () => {
@@ -169,30 +159,27 @@ test("player delegates More to the single global Quick Actions owner", async () 
   assert.doesNotMatch(player, /playerOverlay.*"more"/);
 });
 
-test("Media3 recovery only reparses a real post-playback buffering state", async () => {
-  const stream = await source("src/components/StreamPlayer.tsx");
-  assert.match(stream, /const observedPlaybackTime = Number\(player\.currentTime\)/);
-  assert.match(stream, /if \(bufferingSince == null\) return/);
-  assert.match(stream, /const bufferingFor = now - bufferingSince/);
-  assert.doesNotMatch(stream, /MEDIA3_FROZEN_CLOCK_MS|const frozenReadyClock =|const stalledReady =/);
-  assert.match(stream, /const BUFFERING_RESYNC_MS = 5000/);
-  assert.match(stream, /const BUFFERING_FAIL_MS = 12_000/);
-  assert.match(stream, /MAX_SILENT_BUFFERING_RESYNCS = 1/);
-  assert.match(stream, /RESYNC_REARM_STABLE_MS = 30_000/);
+test("Media3 recovery is one bounded native post-first-frame watchdog", async () => {
+  const [adapter, native] = await Promise.all([
+    source("src/components/StreamPlayer.tsx"),
+    source("android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt"),
+  ]);
+  assert.match(native, /HUNG_BUFFER_REPREPARE_MS = 5_000L/);
+  assert.match(native, /if \(!firstFrameRendered \|\| instance\.playbackState != Player\.STATE_BUFFERING\) return@Runnable/);
+  assert.match(native, /MAX_AUTO_RECOVERIES = 4/);
+  assert.match(native, /RECOVERY_BACKOFF_MS = longArrayOf\(0L, 1_000L, 3_000L, 6_000L\)/);
+  assert.match(native, /if \(recoveryAttempts >= MAX_AUTO_RECOVERIES\)[\s\S]*?publishState\("error", "stream-error"\)/);
+  assert.match(native, /recoveryAttempts \+= 1[\s\S]*?performRecovery\(instance\)/);
+  assert.match(native, /main\.postDelayed\(bufferingWatchdog, HUNG_BUFFER_REPREPARE_MS\)/);
+  assert.match(native, /override fun onRenderedFirstFrame\(\)[\s\S]*?firstFrameRendered = true[\s\S]*?removeCallbacks\(delayedRecovery\)[\s\S]*?publishState\("playing", null\)/);
+  assert.doesNotMatch(adapter, /player\.currentTime|MEDIA3_FROZEN_CLOCK_MS|REBUFFER_REPREPARE_MS|silentResyncCountRef/);
 });
 
-test("fullscreen exhausts local retries before one playlist-only provider URL recheck", async () => {
-  const [player, sourceNative] = await Promise.all([
-    source("app/player.tsx"),
-    source("src/source.native.ts"),
-  ]);
-  assert.match(player, /retryAttempt < MAX_AUTO_STREAM_RETRIES/);
-  assert.match(player, /sourceRecheckAttemptedRef\.current = true/);
-  assert.match(player, /pauseSessionDecoders\("fullscreen"\)[\s\S]*refreshPlaybackChannel\(logicalChannelId\)/);
-  assert.match(player, /setRecoveryUri\(freshUri\)/);
-  assert.match(player, /sourceRecheckAttemptedRef\.current = false[\s\S]*STABLE_RETRY_RESET_MS/);
-  assert.match(sourceNative, /refreshPlaybackChannel[\s\S]*await refreshPlaylistOnly\(\)/);
-  assert.doesNotMatch(sourceNative.match(/export async function refreshPlaybackChannel[\s\S]*?\n\}/)?.[0] || "", /refreshEpgOnly|loadGuide/);
+test("fullscreen keeps recovery inside the native player and never refreshes sources", async () => {
+  const player = await source("app/player.tsx");
+  assert.match(player, /const retryNow = useCallback\(\(\) => restartStream\(\)/);
+  assert.doesNotMatch(player, /STREAM_RETRY_DELAYS_MS|sourceRecheckAttemptedRef|refreshPlaybackChannel|pauseSessionDecoders/);
+  assert.doesNotMatch(player, /clearFullscreenCircuit|isFullscreenCircuitOpen/);
 });
 
 test("long Select consumes release and short Select is reinjected only after classification", async () => {

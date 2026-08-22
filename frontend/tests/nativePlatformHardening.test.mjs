@@ -116,26 +116,23 @@ test("memory and logo work is bounded and releases native listeners", async () =
 });
 
 test("player recovery is bounded and history waits for stable playback", async () => {
-  const [player, stream, patch, nativeSource] = await Promise.all([
+  const [player, adapter, native, nativeSource] = await Promise.all([
     source("app/player.tsx"),
     source("src/components/StreamPlayer.tsx"),
-    source("patches/expo-video+3.0.16.patch"),
+    source("android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt"),
     source("src/source.native.ts"),
   ]);
-  assert.match(player, /STREAM_RETRY_DELAYS_MS = \[1000, 2000, 4000\]/);
-  assert.match(player, /MAX_AUTO_STREAM_RETRIES = 3/);
-  assert.match(player, /STABLE_RETRY_RESET_MS = 30_000/);
   assert.match(player, /STABLE_HISTORY_DELAY_MS = 5000/);
   assert.doesNotMatch(player, /MAX_TOKEN_REFRESH_CHANNELS/);
-  assert.match(stream, /BUFFERING_RESYNC_MS = 5000/);
-  assert.match(stream, /BUFFERING_FAIL_MS = 12_000/);
-  assert.match(stream, /MAX_SILENT_BUFFERING_RESYNCS = 1/);
-  assert.match(stream, /RESYNC_REARM_STABLE_MS = 30_000/);
-  assert.match(stream, /if \(bufferingSince == null\) return/);
-  assert.doesNotMatch(stream, /MEDIA3_FROZEN_CLOCK_MS|const frozenReadyClock =/);
-  assert.doesNotMatch(patch, /CharmPlayerHttpPool|ConnectionPool|Dispatcher/);
-  assert.doesNotMatch(patch, /connectTimeout|readTimeout|writeTimeout/);
-  assert.doesNotMatch(patch, /VideoPlayerLoadControl\.kt|bufferForPlaybackAfterRebufferMs/);
+  assert.match(native, /HUNG_BUFFER_REPREPARE_MS = 5_000L/);
+  assert.match(native, /if \(!firstFrameRendered \|\| instance\.playbackState != Player\.STATE_BUFFERING\) return@Runnable/);
+  assert.match(native, /MAX_AUTO_RECOVERIES = 4/);
+  assert.match(native, /RECOVERY_BACKOFF_MS = longArrayOf\(0L, 1_000L, 3_000L, 6_000L\)/);
+  assert.match(native, /if \(recoveryAttempts >= MAX_AUTO_RECOVERIES\)[\s\S]*?publishState\("error", "stream-error"\)/);
+  assert.match(native, /recoveryAttempts \+= 1[\s\S]*?performRecovery\(instance\)/);
+  assert.match(native, /removeCallbacks\(delayedRecovery\)/);
+  assert.doesNotMatch(adapter, /MEDIA3_FROZEN_CLOCK_MS|const frozenReadyClock =|REBUFFER_REPREPARE_MS/);
+  assert.doesNotMatch(player, /decoderArmed|pauseSessionDecoders|STREAM_RETRY_DELAYS_MS|refreshPlaybackChannel/);
   assert.doesNotMatch(player, /refreshPlaylistOnly\(\)/);
   assert.match(nativeSource, /export async function refreshPlaylistOnly/);
   assert.doesNotMatch(nativeSource.match(/export async function refreshPlaylistOnly[\s\S]*?\n}\n/)?.[0] || "", /refreshNativeEpg/);
