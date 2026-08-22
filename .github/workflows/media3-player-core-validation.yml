@@ -94,7 +94,7 @@ jobs:
             --no-daemon --max-workers=1 --stacktrace
       - name: Upload sideload APK
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_sideload }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: charmiptv-media3-sideload-${{ github.sha }}
           path: frontend/android/app/build/outputs/apk/sideload/*.apk
