@@ -29,10 +29,7 @@ import {
   getRememberedChannelAudioTrack,
   pickPreferredAudioTrack,
 } from "@/src/core/audioTrackPreferences";
-import {
-  fingerprintStreamUri,
-  recordAudioDiagnostics,
-} from "@/src/core/audioDiagnostics";
+import { fingerprintStreamUri, recordAudioDiagnostics } from "@/src/core/audioDiagnostics";
 import {
   usePlaybackBufferProfile,
   type PlaybackBufferProfile,
@@ -49,8 +46,6 @@ export type StreamTrack = {
   isSupported?: boolean;
 };
 
-// Keep playbackSession platform-agnostic while exposing one process-wide native
-// Media3 owner to the session registry.
 setNativePlaybackReleaseHandler((role) =>
   role === "preview" ? releasePreviewMedia3() : releaseFullscreenMedia3(),
 );
@@ -58,8 +53,8 @@ setNativePlaybackPauseHandler((role) => {
   if (role === "fullscreen") pauseFullscreenMedia3();
 });
 
-// Compatibility exports for PlayerScreen while the UI is migrated away from
-// the old dual-engine terminology. The rebuilt live-TV core is Media3-only.
+// Compatibility exports retained while PlayerScreen terminology is migrated.
+// The rebuilt live-TV playback core itself is Media3-only.
 export const vlcAvailable = Platform.OS !== "web";
 export function clearFullscreenCircuit(_uri?: string): void {}
 export function isFullscreenCircuitOpen(_uri?: string): boolean { return false; }
@@ -84,6 +79,8 @@ const FULLSCREEN_START_TIMEOUT_MS = 12_000;
 const PREVIEW_START_TIMEOUT_MS = 8_000;
 const REBUFFER_REPREPARE_MS = 5_000;
 const REBUFFER_FAIL_MS = 12_000;
+const MAX_SILENT_BUFFERING_RESYNCS = 1;
+const RESYNC_REARM_STABLE_MS = 30_000;
 
 export function StreamPlayer({
   uri: rawUri,
@@ -110,8 +107,9 @@ export function StreamPlayer({
   const playbackFocused = isFocused && appActive && previewAllowed;
   const [generation, setGeneration] = useState(0);
   const stableRef = useRef(false);
+  const stableSinceRef = useRef<number | null>(null);
   const bufferingSinceRef = useRef<number | null>(null);
-  const reprepareUsedRef = useRef(false);
+  const silentResyncCountRef = useRef(0);
   const loadRequestRef = useRef(0);
   const startTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const watchdogRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -138,6 +136,7 @@ export function StreamPlayer({
   const fail = useCallback((reason: SessionFailReason = "stream-error") => {
     if (!generation || !isSessionCurrent(role, generation)) return;
     bufferingSinceRef.current = null;
+    stableSinceRef.current = null;
     setSessionPhase(role, generation, "failed", reason);
     if (role === "fullscreen") setNativePlaybackStarting(false);
     emit("error", reason);
@@ -282,7 +281,8 @@ export function StreamPlayer({
     const requestId = ++loadRequestRef.current;
     if (!isRecovery) {
       stableRef.current = false;
-      reprepareUsedRef.current = false;
+      stableSinceRef.current = null;
+      silentResyncCountRef.current = 0;
     }
     bufferingSinceRef.current = null;
     applyBufferPolicy();
@@ -335,6 +335,7 @@ export function StreamPlayer({
     if (!playbackFocused || !uri) {
       loadRequestRef.current += 1;
       setGeneration(0);
+      stableSinceRef.current = null;
       if (role === "preview") void releasePreviewMedia3();
       else if (!appActive) void suspendFullscreenMedia3();
       return;
@@ -342,8 +343,9 @@ export function StreamPlayer({
     const next = beginSession(role);
     setGeneration(next);
     stableRef.current = false;
+    stableSinceRef.current = null;
     bufferingSinceRef.current = null;
-    reprepareUsedRef.current = false;
+    silentResyncCountRef.current = 0;
     if (role === "fullscreen") setNativePlaybackStarting(true);
   }, [appActive, playbackFocused, role, uri]);
 
@@ -353,8 +355,6 @@ export function StreamPlayer({
     return () => {
       loadRequestRef.current += 1;
       clearTimers();
-      // Preview is ephemeral. Fullscreen release is owned by stopSession so a
-      // normal remount cannot destroy the process-wide player under its successor.
       if (role === "preview") void releasePreviewMedia3();
     };
   }, [clearTimers, generation, load, playbackFocused, role]);
@@ -375,7 +375,18 @@ export function StreamPlayer({
     const statusSub = player.addListener("statusChange", ({ status, error }) => {
       if (!generation || !isSessionCurrent(role, generation)) return;
       if (status === "loading") {
-        if (stableRef.current && bufferingSinceRef.current == null) bufferingSinceRef.current = Date.now();
+        if (stableRef.current && bufferingSinceRef.current == null) {
+          const now = Date.now();
+          if (
+            silentResyncCountRef.current >= MAX_SILENT_BUFFERING_RESYNCS &&
+            stableSinceRef.current != null &&
+            now - stableSinceRef.current >= RESYNC_REARM_STABLE_MS
+          ) {
+            silentResyncCountRef.current = 0;
+          }
+          stableSinceRef.current = null;
+          bufferingSinceRef.current = now;
+        }
         emit("loading");
       } else if (status === "readyToPlay") {
         publishTracks();
@@ -398,14 +409,19 @@ export function StreamPlayer({
       const since = bufferingSinceRef.current;
       if (since == null || !stableRef.current || !isSessionCurrent(role, generation)) return;
       const elapsed = Date.now() - since;
-      if (elapsed >= REBUFFER_REPREPARE_MS && !reprepareUsedRef.current) {
-        reprepareUsedRef.current = true;
+      if (
+        elapsed >= REBUFFER_REPREPARE_MS &&
+        silentResyncCountRef.current < MAX_SILENT_BUFFERING_RESYNCS
+      ) {
+        silentResyncCountRef.current += 1;
+        stableSinceRef.current = null;
         bufferingSinceRef.current = Date.now();
         void load(true);
         return;
       }
       if (elapsed >= REBUFFER_FAIL_MS) {
         bufferingSinceRef.current = null;
+        stableSinceRef.current = null;
         fail("stream-error");
       }
     }, 1000);
@@ -440,8 +456,8 @@ export function StreamPlayer({
       onFirstFrameRender={() => {
         if (!isSessionCurrent(role, generation)) return;
         stableRef.current = true;
+        stableSinceRef.current = Date.now();
         bufferingSinceRef.current = null;
-        reprepareUsedRef.current = false;
         setSessionPhase(role, generation, "playing");
         if (role === "fullscreen") setNativePlaybackStarting(false);
         emit("playing");
