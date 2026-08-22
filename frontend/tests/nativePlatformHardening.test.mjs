@@ -116,22 +116,25 @@ test("memory and logo work is bounded and releases native listeners", async () =
 });
 
 test("player recovery is bounded and history waits for stable playback", async () => {
-  const [player, stream, patch, nativeSource] = await Promise.all([
+  const [player, stream, patch, nativeSource, manager] = await Promise.all([
     source("app/player.tsx"),
     source("src/components/StreamPlayer.tsx"),
     source("patches/expo-video+3.0.16.patch"),
     source("src/source.native.ts"),
+    source("src/core/media3PlaybackManager.ts"),
   ]);
   assert.match(player, /STREAM_RETRY_DELAYS_MS = \[1000, 2000, 4000\]/);
   assert.match(player, /MAX_AUTO_STREAM_RETRIES = 3/);
   assert.match(player, /STABLE_RETRY_RESET_MS = 30_000/);
   assert.match(player, /STABLE_HISTORY_DELAY_MS = 5000/);
   assert.doesNotMatch(player, /MAX_TOKEN_REFRESH_CHANNELS/);
-  assert.match(stream, /BUFFERING_RESYNC_MS = 5000/);
-  assert.match(stream, /BUFFERING_FAIL_MS = 12_000/);
+  assert.match(stream, /REBUFFER_REPREPARE_MS = 5_000/);
+  assert.match(stream, /REBUFFER_FAIL_MS = 12_000/);
   assert.match(stream, /MAX_SILENT_BUFFERING_RESYNCS = 1/);
   assert.match(stream, /RESYNC_REARM_STABLE_MS = 30_000/);
-  assert.match(stream, /if \(bufferingSince == null\) return/);
+  assert.match(stream, /silentResyncCountRef\.current < MAX_SILENT_BUFFERING_RESYNCS/);
+  assert.match(stream, /loadRequestRef\.current \+= 1/);
+  assert.match(manager, /enqueueNativeMutation/);
   assert.doesNotMatch(stream, /MEDIA3_FROZEN_CLOCK_MS|const frozenReadyClock =/);
   assert.doesNotMatch(patch, /CharmPlayerHttpPool|ConnectionPool|Dispatcher/);
   assert.doesNotMatch(patch, /connectTimeout|readTimeout|writeTimeout/);
