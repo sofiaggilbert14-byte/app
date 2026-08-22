@@ -1,13 +1,7 @@
 /**
- * Playback ownership registry.
- *
- * The UI may mount/unmount player surfaces while surfing, but this registry is
- * the authority for when native playback is actually allowed to exist.
+ * Playback ownership registry for preview vs fullscreen.
+ * Kept platform-agnostic so it can be unit-tested outside React Native.
  */
-import {
-  releaseFullscreenMedia3,
-  releasePreviewMedia3,
-} from "@/src/core/media3PlaybackManager";
 
 export type SessionRole = "preview" | "fullscreen";
 export type SessionPhase = "idle" | "preparing" | "playing" | "recovering" | "failed";
@@ -22,6 +16,7 @@ export type SessionFailReason =
   | "crashed";
 
 type StopFn = () => void | Promise<void>;
+type NativeRoleFn = (role: SessionRole) => void | Promise<void>;
 type RoleState = {
   generation: number;
   stops: Set<StopFn>;
@@ -39,6 +34,8 @@ const roles: Record<SessionRole, RoleState> = {
 };
 let fullscreenReserved = false;
 let ownershipRevision = 0;
+let nativeReleaseHandler: NativeRoleFn | null = null;
+let nativePauseHandler: NativeRoleFn | null = null;
 const ownershipListeners = new Set<() => void>();
 
 function publishOwnership(): void {
@@ -61,9 +58,17 @@ function invokeStops(role: SessionRole): Promise<void> {
   return Promise.allSettled(pending).then(() => undefined);
 }
 
-async function releaseNativeRole(role: SessionRole): Promise<void> {
-  if (role === "preview") await releasePreviewMedia3();
-  else await releaseFullscreenMedia3();
+async function invokeNative(handler: NativeRoleFn | null, role: SessionRole): Promise<void> {
+  if (!handler) return;
+  try { await handler(role); } catch {}
+}
+
+export function setNativePlaybackReleaseHandler(handler: NativeRoleFn | null): void {
+  nativeReleaseHandler = handler;
+}
+
+export function setNativePlaybackPauseHandler(handler: NativeRoleFn | null): void {
+  nativePauseHandler = handler;
 }
 
 export function subscribePlaybackOwnership(listener: () => void): () => void {
@@ -82,7 +87,7 @@ export function isPreviewPlaybackAllowed(): boolean {
 export function beginSession(role: SessionRole): number {
   if (role === "preview" && !isPreviewPlaybackAllowed()) {
     const state = roles.preview;
-    void releaseNativeRole("preview");
+    void invokeNative(nativeReleaseHandler, "preview");
     void invokeStops("preview");
     state.generation += 1;
     state.phase = "idle";
@@ -94,10 +99,7 @@ export function beginSession(role: SessionRole): number {
   if (role === "fullscreen") {
     fullscreenReserved = true;
     const preview = roles.preview;
-    // Fullscreen reservation immediately invalidates preview. The navigation
-    // handoff normally awaited the native release already; this is the safety
-    // net for any alternate entry into /player.
-    void releaseNativeRole("preview");
+    void invokeNative(nativeReleaseHandler, "preview");
     void invokeStops("preview");
     preview.generation += 1;
     preview.phase = "idle";
@@ -105,9 +107,6 @@ export function beginSession(role: SessionRole): number {
   }
 
   const state = roles[role];
-  // Replacing a logical generation must not destroy fullscreen Media3 during a
-  // normal channel zap. Surface/source changes are handled by the singleton
-  // manager. Preview generations remain cheap and can be invalidated freely.
   if (role === "preview") void invokeStops(role);
   state.generation += 1;
   state.phase = "preparing";
@@ -132,11 +131,7 @@ export function isSessionCurrent(role: SessionRole, generation: number): boolean
   return roles[role].generation === generation;
 }
 
-export function registerSessionStop(
-  role: SessionRole,
-  generation: number,
-  stop: StopFn,
-): () => void {
+export function registerSessionStop(role: SessionRole, generation: number, stop: StopFn): () => void {
   const state = roles[role];
   if (generation !== state.generation) return () => undefined;
   state.stops.add(stop);
@@ -163,9 +158,7 @@ export async function stopSession(
 ): Promise<void> {
   const state = roles[role];
   const callbacks = invokeStops(role);
-  // Native release is explicit and independent of React cleanup. This is what
-  // guarantees preview/fullscreen resources are gone when ownership says idle.
-  const nativeRelease = releaseNativeRole(role);
+  const nativeRelease = invokeNative(nativeReleaseHandler, role);
   state.generation += 1;
   state.phase = "idle";
   state.reason = reason;
@@ -174,12 +167,8 @@ export async function stopSession(
   await Promise.allSettled([callbacks, nativeRelease]);
 }
 
-/**
- * Channel surfing no longer destroys the fullscreen player. Stale callbacks are
- * invalidated by the next generation/source load; Media3 performs the hot swap.
- */
 export function pauseSessionDecoders(role: SessionRole): Promise<void> {
-  if (role === "fullscreen") return Promise.resolve();
+  if (role === "fullscreen") return invokeNative(nativePauseHandler, role);
   return invokeStops(role);
 }
 
@@ -194,10 +183,7 @@ export function stopFullscreenSession(reason: SessionFailReason = "user-stop"): 
 }
 
 export function stopAllPlaybackSessions(reason: SessionFailReason = "user-stop"): Promise<void> {
-  return Promise.allSettled([
-    stopSession("preview", reason),
-    stopSession("fullscreen", reason),
-  ]).then(() => undefined);
+  return Promise.allSettled([stopSession("preview", reason), stopSession("fullscreen", reason)]).then(() => undefined);
 }
 
 export function forceStopAllStreams(): void {
@@ -212,5 +198,7 @@ export function resetPlaybackSessionsForTests(): void {
     roles[role].reason = null;
   }
   fullscreenReserved = false;
+  nativeReleaseHandler = null;
+  nativePauseHandler = null;
   publishOwnership();
 }
