@@ -77,7 +77,10 @@ object NativePlaybackManager {
   private val httpClient = OkHttpClient.Builder()
     .connectionPool(ConnectionPool(6, 5, TimeUnit.MINUTES))
     .connectTimeout(8, TimeUnit.SECONDS)
-    .readTimeout(15, TimeUnit.SECONDS)
+    // A live playlist/transport connection can legitimately pause between
+    // segments. Do not turn that brief gap into a terminal HTTP error; the
+    // single Media3 buffering watchdog below owns bounded recovery instead.
+    .readTimeout(0, TimeUnit.SECONDS)
     .writeTimeout(15, TimeUnit.SECONDS)
     .retryOnConnectionFailure(true)
     .build()
@@ -102,18 +105,7 @@ object NativePlaybackManager {
   private val bufferingWatchdog = Runnable {
     val instance = player ?: return@Runnable
     if (!firstFrameRendered || instance.playbackState != Player.STATE_BUFFERING) return@Runnable
-    if (recoveryUsed) {
-      listener?.onState("error", "stream-error")
-      return@Runnable
-    }
-    recoveryUsed = true
-    listener?.onState("loading", "native-reprepare")
-    try {
-      instance.prepare()
-      instance.playWhenReady = true
-    } catch (_: Throwable) {
-      listener?.onState("error", "stream-error")
-    }
+    recoverOnce(instance)
   }
 
   fun setListener(next: Listener?) {
@@ -194,10 +186,7 @@ object NativePlaybackManager {
       listener?.onState("loading", null)
       instance.prepare()
       instance.playWhenReady = true
-      main.postDelayed(
-        startupTimeout,
-        if (requestedOwner == Owner.PREVIEW) PREVIEW_START_TIMEOUT_MS else FULLSCREEN_START_TIMEOUT_MS,
-      )
+      armStartupTimeout()
     }
   }
 
@@ -324,9 +313,7 @@ object NativePlaybackManager {
             when (playbackState) {
               Player.STATE_BUFFERING -> {
                 if (firstFrameRendered) {
-                  val now = System.currentTimeMillis()
-                  if (stableSinceMs > 0L && now - stableSinceMs >= STABLE_REARM_MS) recoveryUsed = false
-                  stableSinceMs = 0L
+                  rearmRecoveryAfterStablePlayback()
                   main.removeCallbacks(bufferingWatchdog)
                   main.postDelayed(bufferingWatchdog, HUNG_BUFFER_REPREPARE_MS)
                 }
@@ -352,7 +339,12 @@ object NativePlaybackManager {
           override fun onPlayerError(error: PlaybackException) {
             main.removeCallbacks(startupTimeout)
             main.removeCallbacks(bufferingWatchdog)
-            listener?.onState("error", "media3-${error.errorCode}")
+            // Media3 reaches this callback after a source read, segment, or
+            // decoder failure. Previously that made the UI show Retry without
+            // using the same bounded native recovery as a long buffer, so a
+            // manual tap could recover a stream that the app had abandoned.
+            rearmRecoveryAfterStablePlayback()
+            recoverOnce(created)
           }
 
           override fun onTracksChanged(tracks: Tracks) {
@@ -377,6 +369,51 @@ object NativePlaybackManager {
     }
     video.requestLayout()
     return true
+  }
+
+  /**
+   * The sole automatic recovery policy for live playback. Both an explicit
+   * Media3 error and a post-first-frame buffering stall arrive here, and each
+   * playback generation gets one re-prepare before the UI may offer manual
+   * Retry. No second engine, source refresh, or extra player is created.
+   */
+  private fun recoverOnce(instance: ExoPlayer): Boolean {
+    if (owner == Owner.NONE || recoveryUsed) {
+      listener?.onState("error", "stream-error")
+      return false
+    }
+    recoveryUsed = true
+    main.removeCallbacks(startupTimeout)
+    main.removeCallbacks(bufferingWatchdog)
+    listener?.onState("loading", "native-reprepare")
+    return try {
+      instance.prepare()
+      instance.playWhenReady = true
+      if (!firstFrameRendered) armStartupTimeout()
+      true
+    } catch (_: Throwable) {
+      listener?.onState("error", "stream-error")
+      false
+    }
+  }
+
+  /** A stream that rendered for long enough earns one fresh bounded recovery. */
+  private fun rearmRecoveryAfterStablePlayback() {
+    val stableSince = stableSinceMs
+    if (stableSince > 0L && System.currentTimeMillis() - stableSince >= STABLE_REARM_MS) {
+      recoveryUsed = false
+    }
+    stableSinceMs = 0L
+  }
+
+  private fun armStartupTimeout() {
+    main.removeCallbacks(startupTimeout)
+    val requestedOwner = owner
+    if (requestedOwner == Owner.NONE) return
+    main.postDelayed(
+      startupTimeout,
+      if (requestedOwner == Owner.PREVIEW) PREVIEW_START_TIMEOUT_MS else FULLSCREEN_START_TIMEOUT_MS,
+    )
   }
 
   private fun publishTracks(tracks: Tracks) {

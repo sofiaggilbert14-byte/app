@@ -23,7 +23,7 @@ test("channel changes replace MediaItem on the same native ExoPlayer", async () 
 
 test("Media3 uses live-TV buffers and one native recovery watchdog", async () => {
   const native = await source("android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt");
-  assert.match(native, /MIN_BUFFER_MS = 1_000/); assert.match(native, /MAX_BUFFER_MS = 2_500/); assert.match(native, /PLAYBACK_BUFFER_MS = 500/); assert.match(native, /REBUFFER_BUFFER_MS = 1_000/); assert.match(native, /TARGET_BUFFER_BYTES = 12 \* 1024 \* 1024/); assert.match(native, /HUNG_BUFFER_REPREPARE_MS = 5_000L/); assert.match(native, /if \(recoveryUsed\)/); assert.match(native, /instance\.prepare\(\)/);
+  assert.match(native, /MIN_BUFFER_MS = 1_000/); assert.match(native, /MAX_BUFFER_MS = 2_500/); assert.match(native, /PLAYBACK_BUFFER_MS = 500/); assert.match(native, /REBUFFER_BUFFER_MS = 1_000/); assert.match(native, /TARGET_BUFFER_BYTES = 12 \* 1024 \* 1024/); assert.match(native, /HUNG_BUFFER_REPREPARE_MS = 5_000L/); assert.match(native, /if \(owner == Owner\.NONE \|\| recoveryUsed\)/); assert.match(native, /instance\.prepare\(\)/);
 });
 
 test("first frame is the stable-playing gate", async () => {

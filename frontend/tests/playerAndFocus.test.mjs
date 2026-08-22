@@ -166,7 +166,7 @@ test("Media3 recovery is one native post-first-frame watchdog", async () => {
   ]);
   assert.match(native, /HUNG_BUFFER_REPREPARE_MS = 5_000L/);
   assert.match(native, /if \(!firstFrameRendered \|\| instance\.playbackState != Player\.STATE_BUFFERING\) return@Runnable/);
-  assert.match(native, /if \(recoveryUsed\)[\s\S]*?listener\?\.onState\("error", "stream-error"\)/);
+  assert.match(native, /if \(owner == Owner\.NONE \|\| recoveryUsed\)[\s\S]*?listener\?\.onState\("error", "stream-error"\)/);
   assert.match(native, /recoveryUsed = true[\s\S]*?instance\.prepare\(\)/);
   assert.match(native, /main\.postDelayed\(bufferingWatchdog, HUNG_BUFFER_REPREPARE_MS\)/);
   assert.match(native, /override fun onRenderedFirstFrame\(\)[\s\S]*?firstFrameRendered = true/);

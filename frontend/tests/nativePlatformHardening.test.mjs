@@ -126,7 +126,7 @@ test("player recovery is bounded and history waits for stable playback", async (
   assert.doesNotMatch(player, /MAX_TOKEN_REFRESH_CHANNELS/);
   assert.match(native, /HUNG_BUFFER_REPREPARE_MS = 5_000L/);
   assert.match(native, /if \(!firstFrameRendered \|\| instance\.playbackState != Player\.STATE_BUFFERING\) return@Runnable/);
-  assert.match(native, /if \(recoveryUsed\)/);
+  assert.match(native, /if \(owner == Owner\.NONE \|\| recoveryUsed\)/);
   assert.match(native, /recoveryUsed = true[\s\S]*?instance\.prepare\(\)/);
   assert.doesNotMatch(adapter, /MEDIA3_FROZEN_CLOCK_MS|const frozenReadyClock =|REBUFFER_REPREPARE_MS/);
   assert.doesNotMatch(player, /decoderArmed|pauseSessionDecoders|STREAM_RETRY_DELAYS_MS|refreshPlaybackChannel/);
