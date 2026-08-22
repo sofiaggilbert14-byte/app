@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "scripts": {
     "preinstall": "node ./scripts/cmd-guard.js --preinstall",
-    "postinstall": "patch-package",
+    "postinstall": "patch-package && node ./scripts/apply-media3-live-tv-patch.mjs",
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo start --android",
