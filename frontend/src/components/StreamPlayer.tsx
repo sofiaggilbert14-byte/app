@@ -9,6 +9,8 @@ import {
   isPreviewPlaybackAllowed,
   isSessionCurrent,
   registerSessionStop,
+  setNativePlaybackPauseHandler,
+  setNativePlaybackReleaseHandler,
   setSessionPhase,
   subscribePlaybackOwnership,
   type SessionFailReason,
@@ -17,6 +19,7 @@ import {
 import {
   getMedia3Player,
   loadMedia3Source,
+  pauseFullscreenMedia3,
   releaseFullscreenMedia3,
   releasePreviewMedia3,
   suspendFullscreenMedia3,
@@ -38,6 +41,15 @@ export type StreamTrack = {
   mimeType?: string | null;
   isSupported?: boolean;
 };
+
+// Install the one native playback bridge while keeping playbackSession itself
+// free of React Native / expo-video imports for unit tests and state reasoning.
+setNativePlaybackReleaseHandler((role) =>
+  role === "preview" ? releasePreviewMedia3() : releaseFullscreenMedia3(),
+);
+setNativePlaybackPauseHandler((role) => {
+  if (role === "fullscreen") pauseFullscreenMedia3();
+});
 
 // Compatibility exports for the existing PlayerScreen API. `vlcAvailable` now
 // means the native Media3 path is available; the rebuilt core never instantiates VLC.
