@@ -107,7 +107,10 @@ export function beginSession(role: SessionRole): number {
   }
 
   const state = roles[role];
-  if (role === "preview") void invokeStops(role);
+  // Every new generation invalidates and drains callbacks from the previous
+  // generation. Fullscreen channel changes still keep the singleton Media3
+  // player alive because native release is not invoked here.
+  void invokeStops(role);
   state.generation += 1;
   state.phase = "preparing";
   state.reason = null;
