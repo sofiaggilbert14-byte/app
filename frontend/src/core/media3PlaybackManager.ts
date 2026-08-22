@@ -106,13 +106,22 @@ export function releaseFullscreenMedia3(): Promise<void> {
   });
 }
 
+/**
+ * Emergency/process teardown follows the same mutation queue. Resetting the
+ * queue synchronously would not cancel an already-running replaceAsync and could
+ * allow that stale mutation to outlive the released native player.
+ */
 export function destroyMedia3Player(): void {
-  if (!player || released) return;
-  const instance = player;
-  try { instance.pause(); } catch {}
-  try { instance.release(); } catch {}
-  released = true;
-  player = null;
-  activeRole = null;
-  nativeMutationTail = Promise.resolve();
+  void enqueueNativeMutation(async () => {
+    if (!player || released) return;
+    const instance = player;
+    try { instance.pause(); } catch {}
+    try { await instance.replaceAsync(null as any); } catch {}
+    try { instance.release(); } catch {}
+    if (player === instance) {
+      released = true;
+      player = null;
+      activeRole = null;
+    }
+  });
 }
