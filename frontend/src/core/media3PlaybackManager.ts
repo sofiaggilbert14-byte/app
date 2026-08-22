@@ -34,15 +34,10 @@ export async function loadMedia3Source(
   source: VideoSource,
 ): Promise<VideoPlayer> {
   const instance = claimMedia3Playback(role);
-  // Explicit loads always re-prepare so same-URL Retry/rebuffer recovery is real.
   await instance.replaceAsync(source);
   return instance;
 }
 
-/**
- * Guide preview is temporary. Clear its MediaItem/decoder before fullscreen,
- * while keeping the player object alive for the immediate fullscreen handoff.
- */
 export async function releasePreviewMedia3(): Promise<void> {
   if (!player || released) {
     if (activeRole === "preview") activeRole = null;
@@ -55,9 +50,19 @@ export async function releasePreviewMedia3(): Promise<void> {
 }
 
 /**
- * Fullscreen exit/background is a real ownership boundary. Clear the source,
- * then release the Media3 player/renderers/audio focus so decoder/buffer memory
- * can be reclaimed. The native shared OkHttp pool remains warm independently.
+ * Activity background/inactive: stop network/decode work and clear the source,
+ * but keep the player object valid because the React screen itself still owns
+ * that object and may resume without unmounting.
+ */
+export async function suspendFullscreenMedia3(): Promise<void> {
+  if (!player || released || activeRole !== "fullscreen") return;
+  try { player.pause(); } catch {}
+  try { await player.replaceAsync(null as any); } catch {}
+}
+
+/**
+ * Real fullscreen exit: clear source and release Media3 renderers/audio focus.
+ * The process-wide OkHttp pool remains independent and warm.
  */
 export async function releaseFullscreenMedia3(): Promise<void> {
   if (!player || released) {
@@ -73,7 +78,6 @@ export async function releaseFullscreenMedia3(): Promise<void> {
   activeRole = null;
 }
 
-/** Process-wide emergency release. */
 export function destroyMedia3Player(): void {
   if (!player || released) return;
   const instance = player;
