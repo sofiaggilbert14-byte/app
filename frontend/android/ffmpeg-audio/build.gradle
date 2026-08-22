@@ -12,9 +12,6 @@ android {
         consumerProguardFiles 'proguard-rules.pro'
     }
 
-    // The module remains compile-checkable without FFmpeg binaries. Packaging
-    // a standalone/release APK in CI is stricter and must include the pinned
-    // native extension.
     def ffmpegLibs = file('src/main/jni/ffmpeg/android-libs')
     def packagesApk = gradle.startParameter.taskNames.any {
         def task = it.toLowerCase()
@@ -42,7 +39,11 @@ android {
 }
 
 dependencies {
-    implementation 'androidx.media3:media3-exoplayer:1.8.0'
-    implementation 'androidx.media3:media3-decoder:1.8.0'
+    // API exposure is intentional: Charm's Activity-owned player core compiles
+    // against the exact same pinned Media3 graph as the FFmpeg extension.
+    api 'androidx.media3:media3-exoplayer:1.8.0'
+    api 'androidx.media3:media3-ui:1.8.0'
+    api 'androidx.media3:media3-datasource-okhttp:1.8.0'
+    api 'androidx.media3:media3-decoder:1.8.0'
     implementation 'androidx.annotation:annotation:1.9.1'
 }
