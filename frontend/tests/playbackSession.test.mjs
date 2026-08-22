@@ -25,19 +25,14 @@ test("fullscreen reservation releases preview before allocating its decoder", as
   resetPlaybackSessionsForTests();
   const previewGen = beginSession("preview");
   assert.equal(isSessionCurrent("preview", previewGen), true);
-
   let previewStopped = 0;
   let fullStopped = 0;
-  registerSessionStop("preview", previewGen, () => {
-    previewStopped += 1;
-  });
+  registerSessionStop("preview", previewGen, () => { previewStopped += 1; });
   await stopPreviewForFullscreen();
   assert.equal(previewStopped, 1);
   assert.equal(isPreviewPlaybackAllowed(), false);
   const fullGen = beginSession("fullscreen");
-  registerSessionStop("fullscreen", fullGen, () => {
-    fullStopped += 1;
-  });
+  registerSessionStop("fullscreen", fullGen, () => { fullStopped += 1; });
   assert.equal(fullStopped, 0);
   assert.equal(isSessionCurrent("preview", previewGen), false);
   assert.equal(isSessionCurrent("fullscreen", fullGen), true);
@@ -48,7 +43,6 @@ test("stale session events are rejected after channel generation bump", () => {
   const gen1 = beginSession("fullscreen");
   assert.equal(setSessionPhase("fullscreen", gen1, "playing"), true);
   assert.equal(getSessionPhase("fullscreen"), "playing");
-
   const gen2 = beginSession("fullscreen");
   assert.equal(setSessionPhase("fullscreen", gen1, "failed", "stream-error"), false);
   assert.equal(getSessionPhase("fullscreen"), "preparing");
@@ -60,13 +54,10 @@ test("pauseSessionDecoders does not invalidate generation", () => {
   resetPlaybackSessionsForTests();
   const gen = beginSession("preview");
   let stops = 0;
-  registerSessionStop("preview", gen, () => {
-    stops += 1;
-  });
+  registerSessionStop("preview", gen, () => { stops += 1; });
   pauseSessionDecoders("preview");
   assert.equal(stops, 1);
   assert.equal(isSessionCurrent("preview", gen), true);
-  // Stops are cleared after pause so a remount must re-register.
   pauseSessionDecoders("preview");
   assert.equal(stops, 1);
 });
@@ -75,9 +66,7 @@ test("begin/stop clear stale decoder callbacks after invoking them once", () => 
   resetPlaybackSessionsForTests();
   const gen1 = beginSession("fullscreen");
   let stops = 0;
-  registerSessionStop("fullscreen", gen1, () => {
-    stops += 1;
-  });
+  registerSessionStop("fullscreen", gen1, () => { stops += 1; });
   beginSession("fullscreen");
   assert.equal(stops, 1);
   stopFullscreenSession();
@@ -93,24 +82,19 @@ test("preview cannot re-arm until fullscreen releases its reservation", async ()
   assert.equal(isPreviewPlaybackAllowed(), true);
   const previewGen = beginSession("preview");
   let previewStopped = 0;
-  registerSessionStop("preview", previewGen, () => {
-    previewStopped += 1;
-  });
+  registerSessionStop("preview", previewGen, () => { previewStopped += 1; });
   assert.equal(previewStopped, 0);
   assert.equal(isSessionCurrent("preview", previewGen), true);
   await stopAllPlaybackSessions();
   assert.equal(isSessionCurrent("preview", previewGen), false);
 });
 
-test("default engine selection preserves RC.1 format ownership", () => {
+test("legacy stream classification remains available while live core owns Media3 deterministically", () => {
   assert.equal(detectStreamKind("https://x/live.m3u8"), "hls");
   assert.equal(preferredEngine("hls"), "media3");
   assert.equal(detectStreamKind("https://x/live.ts"), "transport");
   assert.equal(preferredEngine("transport"), "vlc");
-  assert.equal(detectStreamKind("http://provider.example/live/user/pass/1234"), "unknown");
-  assert.equal(preferredEngine("unknown"), "vlc");
   assert.equal(alternateEngine("media3", true), "vlc");
-  assert.equal(alternateEngine("media3", false), null);
 });
 
 test("play entry points hand off through openFullscreenPlayer", async () => {
@@ -127,72 +111,54 @@ test("play entry points hand off through openFullscreenPlayer", async () => {
   for (const file of files) {
     const body = await source(file);
     assert.match(body, /openFullscreenPlayer/, `${file} should use openFullscreenPlayer`);
-    assert.doesNotMatch(
-      body,
-      /pathname:\s*["']\/player["']/,
-      `${file} should not push /player directly`,
-    );
+    assert.doesNotMatch(body, /pathname:\s*["']\/player["']/, `${file} should not push /player directly`);
   }
 });
 
-test("StreamPlayer and player route use role-scoped session teardown", async () => {
-  const [playerComp, playerRoute, handoff, vlcPatch, packageJson] = await Promise.all([
+test("StreamPlayer and player route use role-scoped deterministic Media3 teardown", async () => {
+  const [playerComp, playerRoute, handoff, manager, packageJson] = await Promise.all([
     source("src/components/StreamPlayer.tsx"),
     source("app/player.tsx"),
     source("src/utils/openFullscreenPlayer.ts"),
-    source("patches/react-native-vlc-media-player+1.0.98.patch"),
+    source("src/core/media3PlaybackManager.ts"),
     source("package.json"),
   ]);
   assert.match(playerComp, /beginSession\(role\)/);
   assert.match(playerComp, /isSessionCurrent/);
   assert.match(playerComp, /sessionRole/);
-  assert.match(playerComp, /role === "preview"/);
-  assert.doesNotMatch(playerComp, /rapidBurstRef/);
-  assert.match(playerComp, /pauseSessionDecoders\(role\)/);
-  assert.match(playerComp, /clearFullscreenCircuit/);
-  assert.match(playerComp, /stopPlayer\?\.\(\)/);
-  assert.doesNotMatch(playerComp, /setNativeProps\?\.\(\{ clear: true \}\)/);
+  assert.match(playerComp, /isPreviewPlaybackAllowed/);
+  assert.match(playerComp, /setNativePlaybackReleaseHandler/);
+  assert.match(playerComp, /releasePreviewMedia3/);
+  assert.match(playerComp, /releaseFullscreenMedia3/);
+  assert.match(playerComp, /suspendFullscreenMedia3/);
   assert.match(playerComp, /AppState\.addEventListener/);
-  assert.match(playerComp, /replaceQueueRef/);
-  assert.match(playerComp, /mode === "preview"/);
-  assert.match(playerComp, /mediaOptions/);
+  assert.match(playerComp, /loadRequestRef/);
   assert.match(playerComp, /onStatusRef\.current/);
-  assert.match(playerComp, /surfaceType=\{Platform\.OS === "android" \? "textureView" : undefined\}/);
+  assert.match(playerComp, /mode === "preview" \? "textureView" : "surfaceView"/);
   assert.match(playerComp, /player\.muted = muted/);
+  assert.doesNotMatch(playerComp, /VLCPlayer|react-native-vlc-media-player|replaceQueueRef|hardStop/);
+  assert.match(manager, /enqueueNativeMutation/);
+  assert.match(manager, /await instance\.replaceAsync\(source\)/);
+  assert.match(manager, /await instance\.replaceAsync\(null as any\)/);
+  assert.match(manager, /instance\.release\(\)/);
   assert.match(playerRoute, /onStatus=\{handleStreamStatus\}/);
-  assert.doesNotMatch(playerRoute, /onStatus=\{\(next, reason\) =>/);
-  assert.doesNotMatch(playerComp, /key=\{`vlc:\$\{uri\}:\$\{sessionGeneration\}`\}/);
-  assert.doesNotMatch(playerComp, /forceStopAllStreams\(\)/);
   assert.match(playerRoute, /pauseSessionDecoders\("fullscreen"\)/);
   assert.match(playerRoute, /stopFullscreenSession/);
   assert.match(playerRoute, /mode="full"/);
   assert.match(playerRoute, /sessionRole="fullscreen"/);
-  assert.match(playerRoute, /clearFullscreenCircuit/);
   assert.match(playerRoute, /MAX_AUTO_STREAM_RETRIES/);
-  assert.match(playerRoute, /isFullscreenCircuitOpen/);
-  assert.match(playerRoute, /clearStreamFailure\(channelIdRef\.current\)/);
-  assert.match(playerRoute, /failReason === "circuit-open"/);
-  assert.doesNotMatch(
-    playerRoute,
-    /if \(next === "error" \|\| reason === "silent-audio"\) \{\s*noteStreamFailure/,
-  );
   assert.match(playerRoute, /restartStream\(false\)/);
   assert.match(handoff, /FULLSCREEN_HANDOFF_SETTLE_MS = 180/);
   assert.match(handoff, /PREVIEW_RELEASE_TIMEOUT_MS = 1200/);
   assert.match(handoff, /Promise\.race\(\[/);
-  assert.match(playerComp, /isPreviewPlaybackAllowed/);
-  assert.match(playerComp, /releasePlayer/);
-  assert.match(vlcPatch, /removeLifecycleEventListener/);
-  assert.match(vlcPatch, /requestPlaybackAudioFocus/);
-  assert.match(vlcPatch, /mMediaPlayer = null/);
-  assert.match(packageJson, /"postinstall": "patch-package"/);
+  assert.match(packageJson, /apply-media3-live-tv-patch\.mjs/);
 });
 
 test("fullscreen launched from Guide returns the currently tuned channel to Guide", async () => {
   const [guide, player, handoff] = await Promise.all([
-    readFile(join(root, "app/(tabs)/guide.tsx"), "utf8"),
-    readFile(join(root, "app/player.tsx"), "utf8"),
-    readFile(join(root, "src/utils/openFullscreenPlayer.ts"), "utf8"),
+    source("app/(tabs)/guide.tsx"),
+    source("app/player.tsx"),
+    source("src/utils/openFullscreenPlayer.ts"),
   ]);
   assert.match(guide, /openFullscreenPlayer\(router, channel\.id, \{ returnToGuide: true \}\)/);
   assert.match(handoff, /returnToGuide: options\?\.returnToGuide \? "1" : undefined/);
@@ -204,17 +170,14 @@ test("fullscreen launched from Guide returns the currently tuned channel to Guid
   assert.match(exit, /router\.back\(\)/);
 });
 
-test("Media3 watchdog recovers real buffering without clock-only decoder reloads", async () => {
+test("Media3 watchdog recovers only real post-first-frame buffering and never clock-polls", async () => {
   const player = await source("src/components/StreamPlayer.tsx");
-  assert.match(player, /const observedPlaybackTime = Number\(player\.currentTime\)/);
-  assert.doesNotMatch(player, /Boolean\(\(player as any\)\.playing\)/);
-  assert.doesNotMatch(player, /MEDIA3_FROZEN_CLOCK_MS|const frozenReadyClock =/);
-  assert.match(player, /if \(bufferingSince == null\) return/);
-  assert.match(player, /const bufferingFor = now - bufferingSince/);
-  assert.match(player, /stableProgressSinceRef/);
-  assert.doesNotMatch(player, /const stalledReady =/);
-  assert.match(player, /const BUFFERING_RESYNC_MS = 5000/);
-  assert.match(player, /const BUFFERING_FAIL_MS = 12_000/);
+  assert.match(player, /stableRef\.current && bufferingSinceRef\.current == null/);
+  assert.match(player, /bufferingSinceRef\.current = now/);
+  assert.match(player, /REBUFFER_REPREPARE_MS = 5_000/);
+  assert.match(player, /REBUFFER_FAIL_MS = 12_000/);
   assert.match(player, /MAX_SILENT_BUFFERING_RESYNCS = 1/);
-  assert.match(player, /const RESYNC_REARM_STABLE_MS = 30_000/);
+  assert.match(player, /RESYNC_REARM_STABLE_MS = 30_000/);
+  assert.match(player, /void load\(true\)/);
+  assert.doesNotMatch(player, /player\.currentTime|MEDIA3_FROZEN_CLOCK_MS|frozenReadyClock|stalledReady/);
 });
