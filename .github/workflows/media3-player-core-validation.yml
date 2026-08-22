@@ -70,6 +70,16 @@ jobs:
           grep -q 'onRenderedFirstFrame' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
           grep -q 'ConnectionPool(6, 5, TimeUnit.MINUTES)' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
           grep -q 'HUNG_BUFFER_REPREPARE_MS = 5_000L' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'MIN_BUFFER_MS = 10_000' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'MAX_BUFFER_MS = 30_000' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'PLAYBACK_BUFFER_MS = 2_500' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'REBUFFER_BUFFER_MS = 5_000' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'readTimeout(20, TimeUnit.SECONDS)' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'MAX_AUTO_RECOVERIES = 4' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'longArrayOf(0L, 1_000L, 3_000L, 6_000L)' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          test "$(grep -c 'removeCallbacks(delayedRecovery)' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt)" -ge 3
+          grep -q 'performRecovery' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
+          grep -q 'showDiagnostic' android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt
           grep -q 'prepareNativeFullscreen' src/components/StreamPlayer.tsx
           grep -q 'prepareNativePreview' src/components/StreamPlayer.tsx
           ! grep -q 'VideoView\|createVideoPlayer\|VLCPlayer\|react-native-vlc-media-player' src/components/StreamPlayer.tsx
