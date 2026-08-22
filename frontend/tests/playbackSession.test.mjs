@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import {
   beginSession,
   getSessionPhase,
+  isPreviewPlaybackAllowed,
   isSessionCurrent,
   pauseSessionDecoders,
   registerSessionStop,
@@ -20,24 +21,23 @@ import { alternateEngine, detectStreamKind, preferredEngine } from "../src/core/
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const source = (path) => readFile(join(root, path), "utf8");
 
-test("playback session generations isolate preview from fullscreen", () => {
+test("fullscreen reservation releases preview before allocating its decoder", async () => {
   resetPlaybackSessionsForTests();
   const previewGen = beginSession("preview");
-  const fullGen = beginSession("fullscreen");
   assert.equal(isSessionCurrent("preview", previewGen), true);
-  assert.equal(isSessionCurrent("fullscreen", fullGen), true);
 
   let previewStopped = 0;
   let fullStopped = 0;
   registerSessionStop("preview", previewGen, () => {
     previewStopped += 1;
   });
+  await stopPreviewForFullscreen();
+  assert.equal(previewStopped, 1);
+  assert.equal(isPreviewPlaybackAllowed(), false);
+  const fullGen = beginSession("fullscreen");
   registerSessionStop("fullscreen", fullGen, () => {
     fullStopped += 1;
   });
-
-  stopPreviewForFullscreen();
-  assert.equal(previewStopped, 1);
   assert.equal(fullStopped, 0);
   assert.equal(isSessionCurrent("preview", previewGen), false);
   assert.equal(isSessionCurrent("fullscreen", fullGen), true);
@@ -84,18 +84,21 @@ test("begin/stop clear stale decoder callbacks after invoking them once", () => 
   assert.equal(stops, 1);
 });
 
-test("fullscreen stop does not tear down a later preview session", () => {
+test("preview cannot re-arm until fullscreen releases its reservation", async () => {
   resetPlaybackSessionsForTests();
   beginSession("fullscreen");
+  assert.equal(beginSession("preview"), 0);
+  assert.equal(isPreviewPlaybackAllowed(), false);
+  await stopFullscreenSession();
+  assert.equal(isPreviewPlaybackAllowed(), true);
   const previewGen = beginSession("preview");
   let previewStopped = 0;
   registerSessionStop("preview", previewGen, () => {
     previewStopped += 1;
   });
-  stopFullscreenSession();
   assert.equal(previewStopped, 0);
   assert.equal(isSessionCurrent("preview", previewGen), true);
-  stopAllPlaybackSessions();
+  await stopAllPlaybackSessions();
   assert.equal(isSessionCurrent("preview", previewGen), false);
 });
 
@@ -174,7 +177,11 @@ test("StreamPlayer and player route use role-scoped session teardown", async () 
     /if \(next === "error" \|\| reason === "silent-audio"\) \{\s*noteStreamFailure/,
   );
   assert.match(playerRoute, /restartStream\(false\)/);
-  assert.match(handoff, /FULLSCREEN_HANDOFF_SETTLE_MS = 90/);
+  assert.match(handoff, /FULLSCREEN_HANDOFF_SETTLE_MS = 180/);
+  assert.match(handoff, /PREVIEW_RELEASE_TIMEOUT_MS = 1200/);
+  assert.match(handoff, /Promise\.race\(\[/);
+  assert.match(playerComp, /isPreviewPlaybackAllowed/);
+  assert.match(playerComp, /releasePlayer/);
   assert.match(vlcPatch, /removeLifecycleEventListener/);
   assert.match(vlcPatch, /requestPlaybackAudioFocus/);
   assert.match(vlcPatch, /mMediaPlayer = null/);

@@ -49,12 +49,15 @@ for token in ('mode="full"', 'sessionRole="fullscreen"'):
         critical.append(f"fullscreen ownership missing {token}")
 
 # Preview -> fullscreen release must precede route creation.
-if handoff.find("stopPreviewForFullscreen();") < 0 or handoff.find("router.push(") < 0:
+if handoff.find("stopPreviewForFullscreen()") < 0 or handoff.find("router.push(") < 0:
     critical.append("preview/fullscreen handoff markers missing")
-elif handoff.find("stopPreviewForFullscreen();") > handoff.find("router.push("):
+elif handoff.find("stopPreviewForFullscreen()") > handoff.find("router.push("):
     critical.append("fullscreen route starts before preview decoder teardown")
-if "FULLSCREEN_HANDOFF_SETTLE_MS = 90" not in handoff:
+if "FULLSCREEN_HANDOFF_SETTLE_MS = 180" not in handoff or "PREVIEW_RELEASE_TIMEOUT_MS = 1200" not in handoff:
     critical.append("preview/fullscreen native release settle window missing")
+for token in ("Promise.race([", "stopPreviewForFullscreen()", "releasePlayer", "isPreviewPlaybackAllowed"):
+    if token not in (handoff + stream + session):
+        critical.append(f"preview native release acknowledgement missing: {token}")
 
 # Role scoped generations prevent stale callbacks from a released codec.
 for token in (
@@ -69,9 +72,9 @@ for token in (
 # Fatal native failures must stop the decoder BEFORE publishing error. This is
 # the key final-frozen-frame guard when retries are exhausted.
 for token in (
-    'hardStop();\n    recordFailure(sessionRole, engine, uri, "stream-error");',
-    'hardStop();\n      recordFailure(sessionRole, engine, uri, "stream-error");',
-    'if (sawSupportedAudio) return;\n      hardStop();',
+    'void hardStop();\n    recordFailure(sessionRole, engine, uri, "stream-error");',
+    'void hardStop();\n      recordFailure(sessionRole, engine, uri, "stream-error");',
+    'if (sawSupportedAudio) return;\n      void hardStop();',
 ):
     if token not in stream:
         critical.append(f"release-before-error contract missing: {token.splitlines()[0]}")
@@ -115,8 +118,8 @@ for token in (
 # Forced engine settings must also control startup-timeout recovery.
 if "if (fallbackUsed || forceVlc || forceMedia3)" not in stream:
     critical.append("forced Media3/VLC can be ignored by startup-timeout fallback")
-if "pauseSessionDecoders(role);" not in stream:
-    critical.append("terminal startup timeout does not release native decoder")
+if "pauseSessionDecoders(role).then(() => {" not in stream or "engineSwapInFlightRef" not in stream:
+    critical.append("startup timeout/fallback does not await exclusive native decoder release")
 
 # Route/app focus and settings changes cannot leave hidden decoders alive.
 for token in (

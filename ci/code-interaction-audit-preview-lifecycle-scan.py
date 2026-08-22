@@ -67,12 +67,20 @@ if 'const sub = AppState.addEventListener("change"' not in stream or 'return () 
     critical.append("player AppState listener lifecycle is incomplete")
 
 # Preview -> fullscreen must destroy preview first and leave a native codec release window.
-stop_at = handoff.find("stopPreviewForFullscreen();")
+stop_at = handoff.find("stopPreviewForFullscreen()")
 push_at = handoff.find("router.push(")
 if stop_at < 0 or push_at < 0 or stop_at > push_at:
     critical.append("fullscreen route can start before preview teardown")
-if "FULLSCREEN_HANDOFF_SETTLE_MS = 90" not in handoff:
+if "FULLSCREEN_HANDOFF_SETTLE_MS = 180" not in handoff or "PREVIEW_RELEASE_TIMEOUT_MS = 1200" not in handoff:
     critical.append("preview/fullscreen decoder settle window missing")
+for required in (
+    "isPreviewPlaybackAllowed",
+    "subscribePlaybackOwnership",
+    "releasePlayer",
+    "Promise.race([",
+):
+    if required not in (stream + session + handoff):
+        critical.append(f"preview/fullscreen exclusive release contract missing: {required}")
 if 'stopSession("preview", "superseded")' not in session:
     critical.append("preview session generation is not invalidated for fullscreen")
 

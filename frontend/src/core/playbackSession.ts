@@ -22,7 +22,7 @@ export type SessionFailReason =
   | "superseded"
   | "crashed";
 
-type StopFn = () => void;
+type StopFn = () => void | Promise<void>;
 
 type RoleState = {
   generation: number;
@@ -39,12 +39,28 @@ const roles: Record<SessionRole, RoleState> = {
   preview: createRole(),
   fullscreen: createRole(),
 };
+let fullscreenReserved = false;
+let ownershipRevision = 0;
+const ownershipListeners = new Set<() => void>();
 
-function invokeStops(role: SessionRole): void {
+function publishOwnership(): void {
+  ownershipRevision += 1;
+  for (const listener of Array.from(ownershipListeners)) {
+    try {
+      listener();
+    } catch {
+      /* playback ownership observers must not interrupt native teardown */
+    }
+  }
+}
+
+function invokeStops(role: SessionRole): Promise<void> {
   const state = roles[role];
+  const pending: Promise<void>[] = [];
   for (const stop of Array.from(state.stops)) {
     try {
-      stop();
+      const result = stop();
+      if (result && typeof result.then === "function") pending.push(result);
     } catch {
       /* native teardown best-effort */
     }
@@ -52,15 +68,51 @@ function invokeStops(role: SessionRole): void {
   // A stop callback belongs to the decoder generation that just ended. Keeping
   // it registered lets later channel loads fire stale native teardown twice.
   state.stops.clear();
+  return Promise.allSettled(pending).then(() => undefined);
+}
+
+export function subscribePlaybackOwnership(listener: () => void): () => void {
+  ownershipListeners.add(listener);
+  return () => ownershipListeners.delete(listener);
+}
+
+export function getPlaybackOwnershipRevision(): number {
+  return ownershipRevision;
+}
+
+/** A preview may allocate a decoder only when fullscreen has no reservation. */
+export function isPreviewPlaybackAllowed(): boolean {
+  return !fullscreenReserved && roles.fullscreen.phase === "idle";
 }
 
 /** Start (or replace) a session for this role. Returns the generation token. */
 export function beginSession(role: SessionRole): number {
+  if (role === "preview" && !isPreviewPlaybackAllowed()) {
+    const state = roles.preview;
+    void invokeStops("preview");
+    state.generation += 1;
+    state.phase = "idle";
+    state.reason = "superseded";
+    publishOwnership();
+    return 0;
+  }
+  if (role === "fullscreen") {
+    // Fullscreen owns the only decoder budget. This is intentionally enforced
+    // here as well as in the navigation handoff so no alternate entry point can
+    // leave a hidden Guide preview alive.
+    fullscreenReserved = true;
+    const preview = roles.preview;
+    void invokeStops("preview");
+    preview.generation += 1;
+    preview.phase = "idle";
+    preview.reason = "superseded";
+  }
   const state = roles[role];
-  invokeStops(role);
+  void invokeStops(role);
   state.generation += 1;
   state.phase = "preparing";
   state.reason = null;
+  publishOwnership();
   return state.generation;
 }
 
@@ -92,7 +144,7 @@ export function registerSessionStop(
   const state = roles[role];
   if (generation !== state.generation) {
     try {
-      stop();
+      void Promise.resolve(stop()).catch(() => undefined);
     } catch {
       /* ignore */
     }
@@ -115,6 +167,7 @@ export function setSessionPhase(
   if (generation !== state.generation) return false;
   state.phase = phase;
   state.reason = reason;
+  publishOwnership();
   return true;
 }
 
@@ -125,37 +178,43 @@ export function setSessionPhase(
 export function stopSession(
   role: SessionRole,
   reason: SessionFailReason = "user-stop",
-): void {
+): Promise<void> {
   const state = roles[role];
-  invokeStops(role);
+  const released = invokeStops(role);
   state.generation += 1;
   state.phase = "idle";
   state.reason = reason;
+  if (role === "fullscreen") fullscreenReserved = false;
+  publishOwnership();
+  return released;
 }
 
 /** Invoke stop callbacks without bumping generation (rapid-scan pause). */
-export function pauseSessionDecoders(role: SessionRole): void {
-  invokeStops(role);
+export function pauseSessionDecoders(role: SessionRole): Promise<void> {
+  return invokeStops(role);
 }
 
 /** Guide → player handoff: kill preview only so fullscreen can allocate safely. */
-export function stopPreviewForFullscreen(): void {
-  stopSession("preview", "superseded");
+export function stopPreviewForFullscreen(): Promise<void> {
+  fullscreenReserved = true;
+  publishOwnership();
+  return stopSession("preview", "superseded");
 }
 
-export function stopFullscreenSession(reason: SessionFailReason = "user-stop"): void {
-  stopSession("fullscreen", reason);
+export function stopFullscreenSession(reason: SessionFailReason = "user-stop"): Promise<void> {
+  return stopSession("fullscreen", reason);
 }
 
 /** Emergency: stop both roles (ErrorBoundary / process-wide recovery). */
-export function stopAllPlaybackSessions(reason: SessionFailReason = "user-stop"): void {
-  stopSession("preview", reason);
-  stopSession("fullscreen", reason);
+export function stopAllPlaybackSessions(reason: SessionFailReason = "user-stop"): Promise<void> {
+  const preview = stopSession("preview", reason);
+  const fullscreen = stopSession("fullscreen", reason);
+  return Promise.allSettled([preview, fullscreen]).then(() => undefined);
 }
 
 /** @deprecated Prefer role-scoped stop helpers. Kept as a named alias for clarity. */
 export function forceStopAllStreams(): void {
-  stopAllPlaybackSessions("user-stop");
+  void stopAllPlaybackSessions("user-stop");
 }
 
 /** Test/reset helper — clears registry state. */
@@ -166,4 +225,6 @@ export function resetPlaybackSessionsForTests(): void {
     roles[role].phase = "idle";
     roles[role].reason = null;
   }
+  fullscreenReserved = false;
+  publishOwnership();
 }

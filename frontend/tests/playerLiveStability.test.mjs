@@ -42,12 +42,14 @@ test("VLC post-playback stalls become bounded recovery events", async () => {
   assert.match(player, /vlcBufferingSinceRef\.current = Date\.now\(\)/);
   assert.match(player, /bufferingSince == null \|\| Date\.now\(\) - bufferingSince < VLC_BUFFERING_FAIL_MS/);
   assert.doesNotMatch(player, /VLC_FROZEN_PROGRESS_MS|vlcLastProgressAtRef|vlcProgressSeenRef|onProgress=/);
-  assert.match(player, /--clock-jitter=0/);
-  assert.match(player, /--clock-synchro=0/);
+  assert.doesNotMatch(player, /--clock-jitter=0|--clock-synchro=0/);
   assert.match(player, /const bufferRate = Number\(info\?\.bufferRate\)/);
   assert.match(player, /bufferRate >= 99\.9[\s\S]*?vlcBufferingSinceRef\.current = null/);
   assert.match(player, /vlcHasPlayedRef\.current = false;\s*fail\(\)/);
-  assert.match(player, /onError=\{fail\}\s*onStopped=\{fail\}/);
+  assert.match(player, /onError=\{fail\}\s*onStopped=\{\(\) => \{\s*releaseResolveRef\.current\?\.\(\);\s*fail\(\);/);
+  const vlcHardStop = player.match(/const hardStop = useCallback\(\(\): Promise<void> => \{[\s\S]*?\n  \}, \[\]\);/)?.[0] || "";
+  assert.match(vlcHardStop, /releasePlayer/);
+  assert.doesNotMatch(vlcHardStop, /if \(mode === "preview"\)/);
 });
 
 test("stale successful-engine memory cannot override RC.1 format routing", async () => {
@@ -112,8 +114,9 @@ test("Media3 reprepare and fullscreen retry budgets only re-arm after stable pla
 
 test("late stable-stream failure clears the stable gate and bounds fallback startup", async () => {
   const player = await source("src/components/StreamPlayer.tsx");
-  assert.match(player, /if \(fallbackUsed \|\| forceVlc \|\| forceMedia3\) \{\s*pauseSessionDecoders\(role\);\s*setSessionPhase\(role, sessionGeneration, "failed", "start-timeout"\);\s*setStatus\("error", "start-timeout"\);/);
-  assert.match(player, /if \(alternate\) \{[\s\S]*?stableRef\.current = false;[\s\S]*?setFallbackUsed\(true\);[\s\S]*?setEngine\(alternate\);/);
+  assert.match(player, /if \(fallbackUsed \|\| forceVlc \|\| forceMedia3\) \{[\s\S]*?pauseSessionDecoders\(role\)\.then\(\(\) => \{[\s\S]*?setStatus\("error", "start-timeout"\);/);
+  assert.match(player, /if \(alternate\) \{[\s\S]*?stableRef\.current = false;[\s\S]*?pauseSessionDecoders\(role\)\.then\(\(\) => \{[\s\S]*?setFallbackUsed\(true\);[\s\S]*?setEngine\(alternate\);/);
+  assert.match(player, /engineSwapInFlightRef/);
   assert.doesNotMatch(player, /if \(stableRef\.current \|\| fallbackUsed\) return;/);
 });
 

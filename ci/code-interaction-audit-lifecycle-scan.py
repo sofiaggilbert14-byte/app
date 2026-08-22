@@ -76,10 +76,11 @@ if "MEDIA3_FROZEN_CLOCK_MS" in stream or "const frozenReadyClock =" in stream:
     critical.append("Media3 clock-silence-only decoder reload is enabled")
 if (
     'const VLC_BUFFERING_FAIL_MS = 12_000' not in stream
-    or 'const VLC_BUFFERING_FAIL_MS = 12_000' not in stream
-    or 'onStopped={fail}' not in stream
+    or 'onStopped={() => {' not in stream
+    or 'releaseResolveRef.current?.();' not in stream
+    or 'fail();' not in stream
 ):
-    critical.append("VLC frozen-progress/stop recovery missing")
+    critical.append("VLC buffering/stop/release recovery missing")
 if 'surfaceType={Platform.OS === "android" ? "textureView" : undefined}' not in stream:
     critical.append("RC.1 Android TextureView ownership missing")
 if 'if (!playbackFocused || !uri || !sessionGeneration) return null;' not in stream:
@@ -101,7 +102,7 @@ if 'if (status === "playing") {\n      setRetryAttempt(0);' in player:
 
 handoff_path = ROOT / "src/utils/openFullscreenPlayer.ts"
 handoff = text(handoff_path)
-stop_at = handoff.find("stopPreviewForFullscreen();")
+stop_at = handoff.find("stopPreviewForFullscreen()")
 push_at = handoff.find("router.push(")
 if stop_at < 0 or push_at < 0 or stop_at > push_at:
     critical.append("fullscreen route can open before preview teardown")

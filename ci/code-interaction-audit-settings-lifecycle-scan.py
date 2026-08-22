@@ -28,7 +28,7 @@ expected_labels = [
     "Logos off while surfing", "Instant Guide / reduce motion", "Power profile", "24-hour clock",
     "Start screen", "Video player", "Controls timeout", "Remote · Long Down", "Playback buffer",
     "Auto retry streams", "Sleep timer", "Preferred audio language", "Silent-audio fallback",
-    "Media3 audio mode", "Media3 tunneling", "VLC audio output", "VLC hardware decode",
+    "Video decoder", "Audio decoder", "Media3 tunneling", "VLC audio output",
     "Default language", "Subtitle size", "Subtitle background", "Mute preview by default",
     "Hide preview by default", "Channel Up button", "Channel Down button", "Play/Pause media button",
     "Long Down", "Pointer mode", "Device layout", "Mute guide preview", "Hide guide preview",
@@ -94,7 +94,7 @@ if 'context === "guide" && (legacyOwnerId || extraOwner)' not in quick:
 for required in ('!pathname?.startsWith("/guide")', '!pathname?.startsWith("/player")', "!isGuideSurfing()"):
     if required not in scheduler:
         critical.append(f"source scheduler foreground exclusion missing: {required}")
-if 'getSessionPhase("fullscreen") !== "idle"' not in store:
+if "!isPreviewPlaybackAllowed()" not in store:
     critical.append("root Guide maintenance has no fullscreen playback ownership gate")
 if "isGuideScreenActive() || isGuideSurfing() || fullscreenPlaybackOwnsDecoder()" not in store:
     critical.append("hourly Guide maintenance can run during fullscreen playback")

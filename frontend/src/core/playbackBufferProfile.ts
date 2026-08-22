@@ -3,7 +3,7 @@ import { storage } from "@/src/utils/storage";
 
 export type PlaybackBufferProfile = "low_latency" | "balanced" | "stable";
 const KEY = "gs_playback_buffer_profile";
-let value: PlaybackBufferProfile = "balanced";
+let value: PlaybackBufferProfile = "stable";
 let loaded = false;
 let loadPromise: Promise<PlaybackBufferProfile> | null = null;
 let mutationEpoch = 0;
@@ -17,7 +17,7 @@ async function loadProfile(): Promise<PlaybackBufferProfile> {
   if (loaded) return value;
   if (loadPromise) return loadPromise;
   const loadEpoch = mutationEpoch;
-  loadPromise = storage.getItem<PlaybackBufferProfile>(KEY, "balanced")
+  loadPromise = storage.getItem<PlaybackBufferProfile>(KEY, "stable")
     .then((stored) => {
       const next = normalize(stored);
       if (loaded || loadEpoch !== mutationEpoch) return value;

@@ -96,14 +96,15 @@ for obsolete in ("getRememberedStreamEngine", "rememberSuccessfulStreamEngine", 
     if obsolete in stream:
         critical.append(f"stale engine memory can override format routing: {obsolete}")
 for required in (
-    '--clock-jitter=0',
-    '--clock-synchro=0',
     'const bufferRate = Number(info?.bufferRate)',
     'bufferRate >= 99.9',
     'surfaceType={Platform.OS === "android" ? "textureView" : undefined}',
 ):
     if required not in stream:
         critical.append(f"RC.1 VLC/render contract missing: {required}")
+for unsafe_clock_override in ('--clock-jitter=0', '--clock-synchro=0'):
+    if unsafe_clock_override in stream:
+        critical.append(f"VLC provider clock correction is forcibly disabled: {unsafe_clock_override}")
 for obsolete in (
     "CharmPlayerHttpPool",
     "ConnectionPool",
