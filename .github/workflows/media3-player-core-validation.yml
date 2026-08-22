@@ -85,7 +85,7 @@ jobs:
             :app:compileDebugJavaWithJavac \
             --no-daemon --max-workers=1 --stacktrace
       - name: Build LGPL Media3 FFmpeg audio libraries
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_sideload }}
+        if: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.build_sideload) }}
         env:
           CI: "1"
           GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx3g -Dorg.gradle.workers.max=1"
@@ -93,7 +93,7 @@ jobs:
           chmod +x scripts/build-media3-ffmpeg-audio.sh
           ./scripts/build-media3-ffmpeg-audio.sh
       - name: Verify sideload source configuration
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_sideload }}
+        if: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.build_sideload) }}
         env:
           CI: "1"
           GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx3g -Dorg.gradle.workers.max=1"
@@ -103,7 +103,7 @@ jobs:
           test -n "${EXPO_PUBLIC_M3U_URL}"
           test -n "${EXPO_PUBLIC_EPG_URL}"
       - name: Assemble sideload APK
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_sideload }}
+        if: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.build_sideload) }}
         env:
           CI: "1"
           GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx3g -Dorg.gradle.workers.max=1"
@@ -113,7 +113,7 @@ jobs:
           ./android/gradlew -p android :app:assembleSideload \
             --no-daemon --max-workers=1 --stacktrace
       - name: Upload sideload APK
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_sideload }}
+        if: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.build_sideload) }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: charmiptv-media3-sideload-${{ github.sha }}
