@@ -1,4 +1,5 @@
-CharmIPTV v2.1.0-rc.5 final sideload build — retry 2
-Verified repair parent: cc28423dbe8e01fcf3b3d3f9d6434f53096a3668
-Release guard correction: 880980ad0299f855128d9896ed33edae3b444189
-Focus, Quick Actions, bounded HTTP M3U source recovery, and workflow cleanup included.
+CharmIPTV v2.1.0-rc.5 verified deep-player sideload build
+Repair source: 9df3c5ca2a36298a21dbaf10cb074811946c2ceb
+Validation cycle 1: https://github.com/floydleroybuchanan-collab/app/actions/runs/32539139862
+Validation cycle 2: https://github.com/floydleroybuchanan-collab/app/actions/runs/32539829976
+Both validation-only cycles completed green before APK packaging.
