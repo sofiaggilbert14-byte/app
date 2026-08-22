@@ -12,24 +12,18 @@ import { evaluateDrawerBack } from "../src/core/drawerNavigationPolicy.ts";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const source = (path) => readFile(join(root, path), "utf8");
 
-test("stream classification preserves RC.1 probing for raw and extensionless IPTV", () => {
+test("stream classification preserves probing while automatic playback remains Media3-only", () => {
   assert.equal(detectStreamKind("https://x/live.m3u8?token=1"), "hls");
   assert.equal(detectStreamKind("https://x/manifest.mpd"), "dash");
   assert.equal(detectStreamKind("https://cdn/hls/playlist.m3u8"), "hls");
   assert.equal(detectStreamKind("srt://contribute:9000"), "srt");
   assert.equal(detectStreamKind("rtsp://x/live"), "rtsp");
-  assert.equal(preferredEngine("hls"), "media3");
-  assert.equal(preferredEngine("dash"), "media3");
   assert.equal(detectStreamKind("http://provider.example/live/user/pass/1234"), "unknown");
-  assert.equal(preferredEngine("transport"), "vlc");
-  assert.equal(preferredEngine("unknown"), "vlc");
-  assert.equal(preferredEngine("srt"), "vlc");
-  assert.equal(preferredEngine("rtmp"), "vlc");
-  assert.equal(preferredEngine("webrtc"), "vlc");
-  assert.equal(preferredEngine("rtsp"), "vlc");
-  assert.equal(alternateEngine("media3", true), "vlc");
-  assert.equal(alternateEngine("media3", false), null);
-  assert.equal(alternateEngine("vlc", false), "media3");
+  for (const kind of ["hls", "dash", "progressive", "transport", "unknown", "srt", "rtmp", "webrtc", "rtsp"]) {
+    assert.equal(preferredEngine(kind), "media3");
+  }
+  assert.equal(alternateEngine("media3", true), null);
+  assert.equal(alternateEngine("vlc", true), null);
 });
 
 test("pipe headers decode valid values and never throw on malformed percent encoding", () => {
@@ -169,14 +163,14 @@ test("player delegates More to the single global Quick Actions owner", async () 
   assert.doesNotMatch(player, /playerOverlay.*"more"/);
 });
 
-test("Media3 recovery only reparses a real post-playback buffering state", async () => {
+test("Media3 recovery only reparses a real post-first-frame buffering state", async () => {
   const stream = await source("src/components/StreamPlayer.tsx");
-  assert.match(stream, /const observedPlaybackTime = Number\(player\.currentTime\)/);
-  assert.match(stream, /if \(bufferingSince == null\) return/);
-  assert.match(stream, /const bufferingFor = now - bufferingSince/);
-  assert.doesNotMatch(stream, /MEDIA3_FROZEN_CLOCK_MS|const frozenReadyClock =|const stalledReady =/);
-  assert.match(stream, /const BUFFERING_RESYNC_MS = 5000/);
-  assert.match(stream, /const BUFFERING_FAIL_MS = 12_000/);
+  assert.match(stream, /stableRef\.current && bufferingSinceRef\.current == null/);
+  assert.match(stream, /const since = bufferingSinceRef\.current/);
+  assert.match(stream, /const elapsed = Date\.now\(\) - since/);
+  assert.doesNotMatch(stream, /player\.currentTime|MEDIA3_FROZEN_CLOCK_MS|const frozenReadyClock =|const stalledReady =/);
+  assert.match(stream, /REBUFFER_REPREPARE_MS = 5_000/);
+  assert.match(stream, /REBUFFER_FAIL_MS = 12_000/);
   assert.match(stream, /MAX_SILENT_BUFFERING_RESYNCS = 1/);
   assert.match(stream, /RESYNC_REARM_STABLE_MS = 30_000/);
 });
