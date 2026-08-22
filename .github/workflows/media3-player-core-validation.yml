@@ -11,6 +11,12 @@ on:
       - "frontend/**"
       - ".github/workflows/media3-player-core-validation.yml"
   workflow_dispatch:
+    inputs:
+      build_sideload:
+        description: Build the release-style sideload APK after validation
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -78,3 +84,19 @@ jobs:
             :app:compileDebugKotlin \
             :app:compileDebugJavaWithJavac \
             --no-daemon --max-workers=1 --stacktrace
+      - name: Assemble sideload APK
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_sideload }}
+        env:
+          CI: "1"
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx3g -Dorg.gradle.workers.max=1"
+        run: |
+          ./android/gradlew -p android :app:assembleSideload \
+            --no-daemon --max-workers=1 --stacktrace
+      - name: Upload sideload APK
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_sideload }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: charmiptv-media3-sideload-${{ github.sha }}
+          path: frontend/android/app/build/outputs/apk/sideload/*.apk
+          if-no-files-found: error
+          retention-days: 14
