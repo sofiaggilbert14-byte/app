@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { storage } from "@/src/utils/storage";
 
+// Legacy types remain so the existing Settings screen does not require a broad
+// UI rewrite on this safety branch. The new live-TV core is Media3-only.
 export type VlcAudioOutput = "auto" | "stereo" | "passthrough";
 export type Media3AudioMode = "auto" | "device" | "ffmpeg";
 export type VideoDecoderMode = "device" | "software";
@@ -22,8 +24,8 @@ const MEDIA3_AUDIO_KEY = "gs_media3_audio_mode";
 const MEDIA3_TUNNEL_KEY = "gs_media3_tunneling";
 
 let cached: Snapshot = {
-  silentAudioFallback: true,
-  vlcAudioOutput: "stereo",
+  silentAudioFallback: false,
+  vlcAudioOutput: "auto",
   vlcHardwareDecode: true,
   videoDecoderMode: "device",
   media3AudioMode: "device",
@@ -36,26 +38,12 @@ const listeners = new Set<(next: Snapshot) => void>();
 
 function emit() {
   for (const listener of Array.from(listeners)) {
-    try {
-      listener(cached);
-    } catch {
-      // Settings observers must never interrupt playback.
-    }
+    try { listener(cached); } catch {}
   }
-}
-
-function normalizeVlcAudio(raw: unknown): VlcAudioOutput {
-  return raw === "stereo" || raw === "passthrough" ? raw : "auto";
 }
 
 function normalizeMedia3Audio(raw: unknown): Media3AudioMode {
   return raw === "device" || raw === "ffmpeg" ? raw : "auto";
-}
-
-function normalizeVideoDecoder(raw: unknown, legacyHardware = true): VideoDecoderMode {
-  if (raw === "software") return "software";
-  if (raw === "device") return "device";
-  return legacyHardware ? "device" : "software";
 }
 
 async function load(): Promise<Snapshot> {
@@ -63,26 +51,30 @@ async function load(): Promise<Snapshot> {
   if (loadPromise) return loadPromise;
   const loadEpoch = mutationEpoch;
   loadPromise = (async () => {
-    const [silent, vlcAudio, vlcHw, videoDecoder, media3Audio, media3Tunnel] = await Promise.all([
-      storage.getItem<boolean>(SILENT_KEY, true),
-      storage.getItem<VlcAudioOutput>(VLC_AUDIO_KEY, "stereo"),
-      storage.getItem<boolean>(VLC_HW_KEY, true),
-      storage.getItem<VideoDecoderMode | null>(VIDEO_DECODER_KEY, null),
+    const [media3Audio, media3Tunnel] = await Promise.all([
       storage.getItem<Media3AudioMode>(MEDIA3_AUDIO_KEY, "device"),
       storage.getItem<boolean>(MEDIA3_TUNNEL_KEY, false),
     ]);
-    const resolvedVideoDecoder = normalizeVideoDecoder(videoDecoder, vlcHw !== false);
     const next: Snapshot = {
-      silentAudioFallback: silent !== false,
-      vlcAudioOutput: normalizeVlcAudio(vlcAudio),
-      vlcHardwareDecode: resolvedVideoDecoder === "device",
-      videoDecoderMode: resolvedVideoDecoder,
+      // Legacy engine-swap controls are deliberately inert in the rebuilt core.
+      silentAudioFallback: false,
+      vlcAudioOutput: "auto",
+      vlcHardwareDecode: true,
+      videoDecoderMode: "device",
       media3AudioMode: normalizeMedia3Audio(media3Audio),
       media3Tunneling: !!media3Tunnel,
     };
     if (loaded || loadEpoch !== mutationEpoch) return cached;
     cached = next;
     loaded = true;
+    // Migrate old persisted values so future screens cannot resurrect the
+    // dual-engine/software-video policy on this branch.
+    void Promise.all([
+      storage.setItem(SILENT_KEY, false),
+      storage.setItem(VLC_AUDIO_KEY, "auto"),
+      storage.setItem(VLC_HW_KEY, true),
+      storage.setItem(VIDEO_DECODER_KEY, "device"),
+    ]);
     return cached;
   })();
   try {
@@ -92,25 +84,11 @@ async function load(): Promise<Snapshot> {
   }
 }
 
-export function getSilentAudioFallbackEnabled(): boolean {
-  return cached.silentAudioFallback;
-}
-
-export function getVlcAudioOutput(): VlcAudioOutput {
-  return cached.vlcAudioOutput;
-}
-
-export function getVlcHardwareDecode(): boolean {
-  return cached.vlcHardwareDecode;
-}
-
-export function getMedia3AudioMode(): Media3AudioMode {
-  return cached.media3AudioMode;
-}
-
-export function getMedia3Tunneling(): boolean {
-  return cached.media3Tunneling;
-}
+export function getSilentAudioFallbackEnabled(): boolean { return false; }
+export function getVlcAudioOutput(): VlcAudioOutput { return "auto"; }
+export function getVlcHardwareDecode(): boolean { return true; }
+export function getMedia3AudioMode(): Media3AudioMode { return cached.media3AudioMode; }
+export function getMedia3Tunneling(): boolean { return cached.media3Tunneling; }
 
 export function usePlayerCompatibilityPreferences(): Snapshot & {
   setSilentAudioFallback: (next: boolean) => void;
@@ -123,12 +101,8 @@ export function usePlayerCompatibilityPreferences(): Snapshot & {
   const [value, setValue] = useState(cached);
   useEffect(() => {
     let mounted = true;
-    void load().then((next) => {
-      if (mounted) setValue(next);
-    });
-    const listener = (next: Snapshot) => {
-      if (mounted) setValue(next);
-    };
+    void load().then((next) => { if (mounted) setValue(next); });
+    const listener = (next: Snapshot) => { if (mounted) setValue(next); };
     listeners.add(listener);
     return () => {
       mounted = false;
@@ -136,45 +110,32 @@ export function usePlayerCompatibilityPreferences(): Snapshot & {
     };
   }, []);
 
+  const keepMedia3Core = useCallback(() => {
+    mutationEpoch += 1;
+    cached = {
+      ...cached,
+      silentAudioFallback: false,
+      vlcAudioOutput: "auto",
+      vlcHardwareDecode: true,
+      videoDecoderMode: "device",
+    };
+    loaded = true;
+    setValue(cached);
+    emit();
+    void Promise.all([
+      storage.setItem(SILENT_KEY, false),
+      storage.setItem(VLC_AUDIO_KEY, "auto"),
+      storage.setItem(VLC_HW_KEY, true),
+      storage.setItem(VIDEO_DECODER_KEY, "device"),
+    ]);
+  }, []);
+
   return {
     ...value,
-    setSilentAudioFallback: useCallback((next: boolean) => {
-      mutationEpoch += 1;
-      cached = { ...cached, silentAudioFallback: next };
-      loaded = true;
-      setValue(cached);
-      emit();
-      void storage.setItem(SILENT_KEY, next);
-    }, []),
-    setVlcAudioOutput: useCallback((next: VlcAudioOutput) => {
-      mutationEpoch += 1;
-      cached = { ...cached, vlcAudioOutput: normalizeVlcAudio(next) };
-      loaded = true;
-      setValue(cached);
-      emit();
-      void storage.setItem(VLC_AUDIO_KEY, cached.vlcAudioOutput);
-    }, []),
-    setVlcHardwareDecode: useCallback((next: boolean) => {
-      mutationEpoch += 1;
-      const videoDecoderMode: VideoDecoderMode = next ? "device" : "software";
-      cached = { ...cached, vlcHardwareDecode: next, videoDecoderMode };
-      loaded = true;
-      setValue(cached);
-      emit();
-      void storage.setItem(VLC_HW_KEY, next);
-      void storage.setItem(VIDEO_DECODER_KEY, videoDecoderMode);
-    }, []),
-    setVideoDecoderMode: useCallback((next: VideoDecoderMode) => {
-      mutationEpoch += 1;
-      const videoDecoderMode = normalizeVideoDecoder(next);
-      const vlcHardwareDecode = videoDecoderMode === "device";
-      cached = { ...cached, videoDecoderMode, vlcHardwareDecode };
-      loaded = true;
-      setValue(cached);
-      emit();
-      void storage.setItem(VIDEO_DECODER_KEY, videoDecoderMode);
-      void storage.setItem(VLC_HW_KEY, vlcHardwareDecode);
-    }, []),
+    setSilentAudioFallback: useCallback((_next: boolean) => keepMedia3Core(), [keepMedia3Core]),
+    setVlcAudioOutput: useCallback((_next: VlcAudioOutput) => keepMedia3Core(), [keepMedia3Core]),
+    setVlcHardwareDecode: useCallback((_next: boolean) => keepMedia3Core(), [keepMedia3Core]),
+    setVideoDecoderMode: useCallback((_next: VideoDecoderMode) => keepMedia3Core(), [keepMedia3Core]),
     setMedia3AudioMode: useCallback((next: Media3AudioMode) => {
       mutationEpoch += 1;
       cached = { ...cached, media3AudioMode: normalizeMedia3Audio(next) };
