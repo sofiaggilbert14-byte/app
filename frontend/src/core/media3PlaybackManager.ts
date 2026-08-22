@@ -38,6 +38,11 @@ export async function loadMedia3Source(
   return instance;
 }
 
+export function pauseFullscreenMedia3(): void {
+  if (!player || released || activeRole !== "fullscreen") return;
+  try { player.pause(); } catch {}
+}
+
 export async function releasePreviewMedia3(): Promise<void> {
   if (!player || released) {
     if (activeRole === "preview") activeRole = null;
