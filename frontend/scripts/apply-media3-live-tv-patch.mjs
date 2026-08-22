@@ -47,3 +47,15 @@ patchFile(
     `bufferForPlaybackMs = safeBufferForPlayback\n    // Live TV should resume quickly but not oscillate on a half-empty socket.\n    // Keep normal startup at the requested value (Charm uses ~500ms) while\n    // requiring up to 1000ms after a real rebuffer, bounded by targetBufferMs.\n    bufferForPlaybackAfterRebufferMs = maxOf(\n      safeBufferForPlayback,\n      minOf(1000L, targetBufferMs)\n    )`,
   ),
 );
+
+// IPTV providers commonly still serve direct MPEG-TS/HLS endpoints over HTTP.
+// The generated/default Gradle file previously kept release HTTPS-only even
+// though tester builds allowed HTTP. Align the actual Android build with app.json
+// so a valid provider stream is never rejected before Media3 receives it.
+patchFile(
+  "android/app/build.gradle",
+  (source) => source.replace(
+    'manifestPlaceholders = [allowCleartextStreams: "false"]',
+    'manifestPlaceholders = [allowCleartextStreams: "true"]',
+  ),
+);
