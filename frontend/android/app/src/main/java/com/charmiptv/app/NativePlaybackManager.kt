@@ -63,13 +63,15 @@ object NativePlaybackManager {
     fun onTracks(audio: List<AudioTrackInfo>, subtitles: List<SubtitleTrackInfo>)
   }
 
-  private const val MIN_BUFFER_MS = 1_000
-  private const val MAX_BUFFER_MS = 2_500
-  private const val PLAYBACK_BUFFER_MS = 500
-  private const val REBUFFER_BUFFER_MS = 1_000
+  private const val MIN_BUFFER_MS = 10_000
+  private const val MAX_BUFFER_MS = 30_000
+  private const val PLAYBACK_BUFFER_MS = 2_500
+  private const val REBUFFER_BUFFER_MS = 5_000
   private const val TARGET_BUFFER_BYTES = 12 * 1024 * 1024
   private const val HUNG_BUFFER_REPREPARE_MS = 5_000L
   private const val STABLE_REARM_MS = 30_000L
+  private const val MAX_AUTO_RECOVERIES = 4
+  private val RECOVERY_BACKOFF_MS = longArrayOf(0L, 1_000L, 3_000L, 6_000L)
   private const val FULLSCREEN_START_TIMEOUT_MS = 12_000L
   private const val PREVIEW_START_TIMEOUT_MS = 8_000L
 
@@ -77,10 +79,9 @@ object NativePlaybackManager {
   private val httpClient = OkHttpClient.Builder()
     .connectionPool(ConnectionPool(6, 5, TimeUnit.MINUTES))
     .connectTimeout(8, TimeUnit.SECONDS)
-    // A live playlist/transport connection can legitimately pause between
-    // segments. Do not turn that brief gap into a terminal HTTP error; the
-    // single Media3 buffering watchdog below owns bounded recovery instead.
-    .readTimeout(0, TimeUnit.SECONDS)
+    // Bound a silently stalled live socket so Media3 gets an IOException and
+    // can enter the same native recovery path as other source failures.
+    .readTimeout(20, TimeUnit.SECONDS)
     .writeTimeout(15, TimeUnit.SECONDS)
     .retryOnConnectionFailure(true)
     .build()
@@ -94,7 +95,7 @@ object NativePlaybackManager {
   private var listener: Listener? = null
   private var owner: Owner = Owner.NONE
   private var firstFrameRendered = false
-  private var recoveryUsed = false
+  private var recoveryAttempts = 0
   private var stableSinceMs = 0L
 
   private val startupTimeout = Runnable {
@@ -106,6 +107,12 @@ object NativePlaybackManager {
     val instance = player ?: return@Runnable
     if (!firstFrameRendered || instance.playbackState != Player.STATE_BUFFERING) return@Runnable
     recoverOnce(instance)
+  }
+
+  private val delayedRecovery = Runnable {
+    val instance = player ?: return@Runnable
+    if (owner == Owner.NONE) return@Runnable
+    performRecovery(instance)
   }
 
   fun setListener(next: Listener?) {
@@ -162,12 +169,13 @@ object NativePlaybackManager {
       val instance = ensurePlayer()
       main.removeCallbacks(startupTimeout)
       main.removeCallbacks(bufferingWatchdog)
+      main.removeCallbacks(delayedRecovery)
       try { instance.stop() } catch (_: Throwable) {}
       try { instance.clearMediaItems() } catch (_: Throwable) {}
 
       owner = requestedOwner
       firstFrameRendered = false
-      recoveryUsed = false
+      recoveryAttempts = 0
       stableSinceMs = 0L
       httpDataSourceFactory.setDefaultRequestProperties(headers)
       if (!attachPlayerView(requestedOwner)) {
@@ -264,12 +272,13 @@ object NativePlaybackManager {
   private fun stopInternal(releasePlayer: Boolean) {
     main.removeCallbacks(startupTimeout)
     main.removeCallbacks(bufferingWatchdog)
+    main.removeCallbacks(delayedRecovery)
     val instance = player
     try { instance?.stop() } catch (_: Throwable) {}
     try { instance?.clearMediaItems() } catch (_: Throwable) {}
     owner = Owner.NONE
     firstFrameRendered = false
-    recoveryUsed = false
+    recoveryAttempts = 0
     stableSinceMs = 0L
     playerView?.visibility = View.GONE
     if (releasePlayer) {
@@ -333,6 +342,7 @@ object NativePlaybackManager {
             stableSinceMs = System.currentTimeMillis()
             main.removeCallbacks(startupTimeout)
             main.removeCallbacks(bufferingWatchdog)
+            main.removeCallbacks(delayedRecovery)
             listener?.onState("playing", null)
           }
 
@@ -340,9 +350,8 @@ object NativePlaybackManager {
             main.removeCallbacks(startupTimeout)
             main.removeCallbacks(bufferingWatchdog)
             // Media3 reaches this callback after a source read, segment, or
-            // decoder failure. Previously that made the UI show Retry without
-            // using the same bounded native recovery as a long buffer, so a
-            // manual tap could recover a stream that the app had abandoned.
+            // decoder failure. Use the same bounded native recovery as a long
+            // buffering stall, with short backoff between repeated failures.
             rearmRecoveryAfterStablePlayback()
             recoverOnce(created)
           }
@@ -373,19 +382,34 @@ object NativePlaybackManager {
 
   /**
    * The sole automatic recovery policy for live playback. Both an explicit
-   * Media3 error and a post-first-frame buffering stall arrive here, and each
-   * playback generation gets one re-prepare before the UI may offer manual
-   * Retry. No second engine, source refresh, or extra player is created.
+   * Media3 error and a post-first-frame buffering stall arrive here. A playback
+   * generation gets a small series of bounded re-prepares before the UI offers
+   * manual Retry. No second engine, source refresh, or extra player is created.
    */
   private fun recoverOnce(instance: ExoPlayer): Boolean {
-    if (owner == Owner.NONE || recoveryUsed) {
+    if (owner == Owner.NONE || player !== instance) return false
+    if (recoveryAttempts >= MAX_AUTO_RECOVERIES) {
       listener?.onState("error", "stream-error")
       return false
     }
-    recoveryUsed = true
+
+    val delayMs = RECOVERY_BACKOFF_MS[recoveryAttempts]
+    recoveryAttempts += 1
     main.removeCallbacks(startupTimeout)
     main.removeCallbacks(bufferingWatchdog)
+    main.removeCallbacks(delayedRecovery)
     listener?.onState("loading", "native-reprepare")
+
+    return if (delayMs == 0L) {
+      performRecovery(instance)
+    } else {
+      main.postDelayed(delayedRecovery, delayMs)
+      true
+    }
+  }
+
+  private fun performRecovery(instance: ExoPlayer): Boolean {
+    if (owner == Owner.NONE || player !== instance) return false
     return try {
       instance.prepare()
       instance.playWhenReady = true
@@ -397,11 +421,11 @@ object NativePlaybackManager {
     }
   }
 
-  /** A stream that rendered for long enough earns one fresh bounded recovery. */
+  /** A stream that rendered for long enough earns a fresh recovery budget. */
   private fun rearmRecoveryAfterStablePlayback() {
     val stableSince = stableSinceMs
     if (stableSince > 0L && System.currentTimeMillis() - stableSince >= STABLE_REARM_MS) {
-      recoveryUsed = false
+      recoveryAttempts = 0
     }
     stableSinceMs = 0L
   }
