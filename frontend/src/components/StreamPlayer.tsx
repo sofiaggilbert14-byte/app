@@ -1,23 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { AppState, Platform, UIManager, StyleProp, ViewStyle } from "react-native";
-import { VideoView, useVideoPlayer } from "expo-video";
-import { usePathname } from "expo-router";
+import { AppState, Platform, StyleProp, ViewStyle } from "react-native";
+import { VideoView, type VideoSource } from "expo-video";
 import { useIsFocused } from "@react-navigation/native";
-import { usePlayerEnginePreference } from "@/src/playerEnginePreference";
 import {
-  alternateEngine,
   detectStreamKind,
   media3ContentType,
   parsePipeHeaders,
-  preferredEngine,
-  type Engine,
 } from "@/src/core/streamPolicy";
 import {
   beginSession,
   getPlaybackOwnershipRevision,
-  isSessionCurrent,
   isPreviewPlaybackAllowed,
-  pauseSessionDecoders,
+  isSessionCurrent,
   registerSessionStop,
   setSessionPhase,
   subscribePlaybackOwnership,
@@ -25,25 +19,22 @@ import {
   type SessionRole,
 } from "@/src/core/playbackSession";
 import {
-  fingerprintStreamUri,
-  recordAudioDiagnostics,
-} from "@/src/core/audioDiagnostics";
-import {
-  usePlaybackBufferProfile,
-  type PlaybackBufferProfile,
-} from "@/src/core/playbackBufferProfile";
-import { usePlayerCompatibilityPreferences } from "@/src/core/playerCompatibilityPreferences";
+  claimMedia3Playback,
+  loadMedia3Source,
+  releaseFullscreenMedia3,
+  releasePreviewMedia3,
+} from "@/src/core/media3PlaybackManager";
 import { shouldUseLowRamTuning, useDeviceMemoryProfile } from "@/src/core/deviceMemoryProfile";
 import {
   getPreferredAudioLanguage,
   getRememberedChannelAudioTrack,
   pickPreferredAudioTrack,
 } from "@/src/core/audioTrackPreferences";
+import { usePlayerCompatibilityPreferences } from "@/src/core/playerCompatibilityPreferences";
 import { setNativePlaybackStarting } from "@/src/utils/tvRemote";
 
 export type StreamStatus = "loading" | "playing" | "error";
 export type PlayerScaleMode = "fit" | "zoom" | "stretch";
-
 export type StreamTrack = {
   id: string | number;
   name: string;
@@ -51,1132 +42,203 @@ export type StreamTrack = {
   isSupported?: boolean;
 };
 
-const FAILURE_WINDOW_MS = 60_000;
-const MAX_FAILURES_PER_WINDOW = 6;
-/** Fullscreen-only cooldown. Preview must never poison fullscreen. */
-const CIRCUIT_COOLDOWN_MS = 30_000;
-const FULLSCREEN_START_TIMEOUT_MS = 12_000;
-const PREVIEW_START_TIMEOUT_MS = 8_000;
-
-type FailureState = { failures: number[]; blockedUntil: number };
-const failureStateByKey = new Map<string, FailureState>();
-const MAX_FAILURE_KEYS = 64;
-
-/** Reasons that are expected during zap/recover — do not open the circuit. */
-const NON_CIRCUIT_REASONS = new Set<SessionFailReason>([
-  "start-timeout",
-  "engine-swap",
-  "circuit-open",
-  "silent-audio",
-  "user-stop",
-  "superseded",
-]);
-/** After Media3 reports playing, wait this long for audio tracks before VLC swap. */
-const SILENT_AUDIO_GRACE_MS = 2200;
-// TiviMate-style recovery adapted to Charm: only an actual post-playback
-// BUFFERING/loading state arms the watchdog. A silent internal re-prepare gets
-// first chance before the parent retry/failure machinery is notified.
-const BUFFERING_RESYNC_MS = 5000;
-const BUFFERING_FAIL_MS = 12_000;
-const MAX_SILENT_BUFFERING_RESYNCS = 1;
-const RESYNC_REARM_STABLE_MS = 30_000;
-const VLC_BUFFERING_FAIL_MS = 12_000;
-
-function pruneFailureMap(now = Date.now()) {
-  for (const [key, state] of failureStateByKey) {
-    state.failures = state.failures.filter((ts) => now - ts <= FAILURE_WINDOW_MS);
-    if (state.blockedUntil <= now && state.failures.length === 0) {
-      failureStateByKey.delete(key);
-    } else {
-      failureStateByKey.set(key, state);
-    }
-  }
-  while (failureStateByKey.size > MAX_FAILURE_KEYS) {
-    const oldest = failureStateByKey.keys().next().value;
-    if (!oldest) break;
-    failureStateByKey.delete(oldest);
-  }
-}
-
-/** Role-scoped so guide preview failures cannot black-hole fullscreen for the same URI. */
-function failureKey(role: SessionRole, engine: Engine, uri: string): string {
-  return `${role}:${engine}:${uri}`;
-}
-
-function getFailureState(role: SessionRole, engine: Engine, uri: string): FailureState {
-  const key = failureKey(role, engine, uri);
-  const now = Date.now();
-  const existing = failureStateByKey.get(key);
-  if (!existing) return { failures: [], blockedUntil: 0 };
-  existing.failures = existing.failures.filter((ts) => now - ts <= FAILURE_WINDOW_MS);
-  if (existing.blockedUntil <= now && existing.failures.length < MAX_FAILURES_PER_WINDOW) {
-    existing.blockedUntil = 0;
-  }
-  return existing;
-}
-
-function circuitRemainingMs(role: SessionRole, engine: Engine, uri: string): number {
-  return Math.max(0, getFailureState(role, engine, uri).blockedUntil - Date.now());
-}
-
-function isCircuitOpen(role: SessionRole, engine: Engine, uri: string): boolean {
-  if (role === "preview") return false;
-  return circuitRemainingMs(role, engine, uri) > 0;
-}
-
-function recordFailure(
-  role: SessionRole,
-  engine: Engine,
-  uri: string,
-  reason?: SessionFailReason | null,
-): void {
-  // Preview is best-effort — never open a circuit that blocks later fullscreen play.
-  if (!uri || role === "preview") return;
-  if (reason && NON_CIRCUIT_REASONS.has(reason)) return;
-  const now = Date.now();
-  const key = failureKey(role, engine, uri);
-  const state = getFailureState(role, engine, uri);
-  state.failures.push(now);
-  if (state.failures.length >= MAX_FAILURES_PER_WINDOW) state.blockedUntil = now + CIRCUIT_COOLDOWN_MS;
-  failureStateByKey.set(key, state);
-  pruneFailureMap(now);
-}
-
-function recordStablePlayback(role: SessionRole, engine: Engine, uri: string): void {
-  if (!uri || role === "preview") return;
-  const key = failureKey(role, engine, uri);
-  const state = getFailureState(role, engine, uri);
-  state.failures = state.failures.slice(-2);
-  state.blockedUntil = 0;
-  failureStateByKey.set(key, state);
-}
-
-/** True while any fullscreen engine circuit is cooling down for this URI. */
-export function isFullscreenCircuitOpen(uri?: string): boolean {
-  if (!uri) return false;
-  const clean = parsePipeHeaders(uri).uri || uri;
-  return (
-    isCircuitOpen("fullscreen", "media3", uri) ||
-    isCircuitOpen("fullscreen", "vlc", uri) ||
-    (clean !== uri &&
-      (isCircuitOpen("fullscreen", "media3", clean) || isCircuitOpen("fullscreen", "vlc", clean)))
-  );
-}
-
-/** Explicit Retry / user recover — clear fullscreen circuit entries for this URI. */
-export function clearFullscreenCircuit(uri?: string): void {
-  if (!uri) {
-    for (const key of Array.from(failureStateByKey.keys())) {
-      if (key.startsWith("fullscreen:")) failureStateByKey.delete(key);
-    }
-    return;
-  }
-  // Circuit keys store the pipe-stripped URI; callers often pass the raw channel.url.
-  const clean = parsePipeHeaders(uri).uri || uri;
-  const needles = clean === uri ? [uri] : [uri, clean];
-  for (const key of Array.from(failureStateByKey.keys())) {
-    if (!key.startsWith("fullscreen:")) continue;
-    if (needles.some((needle) => key.endsWith(`:${needle}`))) {
-      failureStateByKey.delete(key);
-    }
-  }
-}
-
-function useStatusTracker(
-  onStatus: (status: StreamStatus, reason?: SessionFailReason | null) => void,
-  resetKey: string,
-) {
-  const lastRef = useRef<StreamStatus | null>(null);
-  const onStatusRef = useRef(onStatus);
-  onStatusRef.current = onStatus;
-
-  useEffect(() => {
-    lastRef.current = null;
-  }, [resetKey]);
-
-  return useCallback((status: StreamStatus, reason?: SessionFailReason | null) => {
-    if (lastRef.current === status && reason === undefined) return;
-    lastRef.current = status;
-    try {
-      onStatusRef.current(status, reason);
-    } catch (error) {
-      console.warn("CharmIPTV stream status listener failed", error);
-    }
-  }, []);
-}
-
-export const vlcAvailable = Platform.OS !== "web" && !!UIManager.getViewManagerConfig?.("RCTVLCPlayer");
-
-const VLCPlayer: any = vlcAvailable
-  // eslint-disable-next-line @typescript-eslint/no-require-imports -- native module must be lazy outside installed builds
-  ? require("react-native-vlc-media-player").VLCPlayer
-  : null;
+// Compatibility exports kept so PlayerScreen can be migrated incrementally.
+// VLC/circuit breaking are intentionally gone from the new core.
+export const vlcAvailable = false;
+export function clearFullscreenCircuit(_uri?: string): void {}
+export function isFullscreenCircuitOpen(_uri?: string): boolean { return false; }
 
 type Props = {
   uri: string;
-  /** Stable channel id for per-channel audio-track preferences (URI tokens rotate). */
   channelKey?: string;
   onStatus: (s: StreamStatus, reason?: SessionFailReason | null) => void;
   style?: StyleProp<ViewStyle>;
   mode?: "preview" | "full";
   sessionRole?: SessionRole;
-  /** When true, Media3/VLC start muted (guide preview default). */
   muted?: boolean;
   audioTrack?: string | number;
   textTrack?: string | number | null;
-  onTracksAvailable?: (tracks: {
-    audio: StreamTrack[];
-    text: StreamTrack[];
-  }) => void;
-  bufferProfile?: PlaybackBufferProfile;
+  onTracksAvailable?: (tracks: { audio: StreamTrack[]; text: StreamTrack[] }) => void;
+  bufferProfile?: "low_latency" | "balanced" | "stable";
   paused?: boolean;
   scaleMode?: PlayerScaleMode;
 };
 
-type EngineProps = Props & {
-  engine: Engine;
-  sessionRole: SessionRole;
-  sessionGeneration: number;
-};
-
-function useCircuitCooldown(
-  role: SessionRole,
-  engine: Engine,
-  uri: string,
-  setStatus: (s: StreamStatus, reason?: SessionFailReason | null) => void,
-) {
-  const [blocked, setBlocked] = useState(() => isCircuitOpen(role, engine, uri));
-
-  useEffect(() => {
-    setBlocked(isCircuitOpen(role, engine, uri));
-  }, [engine, role, uri]);
-
-  useEffect(() => {
-    if (role === "preview") {
-      setBlocked(false);
-      return;
-    }
-    const remaining = circuitRemainingMs(role, engine, uri);
-    if (!blocked) {
-      if (remaining > 0) setBlocked(true);
-      return;
-    }
-
-    if (remaining <= 0) {
-      // Cooldown finished — remount cleanly as loading (do not emit error/circuit-open,
-      // which stacked with auto-retry and left a false failed state).
-      setBlocked(false);
-      setStatus("loading");
-      return;
-    }
-
-    // Surface the cooldown as an error overlay instead of a silent black player.
-    setStatus("error", "circuit-open");
-    const timer = setTimeout(() => {
-      setBlocked(false);
-      setStatus("loading");
-    }, remaining + 25);
-    return () => clearTimeout(timer);
-  }, [blocked, engine, role, setStatus, uri]);
-
-  return { blocked, setBlocked };
-}
-
-function VlcStream({
-  uri: rawUri,
-  onStatus: setStatus,
-  style,
-  engine,
-  mode = "full",
-  sessionRole,
-  sessionGeneration,
-  muted = false,
-  audioTrack,
-  textTrack,
-  onTracksAvailable,
-  bufferProfile = "balanced",
-  paused = false,
-  scaleMode = "fit",
-}: EngineProps) {
-  const activeRef = useRef(true);
-  const tearingDownRef = useRef(false);
-  const playerRef = useRef<any>(null);
-  const releaseResolveRef = useRef<(() => void) | null>(null);
-  const releasePromiseRef = useRef<Promise<void> | null>(null);
-  const vlcHasPlayedRef = useRef(false);
-  const vlcBufferingSinceRef = useRef<number | null>(null);
-  const { uri, headers } = useMemo(() => parsePipeHeaders(rawUri), [rawUri]);
-  const { blocked, setBlocked } = useCircuitCooldown(sessionRole, engine, uri, setStatus);
-  const referer = headers.Referer || headers.referer;
-  const origin = headers.Origin || headers.origin;
-  const userAgent = headers["User-Agent"] || headers["user-agent"] || "VLC/3.0.20 LibVLC/3.0.20";
-  const playerCompat = usePlayerCompatibilityPreferences();
-  const deviceMemory = useDeviceMemoryProfile();
-  const lowRam = shouldUseLowRamTuning(deviceMemory);
-  const initOptions = useMemo(() => {
-    // Balanced is the exact RC.1 value that was stable on the target provider.
-    // Keep the optional profiles bounded without changing the default path.
-    const requestedMs = bufferProfile === "low_latency" ? 1200 : bufferProfile === "stable" ? 3200 : 1800;
-    const fullMs = lowRam && bufferProfile === "stable" ? Math.min(requestedMs, 3000) : requestedMs;
-    const networkCaching = mode === "preview" ? 1000 : fullMs;
-    const liveCaching = mode === "preview" ? 1000 : fullMs;
-    const fileCaching = mode === "preview"
-      ? 700
-      : bufferProfile === "balanced" ? 1100 : Math.round(fullMs * 0.62);
-    const audioOutput = playerCompat.vlcAudioOutput;
-    const hardwareDecode = playerCompat.videoDecoderMode === "device";
-    const options = [
-      `--network-caching=${networkCaching}`,
-      `--live-caching=${liveCaching}`,
-      `--file-caching=${fileCaching}`,
-      "--http-reconnect",
-      "--adaptive-logic=rate",
-      `--http-user-agent=${userAgent}`,
-    ];
-    if (!hardwareDecode) options.push("--avcodec-hw=none");
-    // stereo-mode=1 forces a 2-channel mix/downmix (not stereo_widen).
-    if (audioOutput === "stereo") options.push("--stereo-mode=1");
-    if (audioOutput === "passthrough") {
-      options.push("--aout=android_audiotrack");
-      options.push("--audio-digital-hdmi-passthrough");
-    }
-    if (referer) options.push(`--http-referrer=${referer}`);
-    if (origin) options.push(`--http-origin=${origin}`);
-    return options;
-  }, [
-    bufferProfile,
-    lowRam,
-    mode,
-    origin,
-    playerCompat.vlcAudioOutput,
-    playerCompat.videoDecoderMode,
-    referer,
-    userAgent,
-  ]);
-  const mediaOptions = useMemo(
-    () =>
-      Object.entries(headers)
-        .filter(([key]) => !/^(?:user-agent|referer|origin)$/i.test(key))
-        .map(([key, value]) => `:http-header=${key}: ${value}`),
-    [headers],
-  );
-
-  const emit = useCallback(
-    (status: StreamStatus, reason?: SessionFailReason | null) => {
-      if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
-      setStatus(status, reason);
-    },
-    [sessionGeneration, sessionRole, setStatus],
-  );
-
-  const hardStop = useCallback((): Promise<void> => {
-    // A parent retry and the component cleanup can arrive in the same commit.
-    // Release the native decoder once and make every caller await that same
-    // acknowledgement; issuing a second stop used to resolve the first wait
-    // early and let the replacement mount while LibVLC still owned MediaCodec.
-    if (tearingDownRef.current) return releasePromiseRef.current ?? Promise.resolve();
-    tearingDownRef.current = true;
-    activeRef.current = false;
-    // stopPlayer alone retains LibVLC/MediaCodec until React eventually removes
-    // the native view. Every retry, fallback and preview handoff uses the same
-    // destructive release acknowledgement so a replacement decoder cannot
-    // overlap the old one. The timeout keeps teardown bounded on old builds.
-    const nativeRelease = new Promise<void>((resolve) => {
-      let settled = false;
-      let timeout: ReturnType<typeof setTimeout> | null = null;
-      const finish = () => {
-        if (settled) return;
-        settled = true;
-        if (timeout) clearTimeout(timeout);
-        if (releaseResolveRef.current === finish) releaseResolveRef.current = null;
-        resolve();
-      };
-      releaseResolveRef.current = finish;
-      timeout = setTimeout(finish, 700);
-      try {
-        const releaser = playerRef.current?.releasePlayer;
-        if (typeof releaser === "function") {
-          releaser.call(playerRef.current);
-        } else {
-          playerRef.current?.stopPlayer?.();
-          finish();
-        }
-      } catch {
-        finish();
-      }
-    });
-    releasePromiseRef.current = nativeRelease;
-    void nativeRelease.finally(() => {
-      if (releasePromiseRef.current === nativeRelease) releasePromiseRef.current = null;
-    });
-    try {
-      playerRef.current?.setNativeProps?.({ paused: true });
-    } catch {
-      /* native teardown best-effort */
-    }
-    return nativeRelease;
-  }, []);
-
-  useEffect(() => {
-    activeRef.current = true;
-    tearingDownRef.current = false;
-    const unregister = registerSessionStop(sessionRole, sessionGeneration, hardStop);
-    return () => {
-      unregister();
-      void hardStop();
-    };
-  }, [hardStop, sessionGeneration, sessionRole, uri]);
-
-  useEffect(() => {
-    if (blocked) return;
-    // Cooldown renders the native view again without remounting this wrapper.
-    // Re-arm its callbacks before that view can report a new open/playing event.
-    activeRef.current = true;
-    tearingDownRef.current = false;
-    vlcHasPlayedRef.current = false;
-    vlcBufferingSinceRef.current = null;
-  }, [blocked]);
-
-  const fail = useCallback(() => {
-    if (tearingDownRef.current || !activeRef.current) return;
-    if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
-    void hardStop();
-    recordFailure(sessionRole, engine, uri, "stream-error");
-    if (isCircuitOpen(sessionRole, engine, uri)) {
-      setBlocked(true);
-      emit("loading", "circuit-open");
-    } else {
-      emit("error", "stream-error");
-    }
-  }, [emit, engine, hardStop, sessionGeneration, sessionRole, setBlocked, uri]);
-
-  useEffect(() => {
-    if (!blocked) return;
-    void hardStop();
-  }, [blocked, hardStop]);
-
-  useEffect(() => {
-    if (paused || blocked) return;
-    const watchdog = setInterval(() => {
-      if (!activeRef.current || tearingDownRef.current || paused || blocked) return;
-      if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
-      if (!vlcHasPlayedRef.current) return;
-      const bufferingSince = vlcBufferingSinceRef.current;
-      // LibVLC progress is not a reliable liveness signal for non-seekable live
-      // inputs: a healthy MPEG-TS stream may keep reporting a fixed/unknown
-      // position. Only LibVLC's explicit post-playback buffering state may arm
-      // recovery, matching the Media3 state-based watchdog contract.
-      if (bufferingSince == null || Date.now() - bufferingSince < VLC_BUFFERING_FAIL_MS) return;
-      vlcBufferingSinceRef.current = null;
-      vlcHasPlayedRef.current = false;
-      fail();
-    }, 1000);
-    return () => clearInterval(watchdog);
-  }, [blocked, fail, mode, paused, sessionGeneration, sessionRole]);
-
-  if (blocked || !VLCPlayer) return null;
-
-  return (
-    <VLCPlayer
-      ref={playerRef}
-      style={style}
-      source={{
-        uri,
-        initType: 2,
-        initOptions,
-        mediaOptions,
-        hwDecoderEnabled: playerCompat.videoDecoderMode === "device" ? 1 : 0,
-        hwDecoderForced: 0,
-      }}
-      paused={paused}
-      autoplay={!paused}
-      autoAspectRatio={scaleMode !== "stretch"}
-      resizeMode={scaleMode === "zoom" ? "cover" : scaleMode === "stretch" ? "stretch" : "contain"}
-      acceptInvalidCertificates
-      muted={muted}
-      volume={muted ? 0 : 100}
-      audioTrack={typeof audioTrack === "number" ? audioTrack : undefined}
-      textTrack={typeof textTrack === "number" ? textTrack : undefined}
-      onLoad={(info: any) => {
-        const audio = Array.isArray(info?.audioTracks)
-          ? info.audioTracks.map((t: any) => ({ id: Number(t.id), name: String(t.name || t.language || `Audio ${t.id}`) }))
-          : [];
-        const text = Array.isArray(info?.textTracks)
-          ? info.textTracks.map((t: any) => ({ id: Number(t.id), name: String(t.name || t.language || `CC ${t.id}`) }))
-          : [];
-        onTracksAvailable?.({ audio, text });
-      }}
-      onOpen={() => activeRef.current && !tearingDownRef.current && emit("loading")}
-      onBuffering={(info: any) => {
-        if (!activeRef.current || tearingDownRef.current) return;
-        // LibVLC emits Buffering events for the whole 0..100 progression. A
-        // 100% event means buffering completed; treating it as the start of a
-        // stall creates a false 12-second failure even while video is healthy.
-        const bufferRate = Number(info?.bufferRate);
-        if (Number.isFinite(bufferRate) && bufferRate >= 99.9) {
-          vlcBufferingSinceRef.current = null;
-          return;
-        }
-        if (vlcHasPlayedRef.current && vlcBufferingSinceRef.current == null) {
-          vlcBufferingSinceRef.current = Date.now();
-        }
-        emit("loading");
-      }}
-      onPlaying={() => {
-        if (!activeRef.current || tearingDownRef.current) return;
-        if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
-        vlcHasPlayedRef.current = true;
-        vlcBufferingSinceRef.current = null;
-        recordStablePlayback(sessionRole, engine, uri);
-        emit("playing");
-      }}
-      onError={fail}
-      onStopped={() => {
-        releaseResolveRef.current?.();
-        fail();
-      }}
-    />
-  );
-}
-
-function ExpoStream({
-  uri: rawUri,
-  channelKey,
-  onStatus: setStatus,
-  style,
-  engine,
-  mode = "full",
-  sessionRole,
-  sessionGeneration,
-  muted = false,
-  audioTrack,
-  textTrack,
-  onTracksAvailable,
-  bufferProfile = "balanced",
-  paused = false,
-  scaleMode = "fit",
-}: EngineProps) {
-  const mountedRef = useRef(true);
-  const tearingDownRef = useRef(false);
-  const loadIdRef = useRef(0);
-  const replaceQueueRef = useRef<Promise<void>>(Promise.resolve());
-  const tracksCallbackRef = useRef(onTracksAvailable);
-  const lastPlaybackTimeRef = useRef(-1);
-  const hasPlayedRef = useRef(false);
-  const bufferingSinceRef = useRef<number | null>(null);
-  const stableProgressSinceRef = useRef<number | null>(null);
-  const silentResyncCountRef = useRef(0);
-  const silentResyncInFlightRef = useRef(false);
-  const releasePromiseRef = useRef<Promise<void> | null>(null);
-  tracksCallbackRef.current = onTracksAvailable;
-  const [mediaReady, setMediaReady] = useState(false);
-  const { uri, headers } = useMemo(() => parsePipeHeaders(rawUri), [rawUri]);
-  const kind = useMemo(() => detectStreamKind(uri), [uri]);
-  const { blocked, setBlocked } = useCircuitCooldown(sessionRole, engine, uri, setStatus);
-  const player = useVideoPlayer(null, (p) => {
-    p.loop = false;
-    p.timeUpdateEventInterval = 1;
-  });
-
-  const emit = useCallback(
-    (status: StreamStatus, reason?: SessionFailReason | null) => {
-      if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
-      setStatus(status, reason);
-    },
-    [sessionGeneration, sessionRole, setStatus],
-  );
-
-  const playerCompat = usePlayerCompatibilityPreferences();
-  const deviceMemory = useDeviceMemoryProfile();
-  const lowRam = shouldUseLowRamTuning(deviceMemory);
-  useEffect(() => {
-    try {
-      const tunneling = playerCompat.media3Tunneling;
-      const media3Audio = playerCompat.media3AudioMode;
-      // Tunneling prefers shorter forward buffers; ffmpeg mode keeps a slightly
-      // larger decode cushion because the extension path is heavier on weak SoCs.
-      const profile = tunneling && bufferProfile !== "stable" ? "low_latency" : bufferProfile;
-      const full = profile === "low_latency"
-        ? {
-            preferredForwardBufferDuration: lowRam ? 1.8 : (media3Audio === "ffmpeg" ? 2.8 : 2.2),
-            maxBufferBytes: (lowRam ? 20 : (media3Audio === "ffmpeg" ? 40 : 32)) * 1024 * 1024,
-            minBufferForPlayback: 0.5,
-          }
-        : profile === "stable"
-          ? {
-              preferredForwardBufferDuration: lowRam ? 5 : 6,
-              maxBufferBytes: (lowRam ? 32 : 48) * 1024 * 1024,
-              minBufferForPlayback: 1.0,
-            }
-          : {
-              // Exact RC.1 fullscreen buffer contract. In particular, do not
-              // shrink the allocator for a low-RAM classification after start.
-              preferredForwardBufferDuration: 3,
-              maxBufferBytes: 48 * 1024 * 1024,
-            };
-      const coordinatedCacheBudget = Math.max(
-        8 * 1024 * 1024,
-        Math.min(
-          deviceMemory?.playerCacheBytes || Number.MAX_SAFE_INTEGER,
-          deviceMemory?.vodCacheBytes || Number.MAX_SAFE_INTEGER,
-        ),
-      );
-      player.bufferOptions = mode === "preview"
-        ? {
-            preferredForwardBufferDuration: 1.2,
-            maxBufferBytes: Math.min(12 * 1024 * 1024, coordinatedCacheBudget),
-          }
-        : {
-            ...full,
-            maxBufferBytes: profile === "balanced"
-              ? full.maxBufferBytes
-              : Math.min(full.maxBufferBytes, coordinatedCacheBudget),
-          };
-    } catch {
-      /* older native builds may ignore bufferOptions */
-    }
-    try {
-      // Fullscreen TV playback must own AUDIOFOCUS_GAIN. Expo's default "auto"
-      // usually does this too; doNotMix makes it deterministic after preview /
-      // decoder handoff and avoids a silent focused player losing focus to a
-      // stale background audio session.
-      player.audioMixingMode = mode === "preview" ? "mixWithOthers" : "doNotMix";
-    } catch {
-      /* older native builds may not expose audio mixing mode */
-    }
-  }, [
-    bufferProfile,
-    deviceMemory?.playerCacheBytes,
-    deviceMemory?.vodCacheBytes,
-    lowRam,
-    mode,
-    player,
-    playerCompat.media3AudioMode,
-    playerCompat.media3Tunneling,
-  ]);
-
-  const reportAndSelectMedia3Tracks = useCallback(() => {
-    try {
-      const audioTracks = Array.isArray(player.availableAudioTracks) ? player.availableAudioTracks : [];
-      const supportedTracks = audioTracks.filter((track: any) => track.isSupported !== false);
-      const media3Audio = playerCompat.media3AudioMode;
-      const mappedTracks = audioTracks.map((track: any) => ({
-        id: track.id,
-        name: [track.label || track.language || `Audio ${track.id}`, track.mimeType].filter(Boolean).join(" · "),
-        mimeType: track.mimeType,
-        isSupported: track.isSupported !== false,
-        language: track.language,
-        raw: track,
-      }));
-      const preferred = audioTrack == null
-        ? pickPreferredAudioTrack(
-            mappedTracks,
-            getRememberedChannelAudioTrack(channelKey),
-            getPreferredAudioLanguage(),
-          )
-        : undefined;
-      const preferredRaw = preferred
-        ? audioTracks.find((track: any) => String(track.id) === String(preferred.id)) || null
-        : null;
-      // device mode prefers isSupported tracks; ffmpeg mode will still try unsupported
-      // tracks before falling back because the FFmpeg extension may decode them.
-      const candidatePool = media3Audio === "device"
-        ? supportedTracks
-        : media3Audio === "ffmpeg"
-          ? audioTracks
-          : supportedTracks.length
-            ? supportedTracks
-            : audioTracks;
-      const requestedAudio = audioTrack == null
-        ? preferredRaw
-        : audioTracks.find((track) => String(track.id) === String(audioTrack)) || null;
-      const currentAudio = player.audioTrack as any;
-      const automaticSupported = candidatePool[0] || supportedTracks[0] || null;
-
-      let selectedAudio: any = null;
-      let selectedBy: "user" | "current" | "auto-supported" | "auto-first" | "none" = "none";
-      // isSupported is supplied by the checked-in expo-video native patch but
-      // is not part of Expo's upstream AudioTrack TypeScript declaration.
-      if (requestedAudio && (media3Audio === "ffmpeg" || (requestedAudio as any).isSupported !== false)) {
-        selectedAudio = requestedAudio;
-        selectedBy = audioTrack == null ? "auto-supported" : "user";
-      } else if (currentAudio && (media3Audio === "ffmpeg" || currentAudio.isSupported !== false)) {
-        selectedAudio = currentAudio;
-        selectedBy = "current";
-      } else if (automaticSupported) {
-        selectedAudio = automaticSupported;
-        selectedBy = "auto-supported";
-      } else if (requestedAudio) {
-        selectedAudio = requestedAudio;
-        selectedBy = audioTrack == null ? "auto-first" : "user";
-      } else if (currentAudio) {
-        selectedAudio = currentAudio;
-        selectedBy = "current";
-      } else if (audioTracks[0]) {
-        selectedAudio = audioTracks[0];
-        selectedBy = "auto-first";
-      }
-
-      // Displace an unsupported selection when a supported track exists.
-      if (selectedAudio && selectedAudio.isSupported === false && automaticSupported) {
-        selectedAudio = automaticSupported;
-        selectedBy = "auto-supported";
-      }
-
-      if (selectedAudio && player.audioTrack?.id !== selectedAudio.id) {
-        player.audioTrack = selectedAudio;
-      }
-
-      const subtitleTracks = Array.isArray(player.availableSubtitleTracks) ? player.availableSubtitleTracks : [];
-      if (textTrack == null) {
-        // Explicit Off — clear any engine-selected subtitle so CC does not stick.
-        if (player.subtitleTrack != null) {
-          try {
-            player.subtitleTrack = null;
-          } catch {
-            /* older expo-video */
-          }
-        }
-      } else {
-        const selectedText = subtitleTracks.find((track) => String(track.id) === String(textTrack));
-        if (selectedText && player.subtitleTrack?.id !== selectedText.id) {
-          player.subtitleTrack = selectedText;
-        }
-      }
-
-      tracksCallbackRef.current?.({
-        audio: audioTracks.map((track: any) => ({
-          id: track.id,
-          name: [track.label || track.language || `Audio ${track.id}`, track.mimeType].filter(Boolean).join(" · "),
-          mimeType: track.mimeType,
-          isSupported: track.isSupported !== false,
-        })),
-        text: subtitleTracks.map((track: any) => ({
-          id: track.id,
-          name: String(track.label || track.language || `CC ${track.id}`),
-        })),
-      });
-
-      recordAudioDiagnostics({
-        engine: "media3",
-        role: sessionRole,
-        streamKey: fingerprintStreamUri(uri, kind),
-        trackId: selectedAudio?.id ?? null,
-        mimeType: selectedAudio?.mimeType ?? null,
-        language: selectedAudio?.language ?? null,
-        label: selectedAudio?.label ?? null,
-        isSupported: selectedAudio ? selectedAudio.isSupported !== false : null,
-        trackCount: audioTracks.length,
-        supportedCount: supportedTracks.length,
-        selectedBy,
-        silentAudio: false,
-        reason: `mode=${media3Audio};tunnel=${playerCompat.media3Tunneling ? 1 : 0}`,
-      });
-
-      // FFmpeg mode may decode tracks marked isSupported=false. Treat a selected
-      // track as success so silent-audio fallback does not false-trigger.
-      if (media3Audio === "ffmpeg") return selectedAudio != null && audioTracks.length > 0;
-      return supportedTracks.length > 0;
-    } catch {
-      return false;
-    }
-  }, [
-    audioTrack,
-    channelKey,
-    kind,
-    player,
-    playerCompat.media3AudioMode,
-    playerCompat.media3Tunneling,
-    sessionRole,
-    textTrack,
-    uri,
-  ]);
-
-  // Settings changes must re-apply track selection without waiting for a channel change.
-  useEffect(() => {
-    if (!mediaReady || blocked) return;
-    reportAndSelectMedia3Tracks();
-  }, [blocked, mediaReady, playerCompat.media3AudioMode, reportAndSelectMedia3Tracks]);
-
-  const hardStop = useCallback((): Promise<void> => {
-    // pauseSessionDecoders and React cleanup can both ask for a release. Queue
-    // only one replaceAsync(null), otherwise the later cleanup can outlive the
-    // release promise that armed the next native view.
-    if (tearingDownRef.current) return releasePromiseRef.current ?? Promise.resolve();
-    loadIdRef.current += 1;
-    tearingDownRef.current = true;
-    mountedRef.current = false;
-    try {
-      player.pause();
-    } catch {}
-    const release = mode === "preview"
-      ? player.replaceAsync(null as any).catch(() => undefined)
-      : (() => {
-          replaceQueueRef.current = replaceQueueRef.current
-            .catch(() => undefined)
-            .then(() => player.replaceAsync(null as any))
-            .catch(() => undefined);
-          return replaceQueueRef.current;
-        })();
-    releasePromiseRef.current = release;
-    void release.finally(() => {
-      if (releasePromiseRef.current === release) releasePromiseRef.current = null;
-    });
-    return release;
-  }, [mode, player]);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    tearingDownRef.current = false;
-    const unregister = registerSessionStop(sessionRole, sessionGeneration, hardStop);
-    return () => {
-      unregister();
-      void hardStop();
-    };
-  }, [hardStop, sessionGeneration, sessionRole]);
-
-  useEffect(() => {
-    if (!uri || blocked) return;
-    if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
-
-    let cancelled = false;
-    const loadId = ++loadIdRef.current;
-    mountedRef.current = true;
-    tearingDownRef.current = false;
-    releasePromiseRef.current = null;
-    setMediaReady(false);
-    hasPlayedRef.current = false;
-    bufferingSinceRef.current = null;
-    stableProgressSinceRef.current = null;
-    silentResyncCountRef.current = 0;
-    silentResyncInFlightRef.current = false;
-    emit("loading");
-    (async () => {
-      try {
-        const contentType = media3ContentType(kind);
-        const load = mode === "preview"
-          ? player.replaceAsync({ uri, headers, contentType })
-          : replaceQueueRef.current
-              .catch(() => undefined)
-              .then(async () => {
-                if (cancelled || loadId !== loadIdRef.current) return;
-                await player.replaceAsync({ uri, headers, contentType });
-              });
-        if (mode !== "preview") replaceQueueRef.current = load.catch(() => undefined);
-        await load;
-        if (
-          !cancelled &&
-          loadId === loadIdRef.current &&
-          mountedRef.current &&
-          !tearingDownRef.current &&
-          isSessionCurrent(sessionRole, sessionGeneration)
-        ) {
-          try {
-            player.muted = muted;
-            player.volume = muted ? 0 : 1;
-          } catch {}
-          if (!paused) player.play();
-        }
-      } catch {
-        if (
-          !cancelled &&
-          mountedRef.current &&
-          !tearingDownRef.current &&
-          isSessionCurrent(sessionRole, sessionGeneration)
-        ) {
-          recordFailure(sessionRole, engine, uri, "stream-error");
-          if (isCircuitOpen(sessionRole, engine, uri)) {
-            setBlocked(true);
-            emit("loading", "circuit-open");
-          } else {
-            emit("error", "stream-error");
-          }
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      void hardStop();
-    };
-  }, [blocked, emit, engine, hardStop, headers, kind, mode, muted, paused, player, sessionGeneration, sessionRole, setBlocked, uri]);
-
-  useEffect(() => {
-    if (!mediaReady || blocked) return;
-    try {
-      if (paused) player.pause();
-      else player.play();
-    } catch {}
-  }, [blocked, mediaReady, paused, player]);
-
-  useEffect(() => {
-    try {
-      player.muted = muted;
-      player.volume = muted ? 0 : 1;
-    } catch {
-      /* older native builds */
-    }
-  }, [muted, player]);
-
-  useEffect(() => {
-    const sub = player.addListener("statusChange", ({ status, error }) => {
-      if (!mountedRef.current || tearingDownRef.current || blocked) return;
-      if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
-      if (status === "readyToPlay") {
-        lastPlaybackTimeRef.current = player.currentTime;
-        // Startup READY is handled by the wrapper timeout. After real
-        // playback has begun, keep an existing rebuffer timestamp armed
-        // until the playback clock advances; READY-with-no-frame must
-        // never cancel freeze recovery.
-        if (!hasPlayedRef.current) bufferingSinceRef.current = null;
-        // readyToPlay means Media3 prepared the stream, not that hardware has
-        // actually rendered/advanced it. Keep the wrapper startup timeout alive
-        // until the first real playback-clock advance proves the decoder is live.
-        // This mirrors TiViMate's first-frame stability gate without trusting the
-        // transient Media3 `playing` flag that can also drop during later stalls.
-        silentResyncInFlightRef.current = false;
-        setMediaReady(true);
-        reportAndSelectMedia3Tracks();
-      } else if (status === "loading") {
-        // Startup loading is handled by the separate start timeout. Only a
-        // rebuffer after actual playback arms freeze recovery.
-        if (hasPlayedRef.current && bufferingSinceRef.current == null) {
-          bufferingSinceRef.current = Date.now();
-          stableProgressSinceRef.current = null;
-        }
-        emit("loading");
-      } else if (error || status === "error") {
-        void hardStop();
-        recordFailure(sessionRole, engine, uri, "stream-error");
-        if (isCircuitOpen(sessionRole, engine, uri)) {
-          setBlocked(true);
-          emit("loading", "circuit-open");
-        } else {
-          emit("error", "stream-error");
-        }
-      }
-    });
-    return () => sub.remove();
-  }, [blocked, emit, engine, hardStop, player, reportAndSelectMedia3Tracks, sessionGeneration, sessionRole, setBlocked, uri]);
-
-  useEffect(() => {
-    const progressSub = player.addListener("timeUpdate", ({ currentTime }) => {
-      if (!mediaReady) return;
-      if (currentTime > lastPlaybackTimeRef.current + 0.05) {
-        const firstProgress = !hasPlayedRef.current;
-        lastPlaybackTimeRef.current = currentTime;
-        hasPlayedRef.current = true;
-        // Real clock progress proves startup/recovery succeeded. Only now reset
-        // the bounded recovery budget and publish stable playback to the parent.
-        const progressNow = Date.now();
-        if (stableProgressSinceRef.current == null) stableProgressSinceRef.current = progressNow;
-        if (progressNow - stableProgressSinceRef.current >= RESYNC_REARM_STABLE_MS) {
-          silentResyncCountRef.current = 0;
-        }
-        bufferingSinceRef.current = null;
-        if (firstProgress && isSessionCurrent(sessionRole, sessionGeneration)) {
-          recordStablePlayback(sessionRole, engine, uri);
-          emit("playing");
-        }
-      }
-    });
-    if (paused || blocked || !mediaReady) {
-      return () => progressSub.remove();
-    }
-    lastPlaybackTimeRef.current = player.currentTime;
-    const watchdog = setInterval(() => {
-      if (!mountedRef.current || tearingDownRef.current || paused || blocked) return;
-      if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
-      const now = Date.now();
-      const observedPlaybackTime = Number(player.currentTime);
-      if (Number.isFinite(observedPlaybackTime) && observedPlaybackTime > lastPlaybackTimeRef.current + 0.05) {
-        lastPlaybackTimeRef.current = observedPlaybackTime;
-        if (stableProgressSinceRef.current == null) stableProgressSinceRef.current = now;
-        if (now - stableProgressSinceRef.current >= RESYNC_REARM_STABLE_MS) {
-          silentResyncCountRef.current = 0;
-        }
-        bufferingSinceRef.current = null;
-      }
-      const bufferingSince = bufferingSinceRef.current;
-      // TiViMate-style ownership: only an explicit post-playback Media3
-      // loading/buffering state may tear down/reprepare this live decoder.
-      // Live IPTV clocks can pause, jump or emit sparse JS time updates while
-      // video is healthy; clock silence alone must never reload the source.
-      if (bufferingSince == null) return;
-      const bufferingFor = now - bufferingSince;
-      if (bufferingFor < BUFFERING_RESYNC_MS) return;
-
-      if (
-        silentResyncCountRef.current < MAX_SILENT_BUFFERING_RESYNCS &&
-        !silentResyncInFlightRef.current
-      ) {
-        silentResyncCountRef.current += 1;
-        silentResyncInFlightRef.current = true;
-        // One reprepare owns this unstable episode. A brief frame/clock
-        // recovery cannot immediately buy another source reload.
-        stableProgressSinceRef.current = null;
-        bufferingSinceRef.current = Date.now();
-        const contentType = media3ContentType(kind);
-        replaceQueueRef.current = replaceQueueRef.current
-          .catch(() => undefined)
-          .then(async () => {
-            if (!mountedRef.current || tearingDownRef.current || paused || blocked) return;
-            if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
-            await player.replaceAsync({ uri, headers, contentType });
-            if (!paused) player.play();
-          })
-          .catch(() => undefined)
-          .finally(() => { silentResyncInFlightRef.current = false; });
-        return;
-      }
-
-      if (bufferingFor < BUFFERING_FAIL_MS) return;
-      bufferingSinceRef.current = null;
-      void hardStop();
-      recordFailure(sessionRole, engine, uri, "stream-error");
-      emit("error", "stream-error");
-    }, 1000);
-    return () => {
-      progressSub.remove();
-      clearInterval(watchdog);
-    };
-  }, [blocked, emit, engine, hardStop, headers, kind, mediaReady, mode, paused, player, sessionGeneration, sessionRole, uri]);
-
-  useEffect(() => {
-    const onTracksChanged = () => {
-      reportAndSelectMedia3Tracks();
-    };
-    const audioSub = player.addListener("availableAudioTracksChange", onTracksChanged);
-    const textSub = player.addListener("availableSubtitleTracksChange", onTracksChanged);
-    reportAndSelectMedia3Tracks();
-    return () => {
-      audioSub.remove();
-      textSub.remove();
-    };
-  }, [player, reportAndSelectMedia3Tracks, uri]);
-
-  // Media3 can paint video while failing to expose/decode audio (AC-3 etc.).
-  // Soft-fail when no supported audio track appears after grace so default mode
-  // can swap to VLC. Media3-only mode still emits silent-audio for UI messaging.
-  useEffect(() => {
-    if (blocked || mode === "preview" || !mediaReady) return;
-    let cancelled = false;
-    let sawSupportedAudio = false;
-    const markAudio = () => {
-      sawSupportedAudio = reportAndSelectMedia3Tracks() || sawSupportedAudio;
-    };
-    markAudio();
-    const trackSub = player.addListener("availableAudioTracksChange", markAudio);
-    const timer = setTimeout(() => {
-      if (cancelled || !mountedRef.current || tearingDownRef.current) return;
-      if (!isSessionCurrent(sessionRole, sessionGeneration)) return;
-      markAudio();
-      if (sawSupportedAudio) return;
-      void hardStop();
-      recordAudioDiagnostics({
-        engine: "media3",
-        role: sessionRole,
-        streamKey: fingerprintStreamUri(uri, kind),
-        trackId: player.audioTrack?.id ?? null,
-        mimeType: (player.audioTrack as any)?.mimeType ?? null,
-        language: (player.audioTrack as any)?.language ?? null,
-        label: (player.audioTrack as any)?.label ?? null,
-        isSupported: false,
-        trackCount: Array.isArray(player.availableAudioTracks) ? player.availableAudioTracks.length : 0,
-        supportedCount: 0,
-        selectedBy: "none",
-        silentAudio: true,
-        reason: "silent-audio",
-      });
-      emit("error", "silent-audio");
-    }, SILENT_AUDIO_GRACE_MS);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-      try {
-        trackSub.remove();
-      } catch {}
-    };
-  }, [blocked, emit, hardStop, kind, mediaReady, mode, player, reportAndSelectMedia3Tracks, sessionGeneration, sessionRole, uri]);
-
-  if (blocked) return null;
-
-  return (
-    <VideoView
-      style={style}
-      player={player}
-      contentFit={scaleMode === "zoom" ? "cover" : scaleMode === "stretch" ? "fill" : "contain"}
-      // RC.1 used TextureView for both modes. Besides compositing preview, this
-      // keeps the rendered surface observable by the app lifecycle; a stalled
-      // SurfaceView can leave a frozen picture while the media clock advances.
-      surfaceType={Platform.OS === "android" ? "textureView" : undefined}
-      nativeControls={false}
-      useExoShutter
-    />
-  );
-}
+const START_TIMEOUT_MS = 10_000;
+const REBUFFER_REPREPARE_MS = 5_000;
+const REBUFFER_FAIL_MS = 12_000;
+const RETRY_DELAYS_MS = [1000, 2000, 4000] as const;
 
 export function StreamPlayer({
-  uri,
+  uri: rawUri,
   channelKey,
   onStatus,
   style,
-  mode,
+  mode = "full",
   sessionRole,
   muted = false,
   audioTrack,
   textTrack,
   onTracksAvailable,
-  bufferProfile,
   paused = false,
   scaleMode = "fit",
 }: Props) {
+  const role: SessionRole = sessionRole ?? (mode === "preview" ? "preview" : "fullscreen");
   const isFocused = useIsFocused();
-  const pathname = usePathname();
-  const isGuidePreview = pathname === "/guide";
-  const playbackMode = mode ?? (isGuidePreview ? "preview" : "full");
-  const role: SessionRole = sessionRole ?? (playbackMode === "preview" ? "preview" : "fullscreen");
-  useSyncExternalStore(
-    subscribePlaybackOwnership,
-    getPlaybackOwnershipRevision,
-    getPlaybackOwnershipRevision,
-  );
+  useSyncExternalStore(subscribePlaybackOwnership, getPlaybackOwnershipRevision, getPlaybackOwnershipRevision);
   const previewAllowed = role !== "preview" || isPreviewPlaybackAllowed();
-  // RN may report null/unknown AppState during initial bridge startup. Treat
-  // anything except an explicit background/inactive event as active.
   const [appActive, setAppActive] = useState(
     () => AppState.currentState !== "background" && AppState.currentState !== "inactive",
   );
   const playbackFocused = isFocused && appActive && previewAllowed;
-  const [playerEnginePreference] = usePlayerEnginePreference();
-  const [savedBufferProfile] = usePlaybackBufferProfile();
-  const playerCompat = usePlayerCompatibilityPreferences();
-  const effectiveBufferProfile = bufferProfile || savedBufferProfile;
-  // Remount engines when settings that only apply at construction change.
-  const vlcEngineKey = `vlc:${uri}:${playerCompat.vlcAudioOutput}:${playerCompat.videoDecoderMode}:${effectiveBufferProfile}`;
-  const media3EngineKey = `media3:${uri}:${playerCompat.media3AudioMode}:${playerCompat.media3Tunneling ? 1 : 0}:${effectiveBufferProfile}`;
-  const softwareVideo = playerCompat.videoDecoderMode === "software";
-  // Preview must use the same explicitly selected engine/decoder policy as
-  // fullscreen. The old role exception silently used Media3 behind a VLC
-  // fullscreen preference and made the handoff allocate two different stacks.
-  const forceVlc = (playerEnginePreference === "vlc" || softwareVideo) && vlcAvailable;
-  const forceMedia3 = playerEnginePreference === "media3" && !softwareVideo;
-  const [session, setSession] = useState({ key: "", generation: 0 });
-
-  const setStatus = useStatusTracker(onStatus, `${role}:${uri}`);
-  const cleanUri = useMemo(() => parsePipeHeaders(uri).uri, [uri]);
-  const kind = useMemo(() => detectStreamKind(cleanUri), [cleanUri]);
-  const initialEngine = useMemo(() => {
-    if (forceVlc) return "vlc" as Engine;
-    if (forceMedia3) return "media3" as Engine;
-    const preferred = preferredEngine(kind);
-    return preferred === "vlc" && !vlcAvailable ? "media3" : preferred;
-  }, [forceMedia3, forceVlc, kind]);
-  const [engine, setEngine] = useState<Engine>(initialEngine);
-  const [fallbackUsed, setFallbackUsed] = useState(false);
+  const [generation, setGeneration] = useState(0);
   const stableRef = useRef(false);
-  const engineSwapInFlightRef = useRef(false);
-  const startTimeoutMs = role === "preview" ? PREVIEW_START_TIMEOUT_MS : FULLSCREEN_START_TIMEOUT_MS;
+  const firstFrameRef = useRef(false);
+  const bufferingSinceRef = useRef<number | null>(null);
+  const reprepareUsedRef = useRef(false);
+  const retryRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const watchdogRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const onStatusRef = useRef(onStatus);
+  onStatusRef.current = onStatus;
+
+  const { uri, headers } = useMemo(() => parsePipeHeaders(rawUri), [rawUri]);
+  const kind = useMemo(() => detectStreamKind(uri), [uri]);
+  const contentType = useMemo(() => media3ContentType(kind), [kind]);
+  const player = useMemo(() => claimMedia3Playback(role), [role]);
+  const deviceMemory = useDeviceMemoryProfile();
+  const lowRam = shouldUseLowRamTuning(deviceMemory);
+  const compat = usePlayerCompatibilityPreferences();
+
+  const emit = useCallback((status: StreamStatus, reason?: SessionFailReason | null) => {
+    if (generation && !isSessionCurrent(role, generation)) return;
+    onStatusRef.current(status, reason);
+  }, [generation, role]);
+
+  const clearTimers = useCallback(() => {
+    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    if (startTimerRef.current) clearTimeout(startTimerRef.current);
+    if (watchdogRef.current) clearInterval(watchdogRef.current);
+    retryTimerRef.current = null;
+    startTimerRef.current = null;
+    watchdogRef.current = null;
+  }, []);
+
+  const applyBufferPolicy = useCallback(() => {
+    try {
+      // Live TV only: tight forward buffer, no VOD-sized allocator. Expo 3.0.16
+      // exposes forward duration/byte caps; native LoadControl tuning can stay
+      // below this JS ceiling.
+      player.bufferOptions = mode === "preview"
+        ? {
+            preferredForwardBufferDuration: 1.5,
+            maxBufferBytes: (lowRam ? 6 : 8) * 1024 * 1024,
+            minBufferForPlayback: 0.35,
+          }
+        : {
+            preferredForwardBufferDuration: lowRam ? 2.5 : 3,
+            maxBufferBytes: (lowRam ? 12 : 18) * 1024 * 1024,
+            minBufferForPlayback: 0.5,
+          };
+    } catch {}
+    try {
+      player.audioMixingMode = mode === "preview" ? "mixWithOthers" : "doNotMix";
+    } catch {}
+  }, [lowRam, mode, player]);
+
+  const publishTracks = useCallback(() => {
+    try {
+      const audio = Array.isArray(player.availableAudioTracks) ? player.availableAudioTracks : [];
+      const text = Array.isArray(player.availableSubtitleTracks) ? player.availableSubtitleTracks : [];
+      const mappedAudio = audio.map((track: any) => ({
+        id: track.id,
+        name: [track.label || track.language || `Audio ${track.id}`, track.mimeType].filter(Boolean).join(" · "),
+        mimeType: track.mimeType ?? null,
+        isSupported: track.isSupported !== false,
+        language: track.language,
+      }));
+      onTracksAvailable?.({
+        audio: mappedAudio,
+        text: text.map((track: any) => ({ id: track.id, name: track.label || track.language || `CC ${track.id}` })),
+      });
+
+      const requestedAudio = audioTrack == null
+        ? pickPreferredAudioTrack(mappedAudio as any, getRememberedChannelAudioTrack(channelKey), getPreferredAudioLanguage())
+        : mappedAudio.find((track) => String(track.id) === String(audioTrack));
+      if (requestedAudio) {
+        const raw = audio.find((track: any) => String(track.id) === String(requestedAudio.id));
+        if (raw && (compat.media3AudioMode === "ffmpeg" || raw.isSupported !== false)) player.audioTrack = raw;
+      }
+
+      if (textTrack == null) player.subtitleTrack = null;
+      else {
+        const rawText = text.find((track: any) => String(track.id) === String(textTrack));
+        if (rawText) player.subtitleTrack = rawText;
+      }
+    } catch {}
+  }, [audioTrack, channelKey, compat.media3AudioMode, onTracksAvailable, player, textTrack]);
+
+  const load = useCallback(async (isRecovery = false) => {
+    if (!uri || !playbackFocused || !generation || !isSessionCurrent(role, generation)) return;
+    if (!isRecovery) {
+      stableRef.current = false;
+      firstFrameRef.current = false;
+      reprepareUsedRef.current = false;
+      retryRef.current = 0;
+    }
+    bufferingSinceRef.current = null;
+    applyBufferPolicy();
+    emit("loading");
+    setSessionPhase(role, generation, isRecovery ? "recovering" : "preparing", isRecovery ? "stream-error" : null);
+    const source: VideoSource = {
+      uri,
+      headers,
+      contentType: contentType as any,
+      useCaching: false,
+    };
+    try {
+      await loadMedia3Source(role, `${uri}|${JSON.stringify(headers)}|${contentType}`, source);
+      if (!isSessionCurrent(role, generation)) return;
+      try {
+        player.muted = muted;
+        player.volume = muted ? 0 : 1;
+      } catch {}
+      publishTracks();
+      if (paused) player.pause(); else player.play();
+    } catch {
+      if (!isSessionCurrent(role, generation)) return;
+      emit("error", "stream-error");
+      setSessionPhase(role, generation, "failed", "stream-error");
+    }
+  }, [
+    applyBufferPolicy,
+    contentType,
+    emit,
+    generation,
+    headers,
+    muted,
+    paused,
+    playbackFocused,
+    player,
+    publishTracks,
+    role,
+    uri,
+  ]);
+
+  const failOrRetry = useCallback(() => {
+    if (!generation || !isSessionCurrent(role, generation)) return;
+    if (retryRef.current >= RETRY_DELAYS_MS.length) {
+      setSessionPhase(role, generation, "failed", "stream-error");
+      emit("error", "stream-error");
+      return;
+    }
+    const delay = RETRY_DELAYS_MS[retryRef.current++];
+    setSessionPhase(role, generation, "recovering", "stream-error");
+    emit("loading", "stream-error");
+    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    retryTimerRef.current = setTimeout(() => void load(true), delay);
+  }, [emit, generation, load, role]);
 
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
@@ -1185,197 +247,127 @@ export function StreamPlayer({
     return () => sub.remove();
   }, []);
 
-  // Fullscreen remounts immediately when Settings change. Guide preview stays
-  // mounted under Tabs keep-alive — freeze the applied compat key while the
-  // Guide route is unfocused so Settings toggles cannot remount a background decoder.
-  const appliedCompatKeyRef = useRef(`${media3EngineKey}|${vlcEngineKey}`);
-  if (role !== "preview" || isFocused) {
-    appliedCompatKeyRef.current = `${media3EngineKey}|${vlcEngineKey}`;
-  }
-  // Include engine remount keys so mid-play Settings changes reset fallback /
-  // stable gates. Otherwise a prior silent-audio swap blocks the next attempt.
-  const ownershipKey = role === "preview" ? (previewAllowed ? "preview-open" : "preview-blocked") : "fullscreen";
-  const sessionKey = `${role}:${uri}:${initialEngine}:${appliedCompatKeyRef.current}:${playbackFocused ? 1 : 0}:${ownershipKey}`;
   useEffect(() => {
-    if (!playbackFocused) {
-      setSession({ key: sessionKey, generation: 0 });
+    if (!playbackFocused || !uri) {
+      setGeneration(0);
+      if (role === "preview") void releasePreviewMedia3();
+      else if (!appActive) void releaseFullscreenMedia3();
       return;
     }
-    const generation = beginSession(role);
-    if (!generation) {
-      setSession({ key: sessionKey, generation: 0 });
-      return;
-    }
-    setSession({ key: sessionKey, generation });
-    setSessionPhase(role, generation, "preparing");
+    const next = beginSession(role);
+    setGeneration(next);
     stableRef.current = false;
-    engineSwapInFlightRef.current = false;
-    setFallbackUsed(false);
-    setEngine(initialEngine);
-    setStatus("loading");
-  }, [initialEngine, playbackFocused, role, sessionKey, setStatus, uri]);
+    firstFrameRef.current = false;
+    bufferingSinceRef.current = null;
+    reprepareUsedRef.current = false;
+    retryRef.current = 0;
+    if (role === "fullscreen") setNativePlaybackStarting(true);
+  }, [appActive, playbackFocused, role, uri]);
 
   useEffect(() => {
-    if (role !== "fullscreen") return;
-    setNativePlaybackStarting(true);
-    return () => setNativePlaybackStarting(false);
-  }, [role, sessionKey]);
-
-  // URI changes render no child until beginSession has invalidated/released the
-  // previous decoder. This avoids mounting newUri:oldGeneration and immediately
-  // remounting it again when the generation effect runs.
-  const sessionGeneration = session.key === sessionKey ? session.generation : 0;
-
-  useEffect(() => {
-    if (stableRef.current || !playbackFocused || !sessionGeneration) return;
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      if (stableRef.current) return;
-      if (!isSessionCurrent(role, sessionGeneration)) return;
-      // The one allowed alternate engine still needs a bounded startup. If it
-      // never reaches playing, surface an error so PlayerScreen can perform its
-      // full decoder remount/backoff instead of staying on a permanent spinner.
-      if (fallbackUsed || forceVlc || forceMedia3) {
-        engineSwapInFlightRef.current = true;
-        void pauseSessionDecoders(role).then(() => {
-          if (cancelled || !isSessionCurrent(role, sessionGeneration)) return;
-          engineSwapInFlightRef.current = false;
-          setSessionPhase(role, sessionGeneration, "failed", "start-timeout");
-          setStatus("error", "start-timeout");
-        });
-        return;
-      }
-      const alternate = alternateEngine(engine, vlcAvailable);
-      if (!alternate) {
-        engineSwapInFlightRef.current = true;
-        void pauseSessionDecoders(role).then(() => {
-          if (cancelled || !isSessionCurrent(role, sessionGeneration)) return;
-          engineSwapInFlightRef.current = false;
-          setSessionPhase(role, sessionGeneration, "failed", "start-timeout");
-          setStatus("error", "start-timeout");
-        });
-        return;
-      }
-      engineSwapInFlightRef.current = true;
-      void pauseSessionDecoders(role).then(() => {
-        if (cancelled || !isSessionCurrent(role, sessionGeneration)) return;
-        engineSwapInFlightRef.current = false;
-        setFallbackUsed(true);
-        setEngine(alternate);
-        setSessionPhase(role, sessionGeneration, "recovering", "start-timeout");
-        setStatus("loading", "start-timeout");
-      });
-    }, startTimeoutMs);
+    if (!generation || !playbackFocused) return;
+    const stop = role === "preview" ? releasePreviewMedia3 : releaseFullscreenMedia3;
+    const unregister = registerSessionStop(role, generation, stop);
+    void load(false);
     return () => {
-      cancelled = true;
-      clearTimeout(timer);
+      unregister();
+      clearTimers();
+      // Preview surfaces are ephemeral and must never survive Guide focus loss.
+      // Fullscreen Media3 intentionally survives temporary React unmounts during
+      // channel surfing; stopFullscreenSession owns the real release.
+      if (role === "preview") void releasePreviewMedia3();
     };
-  }, [engine, fallbackUsed, forceMedia3, forceVlc, playbackFocused, role, sessionGeneration, setStatus, startTimeoutMs, uri]);
+  }, [clearTimers, generation, load, playbackFocused, role]);
 
-  const handleStatus = useCallback(
-    (status: StreamStatus, reason?: SessionFailReason | null) => {
-      if (!isSessionCurrent(role, sessionGeneration)) return;
+  useEffect(() => {
+    if (!generation || !playbackFocused) return;
+    startTimerRef.current = setTimeout(() => {
+      if (stableRef.current || !isSessionCurrent(role, generation)) return;
+      failOrRetry();
+    }, START_TIMEOUT_MS);
+    return () => {
+      if (startTimerRef.current) clearTimeout(startTimerRef.current);
+      startTimerRef.current = null;
+    };
+  }, [failOrRetry, generation, playbackFocused, role]);
 
-      if (status === "playing") {
-        if (role === "fullscreen") setNativePlaybackStarting(false);
-        stableRef.current = true;
-        engineSwapInFlightRef.current = false;
-        setSessionPhase(role, sessionGeneration, "playing");
-        setStatus("playing");
+  useEffect(() => {
+    const statusSub = player.addListener("statusChange", ({ status, error }) => {
+      if (!generation || !isSessionCurrent(role, generation)) return;
+      if (status === "loading") {
+        if (stableRef.current && bufferingSinceRef.current == null) bufferingSinceRef.current = Date.now();
+        emit("loading");
+      } else if (status === "readyToPlay") {
+        publishTracks();
+      } else if (error || status === "error") {
+        failOrRetry();
+      }
+    });
+    const audioSub = player.addListener("availableAudioTracksChange", publishTracks);
+    const textSub = player.addListener("availableSubtitleTracksChange", publishTracks);
+    return () => {
+      statusSub.remove();
+      audioSub.remove();
+      textSub.remove();
+    };
+  }, [emit, failOrRetry, generation, player, publishTracks, role]);
+
+  useEffect(() => {
+    if (!generation || !playbackFocused || paused) return;
+    watchdogRef.current = setInterval(() => {
+      const since = bufferingSinceRef.current;
+      if (since == null || !stableRef.current || !isSessionCurrent(role, generation)) return;
+      const elapsed = Date.now() - since;
+      if (elapsed >= REBUFFER_REPREPARE_MS && !reprepareUsedRef.current) {
+        reprepareUsedRef.current = true;
+        bufferingSinceRef.current = Date.now();
+        void load(true);
         return;
       }
-      // One alternate-engine attempt handles HLS/codec differences / silent audio
-      // between Media3 and VLC for both preview and fullscreen.
-      if (status === "error" && !forceVlc && !forceMedia3 && !fallbackUsed) {
-        if (engineSwapInFlightRef.current) return;
-        if (reason === "silent-audio" && !playerCompat.silentAudioFallback) {
-          setSessionPhase(role, sessionGeneration, "failed", "silent-audio");
-          setStatus("error", "silent-audio");
-          return;
-        }
-        const alternate = alternateEngine(engine, vlcAvailable);
-        if (alternate) {
-          // A post-playback failure is a new recovery attempt. Clear the stable
-          // gate before mounting the alternate or its own start timeout is
-          // suppressed by the earlier successful engine.
-          stableRef.current = false;
-          if (role === "fullscreen") setNativePlaybackStarting(true);
-          const swapReason: SessionFailReason =
-            reason === "silent-audio" ? "silent-audio" : "engine-swap";
-          engineSwapInFlightRef.current = true;
-          void pauseSessionDecoders(role).then(() => {
-            if (!isSessionCurrent(role, sessionGeneration)) return;
-            engineSwapInFlightRef.current = false;
-            setFallbackUsed(true);
-            setEngine(alternate);
-            setSessionPhase(role, sessionGeneration, "recovering", swapReason);
-            setStatus("loading", swapReason);
-          });
-          return;
-        }
+      if (elapsed >= REBUFFER_FAIL_MS) {
+        bufferingSinceRef.current = null;
+        failOrRetry();
       }
-      if (status === "error") {
-        setSessionPhase(role, sessionGeneration, "failed", reason ?? "stream-error");
-      } else if (status === "loading" && reason) {
-        setSessionPhase(role, sessionGeneration, "recovering", reason);
-      } else if (status === "loading") {
-        setSessionPhase(role, sessionGeneration, "preparing");
-      }
-      setStatus(status, reason);
-    },
-    [
-      engine,
-      fallbackUsed,
-      forceMedia3,
-      forceVlc,
-      playerCompat.silentAudioFallback,
-      role,
-      sessionGeneration,
-      setStatus,
-    ],
-  );
+    }, 1000);
+    return () => {
+      if (watchdogRef.current) clearInterval(watchdogRef.current);
+      watchdogRef.current = null;
+    };
+  }, [failOrRetry, generation, load, paused, playbackFocused, role]);
 
-  if (!playbackFocused || !uri || !sessionGeneration) return null;
+  useEffect(() => {
+    try {
+      player.muted = muted;
+      player.volume = muted ? 0 : 1;
+      if (paused) player.pause(); else if (playbackFocused) player.play();
+    } catch {}
+  }, [muted, paused, playbackFocused, player]);
 
-  if (engine === "vlc") {
-    return (
-      <VlcStream
-        key={vlcEngineKey}
-        uri={uri}
-        onStatus={handleStatus}
-        style={style}
-        engine="vlc"
-        mode={playbackMode}
-        sessionRole={role}
-        sessionGeneration={sessionGeneration}
-        muted={muted}
-        audioTrack={audioTrack}
-        textTrack={textTrack}
-        onTracksAvailable={onTracksAvailable}
-        bufferProfile={effectiveBufferProfile}
-        paused={paused}
-        scaleMode={scaleMode}
-      />
-    );
-  }
+  useEffect(() => {
+    publishTracks();
+  }, [audioTrack, textTrack, publishTracks]);
+
+  if (!playbackFocused || !uri || !generation) return null;
+
   return (
-    <ExpoStream
-      key={media3EngineKey}
-      uri={uri}
-      channelKey={channelKey}
-      onStatus={handleStatus}
+    <VideoView
       style={style}
-      engine="media3"
-      mode={playbackMode}
-      sessionRole={role}
-      sessionGeneration={sessionGeneration}
-      muted={muted}
-      audioTrack={audioTrack}
-      textTrack={textTrack}
-      onTracksAvailable={onTracksAvailable}
-      bufferProfile={effectiveBufferProfile}
-      paused={paused}
-      scaleMode={scaleMode}
+      player={player}
+      contentFit={scaleMode === "zoom" ? "cover" : scaleMode === "stretch" ? "fill" : "contain"}
+      surfaceType={Platform.OS === "android" ? (mode === "preview" ? "textureView" : "surfaceView") : undefined}
+      nativeControls={false}
+      useExoShutter
+      onFirstFrameRender={() => {
+        if (!isSessionCurrent(role, generation)) return;
+        firstFrameRef.current = true;
+        stableRef.current = true;
+        bufferingSinceRef.current = null;
+        reprepareUsedRef.current = false;
+        retryRef.current = 0;
+        setSessionPhase(role, generation, "playing");
+        if (role === "fullscreen") setNativePlaybackStarting(false);
+        emit("playing");
+      }}
     />
   );
 }
