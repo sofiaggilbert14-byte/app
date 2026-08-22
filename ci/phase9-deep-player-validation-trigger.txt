@@ -1,0 +1,4 @@
+CharmIPTV v2.1.0-rc.5 deep player validation cycle 1
+Repair source: 9df3c5ca2a36298a21dbaf10cb074811946c2ceb
+Validation gate: 6c45846225b661e17a36122e2a51a080ff60710c
+APK packaging disabled for this cycle.
