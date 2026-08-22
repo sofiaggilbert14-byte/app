@@ -84,6 +84,14 @@ jobs:
             :app:compileDebugKotlin \
             :app:compileDebugJavaWithJavac \
             --no-daemon --max-workers=1 --stacktrace
+      - name: Build LGPL Media3 FFmpeg audio libraries
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_sideload }}
+        env:
+          CI: "1"
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx3g -Dorg.gradle.workers.max=1"
+        run: |
+          chmod +x scripts/build-media3-ffmpeg-audio.sh
+          ./scripts/build-media3-ffmpeg-audio.sh
       - name: Assemble sideload APK
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_sideload }}
         env:
