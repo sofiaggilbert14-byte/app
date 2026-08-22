@@ -1,0 +1,125 @@
+name: Phase 9 Deep Player Validation
+
+on:
+  push:
+    branches:
+      - agent/tivimate-deep-player-quickactions-repair
+    paths:
+      - "ci/phase9-deep-player-validation-trigger.txt"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase9-deep-player-validation
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      CI: "1"
+      CMAKE_BUILD_PARALLEL_LEVEL: "1"
+      EXPO_PUBLIC_M3U_URL: ${{ secrets.M3U_URL || vars.EXPO_PUBLIC_M3U_URL }}
+      EXPO_PUBLIC_EPG_URL: ${{ secrets.EPG_URL || vars.EXPO_PUBLIC_EPG_URL }}
+      EXPO_PUBLIC_GUIDE_WINDOW_HOURS: "24"
+
+    steps:
+      - name: Checkout exact repair head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: agent/tivimate-deep-player-quickactions-repair
+          fetch-depth: 0
+
+      - name: Verify HTTP source and 24-hour Guide inputs
+        shell: bash
+        run: |
+          test -n "${EXPO_PUBLIC_M3U_URL}" || { echo "M3U source is missing"; exit 1; }
+          test -n "${EXPO_PUBLIC_EPG_URL}" || { echo "EPG source is missing"; exit 1; }
+          case "${EXPO_PUBLIC_M3U_URL}" in http://*|https://*) ;; *) echo "M3U source must be HTTP/HTTPS"; exit 1 ;; esac
+          case "${EXPO_PUBLIC_EPG_URL}" in http://*|https://*) ;; *) echo "EPG source must be HTTP/HTTPS"; exit 1 ;; esac
+          test "${EXPO_PUBLIC_GUIDE_WINDOW_HOURS}" = "24"
+
+      - name: Run complete player and app interaction scans
+        working-directory: .
+        run: |
+          python3 ci/tivimate-deep-player-quickactions-scan.py
+          python3 ci/code-interaction-audit-player-freeze-scan.py
+          python3 ci/code-interaction-audit-preview-lifecycle-scan.py
+          python3 ci/code-interaction-audit-lifecycle-scan.py
+          python3 ci/tivimate-whole-repo-player-interaction-scan.py
+          python3 ci/code-interaction-audit-settings-lifecycle-scan.py
+          python3 ci/code-interaction-audit-epg-schedule-lifecycle-scan.py
+          python3 ci/code-interaction-audit-guide-modal-lifecycle-scan.py
+          python3 ci/code-interaction-audit-surface-ownership-scan.py
+          python3 ci/code-interaction-audit-osd-lifecycle-scan.py
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+
+      - name: Install Android toolchain
+        run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006" "cmake;3.22.1"
+
+      - name: Install exact JavaScript dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: Verify Expo dependencies
+        run: npm run doctor
+
+      - name: Verify TiViMate, RAM, native config, and Guide contracts
+        run: |
+          node scripts/verify-overhaul-architecture.mjs
+          npm run verify:native-config
+          npm run verify:native-guide
+
+      - name: Run all frontend regressions
+        run: npm test -- --runInBand
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint with zero warnings
+        run: npm run lint -- --max-warnings=0
+
+      - name: Build pinned LGPL FFmpeg audio extension
+        run: |
+          chmod +x scripts/build-media3-ffmpeg-audio.sh
+          ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/27.1.12297006" ./scripts/build-media3-ffmpeg-audio.sh
+
+      - name: Configure deterministic low-memory native compile
+        run: |
+          cat >> android/gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx5g -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8
+          org.gradle.parallel=false
+          org.gradle.workers.max=1
+          org.gradle.vfs.watch=false
+          kotlin.compiler.execution.strategy=in-process
+          kotlin.daemon.enabled=false
+          reactNativeArchitectures=armeabi-v7a,arm64-v8a
+          EOF
+
+      - name: Compile Android native code without packaging
+        run: |
+          chmod +x android/gradlew
+          ./android/gradlew -p android :app:compileDebugKotlin :app:compileDebugJavaWithJavac --no-daemon --max-workers=1 --stacktrace
