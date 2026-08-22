@@ -159,17 +159,19 @@ test("player delegates More to the single global Quick Actions owner", async () 
   assert.doesNotMatch(player, /playerOverlay.*"more"/);
 });
 
-test("Media3 recovery is one native post-first-frame watchdog", async () => {
+test("Media3 recovery is one bounded native post-first-frame watchdog", async () => {
   const [adapter, native] = await Promise.all([
     source("src/components/StreamPlayer.tsx"),
     source("android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt"),
   ]);
   assert.match(native, /HUNG_BUFFER_REPREPARE_MS = 5_000L/);
   assert.match(native, /if \(!firstFrameRendered \|\| instance\.playbackState != Player\.STATE_BUFFERING\) return@Runnable/);
-  assert.match(native, /if \(owner == Owner\.NONE \|\| recoveryUsed\)[\s\S]*?listener\?\.onState\("error", "stream-error"\)/);
-  assert.match(native, /recoveryUsed = true[\s\S]*?instance\.prepare\(\)/);
+  assert.match(native, /MAX_AUTO_RECOVERIES = 4/);
+  assert.match(native, /RECOVERY_BACKOFF_MS = longArrayOf\(0L, 1_000L, 3_000L, 6_000L\)/);
+  assert.match(native, /if \(recoveryAttempts >= MAX_AUTO_RECOVERIES\)[\s\S]*?publishState\("error", "stream-error"\)/);
+  assert.match(native, /recoveryAttempts \+= 1[\s\S]*?performRecovery\(instance\)/);
   assert.match(native, /main\.postDelayed\(bufferingWatchdog, HUNG_BUFFER_REPREPARE_MS\)/);
-  assert.match(native, /override fun onRenderedFirstFrame\(\)[\s\S]*?firstFrameRendered = true/);
+  assert.match(native, /override fun onRenderedFirstFrame\(\)[\s\S]*?firstFrameRendered = true[\s\S]*?removeCallbacks\(delayedRecovery\)[\s\S]*?publishState\("playing", null\)/);
   assert.doesNotMatch(adapter, /player\.currentTime|MEDIA3_FROZEN_CLOCK_MS|REBUFFER_REPREPARE_MS|silentResyncCountRef/);
 });
 

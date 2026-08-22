@@ -21,14 +21,14 @@ test("channel changes replace MediaItem on the same native ExoPlayer", async () 
   assert.doesNotMatch(player, /decoderArmed|pauseSessionDecoders|CHANNEL_ZAP_SETTLE_MS|armDecoderAfterSettle/);
 });
 
-test("Media3 uses live-TV buffers and one native recovery watchdog", async () => {
+test("Media3 uses the hardened live-TV buffers and bounded native recovery policy", async () => {
   const native = await source("android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt");
-  assert.match(native, /MIN_BUFFER_MS = 1_000/); assert.match(native, /MAX_BUFFER_MS = 2_500/); assert.match(native, /PLAYBACK_BUFFER_MS = 500/); assert.match(native, /REBUFFER_BUFFER_MS = 1_000/); assert.match(native, /TARGET_BUFFER_BYTES = 12 \* 1024 \* 1024/); assert.match(native, /HUNG_BUFFER_REPREPARE_MS = 5_000L/); assert.match(native, /if \(owner == Owner\.NONE \|\| recoveryUsed\)/); assert.match(native, /instance\.prepare\(\)/);
+  assert.match(native, /MIN_BUFFER_MS = 10_000/); assert.match(native, /MAX_BUFFER_MS = 30_000/); assert.match(native, /PLAYBACK_BUFFER_MS = 2_500/); assert.match(native, /REBUFFER_BUFFER_MS = 5_000/); assert.match(native, /TARGET_BUFFER_BYTES = 12 \* 1024 \* 1024/); assert.match(native, /HUNG_BUFFER_REPREPARE_MS = 5_000L/); assert.match(native, /MAX_AUTO_RECOVERIES = 4/); assert.match(native, /RECOVERY_BACKOFF_MS = longArrayOf\(0L, 1_000L, 3_000L, 6_000L\)/); assert.match(native, /readTimeout\(20, TimeUnit\.SECONDS\)/); assert.match(native, /recoveryAttempts >= MAX_AUTO_RECOVERIES/); assert.match(native, /instance\.prepare\(\)/);
 });
 
-test("first frame is the stable-playing gate", async () => {
+test("first frame is the stable-playing gate and cancels delayed recovery", async () => {
   const native = await source("android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt");
-  const firstFrame = native.match(/override fun onRenderedFirstFrame\(\)[\s\S]*?\n\s*}/)?.[0] || ""; assert.match(firstFrame, /firstFrameRendered = true/); assert.match(firstFrame, /listener\?\.onState\("playing", null\)/);
+  const firstFrame = native.match(/override fun onRenderedFirstFrame\(\)[\s\S]*?\n\s*}/)?.[0] || ""; assert.match(firstFrame, /firstFrameRendered = true/); assert.match(firstFrame, /removeCallbacks\(delayedRecovery\)/); assert.match(firstFrame, /publishState\("playing", null\)/);
 });
 
 test("native PlayerView is mounted inside the React playback target instead of below opaque screens", async () => {
