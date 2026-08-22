@@ -302,6 +302,7 @@ function VlcStream({
   const tearingDownRef = useRef(false);
   const playerRef = useRef<any>(null);
   const releaseResolveRef = useRef<(() => void) | null>(null);
+  const releasePromiseRef = useRef<Promise<void> | null>(null);
   const vlcHasPlayedRef = useRef(false);
   const vlcBufferingSinceRef = useRef<number | null>(null);
   const { uri, headers } = useMemo(() => parsePipeHeaders(rawUri), [rawUri]);
@@ -369,6 +370,11 @@ function VlcStream({
   );
 
   const hardStop = useCallback((): Promise<void> => {
+    // A parent retry and the component cleanup can arrive in the same commit.
+    // Release the native decoder once and make every caller await that same
+    // acknowledgement; issuing a second stop used to resolve the first wait
+    // early and let the replacement mount while LibVLC still owned MediaCodec.
+    if (tearingDownRef.current) return releasePromiseRef.current ?? Promise.resolve();
     tearingDownRef.current = true;
     activeRef.current = false;
     // stopPlayer alone retains LibVLC/MediaCodec until React eventually removes
@@ -376,7 +382,6 @@ function VlcStream({
     // destructive release acknowledgement so a replacement decoder cannot
     // overlap the old one. The timeout keeps teardown bounded on old builds.
     const nativeRelease = new Promise<void>((resolve) => {
-      releaseResolveRef.current?.();
       let settled = false;
       let timeout: ReturnType<typeof setTimeout> | null = null;
       const finish = () => {
@@ -400,6 +405,10 @@ function VlcStream({
         finish();
       }
     });
+    releasePromiseRef.current = nativeRelease;
+    void nativeRelease.finally(() => {
+      if (releasePromiseRef.current === nativeRelease) releasePromiseRef.current = null;
+    });
     try {
       playerRef.current?.setNativeProps?.({ paused: true });
     } catch {
@@ -417,6 +426,16 @@ function VlcStream({
       void hardStop();
     };
   }, [hardStop, sessionGeneration, sessionRole, uri]);
+
+  useEffect(() => {
+    if (blocked) return;
+    // Cooldown renders the native view again without remounting this wrapper.
+    // Re-arm its callbacks before that view can report a new open/playing event.
+    activeRef.current = true;
+    tearingDownRef.current = false;
+    vlcHasPlayedRef.current = false;
+    vlcBufferingSinceRef.current = null;
+  }, [blocked]);
 
   const fail = useCallback(() => {
     if (tearingDownRef.current || !activeRef.current) return;
@@ -548,6 +567,7 @@ function ExpoStream({
   const stableProgressSinceRef = useRef<number | null>(null);
   const silentResyncCountRef = useRef(0);
   const silentResyncInFlightRef = useRef(false);
+  const releasePromiseRef = useRef<Promise<void> | null>(null);
   tracksCallbackRef.current = onTracksAvailable;
   const [mediaReady, setMediaReady] = useState(false);
   const { uri, headers } = useMemo(() => parsePipeHeaders(rawUri), [rawUri]);
@@ -779,20 +799,30 @@ function ExpoStream({
   }, [blocked, mediaReady, playerCompat.media3AudioMode, reportAndSelectMedia3Tracks]);
 
   const hardStop = useCallback((): Promise<void> => {
+    // pauseSessionDecoders and React cleanup can both ask for a release. Queue
+    // only one replaceAsync(null), otherwise the later cleanup can outlive the
+    // release promise that armed the next native view.
+    if (tearingDownRef.current) return releasePromiseRef.current ?? Promise.resolve();
     loadIdRef.current += 1;
     tearingDownRef.current = true;
     mountedRef.current = false;
     try {
       player.pause();
     } catch {}
-    if (mode === "preview") {
-      return player.replaceAsync(null as any).catch(() => undefined);
-    }
-    replaceQueueRef.current = replaceQueueRef.current
-      .catch(() => undefined)
-      .then(() => player.replaceAsync(null as any))
-      .catch(() => undefined);
-    return replaceQueueRef.current;
+    const release = mode === "preview"
+      ? player.replaceAsync(null as any).catch(() => undefined)
+      : (() => {
+          replaceQueueRef.current = replaceQueueRef.current
+            .catch(() => undefined)
+            .then(() => player.replaceAsync(null as any))
+            .catch(() => undefined);
+          return replaceQueueRef.current;
+        })();
+    releasePromiseRef.current = release;
+    void release.finally(() => {
+      if (releasePromiseRef.current === release) releasePromiseRef.current = null;
+    });
+    return release;
   }, [mode, player]);
 
   useEffect(() => {
@@ -813,6 +843,7 @@ function ExpoStream({
     const loadId = ++loadIdRef.current;
     mountedRef.current = true;
     tearingDownRef.current = false;
+    releasePromiseRef.current = null;
     setMediaReady(false);
     hasPlayedRef.current = false;
     bufferingSinceRef.current = null;
@@ -866,21 +897,9 @@ function ExpoStream({
 
     return () => {
       cancelled = true;
-      loadIdRef.current += 1;
-      tearingDownRef.current = true;
-      try {
-        player.pause();
-      } catch {}
-      if (mode === "preview") {
-        void player.replaceAsync(null as any).catch(() => undefined);
-      } else {
-        replaceQueueRef.current = replaceQueueRef.current
-          .catch(() => undefined)
-          .then(() => player.replaceAsync(null as any))
-          .catch(() => undefined);
-      }
+      void hardStop();
     };
-  }, [blocked, emit, engine, headers, kind, mode, muted, paused, player, sessionGeneration, sessionRole, setBlocked, uri]);
+  }, [blocked, emit, engine, hardStop, headers, kind, mode, muted, paused, player, sessionGeneration, sessionRole, setBlocked, uri]);
 
   useEffect(() => {
     if (!mediaReady || blocked) return;
