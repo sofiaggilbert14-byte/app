@@ -6,35 +6,29 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-test("player remounts for device decoder changes while preserving bounded buffers", async () => {
+test("Media3 hot-applies decoder preferences while preserving bounded buffers", async () => {
   const source = await readFile(join(root, "src/components/StreamPlayer.tsx"), "utf8");
-  assert.match(source, /vlcEngineKey/);
-  assert.match(source, /media3EngineKey/);
-  assert.match(source, /playerCompat\.vlcAudioOutput/);
-  assert.match(source, /playerCompat\.media3AudioMode/);
-  assert.match(source, /playerCompat\.videoDecoderMode/);
-  assert.match(source, /hwDecoderEnabled: playerCompat\.videoDecoderMode === "device" \? 1 : 0/);
-  assert.match(source, /hwDecoderForced: 0/);
-  assert.match(source, /--stereo-mode=1/);
-  assert.doesNotMatch(source, /--audio-filter=stereo_widen/);
-  assert.match(source, /reportAndSelectMedia3Tracks\(\)/);
-  // Settings remount must reset silent-audio / start-timeout fallback gates.
-  assert.match(source, /appliedCompatKeyRef/);
-  assert.match(source, /const sessionKey = `\$\{role\}:\$\{uri\}:\$\{initialEngine\}:\$\{appliedCompatKeyRef\.current\}/);
-  // Preview freezes compat keys while Guide is unfocused (Tabs keep-alive).
-  assert.match(source, /role !== "preview" \|\| isFocused/);
-  // Optional profiles scale down on low-RAM devices; balanced stays on the
-  // real-device RC.1 control while preview remains tightly bounded.
-  assert.match(source, /shouldUseLowRamTuning/);
-  assert.match(source, /preferredForwardBufferDuration: 3/);
-  assert.match(source, /maxBufferBytes: 48 \* 1024 \* 1024/);
-  assert.match(source, /profile === "balanced"\s*\? full\.maxBufferBytes/);
+  assert.match(source, /usePlayerCompatibilityPreferences\(\)/);
+  assert.match(source, /usePlaybackBufferProfile\(\)/);
+  assert.match(source, /const effectiveBufferProfile = bufferProfile \?\? savedBufferProfile/);
+  assert.match(source, /compat\.media3AudioMode === "ffmpeg"/);
+  assert.match(source, /compat\.media3Tunneling/);
+  assert.match(source, /profile === "low_latency"/);
+  assert.match(source, /profile === "stable"/);
+  assert.match(source, /preferredForwardBufferDuration: lowRam \? 4 : 5/);
+  assert.match(source, /maxBufferBytes: \(lowRam \? 20 : 32\) \* 1024 \* 1024/);
+  assert.match(source, /preferredForwardBufferDuration: lowRam \? 2\.5 : 3/);
+  assert.match(source, /maxBufferBytes: \(lowRam \? 14 : 24\) \* 1024 \* 1024/);
   assert.match(source, /coordinatedCacheBudget/);
-  assert.match(source, /Math\.min\(12 \* 1024 \* 1024, coordinatedCacheBudget\)/);
-  assert.match(source, /if \(media3Audio === "ffmpeg"\) return selectedAudio != null/);
-  assert.match(source, /export function isFullscreenCircuitOpen/);
-  // Terminal native failures must release the decoder before publishing failure.
-  assert.match(source, /hardStop\(\);\s*recordFailure\(sessionRole, engine, uri, "stream-error"\)/);
+  assert.match(source, /Math\.min\(full\.maxBufferBytes, coordinatedCacheBudget\)/);
+  assert.match(source, /mode === "preview"/);
+  assert.match(source, /Math\.min\(\(lowRam \? 6 : 10\) \* 1024 \* 1024, coordinatedCacheBudget\)/);
+  assert.match(source, /player\.audioMixingMode = mode === "preview" \? "mixWithOthers" : "doNotMix"/);
+  assert.match(source, /player\.muted = muted/);
+  assert.match(source, /if \(paused\) player\.pause\(\); else if \(playbackFocused\) player\.play\(\)/);
+  assert.match(source, /publishTracks\(\)/);
+  assert.match(source, /player\.subtitleTrack = selectedText/);
+  assert.doesNotMatch(source, /vlcEngineKey|media3EngineKey|--stereo-mode=1|hardStop\(\)/);
 });
 
 test("real-device stable defaults are wired at storage bootstrap", async () => {
