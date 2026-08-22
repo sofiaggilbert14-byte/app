@@ -89,12 +89,17 @@ test("preview cannot re-arm until fullscreen releases its reservation", async ()
   assert.equal(isSessionCurrent("preview", previewGen), false);
 });
 
-test("legacy stream classification remains available while live core owns Media3 deterministically", () => {
-  assert.equal(detectStreamKind("https://x/live.m3u8"), "hls");
-  assert.equal(preferredEngine("hls"), "media3");
-  assert.equal(detectStreamKind("https://x/live.ts"), "transport");
-  assert.equal(preferredEngine("transport"), "vlc");
-  assert.equal(alternateEngine("media3", true), "vlc");
+test("all live stream classifications route automatically through Media3 only", () => {
+  for (const uri of [
+    "https://x/live.m3u8",
+    "https://x/live.ts",
+    "http://provider.example/live/user/pass/1234",
+    "rtsp://x/live",
+  ]) {
+    assert.equal(preferredEngine(detectStreamKind(uri)), "media3");
+  }
+  assert.equal(alternateEngine("media3", true), null);
+  assert.equal(alternateEngine("vlc", true), null);
 });
 
 test("play entry points hand off through openFullscreenPlayer", async () => {
@@ -148,9 +153,9 @@ test("StreamPlayer and player route use role-scoped deterministic Media3 teardow
   assert.match(playerRoute, /sessionRole="fullscreen"/);
   assert.match(playerRoute, /MAX_AUTO_STREAM_RETRIES/);
   assert.match(playerRoute, /restartStream\(false\)/);
-  assert.match(handoff, /FULLSCREEN_HANDOFF_SETTLE_MS = 180/);
-  assert.match(handoff, /PREVIEW_RELEASE_TIMEOUT_MS = 1200/);
-  assert.match(handoff, /Promise\.race\(\[/);
+  assert.match(handoff, /stopPreviewForFullscreen\(\)/);
+  assert.match(handoff, /\.then\(\(\) => \{/);
+  assert.doesNotMatch(handoff, /FULLSCREEN_HANDOFF_SETTLE_MS|PREVIEW_RELEASE_TIMEOUT_MS|Promise\.race/);
   assert.match(packageJson, /apply-media3-live-tv-patch\.mjs/);
 });
 
