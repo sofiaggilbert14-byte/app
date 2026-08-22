@@ -29,6 +29,14 @@ import {
   getRememberedChannelAudioTrack,
   pickPreferredAudioTrack,
 } from "@/src/core/audioTrackPreferences";
+import {
+  fingerprintStreamUri,
+  recordAudioDiagnostics,
+} from "@/src/core/audioDiagnostics";
+import {
+  usePlaybackBufferProfile,
+  type PlaybackBufferProfile,
+} from "@/src/core/playbackBufferProfile";
 import { usePlayerCompatibilityPreferences } from "@/src/core/playerCompatibilityPreferences";
 import { setNativePlaybackStarting } from "@/src/utils/tvRemote";
 
@@ -41,8 +49,8 @@ export type StreamTrack = {
   isSupported?: boolean;
 };
 
-// Install the one native playback bridge while keeping playbackSession itself
-// free of React Native / expo-video imports for unit tests and state reasoning.
+// Keep playbackSession platform-agnostic while exposing one process-wide native
+// Media3 owner to the session registry.
 setNativePlaybackReleaseHandler((role) =>
   role === "preview" ? releasePreviewMedia3() : releaseFullscreenMedia3(),
 );
@@ -50,8 +58,8 @@ setNativePlaybackPauseHandler((role) => {
   if (role === "fullscreen") pauseFullscreenMedia3();
 });
 
-// Compatibility exports for the existing PlayerScreen API. `vlcAvailable` now
-// means the native Media3 path is available; the rebuilt core never instantiates VLC.
+// Compatibility exports for PlayerScreen while the UI is migrated away from
+// the old dual-engine terminology. The rebuilt live-TV core is Media3-only.
 export const vlcAvailable = Platform.OS !== "web";
 export function clearFullscreenCircuit(_uri?: string): void {}
 export function isFullscreenCircuitOpen(_uri?: string): boolean { return false; }
@@ -67,12 +75,13 @@ type Props = {
   audioTrack?: string | number;
   textTrack?: string | number | null;
   onTracksAvailable?: (tracks: { audio: StreamTrack[]; text: StreamTrack[] }) => void;
-  bufferProfile?: "low_latency" | "balanced" | "stable";
+  bufferProfile?: PlaybackBufferProfile;
   paused?: boolean;
   scaleMode?: PlayerScaleMode;
 };
 
-const START_TIMEOUT_MS = 10_000;
+const FULLSCREEN_START_TIMEOUT_MS = 12_000;
+const PREVIEW_START_TIMEOUT_MS = 8_000;
 const REBUFFER_REPREPARE_MS = 5_000;
 const REBUFFER_FAIL_MS = 12_000;
 
@@ -87,6 +96,7 @@ export function StreamPlayer({
   audioTrack,
   textTrack,
   onTracksAvailable,
+  bufferProfile,
   paused = false,
   scaleMode = "fit",
 }: Props) {
@@ -102,10 +112,13 @@ export function StreamPlayer({
   const stableRef = useRef(false);
   const bufferingSinceRef = useRef<number | null>(null);
   const reprepareUsedRef = useRef(false);
+  const loadRequestRef = useRef(0);
   const startTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const watchdogRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const onStatusRef = useRef(onStatus);
+  const tracksCallbackRef = useRef(onTracksAvailable);
   onStatusRef.current = onStatus;
+  tracksCallbackRef.current = onTracksAvailable;
 
   const { uri, headers } = useMemo(() => parsePipeHeaders(rawUri), [rawUri]);
   const kind = useMemo(() => detectStreamKind(uri), [uri]);
@@ -114,10 +127,12 @@ export function StreamPlayer({
   const deviceMemory = useDeviceMemoryProfile();
   const lowRam = shouldUseLowRamTuning(deviceMemory);
   const compat = usePlayerCompatibilityPreferences();
+  const [savedBufferProfile] = usePlaybackBufferProfile();
+  const effectiveBufferProfile = bufferProfile ?? savedBufferProfile;
 
   const emit = useCallback((status: StreamStatus, reason?: SessionFailReason | null) => {
     if (generation && !isSessionCurrent(role, generation)) return;
-    onStatusRef.current(status, reason);
+    try { onStatusRef.current(status, reason); } catch {}
   }, [generation, role]);
 
   const fail = useCallback((reason: SessionFailReason = "stream-error") => {
@@ -136,23 +151,57 @@ export function StreamPlayer({
   }, []);
 
   const applyBufferPolicy = useCallback(() => {
-    try {
-      player.bufferOptions = mode === "preview"
+    const coordinatedCacheBudget = Math.max(
+      8 * 1024 * 1024,
+      Math.min(
+        deviceMemory?.playerCacheBytes || Number.MAX_SAFE_INTEGER,
+        deviceMemory?.vodCacheBytes || Number.MAX_SAFE_INTEGER,
+      ),
+    );
+    const profile = compat.media3Tunneling && effectiveBufferProfile !== "stable"
+      ? "low_latency"
+      : effectiveBufferProfile;
+    const full = profile === "low_latency"
+      ? {
+          preferredForwardBufferDuration: lowRam ? 1.6 : 2.2,
+          maxBufferBytes: (lowRam ? 10 : 16) * 1024 * 1024,
+          minBufferForPlayback: 0.4,
+        }
+      : profile === "stable"
         ? {
-            preferredForwardBufferDuration: 1.5,
-            maxBufferBytes: (lowRam ? 6 : 8) * 1024 * 1024,
-            minBufferForPlayback: 0.35,
+            preferredForwardBufferDuration: lowRam ? 4 : 5,
+            maxBufferBytes: (lowRam ? 20 : 32) * 1024 * 1024,
+            minBufferForPlayback: 0.8,
           }
         : {
             preferredForwardBufferDuration: lowRam ? 2.5 : 3,
-            maxBufferBytes: (lowRam ? 12 : 18) * 1024 * 1024,
+            maxBufferBytes: (lowRam ? 14 : 24) * 1024 * 1024,
             minBufferForPlayback: 0.5,
+          };
+    try {
+      player.bufferOptions = mode === "preview"
+        ? {
+            preferredForwardBufferDuration: 1.2,
+            maxBufferBytes: Math.min((lowRam ? 6 : 10) * 1024 * 1024, coordinatedCacheBudget),
+            minBufferForPlayback: 0.3,
+          }
+        : {
+            ...full,
+            maxBufferBytes: Math.min(full.maxBufferBytes, coordinatedCacheBudget),
           };
     } catch {}
     try {
       player.audioMixingMode = mode === "preview" ? "mixWithOthers" : "doNotMix";
     } catch {}
-  }, [lowRam, mode, player]);
+  }, [
+    compat.media3Tunneling,
+    deviceMemory?.playerCacheBytes,
+    deviceMemory?.vodCacheBytes,
+    effectiveBufferProfile,
+    lowRam,
+    mode,
+    player,
+  ]);
 
   const publishTracks = useCallback(() => {
     try {
@@ -165,33 +214,72 @@ export function StreamPlayer({
         isSupported: track.isSupported !== false,
         language: track.language,
       }));
-      onTracksAvailable?.({
-        audio: mappedAudio,
-        text: text.map((track: any) => ({ id: track.id, name: track.label || track.language || `CC ${track.id}` })),
-      });
+      const supportedAudio = audio.filter((track: any) => track.isSupported !== false);
+      const mappedText = text.map((track: any) => ({
+        id: track.id,
+        name: String(track.label || track.language || `CC ${track.id}`),
+      }));
+      tracksCallbackRef.current?.({ audio: mappedAudio, text: mappedText });
 
-      const requestedAudio = audioTrack == null
+      const preferred = audioTrack == null
         ? pickPreferredAudioTrack(
             mappedAudio as any,
             getRememberedChannelAudioTrack(channelKey),
             getPreferredAudioLanguage(),
           )
         : mappedAudio.find((track) => String(track.id) === String(audioTrack));
-      if (requestedAudio) {
-        const raw = audio.find((track: any) => String(track.id) === String(requestedAudio.id));
-        if (raw && (compat.media3AudioMode === "ffmpeg" || raw.isSupported !== false)) player.audioTrack = raw;
+      const preferredRaw = preferred
+        ? audio.find((track: any) => String(track.id) === String(preferred.id)) ?? null
+        : null;
+      const currentAudio = player.audioTrack as any;
+      const ffmpegMode = compat.media3AudioMode === "ffmpeg";
+      let selectedAudio: any = null;
+      let selectedBy: "user" | "current" | "auto-supported" | "auto-first" | "none" = "none";
+
+      if (preferredRaw && (ffmpegMode || preferredRaw.isSupported !== false)) {
+        selectedAudio = preferredRaw;
+        selectedBy = audioTrack == null ? "auto-supported" : "user";
+      } else if (currentAudio && (ffmpegMode || currentAudio.isSupported !== false)) {
+        selectedAudio = currentAudio;
+        selectedBy = "current";
+      } else if (supportedAudio[0]) {
+        selectedAudio = supportedAudio[0];
+        selectedBy = "auto-supported";
+      } else if (ffmpegMode && (preferredRaw || audio[0])) {
+        selectedAudio = preferredRaw || audio[0];
+        selectedBy = preferredRaw ? (audioTrack == null ? "auto-first" : "user") : "auto-first";
       }
 
-      if (textTrack == null) player.subtitleTrack = null;
-      else {
-        const rawText = text.find((track: any) => String(track.id) === String(textTrack));
-        if (rawText) player.subtitleTrack = rawText;
+      if (selectedAudio && player.audioTrack?.id !== selectedAudio.id) player.audioTrack = selectedAudio;
+
+      if (textTrack == null) {
+        if (player.subtitleTrack != null) player.subtitleTrack = null;
+      } else {
+        const selectedText = text.find((track: any) => String(track.id) === String(textTrack));
+        if (selectedText && player.subtitleTrack?.id !== selectedText.id) player.subtitleTrack = selectedText;
       }
+
+      recordAudioDiagnostics({
+        engine: "media3",
+        role,
+        streamKey: fingerprintStreamUri(uri, kind),
+        trackId: selectedAudio?.id ?? null,
+        mimeType: selectedAudio?.mimeType ?? null,
+        language: selectedAudio?.language ?? null,
+        label: selectedAudio?.label ?? null,
+        isSupported: selectedAudio ? selectedAudio.isSupported !== false : null,
+        trackCount: audio.length,
+        supportedCount: supportedAudio.length,
+        selectedBy,
+        silentAudio: false,
+        reason: `mode=${compat.media3AudioMode};tunnel=${compat.media3Tunneling ? 1 : 0}`,
+      });
     } catch {}
-  }, [audioTrack, channelKey, compat.media3AudioMode, onTracksAvailable, player, textTrack]);
+  }, [audioTrack, channelKey, compat.media3AudioMode, compat.media3Tunneling, kind, player, role, textTrack, uri]);
 
   const load = useCallback(async (isRecovery = false) => {
     if (!uri || !playbackFocused || !generation || !isSessionCurrent(role, generation)) return;
+    const requestId = ++loadRequestRef.current;
     if (!isRecovery) {
       stableRef.current = false;
       reprepareUsedRef.current = false;
@@ -208,6 +296,7 @@ export function StreamPlayer({
     };
     try {
       await loadMedia3Source(role, `${uri}|${JSON.stringify(headers)}|${contentType}`, source);
+      if (requestId !== loadRequestRef.current) return;
       if (!isSessionCurrent(role, generation)) return;
       try {
         player.muted = muted;
@@ -216,6 +305,7 @@ export function StreamPlayer({
       publishTracks();
       if (paused) player.pause(); else player.play();
     } catch {
+      if (requestId !== loadRequestRef.current) return;
       fail("stream-error");
     }
   }, [
@@ -243,6 +333,7 @@ export function StreamPlayer({
 
   useEffect(() => {
     if (!playbackFocused || !uri) {
+      loadRequestRef.current += 1;
       setGeneration(0);
       if (role === "preview") void releasePreviewMedia3();
       else if (!appActive) void suspendFullscreenMedia3();
@@ -260,18 +351,20 @@ export function StreamPlayer({
     if (!generation || !playbackFocused) return;
     void load(false);
     return () => {
+      loadRequestRef.current += 1;
       clearTimers();
-      // Preview is ephemeral. Fullscreen release is owned only by stopSession so
-      // normal channel/view remounts cannot accidentally destroy the singleton.
+      // Preview is ephemeral. Fullscreen release is owned by stopSession so a
+      // normal remount cannot destroy the process-wide player under its successor.
       if (role === "preview") void releasePreviewMedia3();
     };
   }, [clearTimers, generation, load, playbackFocused, role]);
 
   useEffect(() => {
     if (!generation || !playbackFocused) return;
+    const timeoutMs = role === "preview" ? PREVIEW_START_TIMEOUT_MS : FULLSCREEN_START_TIMEOUT_MS;
     startTimerRef.current = setTimeout(() => {
       if (!stableRef.current && isSessionCurrent(role, generation)) fail("start-timeout");
-    }, START_TIMEOUT_MS);
+    }, timeoutMs);
     return () => {
       if (startTimerRef.current) clearTimeout(startTimerRef.current);
       startTimerRef.current = null;
