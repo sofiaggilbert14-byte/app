@@ -16,8 +16,6 @@ export type NativePlaybackTrack = {
 type NativePlaybackModuleShape = {
   prepareFullscreen(uri: string, headers: Record<string, string>, contentType?: string | null): void;
   preparePreview(uri: string, headers: Record<string, string>, contentType?: string | null): void;
-  setPreviewViewport(x: number, y: number, width: number, height: number): void;
-  setFullscreenViewport(): void;
   setResizeMode(mode?: string | null): void;
   pause(): void;
   resume(): void;
@@ -39,9 +37,8 @@ const native: NativePlaybackModuleShape | null =
 const emitter = native ? new NativeEventEmitter(NativeModules.NativePlayback) : null;
 
 export function nativePlaybackAvailable(): boolean { return !!native; }
-export function prepareNativeFullscreen(uri: string, headers: Record<string, string>, contentType?: string | null): void { native?.setFullscreenViewport(); native?.prepareFullscreen(uri, headers, contentType ?? null); }
+export function prepareNativeFullscreen(uri: string, headers: Record<string, string>, contentType?: string | null): void { native?.prepareFullscreen(uri, headers, contentType ?? null); }
 export function prepareNativePreview(uri: string, headers: Record<string, string>, contentType?: string | null): void { native?.preparePreview(uri, headers, contentType ?? null); }
-export function setNativePreviewViewport(x: number, y: number, width: number, height: number): void { native?.setPreviewViewport(x, y, width, height); }
 export function setNativePlaybackResizeMode(mode: "fit" | "zoom" | "stretch"): void { native?.setResizeMode(mode); }
 export function pauseNativePlayback(): void { native?.pause(); }
 export function resumeNativePlayback(): void { native?.resume(); }

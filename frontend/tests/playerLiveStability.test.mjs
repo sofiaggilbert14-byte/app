@@ -31,9 +31,16 @@ test("first frame is the stable-playing gate", async () => {
   const firstFrame = native.match(/override fun onRenderedFirstFrame\(\)[\s\S]*?\n\s*}/)?.[0] || ""; assert.match(firstFrame, /firstFrameRendered = true/); assert.match(firstFrame, /listener\?\.onState\("playing", null\)/);
 });
 
-test("native PlayerView owns the SurfaceView beneath React UI", async () => {
-  const native = await source("android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt");
-  assert.match(native, /PlayerView\(activity\)/); assert.match(native, /frame\.addView\(video, fillParent\(\)\)/); assert.match(native, /frame\.addView\(reactRoot, fillParent\(\)\)/); assert.match(native, /setShutterBackgroundColor\(Color\.BLACK\)/);
+test("native PlayerView is mounted inside the React playback target instead of below opaque screens", async () => {
+  const [native, surface, adapter] = await Promise.all([
+    source("android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt"),
+    source("android/app/src/main/java/com/charmiptv/app/NativePlaybackSurface.kt"),
+    source("src/components/StreamPlayer.tsx"),
+  ]);
+  assert.match(native, /attachSurface/); assert.match(native, /target\.addView\(video, fillParent\(\)\)/); assert.match(native, /setShutterBackgroundColor\(Color\.BLACK\)/);
+  assert.doesNotMatch(native, /content\.removeView\(reactRoot\)/);
+  assert.match(surface, /class NativePlaybackSurface/); assert.match(surface, /NativePlaybackManager\.attachSurface/);
+  assert.match(adapter, /CharmNativePlaybackSurface/);
 });
 
 test("audio and subtitles hot-apply through TrackSelectionParameters", async () => {

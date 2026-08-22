@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { AppState, Platform, StyleProp, View, ViewStyle } from "react-native";
+import { AppState, Platform, requireNativeComponent, StyleProp, View, ViewProps, ViewStyle } from "react-native";
 import { useIsFocused } from "@react-navigation/native";
 import { detectStreamKind, media3ContentType, parsePipeHeaders } from "@/src/core/streamPolicy";
 import {
@@ -26,7 +26,6 @@ import {
   selectNativeSubtitle,
   setNativePlaybackMuted,
   setNativePlaybackResizeMode,
-  setNativePreviewViewport,
   stopNativeFullscreen,
   stopNativePreview,
   type NativePlaybackTrack,
@@ -38,6 +37,9 @@ import { setNativePlaybackStarting } from "@/src/utils/tvRemote";
 export type StreamStatus = "loading" | "playing" | "error";
 export type PlayerScaleMode = "fit" | "zoom" | "stretch";
 export type StreamTrack = { id: string | number; name: string; mimeType?: string | null; isSupported?: boolean };
+
+type NativePlaybackSurfaceProps = ViewProps & { owner: "preview" | "fullscreen" };
+const NativePlaybackSurface = requireNativeComponent<NativePlaybackSurfaceProps>("CharmNativePlaybackSurface");
 
 setNativePlaybackReleaseHandler((role) => role === "preview" ? stopNativePreview() : stopNativeFullscreen(true));
 setNativePlaybackPauseHandler((role) => { if (role === "fullscreen") pauseNativePlayback(); });
@@ -80,7 +82,6 @@ export function StreamPlayer({
   const [appActive, setAppActive] = useState(() => AppState.currentState !== "background" && AppState.currentState !== "inactive");
   const playbackFocused = isFocused && appActive && previewAllowed;
   const generationRef = useRef(0);
-  const viewRef = useRef<View>(null);
   const tracksRef = useRef<{ audio: NativePlaybackTrack[]; text: NativePlaybackTrack[] }>({ audio: [], text: [] });
   const onStatusRef = useRef(onStatus);
   const onTracksRef = useRef(onTracksAvailable);
@@ -166,15 +167,7 @@ export function StreamPlayer({
     else selectNativeSubtitle(text.find((track) => String(track.id) === String(textTrack)) ?? null, null);
   }, [textTrack]);
 
-  const updatePreviewViewport = () => {
-    if (role !== "preview") return;
-    requestAnimationFrame(() => {
-      viewRef.current?.measureInWindow((x, y, width, height) => {
-        if (width > 0 && height > 0) setNativePreviewViewport(x, y, width, height);
-      });
-    });
-  };
-
   if (!playbackFocused || !uri) return null;
-  return <View ref={viewRef} pointerEvents="none" collapsable={false} style={style} onLayout={updatePreviewViewport} />;
+  if (Platform.OS !== "android" || !nativePlaybackAvailable()) return <View pointerEvents="none" collapsable={false} style={style} />;
+  return <NativePlaybackSurface owner={owner} pointerEvents="none" collapsable={false} style={style} />;
 }

@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.view.View
+import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
 import androidx.media3.common.C
@@ -30,9 +31,10 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Activity-owned live-TV player. React never owns Media3, MediaCodec or the
- * video Surface. PlayerView lives under the React root and uses Media3's native
- * SurfaceView/shutter path. One ExoPlayer instance is shared by preview and
- * fullscreen; ownership changes are serialized on Android's main thread.
+ * video Surface. A single PlayerView is attached to the currently mounted
+ * React Native playback target, so opaque React screen backgrounds cannot cover
+ * the SurfaceView. One ExoPlayer instance is shared by preview and fullscreen;
+ * ownership changes are serialized on Android's main thread.
  */
 @OptIn(UnstableApi::class)
 object NativePlaybackManager {
@@ -82,7 +84,8 @@ object NativePlaybackManager {
   private val httpDataSourceFactory = OkHttpDataSource.Factory(httpClient)
 
   private var activity: Activity? = null
-  private var playbackFrame: FrameLayout? = null
+  private var previewSurface: FrameLayout? = null
+  private var fullscreenSurface: FrameLayout? = null
   private var playerView: PlayerView? = null
   private var player: ExoPlayer? = null
   private var listener: Listener? = null
@@ -117,58 +120,36 @@ object NativePlaybackManager {
     runOnMain { listener = next }
   }
 
-  /** Installs native video below React; React remains UI/OSD only. */
+  /** Remembers the activity; the PlayerView itself belongs in a React-mounted surface. */
   fun installIntoActivity(activity: Activity) {
+    runOnMain { this.activity = activity }
+  }
+
+  fun attachSurface(surfaceOwner: Owner, surface: FrameLayout) {
     runOnMain {
-      if (this.activity === activity && playbackFrame != null) return@runOnMain
-      this.activity = activity
-      val content = activity.findViewById<FrameLayout>(android.R.id.content) ?: return@runOnMain
-      if (content.childCount == 0) {
-        main.post { installIntoActivity(activity) }
-        return@runOnMain
+      when (surfaceOwner) {
+        Owner.PREVIEW -> previewSurface = surface
+        Owner.FULLSCREEN -> fullscreenSurface = surface
+        Owner.NONE -> return@runOnMain
       }
-      val reactRoot = content.getChildAt(0)
-      content.removeView(reactRoot)
-
-      val frame = FrameLayout(activity).apply { layoutParams = fillParent() }
-      val video = PlayerView(activity).apply {
-        useController = false
-        setShutterBackgroundColor(Color.BLACK)
-        setKeepContentOnPlayerReset(false)
-        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-        visibility = View.GONE
-      }
-
-      frame.addView(video, fillParent())
-      frame.addView(reactRoot, fillParent())
-      content.addView(frame)
-
-      playbackFrame = frame
-      playerView = video
-      video.player = player
+      if (owner == surfaceOwner) attachPlayerView(surfaceOwner)
     }
   }
 
-  fun setFullscreenViewport() {
+  fun detachSurface(surfaceOwner: Owner, surface: FrameLayout) {
     runOnMain {
-      playerView?.layoutParams = fillParent()
-      playerView?.requestLayout()
-    }
-  }
-
-  /** Coordinates are density-independent React Native units. */
-  fun setPreviewViewport(xDp: Double, yDp: Double, widthDp: Double, heightDp: Double) {
-    runOnMain {
-      val density = activity?.resources?.displayMetrics?.density ?: return@runOnMain
-      val params = FrameLayout.LayoutParams(
-        (widthDp * density).toInt().coerceAtLeast(1),
-        (heightDp * density).toInt().coerceAtLeast(1),
-      ).apply {
-        leftMargin = (xDp * density).toInt().coerceAtLeast(0)
-        topMargin = (yDp * density).toInt().coerceAtLeast(0)
+      val attached = when (surfaceOwner) {
+        Owner.PREVIEW -> previewSurface
+        Owner.FULLSCREEN -> fullscreenSurface
+        Owner.NONE -> null
       }
-      playerView?.layoutParams = params
-      playerView?.requestLayout()
+      if (attached !== surface) return@runOnMain
+      playerView?.let { video -> if (video.parent === surface) surface.removeView(video) }
+      when (surfaceOwner) {
+        Owner.PREVIEW -> previewSurface = null
+        Owner.FULLSCREEN -> fullscreenSurface = null
+        Owner.NONE -> Unit
+      }
     }
   }
 
@@ -197,7 +178,10 @@ object NativePlaybackManager {
       recoveryUsed = false
       stableSinceMs = 0L
       httpDataSourceFactory.setDefaultRequestProperties(headers)
-      if (requestedOwner == Owner.FULLSCREEN) setFullscreenViewport()
+      if (!attachPlayerView(requestedOwner)) {
+        listener?.onState("error", "surface-unavailable")
+        return@runOnMain
+      }
       playerView?.visibility = View.VISIBLE
 
       val itemBuilder = MediaItem.Builder().setUri(Uri.parse(uri))
@@ -274,10 +258,14 @@ object NativePlaybackManager {
   fun releaseAll() {
     runOnMain {
       stopInternal(releasePlayer = true)
-      playerView?.player = null
+      playerView?.let { video ->
+        video.player = null
+        (video.parent as? ViewGroup)?.removeView(video)
+      }
       listener = null
       activity = null
-      playbackFrame = null
+      previewSurface = null
+      fullscreenSurface = null
       playerView = null
     }
   }
@@ -316,6 +304,13 @@ object NativePlaybackManager {
       .forceEnableMediaCodecAsynchronousQueueing()
     val dataSource = DefaultDataSource.Factory(context, httpDataSourceFactory)
     val mediaSourceFactory = DefaultMediaSourceFactory(dataSource)
+    val video = playerView ?: PlayerView(context).apply {
+      useController = false
+      setShutterBackgroundColor(Color.BLACK)
+      setKeepContentOnPlayerReset(false)
+      resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+      visibility = View.GONE
+    }.also { playerView = it }
 
     return ExoPlayer.Builder(context, renderers)
       .setLoadControl(loadControl)
@@ -323,7 +318,7 @@ object NativePlaybackManager {
       .build()
       .also { created ->
         player = created
-        playerView?.player = created
+        video.player = created
         created.addListener(object : Player.Listener {
           override fun onPlaybackStateChanged(playbackState: Int) {
             when (playbackState) {
@@ -365,6 +360,23 @@ object NativePlaybackManager {
           }
         })
       }
+  }
+
+  private fun attachPlayerView(requestedOwner: Owner): Boolean {
+    val target = when (requestedOwner) {
+      Owner.PREVIEW -> previewSurface
+      Owner.FULLSCREEN -> fullscreenSurface
+      Owner.NONE -> null
+    } ?: return false
+    val video = playerView ?: return false
+    if (video.parent !== target) {
+      (video.parent as? ViewGroup)?.removeView(video)
+      target.addView(video, fillParent())
+    } else {
+      video.layoutParams = fillParent()
+    }
+    video.requestLayout()
+    return true
   }
 
   private fun publishTracks(tracks: Tracks) {

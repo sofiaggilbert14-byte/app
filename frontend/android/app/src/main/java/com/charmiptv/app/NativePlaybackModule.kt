@@ -14,8 +14,6 @@ class NativePlaybackModule(private val ctx: ReactApplicationContext) : ReactCont
 
   @ReactMethod fun prepareFullscreen(uri: String, headers: ReadableMap?, contentType: String?) { attachActivity(); NativePlaybackManager.prepare(NativePlaybackManager.Owner.FULLSCREEN, uri, readableMapToStringMap(headers), contentType) }
   @ReactMethod fun preparePreview(uri: String, headers: ReadableMap?, contentType: String?) { attachActivity(); NativePlaybackManager.prepare(NativePlaybackManager.Owner.PREVIEW, uri, readableMapToStringMap(headers), contentType) }
-  @ReactMethod fun setPreviewViewport(x: Double, y: Double, width: Double, height: Double) { NativePlaybackManager.setPreviewViewport(x, y, width, height) }
-  @ReactMethod fun setFullscreenViewport() { NativePlaybackManager.setFullscreenViewport() }
   @ReactMethod fun setResizeMode(mode: String?) { NativePlaybackManager.setResizeMode(mode) }
   @ReactMethod fun pause() { NativePlaybackManager.pause() }
   @ReactMethod fun resume() { NativePlaybackManager.resume() }
