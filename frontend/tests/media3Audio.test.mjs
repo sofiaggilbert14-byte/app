@@ -13,15 +13,16 @@ test("Media3 path exposes selectable audio tracks and deterministic audio focus"
     source("app/player.tsx"),
     source("src/core/audioDiagnostics.ts"),
   ]);
-  assert.match(player, /reportAndSelectMedia3Tracks/);
+  assert.match(player, /const publishTracks = useCallback/);
   assert.match(player, /availableAudioTracksChange/);
   assert.match(player, /player\.audioTrack = selectedAudio/);
   assert.match(player, /player\.audioMixingMode = mode === "preview" \? "mixWithOthers" : "doNotMix"/);
-  assert.match(player, /mediaReady/);
-  assert.match(player, /forceMedia3/);
+  assert.match(player, /getRememberedChannelAudioTrack\(channelKey\)/);
+  assert.match(player, /getPreferredAudioLanguage\(\)/);
+  assert.match(player, /compat\.media3AudioMode === "ffmpeg"/);
+  assert.match(player, /selectedBy = "auto-supported"/);
   assert.match(player, /recordAudioDiagnostics/);
-  assert.match(player, /auto-supported/);
-  assert.match(player, /Displace an unsupported selection/);
+  assert.match(player, /tracksCallbackRef\.current\?\.\(/);
   assert.match(screen, /unsupported on this decoder/);
   assert.match(screen, /silent-audio/);
   assert.match(screen, /setAudioTrackId\(undefined\)/);
