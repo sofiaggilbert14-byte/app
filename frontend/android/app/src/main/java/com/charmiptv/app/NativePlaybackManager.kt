@@ -5,7 +5,6 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
-import android.view.SurfaceView
 import android.view.View
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
@@ -23,15 +22,17 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
 /**
  * Activity-owned live-TV player. React never owns Media3, MediaCodec or the
- * video Surface. One ExoPlayer instance and one SurfaceView are shared by
- * preview/fullscreen; ownership changes happen synchronously on Android's main
- * thread before the next source is prepared.
+ * video Surface. PlayerView lives under the React root and uses Media3's native
+ * SurfaceView/shutter path. One ExoPlayer instance is shared by preview and
+ * fullscreen; ownership changes are serialized on Android's main thread.
  */
 @OptIn(UnstableApi::class)
 object NativePlaybackManager {
@@ -60,15 +61,11 @@ object NativePlaybackManager {
     fun onTracks(audio: List<AudioTrackInfo>, subtitles: List<SubtitleTrackInfo>)
   }
 
-  // TiViMate-analysis live-TV target: 1.0s min / 2.5s max / 0.5s startup /
-  // 1.0s rebuffer. Size remains a hard secondary ceiling for Fire TV-class RAM.
   private const val MIN_BUFFER_MS = 1_000
   private const val MAX_BUFFER_MS = 2_500
   private const val PLAYBACK_BUFFER_MS = 500
   private const val REBUFFER_BUFFER_MS = 1_000
   private const val TARGET_BUFFER_BYTES = 12 * 1024 * 1024
-
-  // Exactly one native recovery timer. No JS buffering watchdog or engine swap.
   private const val HUNG_BUFFER_REPREPARE_MS = 5_000L
   private const val STABLE_REARM_MS = 30_000L
   private const val FULLSCREEN_START_TIMEOUT_MS = 12_000L
@@ -86,15 +83,13 @@ object NativePlaybackManager {
 
   private var activity: Activity? = null
   private var playbackFrame: FrameLayout? = null
-  private var surfaceView: SurfaceView? = null
-  private var shutterView: View? = null
+  private var playerView: PlayerView? = null
   private var player: ExoPlayer? = null
   private var listener: Listener? = null
   private var owner: Owner = Owner.NONE
   private var firstFrameRendered = false
   private var recoveryUsed = false
   private var stableSinceMs = 0L
-  private var sourceGeneration = 0L
 
   private val startupTimeout = Runnable {
     if (owner == Owner.NONE || firstFrameRendered) return@Runnable
@@ -111,8 +106,6 @@ object NativePlaybackManager {
     recoveryUsed = true
     listener?.onState("loading", "native-reprepare")
     try {
-      // Re-prepare the SAME MediaItem on the SAME ExoPlayer. Do not remount a
-      // React view, swap engines, or construct a second decoder.
       instance.prepare()
       instance.playWhenReady = true
     } catch (_: Throwable) {
@@ -124,10 +117,7 @@ object NativePlaybackManager {
     runOnMain { listener = next }
   }
 
-  /**
-   * Installs a native video plane beneath the React root. React stays on top as
-   * the OSD/Guide/control plane and never contains the SurfaceView itself.
-   */
+  /** Installs native video below React; React remains UI/OSD only. */
   fun installIntoActivity(activity: Activity) {
     runOnMain {
       if (this.activity === activity && playbackFrame != null) return@runOnMain
@@ -140,39 +130,29 @@ object NativePlaybackManager {
       val reactRoot = content.getChildAt(0)
       content.removeView(reactRoot)
 
-      val frame = FrameLayout(activity).apply {
-        layoutParams = FrameLayout.LayoutParams(
-          FrameLayout.LayoutParams.MATCH_PARENT,
-          FrameLayout.LayoutParams.MATCH_PARENT,
-        )
-      }
-      val surface = SurfaceView(activity).apply {
-        setBackgroundColor(Color.BLACK)
-        visibility = View.GONE
-      }
-      val shutter = View(activity).apply {
-        setBackgroundColor(Color.BLACK)
+      val frame = FrameLayout(activity).apply { layoutParams = fillParent() }
+      val video = PlayerView(activity).apply {
+        useController = false
+        setShutterBackgroundColor(Color.BLACK)
+        setKeepContentOnPlayerReset(false)
+        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
         visibility = View.GONE
       }
 
-      frame.addView(surface, fillParent())
-      frame.addView(shutter, fillParent())
+      frame.addView(video, fillParent())
       frame.addView(reactRoot, fillParent())
       content.addView(frame)
 
       playbackFrame = frame
-      surfaceView = surface
-      shutterView = shutter
-      player?.setVideoSurfaceView(surface)
+      playerView = video
+      video.player = player
     }
   }
 
   fun setFullscreenViewport() {
     runOnMain {
-      surfaceView?.layoutParams = fillParent()
-      shutterView?.layoutParams = fillParent()
-      surfaceView?.requestLayout()
-      shutterView?.requestLayout()
+      playerView?.layoutParams = fillParent()
+      playerView?.requestLayout()
     }
   }
 
@@ -187,44 +167,38 @@ object NativePlaybackManager {
         leftMargin = (xDp * density).toInt().coerceAtLeast(0)
         topMargin = (yDp * density).toInt().coerceAtLeast(0)
       }
-      surfaceView?.layoutParams = FrameLayout.LayoutParams(params)
-      shutterView?.layoutParams = FrameLayout.LayoutParams(params)
-      surfaceView?.requestLayout()
-      shutterView?.requestLayout()
+      playerView?.layoutParams = params
+      playerView?.requestLayout()
     }
   }
 
-  fun prepare(
-    requestedOwner: Owner,
-    uri: String,
-    headers: Map<String, String>,
-    contentType: String?,
-  ) {
+  fun setResizeMode(mode: String?) {
     runOnMain {
-      if (requestedOwner == Owner.PREVIEW && owner == Owner.FULLSCREEN) {
-        // Fullscreen is authoritative. Preview cannot re-arm under it.
-        return@runOnMain
+      playerView?.resizeMode = when (mode) {
+        "zoom", "fill" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+        "stretch" -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+        else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
       }
+    }
+  }
+
+  fun prepare(requestedOwner: Owner, uri: String, headers: Map<String, String>, contentType: String?) {
+    runOnMain {
+      if (requestedOwner == Owner.PREVIEW && owner == Owner.FULLSCREEN) return@runOnMain
 
       val instance = ensurePlayer()
-      // Stop/clear the previous owner before preparing the next source. Because
-      // this runs on one Android main-thread owner there is no preview/fullscreen
-      // decoder overlap and no JS decoderArmed race.
       main.removeCallbacks(startupTimeout)
       main.removeCallbacks(bufferingWatchdog)
       try { instance.stop() } catch (_: Throwable) {}
       try { instance.clearMediaItems() } catch (_: Throwable) {}
 
-      sourceGeneration += 1
       owner = requestedOwner
       firstFrameRendered = false
       recoveryUsed = false
       stableSinceMs = 0L
-
       httpDataSourceFactory.setDefaultRequestProperties(headers)
       if (requestedOwner == Owner.FULLSCREEN) setFullscreenViewport()
-      surfaceView?.visibility = View.VISIBLE
-      shutterView?.visibility = View.VISIBLE
+      playerView?.visibility = View.VISIBLE
 
       val itemBuilder = MediaItem.Builder().setUri(Uri.parse(uri))
       when (contentType?.lowercase()) {
@@ -243,19 +217,9 @@ object NativePlaybackManager {
     }
   }
 
-  fun pause() {
-    runOnMain { player?.pause() }
-  }
-
-  fun resume() {
-    runOnMain {
-      if (owner != Owner.NONE) player?.play()
-    }
-  }
-
-  fun setMuted(muted: Boolean) {
-    runOnMain { player?.volume = if (muted) 0f else 1f }
-  }
+  fun pause() = runOnMain { player?.pause() }
+  fun resume() = runOnMain { if (owner != Owner.NONE) player?.play() }
+  fun setMuted(muted: Boolean) = runOnMain { player?.volume = if (muted) 0f else 1f }
 
   fun selectAudio(groupIndex: Int?, trackIndex: Int?, preferredLanguage: String?) {
     runOnMain {
@@ -302,21 +266,25 @@ object NativePlaybackManager {
     }
   }
 
+  /** Background/inactive: clear source and release codec/player, keep root view. */
+  fun suspendForBackground() {
+    runOnMain { stopInternal(releasePlayer = true) }
+  }
+
   fun releaseAll() {
     runOnMain {
       stopInternal(releasePlayer = true)
+      playerView?.player = null
       listener = null
       activity = null
       playbackFrame = null
-      surfaceView = null
-      shutterView = null
+      playerView = null
     }
   }
 
   fun currentOwner(): Owner = owner
 
   private fun stopInternal(releasePlayer: Boolean) {
-    sourceGeneration += 1
     main.removeCallbacks(startupTimeout)
     main.removeCallbacks(bufferingWatchdog)
     val instance = player
@@ -326,10 +294,9 @@ object NativePlaybackManager {
     firstFrameRendered = false
     recoveryUsed = false
     stableSinceMs = 0L
-    shutterView?.visibility = View.GONE
-    surfaceView?.visibility = View.GONE
+    playerView?.visibility = View.GONE
     if (releasePlayer) {
-      try { instance?.clearVideoSurface() } catch (_: Throwable) {}
+      try { playerView?.player = null } catch (_: Throwable) {}
       try { instance?.release() } catch (_: Throwable) {}
       player = null
     }
@@ -339,12 +306,7 @@ object NativePlaybackManager {
     player?.let { return it }
     val context = activity ?: throw IllegalStateException("Playback surface is not attached")
     val loadControl = DefaultLoadControl.Builder()
-      .setBufferDurationsMs(
-        MIN_BUFFER_MS,
-        MAX_BUFFER_MS,
-        PLAYBACK_BUFFER_MS,
-        REBUFFER_BUFFER_MS,
-      )
+      .setBufferDurationsMs(MIN_BUFFER_MS, MAX_BUFFER_MS, PLAYBACK_BUFFER_MS, REBUFFER_BUFFER_MS)
       .setTargetBufferBytes(TARGET_BUFFER_BYTES)
       .setPrioritizeTimeOverSizeThresholds(true)
       .build()
@@ -361,16 +323,14 @@ object NativePlaybackManager {
       .build()
       .also { created ->
         player = created
-        surfaceView?.let(created::setVideoSurfaceView)
+        playerView?.player = created
         created.addListener(object : Player.Listener {
           override fun onPlaybackStateChanged(playbackState: Int) {
             when (playbackState) {
               Player.STATE_BUFFERING -> {
                 if (firstFrameRendered) {
                   val now = System.currentTimeMillis()
-                  if (stableSinceMs > 0L && now - stableSinceMs >= STABLE_REARM_MS) {
-                    recoveryUsed = false
-                  }
+                  if (stableSinceMs > 0L && now - stableSinceMs >= STABLE_REARM_MS) recoveryUsed = false
                   stableSinceMs = 0L
                   main.removeCallbacks(bufferingWatchdog)
                   main.postDelayed(bufferingWatchdog, HUNG_BUFFER_REPREPARE_MS)
@@ -391,7 +351,6 @@ object NativePlaybackManager {
             stableSinceMs = System.currentTimeMillis()
             main.removeCallbacks(startupTimeout)
             main.removeCallbacks(bufferingWatchdog)
-            shutterView?.visibility = View.GONE
             listener?.onState("playing", null)
           }
 
