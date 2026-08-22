@@ -36,7 +36,6 @@ import {
 } from "@/src/nativeEpg";
 import { invalidateGuideOwnershipCaches } from "@/src/source";
 import { fingerprintStreamUri, getLastAudioDiagnostics } from "@/src/core/audioDiagnostics";
-import { usePlayerEnginePreference, type PlayerEnginePreference } from "@/src/playerEnginePreference";
 import { usePlaybackBufferProfile, type PlaybackBufferProfile } from "@/src/core/playbackBufferProfile";
 import type { Program } from "@/src/api";
 import { reminderKey } from "@/src/utils/time";
@@ -46,7 +45,6 @@ type SourceChoice = { id: string; name: string; url: string; enabled: boolean; l
 type EpgRow = { id: string; name: string };
 
 const BUFFER_ORDER: PlaybackBufferProfile[] = ["low_latency", "balanced", "stable"];
-const ENGINE_ORDER: PlayerEnginePreference[] = ["default", "media3", "vlc"];
 
 function nextValue<T>(values: readonly T[], current: T): T {
   const index = Math.max(0, values.indexOf(current));
@@ -71,7 +69,6 @@ export function TvQuickActionsOverlay() {
   const primaryEpg = useEpgSourcePreferences();
   const refreshPrefs = useSourceRefreshPreferences();
   const multiEpg = useMultiEpgSources();
-  const [playerEngine, setPlayerEngine] = usePlayerEnginePreference();
   const [bufferProfile, setBufferProfile] = usePlaybackBufferProfile();
 
   const [open, setOpen] = useState(false);
@@ -412,10 +409,9 @@ export function TvQuickActionsOverlay() {
                 <Action icon="resize-outline" label="Aspect ratio" value="Fit / Zoom / Stretch" onPress={() => runPlayerCommand("CYCLE_ASPECT")} />
                 <Action icon="musical-notes-outline" label="Audio / subtitles" value="Live tracks" onPress={() => runPlayerCommand("OPEN_TRACKS")} />
                 <Action icon="speedometer-outline" label="Playback buffer" value={bufferProfile.replace("_", " ")} onPress={() => { const next = nextValue(BUFFER_ORDER, bufferProfile); close(); requestAnimationFrame(() => setBufferProfile(next)); }} />
-                <Action icon="play-circle-outline" label="Player engine" value={playerEngine === "default" ? "Auto" : playerEngine.toUpperCase()} onPress={() => { const next = nextValue(ENGINE_ORDER, playerEngine); close(); requestAnimationFrame(() => setPlayerEngine(next)); }} />
                 <Action icon="moon-outline" label="Sleep timer" value={sleepTimerMinutes ? `${sleepTimerMinutes}m` : "Off"} onPress={() => setSleepTimerMinutes(sleepTimerMinutes === 0 ? 15 : sleepTimerMinutes === 15 ? 30 : sleepTimerMinutes === 30 ? 60 : sleepTimerMinutes === 60 ? 90 : 0)} />
                 <Action icon="bug-outline" label="Diagnostics" value="Save player report" onPress={() => runPlayerCommand("SAVE_DIAGNOSTICS")} />
-                <Action icon="options-outline" label="Playback compatibility" value="Advanced settings" onPress={openSettings} />
+                <Action icon="options-outline" label="Playback settings" value="Media3 controls" onPress={openSettings} />
                 <Action icon="settings-outline" label="All Settings" onPress={openSettings} />
               </>
             )}

@@ -39,12 +39,6 @@ export type StreamStatus = "loading" | "playing" | "error";
 export type PlayerScaleMode = "fit" | "zoom" | "stretch";
 export type StreamTrack = { id: string | number; name: string; mimeType?: string | null; isSupported?: boolean };
 
-// Compatibility exports retained while PlayerScreen terminology is migrated.
-// They no longer represent a second in-process engine or circuit breaker.
-export const vlcAvailable = false;
-export function clearFullscreenCircuit(_uri?: string): void {}
-export function isFullscreenCircuitOpen(_uri?: string): boolean { return false; }
-
 setNativePlaybackReleaseHandler((role) => role === "preview" ? stopNativePreview() : stopNativeFullscreen(true));
 setNativePlaybackPauseHandler((role) => { if (role === "fullscreen") pauseNativePlayback(); });
 

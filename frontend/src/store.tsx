@@ -71,7 +71,6 @@ const CHANNEL_NUMBERS_KEY = "gs_channel_numbers";
 const CHANNEL_LOGOS_KEY = "gs_channel_logos";
 const DEVICE_LAYOUT_MODE_KEY = "gs_device_layout_mode";
 const PLAYER_TIMEOUT_KEY = "gs_player_timeout_ms";
-const AUTO_RETRY_KEY = "gs_auto_retry_streams";
 const PREFER_TVG_ID_ONLY_KEY = "gs_prefer_tvg_id_only";
 const POWER_PROFILE_KEY = "gs_power_profile";
 const LOGOS_OFF_SURF_KEY = "gs_logos_off_while_surfing";
@@ -194,8 +193,6 @@ export type Store = {
   setDeviceLayoutMode: (v: DeviceLayoutMode) => void;
   playerControlsTimeoutMs: PlayerControlsTimeoutMs;
   setPlayerControlsTimeoutMs: (v: PlayerControlsTimeoutMs) => void;
-  autoRetryStreams: boolean;
-  setAutoRetryStreams: (v: boolean) => void;
   preferTvgIdOnly: boolean;
   setPreferTvgIdOnly: (v: boolean) => void;
   powerProfile: PowerProfile;
@@ -281,7 +278,6 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [channelLogos, setChannelLogosState] = useState(true);
   const [deviceLayoutMode, setDeviceLayoutModeState] = useState<DeviceLayoutMode>("tv");
   const [playerControlsTimeoutMs, setPlayerControlsTimeoutMsState] = useState<PlayerControlsTimeoutMs>(8000);
-  const [autoRetryStreams, setAutoRetryStreamsState] = useState(true);
   const [preferTvgIdOnly, setPreferTvgIdOnlyState] = useState(false);
   const [powerProfile, setPowerProfileState] = useState<PowerProfile>("normal");
   const [logosOffWhileSurfing, setLogosOffWhileSurfingState] = useState(getPowerProfileTuning("normal").logosOffWhileSurfingDefault);
@@ -384,11 +380,6 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     settingsTouchedRef.current.add(PLAYER_TIMEOUT_KEY);
     setPlayerControlsTimeoutMsState(v);
     storage.setItem(PLAYER_TIMEOUT_KEY, v);
-  }, []);
-  const setAutoRetryStreams = useCallback((v: boolean) => {
-    settingsTouchedRef.current.add(AUTO_RETRY_KEY);
-    setAutoRetryStreamsState(v);
-    storage.setItem(AUTO_RETRY_KEY, v);
   }, []);
   const setPreferTvgIdOnly = useCallback((v: boolean) => {
     settingsTouchedRef.current.add(PREFER_TVG_ID_ONLY_KEY);
@@ -897,8 +888,6 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       if (!settingsTouchedRef.current.has(DEVICE_LAYOUT_MODE_KEY)) setDeviceLayoutModeState(storedDeviceLayout);
       const storedPlayerTimeout = (await storage.getItem<PlayerControlsTimeoutMs>(PLAYER_TIMEOUT_KEY, 8000)) || 8000;
       if (!settingsTouchedRef.current.has(PLAYER_TIMEOUT_KEY)) setPlayerControlsTimeoutMsState(storedPlayerTimeout);
-      const storedAutoRetry = (await storage.getItem<boolean>(AUTO_RETRY_KEY, true)) ?? true;
-      if (!settingsTouchedRef.current.has(AUTO_RETRY_KEY)) setAutoRetryStreamsState(storedAutoRetry);
       const tvgOnly = (await storage.getItem<boolean>(PREFER_TVG_ID_ONLY_KEY, false)) || false;
       if (!settingsTouchedRef.current.has(PREFER_TVG_ID_ONLY_KEY)) {
         setPreferTvgIdOnlyState(tvgOnly);
@@ -1055,7 +1044,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     guideLayout, setGuideLayout, guideDensity, setGuideDensity,
     safePreviewMode, setSafePreviewMode, channelNumbers, setChannelNumbers,
     channelLogos, setChannelLogos, deviceLayoutMode, setDeviceLayoutMode,
-    playerControlsTimeoutMs, setPlayerControlsTimeoutMs, autoRetryStreams, setAutoRetryStreams,
+    playerControlsTimeoutMs, setPlayerControlsTimeoutMs,
     preferTvgIdOnly, setPreferTvgIdOnly, powerProfile, setPowerProfile,
     logosOffWhileSurfing, setLogosOffWhileSurfing, instantGuide, setInstantGuide,
     epgGuideFilter, setEpgGuideFilter, epgManualRemaps, setEpgManualRemaps,
@@ -1074,7 +1063,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     pointerMode, setPointerMode, guideLayout, setGuideLayout, guideDensity, setGuideDensity,
     safePreviewMode, setSafePreviewMode, channelNumbers, setChannelNumbers,
     channelLogos, setChannelLogos, deviceLayoutMode, setDeviceLayoutMode,
-    playerControlsTimeoutMs, setPlayerControlsTimeoutMs, autoRetryStreams, setAutoRetryStreams,
+    playerControlsTimeoutMs, setPlayerControlsTimeoutMs,
     preferTvgIdOnly, setPreferTvgIdOnly, powerProfile, setPowerProfile,
     logosOffWhileSurfing, setLogosOffWhileSurfing, instantGuide, setInstantGuide,
     epgGuideFilter, setEpgGuideFilter, epgManualRemaps, setEpgManualRemaps,

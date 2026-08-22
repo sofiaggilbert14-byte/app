@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const source = (path) => readFile(join(root, path), "utf8");
 
@@ -10,8 +11,6 @@ test("native Media3 exposes selectable audio tracks and deterministic track sele
   const [adapter, native, screen] = await Promise.all([source("src/components/StreamPlayer.tsx"), source("android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt"), source("app/player.tsx")]);
   assert.match(adapter, /addNativePlaybackTracksListener/); assert.match(adapter, /selectNativeAudio/); assert.match(adapter, /getRememberedChannelAudioTrack\(channelKey\)/); assert.match(adapter, /getPreferredAudioLanguage\(\)/); assert.match(native, /fun selectAudio/); assert.match(native, /clearOverridesOfType\(C\.TRACK_TYPE_AUDIO\)/); assert.match(native, /TrackSelectionOverride/); assert.match(native, /EXTENSION_RENDERER_MODE_ON/); assert.match(screen, /setAudioTrackId\(undefined\)/);
 });
-
-test("Expo Video patch retains HLS compatibility for any remaining Expo video consumers", async () => { const patch = await source("patches/expo-video+3.0.16.patch"); assert.match(patch, /HlsMediaSource/); assert.match(patch, /setAllowChunklessPreparation\(false\)/); assert.match(patch, /EXTENSION_RENDERER_MODE_ON/); });
 
 test("Android TV build includes a pinned LGPL Media3 FFmpeg audio extension", async () => {
   const [appBuild, settings, workflow, script, nativeBuildScript, nativeBridge, notice, proguard, moduleBuild] = await Promise.all([source("android/app/build.gradle"), source("android/settings.gradle"), source("../.github/workflows/purple-tv-ui.yml"), source("scripts/build-media3-ffmpeg-audio.sh"), source("android/ffmpeg-audio/src/main/jni/build_ffmpeg.sh"), source("android/ffmpeg-audio/src/main/jni/ffmpeg_jni.cc"), source("android/ffmpeg-audio/NOTICE.md"), source("android/ffmpeg-audio/proguard-rules.pro"), source("android/ffmpeg-audio/build.gradle")]);

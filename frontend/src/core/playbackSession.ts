@@ -163,11 +163,15 @@ export async function stopSession(
   const callbacks = invokeStops(role);
   const nativeRelease = invokeNative(nativeReleaseHandler, role);
   state.generation += 1;
+  const stoppedGeneration = state.generation;
   state.phase = "idle";
   state.reason = reason;
-  if (role === "fullscreen") fullscreenReserved = false;
-  publishOwnership();
   await Promise.allSettled([callbacks, nativeRelease]);
+  // Preview must remain ineligible until native fullscreen release has cleared
+  // the Media3 source, surface, audio focus, and decoder. A new fullscreen
+  // generation may have claimed ownership while the previous release settled.
+  if (role === "fullscreen" && state.generation === stoppedGeneration) fullscreenReserved = false;
+  publishOwnership();
 }
 
 export function pauseSessionDecoders(role: SessionRole): Promise<void> {

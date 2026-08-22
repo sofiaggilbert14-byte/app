@@ -9,9 +9,7 @@ const source = (path) => readFile(join(root, path), "utf8");
 
 test("player preference hydration cannot overwrite a newer Settings edit", async () => {
   const files = await Promise.all([
-    source("src/playerEnginePreference.ts"),
     source("src/core/playbackBufferProfile.ts"),
-    source("src/core/playerCompatibilityPreferences.ts"),
     source("src/core/subtitlePreferences.ts"),
     source("src/core/audioTrackPreferences.ts"),
     source("src/core/remoteShortcutPreferences.ts"),

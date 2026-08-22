@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 test("native Media3 hot-applies audio subtitles mute pause and aspect without decoder rebuild", async () => {
@@ -11,7 +12,7 @@ test("native Media3 hot-applies audio subtitles mute pause and aspect without de
   assert.match(native, /trackSelectionParameters\.buildUpon\(\)/); assert.match(native, /TrackSelectionOverride/); assert.match(native, /setResizeMode/); assert.doesNotMatch(adapter, /VLCPlayer|vlcEngineKey|media3EngineKey|hardStop/);
 });
 
-test("real-device defaults keep automatic playback on Media3", async () => {
-  const [engine, compat, store, layout, settings] = await Promise.all([readFile(join(root, "src/playerEnginePreference.ts"), "utf8"), readFile(join(root, "src/core/playerCompatibilityPreferences.ts"), "utf8"), readFile(join(root, "src/store.tsx"), "utf8"), readFile(join(root, "src/core/guideLayoutDefault.ts"), "utf8"), readFile(join(root, "app/(tabs)/settings.tsx"), "utf8")]);
-  assert.match(engine, /cachedPreference: PlayerEnginePreference = "media3"/); assert.match(engine, /PLAYER_ENGINE_KEY, "media3"/); assert.match(compat, /videoDecoderMode: "device"/); assert.match(compat, /media3AudioMode: "device"/); assert.match(store, /useState<SafePreviewMode>\("delayed"\)/); assert.match(store, /SAFE_PREVIEW_MODE_KEY, "delayed"/); assert.match(store, /useState<DeviceLayoutMode>\("tv"\)/); assert.match(layout, /return "cinematic"/); assert.match(settings, /label="Video decoder"/); assert.match(settings, /label="Audio decoder"/);
+test("real-device defaults expose only controls supported by the native Media3 player", async () => {
+  const [store, layout, settings, quickActions, packageJson, appJson] = await Promise.all([readFile(join(root, "src/store.tsx"), "utf8"), readFile(join(root, "src/core/guideLayoutDefault.ts"), "utf8"), readFile(join(root, "app/(tabs)/settings.tsx"), "utf8"), readFile(join(root, "src/components/TvQuickActionsOverlay.tsx"), "utf8"), readFile(join(root, "package.json"), "utf8"), readFile(join(root, "app.json"), "utf8")]);
+  assert.match(store, /useState<SafePreviewMode>\("delayed"\)/); assert.match(store, /SAFE_PREVIEW_MODE_KEY, "delayed"/); assert.match(store, /useState<DeviceLayoutMode>\("tv"\)/); assert.match(layout, /return "cinematic"/); assert.match(settings, /Media3 live TV/); assert.doesNotMatch(settings, /VLC|Video decoder|Auto retry streams/); assert.doesNotMatch(quickActions, /Player engine|ENGINE_ORDER|usePlayerEnginePreference/); assert.doesNotMatch(packageJson, /react-native-vlc-media-player|expo-video|patch-package/); assert.doesNotMatch(appJson, /react-native-vlc-media-player|expo-video/);
 });

@@ -98,7 +98,7 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 8
         versionName "2.1.0-rc.5"
-        manifestPlaceholders = [allowCleartextStreams: "false"]
+        manifestPlaceholders = [allowCleartextStreams: "true"]
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }

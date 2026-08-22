@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { beginSession, getSessionPhase, isPreviewPlaybackAllowed, isSessionCurrent, pauseSessionDecoders, registerSessionStop, resetPlaybackSessionsForTests, setSessionPhase, stopPreviewForFullscreen, stopFullscreenSession, stopAllPlaybackSessions } from "../src/core/playbackSession.ts";
-import { alternateEngine, detectStreamKind, preferredEngine } from "../src/core/streamPolicy.ts";
+import { beginSession, getSessionPhase, isPreviewPlaybackAllowed, isSessionCurrent, pauseSessionDecoders, registerSessionStop, resetPlaybackSessionsForTests, setNativePlaybackReleaseHandler, setSessionPhase, stopPreviewForFullscreen, stopFullscreenSession, stopAllPlaybackSessions } from "../src/core/playbackSession.ts";
+import { detectStreamKind, preferredEngine } from "../src/core/streamPolicy.ts";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const source = (path) => readFile(join(root, path), "utf8");
 
@@ -12,8 +12,23 @@ test("fullscreen reservation releases preview before allocating its decoder", as
 test("stale session events are rejected after channel generation bump", () => { resetPlaybackSessionsForTests(); const gen1 = beginSession("fullscreen"); assert.equal(setSessionPhase("fullscreen", gen1, "playing"), true); const gen2 = beginSession("fullscreen"); assert.equal(setSessionPhase("fullscreen", gen1, "failed", "stream-error"), false); assert.equal(getSessionPhase("fullscreen"), "preparing"); assert.equal(setSessionPhase("fullscreen", gen2, "playing"), true); });
 test("pause preview callbacks do not invalidate generation", () => { resetPlaybackSessionsForTests(); const gen = beginSession("preview"); let stops = 0; registerSessionStop("preview", gen, () => { stops += 1; }); pauseSessionDecoders("preview"); assert.equal(stops, 1); assert.equal(isSessionCurrent("preview", gen), true); });
 test("new generation drains stale callbacks exactly once", () => { resetPlaybackSessionsForTests(); const gen = beginSession("fullscreen"); let stops = 0; registerSessionStop("fullscreen", gen, () => { stops += 1; }); beginSession("fullscreen"); assert.equal(stops, 1); stopFullscreenSession(); assert.equal(stops, 1); });
-test("preview cannot re-arm until fullscreen fully releases", async () => { resetPlaybackSessionsForTests(); beginSession("fullscreen"); assert.equal(beginSession("preview"), 0); await stopFullscreenSession(); assert.equal(isPreviewPlaybackAllowed(), true); const preview = beginSession("preview"); await stopAllPlaybackSessions(); assert.equal(isSessionCurrent("preview", preview), false); });
-test("all automatic stream routing is Media3-only", () => { for (const uri of ["https://x/live.m3u8", "https://x/live.ts", "http://provider/live/u/p/1", "rtsp://x/live"]) assert.equal(preferredEngine(detectStreamKind(uri)), "media3"); assert.equal(alternateEngine("media3", true), null); assert.equal(alternateEngine("vlc", true), null); });
+test("preview cannot re-arm until fullscreen fully releases", async () => {
+  resetPlaybackSessionsForTests();
+  let releaseFullscreen;
+  setNativePlaybackReleaseHandler((role) => role === "fullscreen" ? new Promise((resolve) => { releaseFullscreen = resolve; }) : undefined);
+  beginSession("fullscreen");
+  const stopped = stopFullscreenSession();
+  assert.equal(isPreviewPlaybackAllowed(), false);
+  assert.equal(beginSession("preview"), 0);
+  releaseFullscreen();
+  await stopped;
+  assert.equal(isPreviewPlaybackAllowed(), true);
+  const preview = beginSession("preview");
+  setNativePlaybackReleaseHandler(null);
+  await stopAllPlaybackSessions();
+  assert.equal(isSessionCurrent("preview", preview), false);
+});
+test("all automatic stream routing is Media3-only", () => { for (const uri of ["https://x/live.m3u8", "https://x/live.ts", "http://provider/live/u/p/1", "rtsp://x/live"]) assert.equal(preferredEngine(detectStreamKind(uri)), "media3"); });
 
 test("play entry points hand off through openFullscreenPlayer", async () => { const files = ["app/(tabs)/guide.tsx", "app/(tabs)/index.tsx", "app/(tabs)/favorites.tsx", "app/(tabs)/channels.tsx", "app/(tabs)/search.tsx", "src/components/ProgramModal.tsx", "src/components/PurpleChannelCollection.tsx", "app/_layout.tsx"]; for (const file of files) { const body = await source(file); assert.match(body, /openFullscreenPlayer/); assert.doesNotMatch(body, /pathname:\s*["']\/player["']/); } });
 

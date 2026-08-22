@@ -3,9 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  alternateEngine, detectStreamKind, parsePipeHeaders, preferredEngine,
-} from "../src/core/streamPolicy.ts";
+import { detectStreamKind, parsePipeHeaders, preferredEngine } from "../src/core/streamPolicy.ts";
 import { evaluateDrawerBack } from "../src/core/drawerNavigationPolicy.ts";
 
 // Phase 9 Actions probe: harmless comment-only trigger.
@@ -22,8 +20,6 @@ test("stream classification preserves probing while automatic playback remains M
   for (const kind of ["hls", "dash", "progressive", "transport", "unknown", "srt", "rtmp", "webrtc", "rtsp"]) {
     assert.equal(preferredEngine(kind), "media3");
   }
-  assert.equal(alternateEngine("media3", true), null);
-  assert.equal(alternateEngine("vlc", true), null);
 });
 
 test("pipe headers decode valid values and never throw on malformed percent encoding", () => {
@@ -163,30 +159,25 @@ test("player delegates More to the single global Quick Actions owner", async () 
   assert.doesNotMatch(player, /playerOverlay.*"more"/);
 });
 
-test("Media3 recovery only reparses a real post-first-frame buffering state", async () => {
-  const stream = await source("src/components/StreamPlayer.tsx");
-  assert.match(stream, /stableRef\.current && bufferingSinceRef\.current == null/);
-  assert.match(stream, /const since = bufferingSinceRef\.current/);
-  assert.match(stream, /const elapsed = Date\.now\(\) - since/);
-  assert.doesNotMatch(stream, /player\.currentTime|MEDIA3_FROZEN_CLOCK_MS|const frozenReadyClock =|const stalledReady =/);
-  assert.match(stream, /REBUFFER_REPREPARE_MS = 5_000/);
-  assert.match(stream, /REBUFFER_FAIL_MS = 12_000/);
-  assert.match(stream, /MAX_SILENT_BUFFERING_RESYNCS = 1/);
-  assert.match(stream, /RESYNC_REARM_STABLE_MS = 30_000/);
+test("Media3 recovery is one native post-first-frame watchdog", async () => {
+  const [adapter, native] = await Promise.all([
+    source("src/components/StreamPlayer.tsx"),
+    source("android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt"),
+  ]);
+  assert.match(native, /HUNG_BUFFER_REPREPARE_MS = 5_000L/);
+  assert.match(native, /if \(!firstFrameRendered \|\| instance\.playbackState != Player\.STATE_BUFFERING\) return@Runnable/);
+  assert.match(native, /if \(recoveryUsed\)[\s\S]*?listener\?\.onState\("error", "stream-error"\)/);
+  assert.match(native, /recoveryUsed = true[\s\S]*?instance\.prepare\(\)/);
+  assert.match(native, /main\.postDelayed\(bufferingWatchdog, HUNG_BUFFER_REPREPARE_MS\)/);
+  assert.match(native, /override fun onRenderedFirstFrame\(\)[\s\S]*?firstFrameRendered = true/);
+  assert.doesNotMatch(adapter, /player\.currentTime|MEDIA3_FROZEN_CLOCK_MS|REBUFFER_REPREPARE_MS|silentResyncCountRef/);
 });
 
-test("fullscreen exhausts local retries before one playlist-only provider URL recheck", async () => {
-  const [player, sourceNative] = await Promise.all([
-    source("app/player.tsx"),
-    source("src/source.native.ts"),
-  ]);
-  assert.match(player, /retryAttempt < MAX_AUTO_STREAM_RETRIES/);
-  assert.match(player, /sourceRecheckAttemptedRef\.current = true/);
-  assert.match(player, /pauseSessionDecoders\("fullscreen"\)[\s\S]*refreshPlaybackChannel\(logicalChannelId\)/);
-  assert.match(player, /setRecoveryUri\(freshUri\)/);
-  assert.match(player, /sourceRecheckAttemptedRef\.current = false[\s\S]*STABLE_RETRY_RESET_MS/);
-  assert.match(sourceNative, /refreshPlaybackChannel[\s\S]*await refreshPlaylistOnly\(\)/);
-  assert.doesNotMatch(sourceNative.match(/export async function refreshPlaybackChannel[\s\S]*?\n\}/)?.[0] || "", /refreshEpgOnly|loadGuide/);
+test("fullscreen keeps recovery inside the native player and never refreshes sources", async () => {
+  const player = await source("app/player.tsx");
+  assert.match(player, /const retryNow = useCallback\(\(\) => restartStream\(\)/);
+  assert.doesNotMatch(player, /STREAM_RETRY_DELAYS_MS|sourceRecheckAttemptedRef|refreshPlaybackChannel|pauseSessionDecoders/);
+  assert.doesNotMatch(player, /clearFullscreenCircuit|isFullscreenCircuitOpen/);
 });
 
 test("long Select consumes release and short Select is reinjected only after classification", async () => {

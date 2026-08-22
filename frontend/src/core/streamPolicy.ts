@@ -1,4 +1,4 @@
-export type Engine = "vlc" | "media3";
+export type Engine = "media3";
 /** CMAF is packaging (fMP4) carried inside HLS or DASH — not a separate engine path. */
 export type StreamKind =
   | "hls"
@@ -69,12 +69,7 @@ export function preferredEngine(_kind: StreamKind): Engine {
   return "media3";
 }
 
-/** Automatic cross-engine fallback is intentionally disabled. */
-export function alternateEngine(_engine: Engine, _vlcAvailable: boolean): Engine | null {
-  return null;
-}
-
-/** Media3 contentType hint for expo-video / ExoPlayer replaceAsync. */
+/** Media3 contentType hint for the native ExoPlayer source factory. */
 export function media3ContentType(kind: StreamKind): "hls" | "dash" | "progressive" {
   if (kind === "dash") return "dash";
   if (kind === "hls") return "hls";

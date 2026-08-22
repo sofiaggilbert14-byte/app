@@ -13,8 +13,12 @@ test("live TV core is one Activity-owned Media3 path", async () => {
 });
 
 test("channel changes replace MediaItem on the same native ExoPlayer", async () => {
-  const native = await source("android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt");
+  const [player, native] = await Promise.all([
+    source("app/player.tsx"),
+    source("android/app/src/main/java/com/charmiptv/app/NativePlaybackManager.kt"),
+  ]);
   assert.match(native, /player\?\.let \{ return it \}/); assert.match(native, /instance\.clearMediaItems\(\)/); assert.match(native, /instance\.setMediaItem\(itemBuilder\.build\(\), true\)/); assert.match(native, /instance\.prepare\(\)/);
+  assert.doesNotMatch(player, /decoderArmed|pauseSessionDecoders|CHANNEL_ZAP_SETTLE_MS|armDecoderAfterSettle/);
 });
 
 test("Media3 uses live-TV buffers and one native recovery watchdog", async () => {
